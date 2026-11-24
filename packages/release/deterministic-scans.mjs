@@ -1934,7 +1934,8 @@ export function planScans({
     // One Clippy scan per batch (row 8.6): the independent batches first, the sidecar-bound ones after them (row 8.8; the compile lane
     // drains in plan order). The reason a configuration stays separate is recorded in the plan notes.
     const sidecarBound = new Set(clippyEntries.filter((e) => sidecarBoundCrate({ dir: path.join(contentRoot, rustDir(e.name)), exists, readFile }).bound).map((e) => e.name));
-    const plan = clippyBatchPlan(clippyEntries, { solo: shardSolo, separate: clippySeparate, sidecarBound, toolchain: cargoCommand.join(" ") });
+    const plan = clippyBatchPlan(clippyEntries, { solo: [], separate: clippySeparate, // ci/shards.json `solo` sizes CI jobs; it is no reason to split a compile here (GC-A27 NN09)
+      sidecarBound, toolchain: cargoCommand.join(" ") });
     for (const b of plan.batches) add({ id: b.id, class: B, batch: { units: b.units, order: b.order, reason: b.reason }, ...cargoIn(b.ws, ...clippyArgs(b.crates, { features: b.set, locked: true })) });
     notes.push(...plan.notes);
   }
@@ -2177,7 +2178,6 @@ export function planScans({
     let why = null;
     if (at < 0 || typeof crate !== "string" || x.args.indexOf("-p", at + 1) >= 0) why = "it does not name exactly one `-p <crate>`";
     else if (rest.some((w) => /^(?:--features(?:=.*)?|-F.*)$/.test(w))) why = "its feature set names crate-specific features";
-    else if (shardSolo.includes(unit) || shardSolo.includes(crateOf(unit))) why = "ci/shards.json solo";
     else if (clippySeparate instanceof Map && clippySeparate.has(unit)) why = String(clippySeparate.get(unit));
     else if (sidecarBoundCrate({ dir: path.join(contentRoot, rustDir(unit)), exists, readFile }).bound) why = "sidecar-bound";
     // NN42 (LOCKED 2026-11-06): one check/clippy per stage names every --target. The target is not part of the group key: rows that differ only
@@ -2291,6 +2291,36 @@ export function defaultSpawn(command, args, options = {}) {
   const inv = resolveInvocation(command, args, { env: options.env ?? process.env });
   if (inv.error) return { status: null, stdout: "", stderr: "", error: inv.error };
   return spawnSync(inv.file, inv.args, { encoding: "utf8", windowsHide: true, maxBuffer: 64 * 1024 * 1024, windowsVerbatimArguments: inv.verbatim, ...options, shell: false });
+}
+
+/**
+ * GC-A27 NN08 (no repeat calls): the answers of three read-only commands are kept for the life of the gate process and never asked for twice. Each is a read
+ * whose answer cannot change during a run for the same folder and environment: a file of a commit named by its full sha (`git show <sha>:<path>`), the top
+ * of a checkout (`git rev-parse --show-toplevel`), and `pnpm --version`. Found by the acceptance cases on gate 0.6.63 (2026-11-24): each was started two to
+ * four times in one run. Only a successful answer is kept; anything else is asked again. `store` is injectable for tests.
+ */
+const READ_MEMO = new Map();
+export function isRememberedRead(command, args) {
+  const name = String(command).replaceAll("\\", "/").split("/").pop().replace(/\.(exe|cmd|bat)$/i, "").toLowerCase();
+  const a = (args ?? []).map(String);
+  if (name === "pnpm") return a.length === 1 && a[0] === "--version";
+  if (name !== "git") return false;
+  // git's own leading options (-c key=value, -C dir) are part of the key; the subcommand is what is judged.
+  let i = 0; while (i < a.length && (a[i] === "-c" || a[i] === "-C")) i += 2;
+  const sub = a.slice(i);
+  if (sub.length === 2 && sub[0] === "show" && /^[0-9a-f]{40}:.+/.test(sub[1])) return true;
+  return sub.length === 2 && sub[0] === "rev-parse" && sub[1] === "--show-toplevel";
+}
+export function rememberReads(spawn, { store = READ_MEMO } = {}) {
+  return (command, args, options = {}) => {
+    if (!isRememberedRead(command, args) || options.input !== undefined || options.stdio !== undefined) return spawn(command, args, options);
+    const env = options.env ? Object.keys(options.env).sort().map((k) => `${k}=${options.env[k]}`).join("\0") : "";
+    const key = sha256(JSON.stringify([String(command), args, path.resolve(options.cwd ?? process.cwd()), options.encoding ?? null, env]));
+    if (store.has(key)) return { ...store.get(key) };
+    const r = spawn(command, args, options);
+    if (r && r.status === 0 && !r.error) store.set(key, { status: 0, signal: null, stdout: r.stdout, stderr: r.stderr });
+    return r;
+  };
 }
 
 const OUTPUT_KEEP = 4 * 1024 * 1024;

@@ -86,7 +86,7 @@ import { FOREIGN_PRE_COMMIT, retireHooksIn } from "../hook-retirement.mjs";
 import { fileURLToPath } from "node:url";
 import { installIdentity, installStateBytes } from "../dependency-identity.mjs";
 import { pnpmVersionAnswer } from "../snapshot-dependency-reuse.mjs";
-import { BIOME_CONFIG_FILES, CHECKER_IDENTITY, OXLINT_CONFIG_FILES, ESLINT_CONFIG_FILES, LOCAL_CLASS_B_JOBS, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, defaultSpawnAsync, judgeUnitList, blockedUnitsOf, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, planUnitListScans, publisherRequirementScan, runScans, sidecarBoundCrate, scanToolPolicyFromPipeline, scanDeferrals, scanFailures, seamRunState } from "../deterministic-scans.mjs";
+import { BIOME_CONFIG_FILES, CHECKER_IDENTITY, OXLINT_CONFIG_FILES, ESLINT_CONFIG_FILES, LOCAL_CLASS_B_JOBS, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, defaultSpawnAsync, rememberReads, judgeUnitList, blockedUnitsOf, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, planUnitListScans, publisherRequirementScan, runScans, sidecarBoundCrate, scanToolPolicyFromPipeline, scanDeferrals, scanFailures, seamRunState } from "../deterministic-scans.mjs";
 import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 import { resolveExecutor } from "../gate-executor.mjs";
 // The gate's own executor: an outer gate's cargo wrapper on PATH is never this gate's cargo (gate-executor.mjs `gateWrappers`).
@@ -4155,7 +4155,7 @@ export function cargoHomeOf(env, { realpath = fs.realpathSync, homedir = os.home
 
 export async function main(argv, io = {}) {
   const o = {
-    spawn: defaultSpawn, exists: fs.existsSync, readFile: (f) => fs.readFileSync(f, "utf8"), writeFile: fs.writeFileSync, mkdir: fs.mkdirSync, chmod: fs.chmodSync, readdir: fs.readdirSync,
+    spawn: rememberReads(defaultSpawn), exists: fs.existsSync, readFile: (f) => fs.readFileSync(f, "utf8"), writeFile: fs.writeFileSync, mkdir: fs.mkdirSync, chmod: fs.chmodSync, readdir: fs.readdirSync,
     readStdin: () => { try { return process.stdin.isTTY ? "" : fs.readFileSync(0, "utf8"); } catch { return ""; } },
     out: (m) => console.log(m), err: (m) => console.error(m), cwd: process.cwd(), env: process.env, platform: process.platform,
     // Where this gate runs from (the door puts its own shims first on PATH when it is an installed package: doorPath).
@@ -5208,7 +5208,7 @@ export async function main(argv, io = {}) {
           const unit = sel?.replace(/^cargo:/, "");
           const quiet = sel?.startsWith("cargo:") ? config.rust?.[unit]?.quietTests === true : false;
           // A crate that ci/shards.json lists solo, or that is sidecar-bound, never joins another crate's invocation (planScans' own rule for its rows).
-          const alone = sel?.startsWith("cargo:") && (solo.includes(unit) || sidecarBoundCrate({ dir: path.join(repo, dirOf.get(sel) ?? `crates/${unit}`), exists: o.exists, readFile: o.readFile }).bound);
+          const alone = sel?.startsWith("cargo:") && (sidecarBoundCrate({ dir: path.join(repo, dirOf.get(sel) ?? `crates/${unit}`), exists: o.exists, readFile: o.readFile }).bound);
           return publisherRequirementScan(requirement, { platform: o.platform, cargoCommand: planCargoCommand, cargoLiveRoot, targetDirs, quiet, allowIgnored: verdicts.get(sel)?.allowIgnored === true, batch: !alone });
         };
         const planned = planUnitListScans({ entries: scoped, planned: plan.scans, normalizedCwds, adapt, blocked });
@@ -5519,7 +5519,10 @@ export async function main(argv, io = {}) {
       ...(() => { const bt = brokerToolchainOf(o, executor); return bt ? { brokerToolchain: bt } : {}; })(),
       // The commit's own files (rightkit#1393): a snapshot is not a git toplevel, so the secret scan needs this list to judge tracked files only and never what a stage wrote there.
       ...(snapshot ? { trackedFiles: files } : {}),
-      classes: stageClasses, ...(classAEarlier ? { classAEarlier: true } : {}), jobs, classBJobs, classBBatching: !o[PRIVATE_SCOPED_COMPILE], groupTests: true, classBPipeline: 2, ...(brokerHost ? { brokerHost: true } : {}), ...(brokerLive ? { brokerLive } : {}), signal: ac.signal, ...(cache ? { cache } : {}),
+      classes: stageClasses, ...(classAEarlier ? { classAEarlier: true } : {}), jobs, classBJobs, classBBatching: !o[PRIVATE_SCOPED_COMPILE], groupTests: true,
+      // GC-A27 NN09 (acceptance case 1 on 0.6.63, 2026-11-24): every carried compile of a workspace is handed to the broker as soon as it is ready, none held until an
+      // earlier job ends. The broker owns the order and runs one build per repository; with two in flight the last command of the fixture went out three minutes late.
+      classBPipeline: Number.POSITIVE_INFINITY, ...(brokerHost ? { brokerHost: true } : {}), ...(brokerLive ? { brokerLive } : {}), signal: ac.signal, ...(cache ? { cache } : {}),
       // NN41: the installed broker runtime's identity keys every cached compile failure; null (a direct host, an unreadable manifest) means no failure is cached.
       ...(brokerHost && cache ? (() => { const identity = brokerRuntimeIdentityText({ clients: [brokerClient, executor?.client, cargoCommand[0]], env: { ...o.env, ...(executor.env ?? {}) }, platform: o.platform }); return identity ? { failureIdentity: identity } : {}; })() : {}),
       // The declared Linux broker route: the scans are planned with the logical `rustright`, which this spawn (and scanSpawn's pass-through below) starts as the

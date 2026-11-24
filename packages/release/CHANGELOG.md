@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.64
+
+Five faults the first run of the twelve-line acceptance cases showed on 0.6.63 (GC-A27; rightkit#1514), each with a test.
+
+- NN09: on a broker host every carried compile of a workspace is handed to the broker when it is ready. With two rows of a workspace in flight, and a combined command counting as several rows, the last of 30 commands went out three minutes after the first.
+- NN09: `ci/shards.json` `solo` sizes CI jobs and no longer splits a crate out of its workspace's combined command.
+- NN08: `git show <sha>:<path>`, `git rev-parse --show-toplevel` and `pnpm --version` are asked once per folder and environment in a run, not two to four times.
+- NN06: a rule verdict that is already stored as a pass is not written back.
+- NN02: a Class A verdict file this run already wrote is not written a second time, so the file stays older than the jobs that name it.
+
 ## 0.6.63
 
 - A snapshot lock left by a gate that was killed together with its job holder is now reclaimed by the next run. When the holder does not answer, the gate asks Windows about the named job directly: no such job, or a job with no process in it, proves every process of it has ended. Before, the lock stayed busy until the next reboot.
