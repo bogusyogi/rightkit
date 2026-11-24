@@ -41,6 +41,7 @@ pub enum FactKind {
     Party,
     Commitment,
     Money,
+    Event,
 }
 
 impl FactKind {
@@ -50,6 +51,7 @@ impl FactKind {
             FactBody::Party(_) => FactKind::Party,
             FactBody::Commitment(_) => FactKind::Commitment,
             FactBody::Money(_) => FactKind::Money,
+            FactBody::Event(_) => FactKind::Event,
         }
     }
 }

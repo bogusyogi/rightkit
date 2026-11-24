@@ -10,6 +10,8 @@
 //! back, and no source file spells it.
 
 pub mod booking;
+pub mod calendar;
+pub mod calendar_checks;
 pub mod checks;
 pub mod digest;
 pub mod facts;

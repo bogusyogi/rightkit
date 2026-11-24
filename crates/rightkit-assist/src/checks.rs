@@ -5,6 +5,8 @@
 //! layover can all explain unequal dates, so the finding is medium confidence, says what is missing, and
 //! asks. Finding text is built only from typed values (dates). Names and labels from a mail never enter it.
 
+use crate::calendar_checks::{calendar_conflict, trip_event, trip_event_dates};
+pub use crate::calendar_checks::{CALENDAR_CONFLICT, TRIP_EVENT, TRIP_EVENT_DATES};
 use crate::digest;
 use crate::facts::{BookingKind, Fact};
 use rightkit_agent_engine_attention::inbox::{
@@ -30,10 +32,24 @@ pub struct Check {
 }
 
 /// The checks, in order. New checks are added here.
-pub const CHECKS: &[Check] = &[Check {
-    id: TRIP_DATES,
-    run: trip_dates,
-}];
+pub const CHECKS: &[Check] = &[
+    Check {
+        id: TRIP_DATES,
+        run: trip_dates,
+    },
+    Check {
+        id: TRIP_EVENT,
+        run: trip_event,
+    },
+    Check {
+        id: TRIP_EVENT_DATES,
+        run: trip_event_dates,
+    },
+    Check {
+        id: CALENDAR_CONFLICT,
+        run: calendar_conflict,
+    },
+];
 
 /// Run every check over the facts. Findings come back in check order, then fact order, without repeats.
 pub fn run_all(now: i64, facts: &[Fact]) -> Vec<NewInboxItem> {
@@ -49,7 +65,7 @@ pub fn run_all(now: i64, facts: &[Fact]) -> Vec<NewInboxItem> {
     out
 }
 
-fn day_after(day: i64) -> i64 {
+pub(crate) fn day_after(day: i64) -> i64 {
     day.saturating_add(1).saturating_mul(86_400)
 }
 
@@ -151,7 +167,7 @@ pub fn trip_dates(input: &CheckInput) -> Vec<NewInboxItem> {
     items
 }
 
-fn date_text(day: i64) -> String {
+pub(crate) fn date_text(day: i64) -> String {
     let (y, m, d) = rightkit_time::civil_from_days(day);
     format!("{y:04}-{m:02}-{d:02}")
 }

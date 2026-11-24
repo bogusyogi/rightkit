@@ -17,10 +17,11 @@ Not published (0.1.0, unreleased). Written, not yet compiled.
 | `markup`, `booking` | A bounded HTML reader; hotel and flight reservations from JSON-LD and microdata |
 | `triage` | The tools-off request, the output schema, the validator, one retry |
 | `facts` | Typed facts with provenance and source message id; dates as local date plus zone |
-| `checks` | Rules over facts, after each insert. First: `trip.dates` |
+| `checks`, `calendar_checks` | Rules over facts, after each insert: `trip.dates`, and with calendar entries `trip.event`, `trip.event_dates`, `calendar.conflict` |
+| `calendar` | Calendar signals: `InboundEvent`, `new_signal`, `extract` (code only, no model) |
 | `instruction` | Standing instructions, inert until owner-approved; occurrences keyed by digest |
 | `state` | `AssistState` and the `AssistStore` trait, with an in-memory store |
-| `pipeline` | `prepare`, `apply_answer`, `replay` |
+| `pipeline` | Mail: `prepare`, `apply_answer`, `replay`. Calendar: `prepare_calendar`, `refresh_calendar` |
 
 ## Rules this crate keeps
 

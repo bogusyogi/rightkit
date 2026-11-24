@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-assist"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "The noticing loop for an always-on assistant: signals, sorting in code, booking extraction, a tools-off triage contract, typed facts, checks, standing instructions and occurrences, over a storage trait. Pure logic, no network, no model calls."

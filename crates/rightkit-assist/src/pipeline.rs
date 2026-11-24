@@ -7,6 +7,7 @@
 //! `rightkit-job-queue` task keyed on the signal's dedupe key (see the README).
 
 use crate::booking;
+use crate::calendar::{self, InboundEvent};
 use crate::checks;
 use crate::facts::{Fact, FactBody, Origin};
 use crate::instruction::{self, FireOutcome};
@@ -332,4 +333,77 @@ pub fn replay(
             Applied::Retry(next) => request = next,
         }
     }
+}
+
+/// The loop for one calendar signal. A calendar event is structured, so code settles it and no model is ever
+/// involved: the event becomes a typed [`crate::facts::CalendarEntry`] fact (`origin` code) and the checks run
+/// over every fact the loop holds. A cancelled event, or one whose start cannot be read, ends as `no_work`
+/// with no fact. `used_model` is always false and no instruction fires (instructions trigger on mail).
+pub fn prepare_calendar(
+    state: &mut AssistState,
+    signal_id: &str,
+    event: &InboundEvent,
+    now: i64,
+) -> Result<RunReport, String> {
+    {
+        let signal = signal_mut(state, signal_id)?;
+        if signal.source != Source::Calendar {
+            return Err("only calendar signals go through the calendar loop".to_string());
+        }
+        if signal.state != SignalState::New {
+            return Err(
+                "the signal was already processed; use refresh_calendar to run it again"
+                    .to_string(),
+            );
+        }
+        signal.advance(SignalState::Sorted)?;
+    }
+    let mut added = Vec::new();
+    let mut findings = Vec::new();
+    match calendar::extract(event) {
+        Some(entry) => {
+            store_facts(
+                state,
+                signal_id,
+                Origin::Code,
+                vec![FactBody::Event(entry)],
+                now,
+                &mut added,
+                &mut findings,
+            )?;
+            let signal = signal_mut(state, signal_id)?;
+            signal.settled_by = Some(SettledBy::Code);
+            signal.advance(SignalState::Triaged)?;
+        }
+        None => {
+            signal_mut(state, signal_id)?.advance(SignalState::NoWork)?;
+        }
+    }
+    let signal = state
+        .signals
+        .get(signal_id)
+        .ok_or_else(|| "no such signal".to_string())?;
+    Ok(RunReport {
+        signal_id: signal.id.clone(),
+        state: signal.state,
+        category: signal.category,
+        facts_added: added,
+        findings,
+        fired: Vec::new(),
+        used_model: false,
+    })
+}
+
+/// Run a calendar signal again with the event as the calendar holds it now (the event moved, was renamed or was
+/// cancelled). The facts the signal produced before are removed first, so the result is what the current event
+/// makes. Findings the earlier version raised stay in the Inbox until they expire or the owner clears them.
+pub fn refresh_calendar(
+    state: &mut AssistState,
+    signal_id: &str,
+    event: &InboundEvent,
+    now: i64,
+) -> Result<RunReport, String> {
+    signal_mut(state, signal_id)?.reset();
+    state.remove_facts_of(signal_id);
+    prepare_calendar(state, signal_id, event, now)
 }

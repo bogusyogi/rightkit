@@ -242,6 +242,26 @@ pub struct Money {
     pub label: String,
 }
 
+/// A calendar entry, read by code from the calendar's own fields. `start` and `end` are local dates, with a
+/// time and a zone for a timed entry; an all-day entry has dates only, and its `end` is the last day it covers
+/// (Google's exclusive end date is already turned back one day).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarEntry {
+    /// Display text from outside (anyone can invite the owner). Never used as an instruction or a tool
+    /// argument, and never copied into a finding.
+    pub title: String,
+    /// The location text, same rule as the title. Checks only compare it with the places of bookings.
+    #[serde(default)]
+    pub place: Option<String>,
+    pub start: LocalDateTime,
+    #[serde(default)]
+    pub end: Option<LocalDateTime>,
+    pub all_day: bool,
+    /// The owner declined it: it is on the calendar but he is not going.
+    pub declined: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum FactBody {
@@ -249,6 +269,7 @@ pub enum FactBody {
     Party(Party),
     Commitment(Commitment),
     Money(Money),
+    Event(CalendarEntry),
 }
 
 /// Where a fact came from: `Owner` (the owner said it), `KnownSender` (a sender on the owner's lists, authenticated)
@@ -311,6 +332,13 @@ impl Fact {
     pub fn booking(&self) -> Option<&Booking> {
         match &self.body {
             FactBody::Booking(b) => Some(b),
+            _ => None,
+        }
+    }
+
+    pub fn event(&self) -> Option<&CalendarEntry> {
+        match &self.body {
+            FactBody::Event(e) => Some(e),
             _ => None,
         }
     }
