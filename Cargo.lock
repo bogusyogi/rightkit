@@ -5842,6 +5842,7 @@ dependencies = [
  "defmt 1.2.0",
  "jiff-core",
  "jiff-static",
+ "jiff-tzdb",
  "jiff-tzdb-platform",
  "log",
  "portable-atomic",
@@ -10305,7 +10306,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-policy"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "globset",
  "libc 0.2.191",
@@ -10434,7 +10435,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-task-contract"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "rightkit-approvals",
  "serde",
@@ -10507,7 +10508,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ai-accounts"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "rightkit-app-host",
  "rightkit-child-process",
@@ -10681,7 +10682,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-assist"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rightkit-agent-engine-attention",
  "rightkit-fs",
@@ -10692,7 +10693,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-audio"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "block2",
  "cpal",
@@ -10733,7 +10734,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.7.4"
+version = "0.7.6"
 dependencies = [
  "core-foundation 0.10.1",
  "core-graphics",
@@ -10787,7 +10788,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-browser"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "async-tungstenite 0.35.0",
  "chromiumoxide",
@@ -10900,9 +10901,7 @@ dependencies = [
  "rightkit-automation",
  "rightkit-child-process",
  "rightkit-fs",
- "rightkit-hotkeys",
  "rightkit-launcher",
- "rightkit-notch-ui",
  "rightkit-overlay",
  "rightkit-time",
  "rightkit-win-ui",
@@ -11139,7 +11138,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-context-runtime"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "clap",
  "comrak",
@@ -11212,7 +11211,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.5.8"
+version = "0.5.9"
 dependencies = [
  "block2",
  "getrandom 0.4.3",
@@ -11234,7 +11233,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-crypto"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "blake3",
  "ring",
@@ -11362,13 +11361,14 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-command-host"
-version = "0.3.1"
+version = "0.3.3"
 dependencies = [
  "cc",
  "chrono",
  "core-graphics",
  "image",
  "libc 0.2.191",
+ "rightkit-agent-task-contract",
  "rightkit-automation",
  "rightkit-child-process",
  "rightkit-dictation-core",
@@ -11386,7 +11386,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-core"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "rightkit-credentials",
  "rightkit-fs",
@@ -11504,7 +11504,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-runtime"
-version = "0.2.5"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "libloading 0.9.0",
@@ -11878,7 +11878,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-google-apis"
-version = "0.2.1"
+version = "0.2.3"
 dependencies = [
  "base64 0.23.1",
  "futures",
@@ -11999,9 +11999,10 @@ dependencies = [
 
 [[package]]
 name = "rightkit-launcher"
-version = "0.2.0"
+version = "0.2.2"
 dependencies = [
  "rightkit-child-process",
+ "rightkit-file-watch",
  "rightkit-fs",
  "rightkit-time",
  "serde",
@@ -12011,17 +12012,13 @@ dependencies = [
 
 [[package]]
 name = "rightkit-launcher-win"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rightkit-automation",
- "rightkit-child-process",
  "rightkit-clipboard-history",
  "rightkit-fs",
  "rightkit-hotkeys",
  "rightkit-launcher",
- "rightkit-overlay",
- "rightkit-overlay-win",
- "rightkit-win-ui",
  "serde_json",
  "windows 0.62.2",
 ]
@@ -12055,7 +12052,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-llm"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "async-stream",
  "bytes",
@@ -12105,7 +12102,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.4.3"
+version = "0.4.5"
 dependencies = [
  "getrandom 0.4.3",
  "libc 0.2.191",
@@ -12359,7 +12356,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-memory-store"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "libc 0.2.191",
  "rightkit-context-protocol",
@@ -12374,7 +12371,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-mesh"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "iroh",
  "iroh-mdns-address-lookup",
@@ -12436,7 +12433,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-notch-ui"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "rightkit-win-ui",
  "windows 0.62.2",
@@ -12444,7 +12441,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-notifications"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "block2",
  "notify-rust",
@@ -12452,7 +12449,9 @@ dependencies = [
  "objc2-foundation",
  "objc2-user-notifications",
  "rightkit-crypto",
+ "rightkit-http",
  "thiserror 2.0.21",
+ "tokio",
  "windows 0.61.3",
 ]
 
@@ -12517,7 +12516,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-overlay"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "serde",
  "windows-sys 0.61.2",
@@ -12655,7 +12654,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-presence"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "objc2",
  "objc2-foundation",
@@ -12667,6 +12666,16 @@ name = "rightkit-privileged-helper"
 version = "0.2.0"
 dependencies = [
  "rightkit-app-manager",
+ "serde_json",
+]
+
+[[package]]
+name = "rightkit-profile"
+version = "0.1.0"
+dependencies = [
+ "rightkit-fs",
+ "rightkit-time",
+ "serde",
  "serde_json",
 ]
 
@@ -12944,8 +12953,9 @@ dependencies = [
 
 [[package]]
 name = "rightkit-scheduler"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
+ "jiff",
  "rightkit-agent-engine-protocol",
  "rightkit-db",
  "rightkit-time",
@@ -12965,7 +12975,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-send"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "libc 0.2.191",
  "rcgen",
@@ -13077,7 +13087,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sync"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -13099,6 +13109,7 @@ dependencies = [
  "hkdf",
  "rightkit-credentials",
  "rightkit-identity",
+ "rightkit-sync",
  "sha2 0.11.1",
  "thiserror 2.0.21",
  "x25519-dalek",
@@ -13111,7 +13122,7 @@ version = "0.1.0"
 
 [[package]]
 name = "rightkit-system-monitor"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "libc 0.2.191",
  "rightkit-app-settings",
@@ -13125,7 +13136,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tauri-shell"
-version = "0.8.7"
+version = "0.8.8"
 dependencies = [
  "block2",
  "libc 0.2.191",
@@ -13257,9 +13268,10 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tts"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "libc 0.2.191",
+ "rightkit-audio",
  "rightkit-child-process",
  "rightkit-fs",
  "rightkit-onnx",
@@ -13348,7 +13360,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-voice-commands"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "serde",
 ]
@@ -13382,8 +13394,9 @@ dependencies = [
 
 [[package]]
 name = "rightkit-win-ui"
-version = "0.1.1"
+version = "0.1.3"
 dependencies = [
+ "rightkit-fs",
  "rightkit-overlay",
  "windows 0.62.2",
 ]

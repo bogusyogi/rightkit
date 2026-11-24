@@ -6137,7 +6137,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-android"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "jni 0.22.4",
  "rightkit-credentials",
@@ -6179,7 +6179,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-audio"
-version = "0.3.8"
+version = "0.4.2"
 dependencies = [
  "block2",
  "cpal",
@@ -6190,6 +6190,7 @@ dependencies = [
  "objc2-foundation",
  "rightkit-child-process",
  "rightkit-ffmpeg",
+ "rightkit-fs",
  "ringbuf",
  "rubato",
  "serde",
@@ -6202,7 +6203,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.7.4"
+version = "0.7.6"
 dependencies = [
  "windows 0.62.2",
 ]
@@ -6218,7 +6219,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-browser"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "async-tungstenite 0.35.0",
  "chromiumoxide",
@@ -6255,7 +6256,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.14"
+version = "0.5.16"
 dependencies = [
  "libc",
  "tokio",
@@ -6305,7 +6306,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.5.7"
+version = "0.5.9"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-child-process",
@@ -6319,7 +6320,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-crypto"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "blake3",
  "ring",
@@ -6427,7 +6428,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.17"
+version = "0.5.0"
 dependencies = [
  "libc",
  "sha2 0.11.1",
@@ -6447,7 +6448,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-hooks"
-version = "0.2.11"
+version = "0.2.13"
 dependencies = [
  "serde",
  "serde_json",
@@ -6455,7 +6456,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-hotkeys"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "rightkit-automation",
  "windows-sys 0.61.2",
@@ -6508,7 +6509,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-license"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "base64 0.23.1",
  "ed25519-dalek",
@@ -6522,7 +6523,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-llm"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "rightkit-http",
  "serde",
@@ -6531,7 +6532,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.4.3"
+version = "0.4.5"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
@@ -6585,13 +6586,14 @@ dependencies = [
 
 [[package]]
 name = "rightkit-notifications"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "block2",
  "notify-rust",
  "objc2",
  "objc2-foundation",
  "objc2-user-notifications",
+ "rightkit-crypto",
  "thiserror 2.0.21",
  "windows 0.61.3",
 ]
@@ -6640,7 +6642,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-overlay"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "serde",
  "windows-sys 0.61.2",
@@ -6709,7 +6711,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-presence"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "objc2",
  "objc2-foundation",
@@ -6780,7 +6782,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-roots"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-fs",
@@ -6808,7 +6810,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-send"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "libc",
  "rcgen",
@@ -6856,7 +6858,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sync"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -6883,7 +6885,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tauri-shell"
-version = "0.8.6"
+version = "0.8.8"
 dependencies = [
  "block2",
  "libc",
@@ -6927,7 +6929,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tts"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
