@@ -3423,8 +3423,8 @@
       "id": "ci/consumers/rightkit-system-monitor/src/main.rs",
       "files": {
         "Cargo.toml": "2022aff594ad7d574a97f4ad23d953912a316eb4c7fa24d43f12fb8d473d1668",
-        "README.md": "fe76bdab24452fdc78825f318bf0775f4c516cf22f4a07af98f8d4bb668f0656",
-        "src/main.rs": "10964bc97f46d546007a7dc94dc480dc7336edeeee5ea3ec115ba86cadda95cb"
+        "README.md": "1550b98c41d0c68b1bc44e4c91024eec4491a4e37fd8793d9bbf5d415616f341",
+        "src/main.rs": "ad44f5e7d60bcd02697196056d09eaa8c6e5f0e8bd066fe9af122b567b9ba582"
       }
     },
     "rightkit-terminal-ui": {
