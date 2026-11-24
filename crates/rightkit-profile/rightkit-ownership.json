@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-profile",
+  "capabilities": [
+    {
+      "capability": "owner-profile",
+      "summary": "The owner's profile for an assistant: entries in areas with source, state and sensitivity, proposals only the owner confirms, due questions, the card a run receives behind health and money switches, and a neutral export; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: dependency declarations do not verify integration.",
+        "Unpublished (name not approved); listed so the catalog and the inventory hygiene check agree."
+      ]
+    }
+  ]
+}
