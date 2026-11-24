@@ -1,5 +1,9 @@
 # RightKitSwift changelog
 
+## 0.9.6 - 2026-11-24
+
+- RightKitOAuth adds the RFC 8628 device authorization grant: DeviceCodeClient, DeviceCodeConfig with a GitHub preset, DeviceCodePresenting and SystemDeviceCodePresenter. OAuthError gains deviceCodeExpired, accessDenied and deviceFlowDisabled.
+
 ## 0.9.5 - 2026-11-21
 
 - RightKitWatchBridge adds receipt observations, configurable rollback wording and bounded activation replay. Explicit receipt queries still consult durable storage.
