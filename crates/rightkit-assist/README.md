@@ -12,7 +12,7 @@ Not published (0.1.0, unreleased). Written, not yet compiled.
 
 | Module | Job |
 |---|---|
-| `signal` | One signal per event, unique on (source, message id); states `new -> sorted -> triaged \| no_work \| triage_failed` |
+| `signal` | One signal per event, unique on (source, account, message id); states `new -> sorted -> triaged \| no_work \| triage_failed` |
 | `sort` | Sender lists the owner edits and mail headers settle travel, customer, bill, bulk. Bulk stops as `no_work` |
 | `markup`, `booking` | A bounded HTML reader; hotel and flight reservations from JSON-LD and microdata |
 | `triage` | The tools-off request, the output schema, the validator, one retry |
@@ -32,7 +32,7 @@ Not published (0.1.0, unreleased). Written, not yet compiled.
 ## How a host drives it
 
 ```text
-poller   -> state.admit(NewSignal)            (idempotent: same source and message id changes nothing)
+poller   -> state.admit(NewSignal)            (idempotent: same source, account and message id changes nothing)
 step 1   -> pipeline::prepare(state, id, mail, now)
               Finished(report)   bulk, or bookings read by code: no model call
               NeedsModel(req)    send req to a tools-off model

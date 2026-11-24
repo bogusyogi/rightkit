@@ -34,12 +34,12 @@ pub struct AssistState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Admission {
     pub signal_id: String,
-    /// False when the same (source, message id) was already admitted: nothing changed.
+    /// False when the same (source, account, message id) was already admitted: nothing changed.
     pub created: bool,
 }
 
 impl AssistState {
-    /// Admit one signal. A second admission of the same (source, message id) changes nothing.
+    /// Admit one signal. A second admission of the same (source, account, message id) changes nothing.
     pub fn admit(&mut self, new: &NewSignal) -> Admission {
         let signal = Signal::admit(new);
         let id = signal.id.clone();

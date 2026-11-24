@@ -112,8 +112,9 @@ pub fn retry_request(previous: &TriageRequest, error: &SchemaError) -> TriageReq
     next
 }
 
-/// What the model may answer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// What the model may answer. The serde names are the wire names in `CATEGORY_NAMES`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TriageCategory {
     Travel,
     Customer,
@@ -160,95 +161,162 @@ fn err(path: &str, reason: &'static str) -> SchemaError {
     }
 }
 
-/// The JSON Schema the host passes to the model's structured-output setting. The validator below enforces the
-/// same shape in code; keep the two in step.
+// ---------------------------------------------------------------------------------------------------------
+// The answer shape, written once. `output_schema()` renders these tables as JSON Schema and `validate()` walks
+// the same tables, so the schema the model is given and the check its answer gets cannot drift apart. The
+// answer's wire names are snake_case and differ from the stored fact types' (camelCase), so the shape cannot be
+// derived from those types; it lives here instead. A listed value is turned into its enum by that enum's own
+// serde name (`from_name`), so a name the table lists but the enum lacks is refused, never guessed.
+// ---------------------------------------------------------------------------------------------------------
+
+/// Largest `amount_minor` accepted.
+const MAX_AMOUNT_MINOR: i64 = 1_000_000_000_000;
+
+#[derive(Clone, Copy)]
+enum Shape {
+    /// Short display text, cleaned and cut to this many characters.
+    Text(usize),
+    /// `YYYY-MM-DD` text (the calendar check happens in `LocalDateTime::from_parts`).
+    Date,
+    /// `HH:MM` text.
+    Clock,
+    /// Three uppercase ASCII letters.
+    Currency,
+    /// Whole number of minor units, 0 to `MAX_AMOUNT_MINOR`.
+    Amount,
+    /// One of these names.
+    Choice(&'static [&'static str]),
+    /// A local date, optional time, optional zone.
+    Local,
+    /// A place: airport code, name, city.
+    Place,
+    /// The list of facts.
+    Facts,
+}
+
+struct Field {
+    name: &'static str,
+    shape: Shape,
+    required: bool,
+}
+
+const fn field(name: &'static str, shape: Shape, required: bool) -> Field {
+    Field { name, shape, required }
+}
+
+struct FactSpec {
+    tag: &'static str,
+    fields: &'static [Field],
+}
+
+const CATEGORY_NAMES: &[&str] = &["travel", "customer", "bill", "other", "nothing"];
+
+const LOCAL_FIELDS: &[Field] = &[
+    field("date", Shape::Date, true),
+    field("time", Shape::Clock, false),
+    field("zone", Shape::Text(40), false),
+];
+
+const PLACE_FIELDS: &[Field] = &[
+    field("code", Shape::Text(8), false),
+    field("name", Shape::Text(80), false),
+    field("city", Shape::Text(80), false),
+];
+
+const ANSWER_FIELDS: &[Field] = &[
+    field("category", Shape::Choice(CATEGORY_NAMES), true),
+    field("facts", Shape::Facts, true),
+];
+
+const FACT_SPECS: &[FactSpec] = &[
+    FactSpec {
+        tag: "booking",
+        fields: &[
+            field("booking_kind", Shape::Choice(&["hotel", "flight"]), true),
+            field("reference", Shape::Text(40), false),
+            field("name", Shape::Text(80), false),
+            field("start", Shape::Local, false),
+            field("end", Shape::Local, false),
+            field("place", Shape::Place, false),
+            field("from", Shape::Place, false),
+            field("to", Shape::Place, false),
+        ],
+    },
+    FactSpec {
+        tag: "party",
+        fields: &[
+            field("name", Shape::Text(80), true),
+            field("role", Shape::Choice(&["customer", "vendor", "colleague", "other"]), true),
+            field("email", Shape::Text(120), false),
+        ],
+    },
+    FactSpec {
+        tag: "commitment",
+        fields: &[
+            field("kind", Shape::Choice(&["reply_needed", "deliver", "attend"]), true),
+            field("due", Shape::Local, false),
+            field("label", Shape::Text(120), true),
+        ],
+    },
+    FactSpec {
+        tag: "money",
+        fields: &[
+            field("amount_minor", Shape::Amount, true),
+            field("currency", Shape::Currency, true),
+            field("direction", Shape::Choice(&["owed_by_owner", "owed_to_owner"]), true),
+            field("due", Shape::Local, false),
+            field("label", Shape::Text(120), true),
+        ],
+    },
+];
+
+fn shape_schema(shape: Shape) -> Value {
+    match shape {
+        Shape::Text(max) => json!({"type": "string", "maxLength": max}),
+        Shape::Date => json!({"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"}),
+        Shape::Clock => json!({"type": "string", "pattern": "^[0-9]{2}:[0-9]{2}$"}),
+        Shape::Currency => json!({"type": "string", "pattern": "^[A-Z]{3}$"}),
+        Shape::Amount => json!({"type": "integer", "minimum": 0, "maximum": MAX_AMOUNT_MINOR}),
+        Shape::Choice(names) => json!({"enum": names}),
+        Shape::Local => object_schema(LOCAL_FIELDS, None),
+        Shape::Place => object_schema(PLACE_FIELDS, None),
+        Shape::Facts => {
+            let variants: Vec<Value> = FACT_SPECS
+                .iter()
+                .map(|spec| object_schema(spec.fields, Some(spec.tag)))
+                .collect();
+            json!({"type": "array", "maxItems": MAX_FACTS, "items": {"oneOf": variants}})
+        }
+    }
+}
+
+fn object_schema(fields: &[Field], tag: Option<&str>) -> Value {
+    let mut properties = Map::new();
+    let mut required: Vec<Value> = Vec::new();
+    if let Some(tag) = tag {
+        properties.insert("type".to_string(), json!({"const": tag}));
+        required.push(json!("type"));
+    }
+    for f in fields {
+        properties.insert(f.name.to_string(), shape_schema(f.shape));
+        if f.required {
+            required.push(json!(f.name));
+        }
+    }
+    let mut object = Map::new();
+    object.insert("type".to_string(), json!("object"));
+    object.insert("additionalProperties".to_string(), json!(false));
+    if !required.is_empty() {
+        object.insert("required".to_string(), Value::Array(required));
+    }
+    object.insert("properties".to_string(), Value::Object(properties));
+    Value::Object(object)
+}
+
+/// The JSON Schema the host passes to the model's structured-output setting. Built from the same tables
+/// `validate` walks.
 pub fn output_schema() -> Value {
-    let local = json!({
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["date"],
-        "properties": {
-            "date": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
-            "time": {"type": "string", "pattern": "^[0-9]{2}:[0-9]{2}$"},
-            "zone": {"type": "string", "maxLength": 40}
-        }
-    });
-    let place = json!({
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-            "code": {"type": "string", "maxLength": 8},
-            "name": {"type": "string", "maxLength": 80},
-            "city": {"type": "string", "maxLength": 80}
-        }
-    });
-    json!({
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["category", "facts"],
-        "properties": {
-            "category": {"enum": ["travel", "customer", "bill", "other", "nothing"]},
-            "facts": {
-                "type": "array",
-                "maxItems": MAX_FACTS,
-                "items": {
-                    "oneOf": [
-                        {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "required": ["type", "booking_kind"],
-                            "properties": {
-                                "type": {"const": "booking"},
-                                "booking_kind": {"enum": ["hotel", "flight"]},
-                                "reference": {"type": "string", "maxLength": 40},
-                                "name": {"type": "string", "maxLength": 80},
-                                "start": local.clone(),
-                                "end": local.clone(),
-                                "place": place.clone(),
-                                "from": place.clone(),
-                                "to": place.clone()
-                            }
-                        },
-                        {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "required": ["type", "name", "role"],
-                            "properties": {
-                                "type": {"const": "party"},
-                                "name": {"type": "string", "maxLength": 80},
-                                "role": {"enum": ["customer", "vendor", "colleague", "other"]},
-                                "email": {"type": "string", "maxLength": 120}
-                            }
-                        },
-                        {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "required": ["type", "kind", "label"],
-                            "properties": {
-                                "type": {"const": "commitment"},
-                                "kind": {"enum": ["reply_needed", "deliver", "attend"]},
-                                "due": local.clone(),
-                                "label": {"type": "string", "maxLength": 120}
-                            }
-                        },
-                        {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "required": ["type", "amount_minor", "currency", "direction", "label"],
-                            "properties": {
-                                "type": {"const": "money"},
-                                "amount_minor": {"type": "integer", "minimum": 0, "maximum": 1_000_000_000_000_i64},
-                                "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
-                                "direction": {"enum": ["owed_by_owner", "owed_to_owner"]},
-                                "due": local.clone(),
-                                "label": {"type": "string", "maxLength": 120}
-                            }
-                        }
-                    ]
-                }
-            }
-        }
-    })
+    object_schema(ANSWER_FIELDS, None)
 }
 
 fn child(path: &str, key: &str) -> String {
@@ -259,193 +327,241 @@ fn as_map<'a>(value: &'a Value, path: &str) -> Result<&'a Map<String, Value>, Sc
     value.as_object().ok_or_else(|| err(path, "expected an object"))
 }
 
-fn only_keys(map: &Map<String, Value>, allowed: &[&str], path: &str) -> Result<(), SchemaError> {
-    if map.keys().all(|k| allowed.contains(&k.as_str())) {
-        Ok(())
-    } else {
-        Err(err(path, "unexpected field"))
+/// A field that passed its shape.
+enum Got {
+    Text(String),
+    Choice(&'static str),
+    Amount(i64),
+    Local(LocalDateTime),
+    Place(Place),
+    Facts(Vec<FactBody>),
+}
+
+/// The fields of one object that passed the walk, in table order. A missing optional field is absent.
+struct Checked(Vec<(&'static str, Got)>);
+
+impl Checked {
+    fn take(&mut self, name: &str) -> Option<Got> {
+        let at = self.0.iter().position(|(n, _)| *n == name)?;
+        Some(self.0.remove(at).1)
+    }
+
+    fn text(&mut self, name: &str) -> Option<String> {
+        match self.take(name) {
+            Some(Got::Text(s)) => Some(s),
+            _ => None,
+        }
+    }
+
+    fn choice(&mut self, name: &str) -> Option<&'static str> {
+        match self.take(name) {
+            Some(Got::Choice(s)) => Some(s),
+            _ => None,
+        }
+    }
+
+    fn amount(&mut self, name: &str) -> Option<i64> {
+        match self.take(name) {
+            Some(Got::Amount(a)) => Some(a),
+            _ => None,
+        }
+    }
+
+    fn local(&mut self, name: &str) -> Option<LocalDateTime> {
+        match self.take(name) {
+            Some(Got::Local(l)) => Some(l),
+            _ => None,
+        }
+    }
+
+    fn place(&mut self, name: &str) -> Option<Place> {
+        match self.take(name) {
+            Some(Got::Place(p)) => Some(p),
+            _ => None,
+        }
+    }
+
+    fn facts(&mut self, name: &str) -> Option<Vec<FactBody>> {
+        match self.take(name) {
+            Some(Got::Facts(f)) => Some(f),
+            _ => None,
+        }
     }
 }
 
-fn opt_text(
+/// A required field's value, or the fixed "missing" rejection (the walk already enforced it, so this is a
+/// guard against a table and a builder disagreeing, not a normal path).
+fn need<T>(value: Option<T>, path: &str, key: &str) -> Result<T, SchemaError> {
+    value.ok_or_else(|| err(&child(path, key), "required field is missing"))
+}
+
+/// Walk one object against its field table. `extra` names keys allowed besides the table's (the fact `type`).
+fn walk(
     map: &Map<String, Value>,
-    key: &str,
+    fields: &'static [Field],
+    extra: &[&str],
     path: &str,
-    max_chars: usize,
-) -> Result<Option<String>, SchemaError> {
-    match map.get(key) {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::String(s)) => {
+) -> Result<Checked, SchemaError> {
+    let known = |k: &str| extra.contains(&k) || fields.iter().any(|f| f.name == k);
+    if !map.keys().all(|k| known(k.as_str())) {
+        return Err(err(path, "unexpected field"));
+    }
+    let mut out = Vec::with_capacity(fields.len());
+    for f in fields {
+        let here = child(path, f.name);
+        let got = match map.get(f.name) {
+            None | Some(Value::Null) => None,
+            Some(value) => check_shape(f.shape, value, &here)?,
+        };
+        match got {
+            Some(g) => out.push((f.name, g)),
+            None if f.required => return Err(err(&here, "required field is missing")),
+            None => {}
+        }
+    }
+    Ok(Checked(out))
+}
+
+fn clean_text(value: &Value, max_chars: usize, here: &str) -> Result<Option<String>, SchemaError> {
+    match value {
+        Value::String(s) => {
             if s.chars().count() > max_chars * 2 {
-                return Err(err(&child(path, key), "text too long"));
+                return Err(err(here, "text too long"));
             }
             let cleaned = text::clean(s, max_chars);
             Ok(if cleaned.is_empty() { None } else { Some(cleaned) })
         }
-        Some(_) => Err(err(&child(path, key), "expected text")),
+        _ => Err(err(here, "expected text")),
     }
 }
 
-fn req_text(map: &Map<String, Value>, key: &str, path: &str, max_chars: usize) -> Result<String, SchemaError> {
-    opt_text(map, key, path, max_chars)?.ok_or_else(|| err(&child(path, key), "required text is missing"))
+/// Turn a listed name into its enum through the enum's own serde name.
+fn from_name<T: serde::de::DeserializeOwned>(name: &str, here: &str) -> Result<T, SchemaError> {
+    serde_json::from_value(Value::String(name.to_string())).map_err(|_| err(here, "value not allowed"))
 }
 
-fn req_enum<T: Copy>(
-    map: &Map<String, Value>,
-    key: &str,
-    path: &str,
-    choices: &[(&str, T)],
-) -> Result<T, SchemaError> {
-    match map.get(key) {
-        Some(Value::String(s)) => choices
-            .iter()
-            .find(|(name, _)| *name == s.as_str())
-            .map(|(_, v)| *v)
-            .ok_or_else(|| err(&child(path, key), "value not allowed")),
-        Some(_) => Err(err(&child(path, key), "expected a listed value")),
-        None => Err(err(&child(path, key), "required field is missing")),
+/// Check one present, non-null value. `None` means it held nothing (empty text, an empty place).
+fn check_shape(shape: Shape, value: &Value, here: &str) -> Result<Option<Got>, SchemaError> {
+    match shape {
+        Shape::Text(max) => Ok(clean_text(value, max, here)?.map(Got::Text)),
+        Shape::Date => Ok(clean_text(value, 10, here)?.map(Got::Text)),
+        Shape::Clock => Ok(clean_text(value, 5, here)?.map(Got::Text)),
+        Shape::Currency => match clean_text(value, 3, here)? {
+            Some(c) if c.len() == 3 && c.bytes().all(|b| b.is_ascii_uppercase()) => Ok(Some(Got::Text(c))),
+            Some(_) => Err(err(here, "not a currency code")),
+            None => Ok(None),
+        },
+        Shape::Amount => match value {
+            Value::Number(n) => n
+                .as_i64()
+                .filter(|a| (0..=MAX_AMOUNT_MINOR).contains(a))
+                .map(|a| Some(Got::Amount(a)))
+                .ok_or_else(|| err(here, "not a valid amount")),
+            _ => Err(err(here, "not a valid amount")),
+        },
+        Shape::Choice(names) => match value {
+            Value::String(s) => names
+                .iter()
+                .find(|n| **n == s.as_str())
+                .map(|n| Some(Got::Choice(*n)))
+                .ok_or_else(|| err(here, "value not allowed")),
+            _ => Err(err(here, "expected a listed value")),
+        },
+        Shape::Local => {
+            let obj = as_map(value, here)?;
+            let mut got = walk(obj, LOCAL_FIELDS, &[], here)?;
+            let date = need(got.text("date"), here, "date")?;
+            let time = got.text("time");
+            let zone = got.text("zone");
+            LocalDateTime::from_parts(&date, time.as_deref(), zone.as_deref())
+                .map(|l| Some(Got::Local(l)))
+                .ok_or_else(|| err(here, "not a valid date"))
+        }
+        Shape::Place => {
+            let obj = as_map(value, here)?;
+            let mut got = walk(obj, PLACE_FIELDS, &[], here)?;
+            let place = Place {
+                code: got.text("code").map(|c| c.to_ascii_uppercase()),
+                name: got.text("name"),
+                city: got.text("city"),
+            };
+            Ok(if place.is_empty() { None } else { Some(Got::Place(place)) })
+        }
+        Shape::Facts => {
+            let list = value.as_array().ok_or_else(|| err(here, "expected a list"))?;
+            if list.len() > MAX_FACTS {
+                return Err(err(here, "too many facts"));
+            }
+            let mut facts = Vec::with_capacity(list.len());
+            for (i, item) in list.iter().enumerate() {
+                facts.push(validate_fact(item, &format!("{here}[{i}]"))?);
+            }
+            Ok(Some(Got::Facts(facts)))
+        }
     }
-}
-
-fn opt_local(map: &Map<String, Value>, key: &str, path: &str) -> Result<Option<LocalDateTime>, SchemaError> {
-    let value = match map.get(key) {
-        None | Some(Value::Null) => return Ok(None),
-        Some(v) => v,
-    };
-    let here = child(path, key);
-    let obj = as_map(value, &here)?;
-    only_keys(obj, &["date", "time", "zone"], &here)?;
-    let date = req_text(obj, "date", &here, 10)?;
-    let time = opt_text(obj, "time", &here, 5)?;
-    let zone = opt_text(obj, "zone", &here, 40)?;
-    LocalDateTime::from_parts(&date, time.as_deref(), zone.as_deref())
-        .map(Some)
-        .ok_or_else(|| err(&here, "not a valid date"))
-}
-
-fn opt_place(map: &Map<String, Value>, key: &str, path: &str) -> Result<Option<Place>, SchemaError> {
-    let value = match map.get(key) {
-        None | Some(Value::Null) => return Ok(None),
-        Some(v) => v,
-    };
-    let here = child(path, key);
-    let obj = as_map(value, &here)?;
-    only_keys(obj, &["code", "name", "city"], &here)?;
-    let place = Place {
-        code: opt_text(obj, "code", &here, 8)?.map(|c| c.to_ascii_uppercase()),
-        name: opt_text(obj, "name", &here, 80)?,
-        city: opt_text(obj, "city", &here, 80)?,
-    };
-    Ok(if place.is_empty() { None } else { Some(place) })
 }
 
 fn validate_fact(value: &Value, path: &str) -> Result<FactBody, SchemaError> {
     let map = as_map(value, path)?;
-    let kind = match map.get("type") {
+    let tag = match map.get("type") {
         Some(Value::String(s)) => s.as_str(),
         _ => return Err(err(&child(path, "type"), "required field is missing")),
     };
-    match kind {
+    let spec = FACT_SPECS
+        .iter()
+        .find(|s| s.tag == tag)
+        .ok_or_else(|| err(&child(path, "type"), "value not allowed"))?;
+    let mut got = walk(map, spec.fields, &["type"], path)?;
+    match spec.tag {
         "booking" => {
-            only_keys(
-                map,
-                &["type", "booking_kind", "reference", "name", "start", "end", "place", "from", "to"],
-                path,
-            )?;
-            let booking_kind = req_enum(
-                map,
-                "booking_kind",
-                path,
-                &[("hotel", BookingKind::Hotel), ("flight", BookingKind::Flight)],
-            )?;
-            let start = opt_local(map, "start", path)?;
-            let end = opt_local(map, "end", path)?;
+            let kind = need(got.choice("booking_kind"), path, "booking_kind")?;
+            let start = got.local("start");
+            let end = got.local("end");
             if start.is_none() && end.is_none() {
                 return Err(err(path, "a booking needs a start or an end date"));
             }
             Ok(FactBody::Booking(Booking {
-                kind: booking_kind,
-                reference: opt_text(map, "reference", path, 40)?,
-                name: opt_text(map, "name", path, 80)?,
+                kind: from_name::<BookingKind>(kind, &child(path, "booking_kind"))?,
+                reference: got.text("reference"),
+                name: got.text("name"),
                 start,
                 end,
-                place: opt_place(map, "place", path)?,
-                from: opt_place(map, "from", path)?,
-                to: opt_place(map, "to", path)?,
+                place: got.place("place"),
+                from: got.place("from"),
+                to: got.place("to"),
             }))
         }
         "party" => {
-            only_keys(map, &["type", "name", "role", "email"], path)?;
-            let email = opt_text(map, "email", path, 120)?;
+            let email = got.text("email");
             if let Some(e) = &email {
                 let at = e.matches('@').count();
                 if at != 1 || e.starts_with('@') || e.ends_with('@') || !e.is_ascii() {
                     return Err(err(&child(path, "email"), "not an address"));
                 }
             }
+            let role = need(got.choice("role"), path, "role")?;
             Ok(FactBody::Party(Party {
-                name: req_text(map, "name", path, 80)?,
-                role: req_enum(
-                    map,
-                    "role",
-                    path,
-                    &[
-                        ("customer", PartyRole::Customer),
-                        ("vendor", PartyRole::Vendor),
-                        ("colleague", PartyRole::Colleague),
-                        ("other", PartyRole::Other),
-                    ],
-                )?,
+                name: need(got.text("name"), path, "name")?,
+                role: from_name::<PartyRole>(role, &child(path, "role"))?,
                 email,
             }))
         }
         "commitment" => {
-            only_keys(map, &["type", "kind", "due", "label"], path)?;
+            let kind = need(got.choice("kind"), path, "kind")?;
             Ok(FactBody::Commitment(Commitment {
-                kind: req_enum(
-                    map,
-                    "kind",
-                    path,
-                    &[
-                        ("reply_needed", CommitmentKind::ReplyNeeded),
-                        ("deliver", CommitmentKind::Deliver),
-                        ("attend", CommitmentKind::Attend),
-                    ],
-                )?,
-                due: opt_local(map, "due", path)?,
-                label: req_text(map, "label", path, 120)?,
+                kind: from_name::<CommitmentKind>(kind, &child(path, "kind"))?,
+                due: got.local("due"),
+                label: need(got.text("label"), path, "label")?,
             }))
         }
         "money" => {
-            only_keys(
-                map,
-                &["type", "amount_minor", "currency", "direction", "due", "label"],
-                path,
-            )?;
-            let amount = match map.get("amount_minor") {
-                Some(Value::Number(n)) => n.as_i64(),
-                _ => None,
-            }
-            .filter(|a| (0..=1_000_000_000_000_i64).contains(a))
-            .ok_or_else(|| err(&child(path, "amount_minor"), "not a valid amount"))?;
-            let currency = req_text(map, "currency", path, 3)?;
-            if currency.len() != 3 || !currency.bytes().all(|b| b.is_ascii_uppercase()) {
-                return Err(err(&child(path, "currency"), "not a currency code"));
-            }
+            let direction = need(got.choice("direction"), path, "direction")?;
             Ok(FactBody::Money(Money {
-                amount_minor: amount,
-                currency,
-                direction: req_enum(
-                    map,
-                    "direction",
-                    path,
-                    &[
-                        ("owed_by_owner", MoneyDirection::OwedByOwner),
-                        ("owed_to_owner", MoneyDirection::OwedToOwner),
-                    ],
-                )?,
-                due: opt_local(map, "due", path)?,
-                label: req_text(map, "label", path, 120)?,
+                amount_minor: need(got.amount("amount_minor"), path, "amount_minor")?,
+                currency: need(got.text("currency"), path, "currency")?,
+                direction: from_name::<MoneyDirection>(direction, &child(path, "direction"))?,
+                due: got.local("due"),
+                label: need(got.text("label"), path, "label")?,
             }))
         }
         _ => Err(err(&child(path, "type"), "value not allowed")),
@@ -455,31 +571,12 @@ fn validate_fact(value: &Value, path: &str) -> Result<FactBody, SchemaError> {
 /// Check a parsed answer against the schema.
 pub fn validate(value: &Value) -> Result<TriageOutput, SchemaError> {
     let map = as_map(value, "answer")?;
-    only_keys(map, &["category", "facts"], "answer")?;
-    let category = req_enum(
-        map,
-        "category",
-        "answer",
-        &[
-            ("travel", TriageCategory::Travel),
-            ("customer", TriageCategory::Customer),
-            ("bill", TriageCategory::Bill),
-            ("other", TriageCategory::Other),
-            ("nothing", TriageCategory::Nothing),
-        ],
-    )?;
-    let list = match map.get("facts") {
-        Some(Value::Array(a)) => a,
-        _ => return Err(err("answer.facts", "expected a list")),
-    };
-    if list.len() > MAX_FACTS {
-        return Err(err("answer.facts", "too many facts"));
-    }
-    let mut facts = Vec::with_capacity(list.len());
-    for (i, item) in list.iter().enumerate() {
-        facts.push(validate_fact(item, &format!("answer.facts[{i}]"))?);
-    }
-    Ok(TriageOutput { category, facts })
+    let mut got = walk(map, ANSWER_FIELDS, &[], "answer")?;
+    let category = need(got.choice("category"), "answer", "category")?;
+    Ok(TriageOutput {
+        category: from_name::<TriageCategory>(category, "answer.category")?,
+        facts: need(got.facts("facts"), "answer", "facts")?,
+    })
 }
 
 fn strip_fence(raw: &str) -> &str {

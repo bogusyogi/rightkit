@@ -111,15 +111,15 @@ pub struct Signal {
     pub last_error: Option<String>,
 }
 
-/// The dedupe key: unique on (source, message id). The account is recorded on the signal but is not part of
-/// the key, as the plan says.
-pub fn dedupe_key(source: Source, message_id: &str) -> String {
-    digest::digest(&["signal", source.as_str(), message_id])
+/// The dedupe key: unique on (source, account, message id). Two accounts can see the same message id (a shared
+/// calendar event, a forwarded copy), and each account's copy is its own signal.
+pub fn dedupe_key(source: Source, account: &str, message_id: &str) -> String {
+    digest::digest(&["signal", source.as_str(), account, message_id])
 }
 
 impl Signal {
     pub fn admit(new: &NewSignal) -> Signal {
-        let key = dedupe_key(new.source, &new.message_id);
+        let key = dedupe_key(new.source, &new.account, &new.message_id);
         let id = format!("sig-{}", key.chars().take(16).collect::<String>());
         Signal {
             id,
