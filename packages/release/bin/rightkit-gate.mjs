@@ -5582,9 +5582,10 @@ export async function main(argv, io = {}) {
       // The commit's own files (rightkit#1393): a snapshot is not a git toplevel, so the secret scan needs this list to judge tracked files only and never what a stage wrote there.
       ...(snapshot ? { trackedFiles: files } : {}),
       classes: stageClasses, ...(classAEarlier ? { classAEarlier: true } : {}), jobs, classBJobs, classBBatching: !o[PRIVATE_SCOPED_COMPILE], groupTests: true,
-      // GC-A27 NN09 (acceptance case 1 on 0.6.63, 2026-11-24): every carried compile of a workspace is handed to the broker as soon as it is ready, none held until an
-      // earlier job ends. The broker owns the order and runs one build per repository; with two in flight the last command of the fixture went out three minutes late.
-      classBPipeline: Number.POSITIVE_INFINITY, ...(brokerHost ? { brokerHost: true } : {}), ...(brokerLive ? { brokerLive } : {}), signal: ac.signal, ...(cache ? { cache } : {}),
+      // One carried command of a workspace in flight at a time; every workspace at once. The commands of one workspace share its output folder and Cargo's lock, so
+      // they are not independent: sent together (0.6.64, 2026-11-24) the broker ran clippy and check of one crate side by side, each waited on the lock and rebuilt
+      // what the other had built under other features, and one clippy took 615 s instead of 3. Holding them is the reason NN09 asks for (GC-A27).
+      classBPipeline: 1, ...(brokerHost ? { brokerHost: true } : {}), ...(brokerLive ? { brokerLive } : {}), signal: ac.signal, ...(cache ? { cache } : {}),
       // NN41: the installed broker runtime's identity keys every cached compile failure; null (a direct host, an unreadable manifest) means no failure is cached.
       ...(brokerHost && cache ? (() => { const identity = brokerRuntimeIdentityText({ clients: [brokerClient, executor?.client, cargoCommand[0]], env: { ...o.env, ...(executor.env ?? {}) }, platform: o.platform }); return identity ? { failureIdentity: identity } : {}; })() : {}),
       // The declared Linux broker route: the scans are planned with the logical `rustright`, which this spawn (and scanSpawn's pass-through below) starts as the

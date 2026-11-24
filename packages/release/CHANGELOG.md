@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.66
+
+- NN09: one carried command per workspace is in flight at a time again, every workspace at once. 0.6.64 sent every command of a workspace together; the broker then ran clippy and check of one crate side by side on one output folder, and one clippy took 615 s instead of 3.
+
 ## 0.6.65
 
 - NN07 (GC-A27): the sidecar's cargo build no longer goes to the broker on a commit that does not change it. The gate keys the sidecar's own sources from the commit (its crate and path dependencies, their Cargo and toolchain files, the release config, target, mode, the gate's code, the Rust variables and the installed toolchains); when the key is that of the last staging and its receipt is in the snapshot, stage-sidecar only checks the staged files (`--if-stale`). Found by acceptance case 3 on 0.6.63.
