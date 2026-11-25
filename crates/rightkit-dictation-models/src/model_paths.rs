@@ -11,11 +11,10 @@ use std::path::{Path, PathBuf};
 // 2026-07-22 switch: the activating marker is transaction-local, and only the
 // activated marker written after a successful native load makes CURRENT win
 // over a retired model that is still on disk.
-#[cfg(not(target_os = "macos"))]
+// The three retired directory names are compiled on every host: `local_asr_label` classifies a
+// directory name wherever it runs.
 pub const WINDOWS_TDT_OLDEST_SUBDIR: &str = "parakeet_tdt_v3_b64_sym_bits4_protect";
-#[cfg(not(target_os = "macos"))]
 pub const WINDOWS_TDT_OLDER_SUBDIR: &str = "parakeet_tdt_v3_dynamic_b64_fp16storage_20260720";
-#[cfg(not(target_os = "macos"))]
 pub const WINDOWS_TDT_PREVIOUS_SUBDIR: &str = "parakeet_tdt_v3_static1500_qint8_20260722";
 #[cfg(not(target_os = "macos"))]
 pub const WINDOWS_TDT_CURRENT_SUBDIR: &str = crate::ultra_model::ULTRA_WINDOWS_ID;
