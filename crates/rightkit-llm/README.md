@@ -7,7 +7,7 @@ Catalog capability: `llm-providers`. Release versions are tracked in [INDEX.md](
 ## What it owns
 
 - `anthropic::AnthropicProvider`: the Anthropic Messages API.
-- `openai::OpenAiCompatProvider`: chat completions for OpenAI and compatible endpoints (OpenRouter, Groq, DeepSeek, Together, Mistral, xAI, the Gemini endpoint, NVIDIA NIM, Ollama, LM Studio). `presets` lists the known endpoints. It also lists models (`list_models`) and checks a key (`validate_credential`).
+- `openai::OpenAiCompatProvider`: chat completions for OpenAI and compatible endpoints (OpenRouter, Groq, DeepSeek, Together, Mistral, xAI, the Gemini endpoint, NVIDIA NIM, Ollama, LM Studio, the llama.cpp server). `presets` lists the known endpoints. It also lists models (`list_models`) and checks a key (`validate_credential`).
 - `failover::FailoverChain`, `Route`, `FailoverPolicy`, `FailoverOn`: route failover, a first-token timeout, and a circuit breaker. `FailoverEvent` reports each switch. The default trigger is retryable errors only; `FailoverOn::AnyError` and `FailoverOn::custom` widen it.
 - `pricing::PriceTable`: per-model prices.
 - `cache`: prompt-cache breakpoint planning (`plan_breakpoints`, `CacheBreakpointPlanner`) and a `CacheLedger`.

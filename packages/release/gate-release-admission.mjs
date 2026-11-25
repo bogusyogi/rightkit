@@ -1,3 +1,5 @@
+// The twelve-line result (rightkit.acceptance-result/1, acceptance-admission.mjs) is admitted first; what follows describes the old contract-test receipt, still read against the
+// hashes contract-nn.json keeps of the retired runner (`retiredRunner`; the runner itself was deleted in rightkit#1514 step 9).
 // Admission of a gate-package release (docs/GATE-CONTRACT.md NN31: no gate is released without a passing contract test; loop matrix G21, G26).
 //
 // Run where the package archive is about to be published. It has no broker and is not the host that ran the test, so it judges only what it is
@@ -5,11 +7,11 @@
 // commit. A job claim is the small statement the broker signs to leave the host ({ id, publication }; rustright GB-104): the key, the host name,
 // the broker build, the job id, the nonce, the commit, the result and the kind of command. The whole receipts and their full signed part name
 // the environment variables the broker dropped and the host's paths; they stay on the host. This repository and its CI are public. It refuses unless every one of the following holds.
-//   1. The receipt passes the release check (gate-acceptance.mjs verifyReleaseReceipts) for this commit, with the contract, budgets and runner
+//   1. The receipt passes the release check (legacy-contract-receipt.mjs verifyReleaseReceipts) for this commit, with the contract, budgets and runner
 //      files of this checkout, the exact rule set, and names exactly the archive in question. It is a candidate's receipt.
 //  1b. The archive is tied to the tested gate by the seal itself, not by the receipt's statement: the manifest handed over hashes to the seal (and the
 //      seal is inside every signed job nonce, rule 3); that manifest lists the installer's source record; the record handed over hashes to that
-//      line and names exactly the archive in question (gate-acceptance.mjs archiveOfSeal).
+//      line and names exactly the archive in question (legacy-contract-receipt.mjs archiveOfSeal).
 //   2. The host is one this repository trusts: ci/rk-pipeline.json attestation.<platform> gives its key, host name and broker build. The receipt's
 //      broker is that build (loop matrix C9: a host whose installed broker is not the committed one cannot be admitted until that list is updated).
 //   3. The run's broker jobs: the list is not empty; every listed job's claim is in the bundle with the listed hash, carries the broker's
@@ -26,11 +28,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import { BUDGETS_FILE, CONTRACT_FILE, RUNNER_FILE, archiveIdentity, archiveOfSeal, runnerFileHashes, validWaiver, verifyReleaseReceipts } from "./gate-acceptance.mjs";
+import { CONTRACT_FILE, archiveIdentity, archiveOfSeal, verifyReleaseReceipts } from "./legacy-contract-receipt.mjs";
 import { contractJobNonce } from "./gate-seam.mjs";
 import { verifyPublicationClaim } from "./receipt-signature.mjs";
+import { ACCEPTANCE_RESULT_SCHEMA, admitAcceptanceResult, judgeFileHashes } from "./acceptance-admission.mjs";
+import { execFileSync } from "node:child_process";
 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+/** The tree id of a commit in this checkout. */
+const defaultTreeOf = (commit) => String(execFileSync("git", ["-C", path.dirname(CONTRACT_FILE), "rev-parse", `${commit}^{tree}`], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true })).trim();
 const PLATFORM_OF = Object.freeze({ mac: "darwin", dell: "win32" });
 const stepIdOf = (label) => String(label).split(":")[0];
 
@@ -116,7 +122,7 @@ export function admitGateRelease({ receipt, readJob, archiveBytes, commit, pipel
  * Admission from files on disk: the receipt, the archive in question, the release commit and the committed pipeline file. The folders
  * `job-claims` and `gate-seal` must sit beside the receipt. Returns { ok, problems, facts }; never throws for a missing or bad input.
  */
-export function admitFromFiles({ receiptFile, archiveFile, commit, pipelineFile = null }) {
+export function admitFromFiles({ receiptFile, archiveFile, commit, pipelineFile = null, treeOf = defaultTreeOf }) {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const problems = [];
   if (!receiptFile) problems.push("no contract-test receipt was named");
@@ -127,16 +133,29 @@ export function admitFromFiles({ receiptFile, archiveFile, commit, pipelineFile 
   const archiveBytes = archiveFile ? read("the archive", archiveFile, false) : null;
   const pipeline = read("the pipeline file", pipelineFile ?? path.resolve(here, "..", "..", "ci", "rk-pipeline.json"), true);
   const sealed = read("contract-nn.json", path.join(here, "contract-nn.json"), true);
-  const budgets = read("the budgets file", BUDGETS_FILE, true);
   if (problems.length) return { ok: false, problems, facts: null };
+  // A twelve-line result (GC-A27) is admitted by its own rules; any other record is the old contract-test receipt, read as before so results sealed earlier stay readable.
+  if (receipt.schema === ACCEPTANCE_RESULT_SCHEMA) {
+    if (receipt.jobClaims !== "job-claims") return { ok: false, problems: [`the result names its job claims folder as ${JSON.stringify(receipt.jobClaims)}, expected "job-claims"`], facts: null };
+    const dir = path.dirname(path.resolve(receiptFile));
+    const orNull = (f) => { try { return fs.readFileSync(f); } catch { return null; } };
+    const seal = receipt.gateSeal === "gate-seal" ? path.join(dir, "gate-seal") : null;
+    let tree = null; try { tree = treeOf(commit); } catch (e) { problems.push(`the tree of ${commit} cannot be read (${e.message})`); }
+    const contractText = String(fs.readFileSync(CONTRACT_FILE));
+    const admitted = admitAcceptanceResult({ result: receipt, readJob: (id) => fs.readFileSync(path.join(dir, "job-claims", `${id}.json`)), archiveBytes, commit, tree, pipeline, contractText, contractSha256: sha256(contractText), judgeFiles: judgeFileHashes(),
+      manifestBytes: seal ? orNull(path.join(seal, "manifest.txt")) : null, sourceBytes: seal ? orNull(path.join(seal, "trusted-gate-source.json")) : null });
+    return { ...admitted, ok: admitted.ok && problems.length === 0, problems: [...problems, ...admitted.problems] };
+  }
   if (receipt.jobClaims !== "job-claims") return { ok: false, problems: [`the receipt names its job claims folder as ${JSON.stringify(receipt.jobClaims)}, expected "job-claims"`], facts: null };
   const beside = path.dirname(path.resolve(receiptFile));
   const readOrNull = (f) => { try { return fs.readFileSync(f); } catch { return null; } };
-  const fileSha = (f) => sha256(fs.readFileSync(f));
   const seal = receipt.gateSeal === "gate-seal" ? path.join(beside, "gate-seal") : null;
+  // The old test's runner, budgets and contract text are gone from the tree; what an old receipt is judged against is what contract-nn.json recorded of them (`retiredRunner`).
+  const retired = sealed?.retiredRunner;
+  if (!retired || typeof retired.runnerSha256 !== "string" || typeof retired.budgetsSha256 !== "string" || typeof retired.contractSha256 !== "string" || !Array.isArray(retired.runnerFiles)) return { ok: false, problems: ["this checkout's contract-nn.json records no retired runner (retiredRunner), so a contract-test receipt cannot be read"], facts: null };
   const result = admitGateRelease({ manifestBytes: seal ? readOrNull(path.join(seal, "manifest.txt")) : null, sourceBytes: seal ? readOrNull(path.join(seal, "trusted-gate-source.json")) : null, receipt,
-    readJob: (id) => fs.readFileSync(path.join(beside, "job-claims", `${id}.json`)), archiveBytes, commit, pipeline, sealed, contractSha256: fileSha(CONTRACT_FILE), budgetsSha256: fileSha(BUDGETS_FILE), runnerSha256: fileSha(RUNNER_FILE), runnerFiles: runnerFileHashes(),
-    waivers: (Array.isArray(budgets?.waivers) ? budgets.waivers : []).filter(validWaiver) });
+    readJob: (id) => fs.readFileSync(path.join(beside, "job-claims", `${id}.json`)), archiveBytes, commit, pipeline, sealed: retired, contractSha256: retired.contractSha256, budgetsSha256: retired.budgetsSha256, runnerSha256: retired.runnerSha256, runnerFiles: retired.runnerFiles,
+    waivers: [] });
   return result;
 }
 

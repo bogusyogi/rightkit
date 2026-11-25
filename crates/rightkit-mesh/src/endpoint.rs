@@ -1810,6 +1810,12 @@ impl SyncMesh {
         &self.mesh
     }
 
+    /// A handle to the runtime that drives this mesh, for code that needs one (for example
+    /// [`crate::pump::pump_blocking`]). Cloning it is cheap; it does not keep the runtime alive.
+    pub fn handle(&self) -> tokio::runtime::Handle {
+        self.rt.handle().clone()
+    }
+
     /// Run a mesh future to completion from a blocking thread.
     pub fn block_on<F: std::future::Future>(&self, future: F) -> F::Output {
         self.rt.block_on(future)

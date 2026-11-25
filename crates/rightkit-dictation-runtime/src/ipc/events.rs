@@ -24,6 +24,7 @@ pub(crate) fn spawn_worker_event_pump(
                     ts,
                     fire_count,
                     threshold,
+                    follow_up,
                 } => {
                     emit_event(
                         &writer,
@@ -32,7 +33,11 @@ pub(crate) fn spawn_worker_event_pump(
                         Some(EnginePayload::WakeFired {
                             ts,
                             fire_count: Some(fire_count),
-                            model: Some("kws-hey-zephyr".into()),
+                            model: Some(if follow_up {
+                                "follow-up".into()
+                            } else {
+                                "kws-hey-zephyr".into()
+                            }),
                             threshold: Some(threshold),
                             score: None,
                         }),
@@ -370,6 +375,24 @@ pub(crate) fn emit_finalized(
                 diagnostics: diagnostics_value(DiagnosticsPayload {
                     reset_to_armed: Some(true),
                     command_failed: Some(message),
+                    ..Default::default()
+                }),
+            }),
+        ),
+        // Pulse did not accept the hand-off: the words stay with the owner (history, not delivery) and the
+        // pill gets the reason.
+        Ok(FinalizeOutcome::HandoffKept { text, message }) => emit_event(
+            writer,
+            EngineSchemaName::TranscriptFinal,
+            Some(session_id),
+            Some(EnginePayload::TranscriptFinal {
+                text,
+                confidence: Some(1.0),
+                diagnostics: diagnostics_value(DiagnosticsPayload {
+                    shell_delivery: Some(true),
+                    cancelled: Some(true),
+                    command_failed: Some(message),
+                    recording_stage_metrics: Some(stage_metrics),
                     ..Default::default()
                 }),
             }),

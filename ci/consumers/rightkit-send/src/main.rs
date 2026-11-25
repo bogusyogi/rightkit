@@ -1,4 +1,4 @@
-// rightkit-send 0.3.0 consumed by exact registry pin (default features), outside the workspace.
+// rightkit-send 0.4.1 consumed by exact registry pin (default features), outside the workspace.
 //
 // Proves the receiving side end to end over loopback and the pure public surface, as a host that feeds
 // discovery itself (the iOS configuration: no multicast, no Bonjour) uses it.
@@ -1366,5 +1366,65 @@ fn main() {
     stop_restart_and_port_in_use(&scratch);
     exchanges(&scratch);
     policy_effects(&scratch);
-    println!("OK rightkit-send 0.3.0 (registry consumer)");
+    typed_envelope();
+    println!("OK rightkit-send 0.4.1 (registry consumer)");
+}
+
+// ---- the typed batch envelope (0.4.1) ---------------------------------------------
+
+/// The concrete `Small` keeps the host's tag as raw JSON; `SmallOf<T>` decodes the same bytes into the
+/// host's own type, with the same defaults, null handling and wire shape.
+fn typed_envelope() {
+    use rightkit_send::transport::{Small, SmallOf};
+    let batch = |agent: Option<Value>| {
+        let mut wire = json!({"t": "batch", "id": "b1", "count": 1, "bytes": 3, "names": ["a"]});
+        if let Some(agent) = agent {
+            wire["agent"] = agent;
+        }
+        serde_json::to_vec(&wire).expect("wire bytes")
+    };
+    let tagged = batch(Some(json!("chat-7")));
+    match SmallOf::<String>::decode(&tagged) {
+        Some(SmallOf::Batch {
+            agent,
+            clipboard,
+            parts,
+            ..
+        }) => {
+            assert_eq!(agent.as_deref(), Some("chat-7"), "typed tag decodes");
+            assert!(!clipboard && parts == 0, "protocol defaults hold");
+        }
+        other => panic!("typed batch not decoded: {other:?}"),
+    }
+    match Small::decode(&tagged) {
+        Some(Small::Batch { agent, .. }) => {
+            assert_eq!(agent, Some(json!("chat-7")), "raw tag carried untouched");
+        }
+        other => panic!("raw batch not decoded: {other:?}"),
+    }
+    for absent in [batch(None), batch(Some(Value::Null))] {
+        match SmallOf::<String>::decode(&absent) {
+            Some(SmallOf::Batch { agent, .. }) => {
+                assert!(agent.is_none(), "absent and null are no tag")
+            }
+            other => panic!("untagged batch not decoded: {other:?}"),
+        }
+    }
+    let wrong = batch(Some(json!(7)));
+    assert!(
+        SmallOf::<String>::decode(&wrong).is_none(),
+        "a tag of the wrong shape is refused by the typed decoder"
+    );
+    assert!(
+        Small::decode(&wrong).is_some(),
+        "the raw decoder still carries it"
+    );
+    let typed = SmallOf::<String>::decode(&tagged).expect("typed batch");
+    let again = typed.encode().expect("typed encode");
+    let (left, right): (Value, Value) = (
+        serde_json::from_slice(&again).expect("json"),
+        serde_json::from_slice(&tagged).expect("json"),
+    );
+    assert_eq!(left["agent"], right["agent"], "the wire shape is the same");
+    println!("ok: typed and raw batch envelopes agree");
 }

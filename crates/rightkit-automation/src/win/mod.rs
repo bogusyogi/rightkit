@@ -5,6 +5,7 @@
 pub mod bounded;
 pub(crate) mod capture_safety;
 pub(crate) mod clip;
+pub mod clipboard_text;
 pub mod dialog;
 pub mod dropfiles;
 pub mod ime;
@@ -205,7 +206,16 @@ impl Platform for WinPlatform {
     fn activate(&self, pid: i32) -> bool {
         sys::activate(pid)
     }
-    fn foreground(&self, _pid: i32, ev: &InputEvent) -> Result<()> {
+    fn foreground(&self, pid: i32, ev: &InputEvent) -> Result<()> {
+        // Checked before every event, not once per act: the user or another app can take the foreground
+        // between two events, and a key or click sent then would land in the wrong window.
+        let front = sys::foreground_pid();
+        if front != Some(pid) {
+            return Err(Error::FocusMoved {
+                before: Some(pid),
+                after: front,
+            });
+        }
         sys::foreground_send(ev)
     }
 

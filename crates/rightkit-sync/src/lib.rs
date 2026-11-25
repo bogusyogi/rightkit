@@ -8,6 +8,8 @@ pub mod cipher;
 pub mod drive;
 mod engine;
 mod error;
+#[cfg(feature = "cipher")]
+pub mod families;
 #[cfg(feature = "helper")]
 pub mod helper;
 #[cfg(feature = "http")]
@@ -17,6 +19,8 @@ mod record;
 #[cfg(feature = "transcripts")]
 pub mod recovery_marker;
 mod schedule;
+#[cfg(any(feature = "drive", feature = "http"))]
+pub mod scope;
 mod storage;
 mod traits;
 #[cfg(feature = "transcript-host")]

@@ -18,7 +18,6 @@ use crate::host;
 use crate::model::{self as clip, Kind};
 use crate::paste::{WRITE_WAITS, mark_own, write_back};
 use crate::win::{self, Open};
-use rightkit_notch_ui::card::{CardContent, Row};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
@@ -184,9 +183,18 @@ pub fn burst_dismiss() {
     }
 }
 
-/// The card a hovered dot shows: where the item stands in the burst and a snippet of it. `None`
-/// when no dot is hovered. Hangs from the Send cell like its other popups, without expanding it.
-pub fn burst_preview_panel() -> Option<CardContent> {
+/// The hovered item's position and preview data for hosts that draw their own card.
+pub struct BurstPreview {
+    pub position: usize,
+    pub total: usize,
+    pub selected: bool,
+    pub kind: Kind,
+    pub snippet: String,
+    pub image_path: Option<std::path::PathBuf>,
+}
+
+/// Preview data for the hovered dot, when present.
+pub fn burst_preview() -> Option<BurstPreview> {
     let (position, total, selected, id) = {
         let state = locked();
         let index = state.hover.filter(|&i| i < state.items.len())?;
@@ -199,39 +207,24 @@ pub fn burst_preview_panel() -> Option<CardContent> {
     };
     let (kind, preview) =
         clip::with(|store| store.get(&id).map(|item| (item.kind, item.preview.clone())))?;
-    let mut snippet: String = preview
+    let snippet: String = preview
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
         .chars()
         .take(PREVIEW_CHARS)
         .collect();
-    if snippet.is_empty() {
-        snippet = match kind {
-            Kind::Image => host::t("Image").to_string(),
-            Kind::File => host::t("Files").to_string(),
-            _ => host::t("Empty").to_string(),
-        };
-    }
-    // An image shows its thumbnail (a file row over the stored PNG); anything else its text.
-    let picture = (kind == Kind::Image)
+    let image_path = (kind == Kind::Image)
         .then(|| clip::with(|store| store.payload(&id)).and_then(|payload| payload.png))
-        .flatten()
-        .map(|png| Row::File {
-            name: snippet.clone(),
-            path: png.to_string_lossy().into_owned(),
-        });
-    let mut content = CardContent::plain(
-        host::tf(
-            "Copy {} of {}",
-            &[&position.to_string(), &total.to_string()],
-        ),
-        vec![picture.unwrap_or(Row::Text(snippet))],
-    );
-    if selected {
-        content.accessory = Some(host::t("Selected").to_string());
-    }
-    Some(content)
+        .flatten();
+    Some(BurstPreview {
+        position,
+        total,
+        selected,
+        kind,
+        snippet,
+        image_path,
+    })
 }
 
 // ---- copying -------------------------------------------------------------------------------

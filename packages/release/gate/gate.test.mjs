@@ -877,6 +877,25 @@ test("G30: the running broker is asked once per run before any lookup; unknown, 
   } finally { fs.rmSync(snap, { recursive: true, force: true }); }
 });
 
+test("a win32 .cmd broker client is resolved to its shim's .exe before identity, broker probe and dispatch; a bad shim sends nothing", async () => {
+  const snap = fakeSnapshot({ a: {} });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-shim-"));
+  try {
+    const exe = "C:\\runtime\\rustright.exe";
+    const shim = path.join(dir, "rustright.cmd");
+    fs.writeFileSync(shim, ["@echo off", "rem rustright.build-control.agent-shims.install.v1", "setlocal", 'set "RUSTRIGHT_MANAGED_AGENT_SHIM="', 'set "RIGHTKIT_MANAGED_AGENT_SHIM="', `"${exe}" %*`, "exit /b %ERRORLEVEL%"].join("\r\n"));
+    const seen = {};
+    const run = await compileTogether({ snapshot: snap, commit: "c".repeat(40), crates: ["a"], platform: "win32", arch: "x64", client: shim, env: {}, verdictFile: path.join(snap, "v.json"), storeDir: path.join(snap, ".calls"), send: fakeSeam().send, identityOf: (o) => { seen.identity = o.client; return testIdentity(o); }, askBroker: ({ client }) => { seen.ask = client; return TEST_BROKER; }, runTestsWith: fakeTests() });
+    assert.equal(run.code, 0);
+    assert.equal(seen.identity, exe, "the manifest is read beside the .exe, not beside the shim");
+    assert.equal(seen.ask, exe, "the running broker is asked through the .exe, not the shim");
+    fs.writeFileSync(shim, ["@echo off", `"${exe}" %*`].join("\r\n"));
+    let sent = 0;
+    await assert.rejects(compileTogether({ snapshot: snap, commit: "c".repeat(40), crates: ["a"], platform: "win32", arch: "x64", client: shim, env: {}, verdictFile: path.join(snap, "v.json"), storeDir: path.join(snap, ".calls2"), send: (call) => { sent += 1; return fakeSeam().send(call); }, identityOf: testIdentity, askBroker: () => TEST_BROKER, runTestsWith: fakeTests() }), (e) => e.code === "RK_BROKER_CLIENT_UNRESOLVED");
+    assert.equal(sent, 0, "an unresolvable client dispatches nothing");
+  } finally { fs.rmSync(snap, { recursive: true, force: true }); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("test work stays inside 80% of the machine: programs at once times threads each", async () => {
   const { testWidth, testProgramsAtOnce } = await import("./tests.mjs");
   const { testKeyEnv } = await import("../test-env.mjs");

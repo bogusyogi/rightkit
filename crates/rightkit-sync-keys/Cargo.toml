@@ -9,13 +9,17 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["sync", "e2ee", "key-management", "x25519", "xchacha20poly1305"]
 categories = ["cryptography"]
-# Parked 2026-10-16 (Adrian: own-cloud sync, CloudKit + Google Drive; no service of ours). Kept, not published.
-publish = false
 include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[features]
+# `SyncKeys`: a `KeyProvider` as `rightkit-sync`'s `cipher::VersionedKeyProvider`. Off by default so a host
+# that only holds keys links no sync engine.
+sync = ["dep:rightkit-sync"]
 
 [dependencies]
 rightkit-credentials = { version = "0.5.0", path = "../rightkit-credentials" }
 rightkit-identity = { version = "0.1.1", path = "../rightkit-identity" }
+rightkit-sync = { version = "0.4.2", path = "../rightkit-sync", default-features = false, features = ["cipher"], optional = true }
 thiserror = "2"
 getrandom = "0.4"
 zeroize = "1.9"

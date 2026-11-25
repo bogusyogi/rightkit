@@ -13,3 +13,4 @@ pub mod host;
 pub mod json;
 pub mod notes;
 pub mod rates;
+pub mod usage;

@@ -49,7 +49,39 @@ public final class AttachedEngine: EngineClient {
     /// The wait for a call that passes no `timeout`.
     public let defaultCallTimeout: Duration
 
+    /// Selects which discovery records may supply an endpoint. An explicit endpoint remains
+    /// subject to peer verification under either policy.
+    public enum ResidentRecordPolicy: Sendable {
+        /// Accept the structured heartbeat and legacy flat records.
+        case allowUntimestamped
+        /// Accept only a structured heartbeat within the existing freshness limit.
+        case requireHeartbeat
+    }
+
     private let core: AttachedCore
+
+    public convenience init(
+        endpoint: String? = nil,
+        stateDirectory: URL,
+        expectedExecutables: [URL],
+        app: String,
+        engineName: String,
+        eventsPollMethod: String,
+        defaultCallTimeout: Duration = .seconds(60),
+        bootBudget: Duration = .seconds(60)
+    ) {
+        self.init(
+            endpoint: endpoint,
+            stateDirectory: stateDirectory,
+            expectedExecutables: expectedExecutables,
+            app: app,
+            engineName: engineName,
+            eventsPollMethod: eventsPollMethod,
+            defaultCallTimeout: defaultCallTimeout,
+            bootBudget: bootBudget,
+            residentRecordPolicy: .allowUntimestamped
+        )
+    }
 
     public init(
         endpoint: String? = nil,
@@ -59,7 +91,8 @@ public final class AttachedEngine: EngineClient {
         engineName: String,
         eventsPollMethod: String,
         defaultCallTimeout: Duration = .seconds(60),
-        bootBudget: Duration = .seconds(60)
+        bootBudget: Duration = .seconds(60),
+        residentRecordPolicy: ResidentRecordPolicy
     ) {
         self.endpoint = endpoint
         self.stateDirectory = stateDirectory
@@ -74,7 +107,8 @@ public final class AttachedEngine: EngineClient {
             expectedExecutables: expectedExecutables.map(\.path),
             app: app,
             engineName: engineName,
-            bootBudget: bootBudget.attachedSeconds
+            bootBudget: bootBudget.attachedSeconds,
+            residentRecordPolicy: residentRecordPolicy
         )
     }
 
@@ -271,6 +305,7 @@ final class AttachedCore: Sendable {
     private let app: String
     private let engineName: String
     private let bootBudget: Double
+    private let residentRecordPolicy: AttachedEngine.ResidentRecordPolicy
     private let wakeup = DispatchSemaphore(value: 0)
 
     private struct State: Sendable {
@@ -293,7 +328,8 @@ final class AttachedCore: Sendable {
         expectedExecutables: [String],
         app: String,
         engineName: String,
-        bootBudget: Double
+        bootBudget: Double,
+        residentRecordPolicy: AttachedEngine.ResidentRecordPolicy
     ) {
         self.endpointOverride = endpoint
         self.recordURL = recordURL
@@ -301,6 +337,7 @@ final class AttachedCore: Sendable {
         self.app = app
         self.engineName = engineName
         self.bootBudget = bootBudget
+        self.residentRecordPolicy = residentRecordPolicy
     }
 
     // MARK: Endpoint and connections
@@ -330,8 +367,12 @@ final class AttachedCore: Sendable {
 
     /// The endpoint a `resident.json` body names, or nil when the body is unreadable, names none, or
     /// is a heartbeat older than ``recordFreshSeconds``. A flat record has no timestamp and is
-    /// accepted as written.
-    static func endpoint(fromRecord data: Data, now: Date = Date()) -> String? {
+    /// accepted only under the compatibility policy.
+    static func endpoint(
+        fromRecord data: Data,
+        now: Date = Date(),
+        policy: AttachedEngine.ResidentRecordPolicy = .allowUntimestamped
+    ) -> String? {
         guard let record = try? JSONDecoder().decode(Record.self, from: data) else { return nil }
         if let state = record.state {
             guard !state.endpoint.isEmpty, let updatedMs = record.updatedMs,
@@ -339,13 +380,18 @@ final class AttachedCore: Sendable {
             else { return nil }
             return state.endpoint
         }
-        guard let endpoint = record.endpoint, !endpoint.isEmpty else { return nil }
+        guard case .allowUntimestamped = policy,
+            let endpoint = record.endpoint,
+            !endpoint.isEmpty
+        else { return nil }
         return endpoint
     }
 
     private func resolveEndpoint() throws -> String {
         if let endpointOverride { return endpointOverride }
-        guard let data = try? Data(contentsOf: recordURL), let endpoint = Self.endpoint(fromRecord: data) else {
+        guard let data = try? Data(contentsOf: recordURL),
+            let endpoint = Self.endpoint(fromRecord: data, policy: residentRecordPolicy)
+        else {
             throw AttachedFailure.starting("no engine record yet", engineName: engineName)
         }
         return endpoint

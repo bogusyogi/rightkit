@@ -4,6 +4,10 @@
 //! - Clear the utterance only on [`Receipt::Accepted`].
 //! - Never type or replay the transcript into a focused app, whatever the receipt.
 //! - [`Receipt::Refused`] is not retried automatically.
+//! - [`Receipt::Unreachable`]: no engine answered and nothing ran. Keep the words; send again with the
+//!   same key when Pulse is up or on the owner's action ([`submit`] never resends it by itself).
+//! - [`Receipt::Unknown`]: sent, no answer. [`submit`] resends once with the same key; after that keep
+//!   the words and wait for the owner.
 //!
 //! The transcript travels on the CLI's stdin only, never on its command line.
 
@@ -11,6 +15,9 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use rightkit_agent_task_contract::device::{DevicePlatform, DeviceRef, DEVICE_REF_SCHEMA_VERSION};
+use rightkit_agent_task_contract::task::{UtteranceRef, UTTERANCE_REF_SCHEMA_VERSION};
+use rightkit_agent_task_contract::voice as contract;
 use rightkit_child_process::OwnedCommand;
 use serde::{Deserialize, Serialize};
 
@@ -153,6 +160,52 @@ impl HandoffRecord {
         Ok(())
     }
 
+    /// The record the Pulse command line reads: the agent task contract's own `VoiceHandoff`, so what is sent
+    /// is what the contract's types accept (it refuses unknown fields, and its transcript, session id, wake id
+    /// and confidence sit at the top level, not inside `utterance`). Call [`HandoffRecord::validate`] first;
+    /// the confidence is narrowed to the contract's `f32`.
+    pub fn to_voice_handoff(&self) -> contract::VoiceHandoff {
+        contract::VoiceHandoff {
+            schema_version: contract::VOICE_HANDOFF_SCHEMA_VERSION,
+            utterance: UtteranceRef {
+                schema_version: UTTERANCE_REF_SCHEMA_VERSION,
+                utterance_id: self.utterance.utterance_id.clone(),
+                generation: self.utterance.generation,
+            },
+            session_id: self.utterance.session_id.clone(),
+            wake_id: self.utterance.wake_id.clone(),
+            transcript: self.utterance.transcript.clone(),
+            confidence: self.utterance.confidence as f32,
+            device: DeviceRef {
+                schema_version: DEVICE_REF_SCHEMA_VERSION,
+                device_id: self.device.device_id.clone(),
+                platform: match self.device.platform {
+                    Platform::Mac => DevicePlatform::Mac,
+                    Platform::Windows => DevicePlatform::Windows,
+                    Platform::Linux => DevicePlatform::Linux,
+                    Platform::Ios => DevicePlatform::Ios,
+                },
+                display_name: self.device.display_name.clone(),
+            },
+            owner_id: self.owner_id.clone(),
+            mode: contract::VoiceMode::AddressedControl,
+            checks: contract::VoiceChecks {
+                schema_version: contract::VOICE_CHECKS_SCHEMA_VERSION,
+                r0: contract::R0Check {
+                    outcome: contract::R0Outcome::NoExactMatch,
+                    catalog_version: self.checks.r0.catalog_version.clone(),
+                },
+                r1: contract::R1Check {
+                    outcome: contract::R1Outcome::UnresolvedAgentRequest,
+                    registry_version: self.checks.r1.registry_version.clone(),
+                },
+            },
+            context_refs: self.context_refs.clone(),
+        }
+    }
+
+    /// The key the command line derives from the utterance (`VoiceHandoff::to_task_envelope`), so a resend
+    /// after an unknown receipt names the same task.
     pub fn idempotency_key(&self) -> String {
         format!(
             "voice:{}:{}",
@@ -161,85 +214,273 @@ impl HandoffRecord {
     }
 }
 
+/// What the host knows about itself and the owner for every hand-off. The rest of a record comes from
+/// the recording.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HandoffIdentity {
+    pub device_id: String,
+    pub display_name: Option<String>,
+    pub owner_id: String,
+    /// Version of the exact command catalog the recording was checked against (R0).
+    pub catalog_version: String,
+    /// Version of the destination and action registry the recording was checked against (R1).
+    pub registry_version: String,
+    /// Ask for an answer written to be read aloud: the hand-off is submitted as `agent.request` with
+    /// `reply: "speech"`. That is an answer-only run whatever the `agentActions` switch says, so a spoken
+    /// request never starts an acting run. Off: the command line picks the kind (`agent.act` while
+    /// `agentActions` is on).
+    pub spoken_reply: bool,
+}
+
+/// The platform this build runs on, as a hand-off names it.
+pub fn local_platform() -> Platform {
+    #[cfg(target_os = "macos")]
+    {
+        Platform::Mac
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Platform::Windows
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        Platform::Linux
+    }
+}
+
+impl HandoffIdentity {
+    /// The record for one final addressed recording that no command matched: R0 found no exact match and
+    /// R1 left it an agent request, which is the only thing a caller may send. `utterance_id` names the
+    /// recording and the generation is 1, so the key (`voice:<utterance_id>:1`) is the same on every
+    /// resend. The ASR gives no confidence, so it is recorded as 1.0, as the transcript event does.
+    ///
+    /// `question_id` is the interview question the agent is waiting on, when there is one: it travels as
+    /// `interview:<question_id>` in `context_refs`, and Pulse accepts it only when it is the question
+    /// Pulse itself has pending for this device. The recorder never decides which question an answer is for.
+    pub fn record_for(
+        &self,
+        utterance_id: &str,
+        transcript: &str,
+        question_id: Option<&str>,
+    ) -> HandoffRecord {
+        HandoffRecord {
+            utterance: Utterance {
+                schema_version: SCHEMA_VERSION,
+                utterance_id: utterance_id.to_owned(),
+                generation: 1,
+                session_id: utterance_id.to_owned(),
+                wake_id: None,
+                transcript: transcript.to_owned(),
+                confidence: 1.0,
+            },
+            device: Device {
+                schema_version: SCHEMA_VERSION,
+                device_id: self.device_id.clone(),
+                platform: local_platform(),
+                display_name: self.display_name.clone(),
+            },
+            owner_id: self.owner_id.clone(),
+            mode: MODE_ADDRESSED_CONTROL.to_owned(),
+            checks: Checks {
+                schema_version: SCHEMA_VERSION,
+                r0: R0Check {
+                    outcome: R0Outcome::NoExactMatch,
+                    catalog_version: self.catalog_version.clone(),
+                },
+                r1: R1Check {
+                    outcome: R1Outcome::UnresolvedAgentRequest,
+                    registry_version: self.registry_version.clone(),
+                },
+            },
+            context_refs: question_id
+                .map(|id| format!("interview:{id}"))
+                .into_iter()
+                .collect(),
+        }
+    }
+}
+
+/// What the command line printed for a hand-off.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Receipt {
+    /// The engine committed acceptance (`receipt: "accepted"`, exit 0). `task_status` is the task's status
+    /// name (`accepted`, `leased`, ...), see [`pill_for_status`].
     Accepted {
         task_id: String,
         idempotency_key: String,
+        task_status: String,
     },
-    Refused {
-        reason: String,
-    },
-    NotBuilt,
+    /// Validation or the engine refused it (`status: "refused"`, exit 2).
+    Refused { reason: String },
+    /// No engine answered, or the command line could not be started: nothing ran (`status: "unreachable"`,
+    /// exit 3).
+    Unreachable,
+    /// Sent, and no answer came back (`status: "unknown"`, exit 3), or the output could not be read.
     Unknown,
 }
 
-/// Parse the CLI's stdout. Branches on the JSON `status` field, never the exit code.
+impl Receipt {
+    /// The line the pill shows for a receipt that keeps the words, or `None` for an accepted one (the pill
+    /// then follows the task, see [`pill_for_status`]).
+    pub fn pill_message(&self) -> Option<String> {
+        match self {
+            Receipt::Accepted { .. } => None,
+            Receipt::Refused { reason } if reason.is_empty() => Some("Pulse refused it".to_owned()),
+            Receipt::Refused { reason } => Some(reason.clone()),
+            Receipt::Unreachable => Some("Pulse is not running".to_owned()),
+            Receipt::Unknown => Some("Pulse did not answer".to_owned()),
+        }
+    }
+}
+
+/// Parse the CLI's stdout. The engine's accepted answer carries `receipt: "accepted"` and no `status`;
+/// every failure carries `status`. Never the exit code alone.
 pub fn parse_receipt(stdout: &str) -> Receipt {
     let Ok(v) = serde_json::from_str::<serde_json::Value>(stdout.trim()) else {
         return Receipt::Unknown;
     };
     let text = |k: &str| v.get(k).and_then(|x| x.as_str()).map(str::to_owned);
-    match v.get("status").and_then(|s| s.as_str()) {
-        Some("accepted") => match (text("task_id"), text("idempotency_key")) {
+    if text("receipt").as_deref() == Some("accepted") {
+        // An accepted answer missing its ids is not trusted: a resend with the same key finds the same task.
+        return match (text("task_id"), text("idempotency_key")) {
             (Some(task_id), Some(idempotency_key)) => Receipt::Accepted {
                 task_id,
                 idempotency_key,
+                task_status: text("task_status").unwrap_or_default(),
             },
             _ => Receipt::Unknown,
-        },
+        };
+    }
+    match text("status").as_deref() {
         Some("refused") => Receipt::Refused {
             reason: text("reason").unwrap_or_default(),
         },
-        Some("not-built") => Receipt::NotBuilt,
+        Some("unreachable") => Receipt::Unreachable,
         _ => Receipt::Unknown,
     }
 }
 
-pub fn default_cli_path() -> Option<PathBuf> {
-    #[cfg(target_os = "macos")]
-    {
-        Some(PathBuf::from(
-            "/Applications/Pulse.app/Contents/Helpers/pulse",
-        ))
-    }
-    #[cfg(target_os = "windows")]
-    {
-        // The Program Files known folder, not `%ProgramFiles%`: the environment must not choose
-        // which executable receives the handoff.
-        let pf =
-            crate::user_dirs::known_folder(&windows_sys::Win32::UI::Shell::FOLDERID_ProgramFiles)?;
-        Some(pf.join("Pulse").join("Helpers").join("pulse.exe"))
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        None
+/// What the pill shows for a task, from its status name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TaskPill {
+    /// `accepted`, `leased`, `running`.
+    Working,
+    /// `waiting-user`: an approval is waiting on the notch or phone. Nothing spoken approves it.
+    WaitingApproval,
+    /// `waiting-device`.
+    WaitingDevice,
+    /// `cancel-requested`.
+    Cancelling,
+    /// `succeeded`. The answer card on the notch is the source of truth; `first_words` is the start of the
+    /// answer when it could be read.
+    Succeeded { first_words: Option<String> },
+    /// `failed`, with its reason when the engine gave one.
+    Failed { reason: Option<String> },
+    /// `cancelled`, with its reason when the engine gave one.
+    Cancelled { reason: Option<String> },
+    /// `uncertain`: the outcome is not known.
+    Uncertain { reason: Option<String> },
+    /// A status name this build does not know, shown as named.
+    Other(String),
+}
+
+/// Map a task status name to its pill state (`docs/contracts/voice.md`, "Receipts and the pill").
+/// `reason` is the engine's error text, used by the three states that show one.
+pub fn pill_for_status(status: &str, reason: Option<String>) -> TaskPill {
+    match status {
+        "accepted" | "leased" | "running" => TaskPill::Working,
+        "waiting-user" => TaskPill::WaitingApproval,
+        "waiting-device" => TaskPill::WaitingDevice,
+        "cancel-requested" => TaskPill::Cancelling,
+        "succeeded" => TaskPill::Succeeded { first_words: None },
+        "failed" => TaskPill::Failed { reason },
+        "cancelled" => TaskPill::Cancelled { reason },
+        "uncertain" => TaskPill::Uncertain { reason },
+        other => TaskPill::Other(other.to_owned()),
     }
 }
 
-fn submit_once(json: &str, cli_path: &Path, timeout: Duration) -> Receipt {
+/// The installed command line, per user first and then the older machine-wide place; the first that
+/// exists. Fixed places, never `PATH` or an environment variable: the environment must not choose which
+/// executable receives the hand-off. Mac: `/Applications/Pulse.app/Contents/Helpers/pulse`. Windows:
+/// `%LOCALAPPDATA%\Programs\Pulse\Helpers\pulse.exe` (the per-user install), then
+/// `Program Files\Pulse\Helpers\pulse.exe`; both folders come from the known-folder API.
+pub fn default_cli_path() -> Option<PathBuf> {
+    cli_candidates().into_iter().find(|path| path.is_file())
+}
+
+fn cli_candidates() -> Vec<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        vec![PathBuf::from(
+            "/Applications/Pulse.app/Contents/Helpers/pulse",
+        )]
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::UI::Shell::{FOLDERID_LocalAppData, FOLDERID_ProgramFiles};
+
+        let mut paths = Vec::new();
+        if let Some(local) = crate::user_dirs::known_folder(&FOLDERID_LocalAppData) {
+            paths.push(
+                local
+                    .join("Programs")
+                    .join("Pulse")
+                    .join("Helpers")
+                    .join("pulse.exe"),
+            );
+        }
+        if let Some(pf) = crate::user_dirs::known_folder(&FOLDERID_ProgramFiles) {
+            paths.push(pf.join("Pulse").join("Helpers").join("pulse.exe"));
+        }
+        paths
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        Vec::new()
+    }
+}
+
+/// How long one command-line call may take before it counts as unanswered.
+pub const CLI_TIMEOUT: Duration = Duration::from_secs(15);
+
+enum CliRun {
+    /// The command line could not be started: nothing ran.
+    NotStarted,
+    /// It started and did not finish in time, or its output could not be taken.
+    Silent,
+    Output(String),
+}
+
+fn run_cli(args: &[&str], stdin: Option<&str>, cli_path: &Path, timeout: Duration) -> CliRun {
     let mut cmd = OwnedCommand::new(cli_path);
     cmd.command_mut()
-        .args(["task", "submit", "--stdin"])
-        .stdin(std::process::Stdio::piped())
+        .args(args)
+        .stdin(if stdin.is_some() {
+            std::process::Stdio::piped()
+        } else {
+            std::process::Stdio::null()
+        })
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null());
     let Ok(mut child) = cmd.spawn() else {
-        return Receipt::Unknown;
+        return CliRun::NotStarted;
     };
     let Some(mut stdout) = child.take_stdout() else {
         let _ = child.terminate_tree();
-        return Receipt::Unknown;
+        return CliRun::Silent;
     };
     let reader = std::thread::spawn(move || {
         let mut buf = String::new();
         let _ = stdout.by_ref().take(1 << 20).read_to_string(&mut buf);
         buf
     });
-    let payload = json.as_bytes().to_vec();
-    let writer = child.take_stdin().map(|mut stdin| {
-        std::thread::spawn(move || {
-            let _ = stdin.write_all(&payload);
+    let writer = stdin.and_then(|text| {
+        let payload = text.as_bytes().to_vec();
+        child.take_stdin().map(|mut pipe| {
+            std::thread::spawn(move || {
+                let _ = pipe.write_all(&payload);
+            })
         })
     });
     let exited = matches!(child.wait_timeout(timeout), Ok(Some(_)));
@@ -251,34 +492,148 @@ fn submit_once(json: &str, cli_path: &Path, timeout: Duration) -> Receipt {
     }
     let out = reader.join().unwrap_or_default();
     if exited {
-        parse_receipt(&out)
+        CliRun::Output(out)
     } else {
-        Receipt::Unknown
+        CliRun::Silent
     }
 }
 
-/// Submit one record to the Pulse CLI. Resends once, same record and key, on Unknown.
+/// The params of a spoken-reply request: an answer in one to three short plain sentences.
+const SPOKEN_REPLY_PARAMS: &str = r#"{"schema_version":1,"reply":"speech"}"#;
+
+fn submit_once(json: &str, cli_path: &Path, timeout: Duration, spoken_reply: bool) -> Receipt {
+    let args: &[&str] = if spoken_reply {
+        &[
+            "task",
+            "submit",
+            "--kind",
+            "agent.request",
+            "--params",
+            SPOKEN_REPLY_PARAMS,
+            "--stdin",
+        ]
+    } else {
+        &["task", "submit", "--stdin"]
+    };
+    match run_cli(args, Some(json), cli_path, timeout) {
+        CliRun::NotStarted => Receipt::Unreachable,
+        CliRun::Silent => Receipt::Unknown,
+        CliRun::Output(out) => parse_receipt(&out),
+    }
+}
+
+/// Submit one record to the Pulse CLI. Resends once, same record and key, on `Unknown` only: an
+/// `Unreachable` receipt means nothing ran, and its retry is the caller's, on the owner's action or when
+/// Pulse is up.
 pub fn submit(record: &HandoffRecord, cli_path: &Path, timeout: Duration) -> Receipt {
-    if record.validate().is_err() {
-        return Receipt::Unknown;
+    submit_with(record, cli_path, timeout, false)
+}
+
+/// [`submit`], asking for a spoken-reply answer when `spoken_reply` is set (see
+/// [`HandoffIdentity::spoken_reply`]).
+pub fn submit_with(
+    record: &HandoffRecord,
+    cli_path: &Path,
+    timeout: Duration,
+    spoken_reply: bool,
+) -> Receipt {
+    if let Err(reason) = record.validate() {
+        return Receipt::Refused { reason };
     }
-    let mut value = match serde_json::to_value(record) {
-        Ok(v) => v,
-        Err(_) => return Receipt::Unknown,
+    let Ok(json) = serde_json::to_string(&record.to_voice_handoff()) else {
+        return Receipt::Refused {
+            reason: "the hand-off could not be written".to_owned(),
+        };
     };
-    if let Some(obj) = value.as_object_mut() {
-        obj.insert(
-            "idempotency_key".into(),
-            serde_json::Value::String(record.idempotency_key()),
-        );
-    }
-    let Ok(json) = serde_json::to_string(&value) else {
-        return Receipt::Unknown;
-    };
-    let first = submit_once(&json, cli_path, timeout);
+    let first = submit_once(&json, cli_path, timeout, spoken_reply);
     if first == Receipt::Unknown {
-        submit_once(&json, cli_path, timeout)
+        submit_once(&json, cli_path, timeout, spoken_reply)
     } else {
         first
+    }
+}
+
+/// [`submit`] to the installed command line ([`default_cli_path`]) within [`CLI_TIMEOUT`] per call. With no
+/// Pulse installed nothing runs, so the receipt is `Unreachable`.
+pub fn submit_installed(record: &HandoffRecord, spoken_reply: bool) -> Receipt {
+    match default_cli_path() {
+        Some(path) => submit_with(record, &path, CLI_TIMEOUT, spoken_reply),
+        None => Receipt::Unreachable,
+    }
+}
+
+/// The task's pill state now, from `pulse task status <task-id>` (and, for a task that succeeded,
+/// `pulse task result <task-id>` for the first words of the answer). `None` when the command line did not
+/// answer with a task status: the pill then keeps its last state.
+pub fn task_pill(task_id: &str, cli_path: &Path, timeout: Duration) -> Option<TaskPill> {
+    let CliRun::Output(out) = run_cli(&["task", "status", task_id], None, cli_path, timeout) else {
+        return None;
+    };
+    let v = serde_json::from_str::<serde_json::Value>(out.trim()).ok()?;
+    // A failure receipt also has `status`; only a task status carries `terminal`.
+    v.get("terminal")?.as_bool()?;
+    let status = v.get("status")?.as_str()?;
+    let reason = v.get("error").and_then(|e| e.as_str()).map(str::to_owned);
+    match pill_for_status(status, reason) {
+        TaskPill::Succeeded { .. } => Some(TaskPill::Succeeded {
+            first_words: answer_first_words(task_id, cli_path, timeout),
+        }),
+        other => Some(other),
+    }
+}
+
+/// How many words of the answer the pill shows.
+const PILL_ANSWER_WORDS: usize = 12;
+
+fn answer_first_words(task_id: &str, cli_path: &Path, timeout: Duration) -> Option<String> {
+    let text = task_result_text(task_id, cli_path, timeout)?;
+    let words: Vec<&str> = text.split_whitespace().take(PILL_ANSWER_WORDS).collect();
+    (!words.is_empty()).then(|| words.join(" "))
+}
+
+/// The `text` of `pulse task result <task-id>`: the answer of a task that succeeded. `None` for a task
+/// that has not, or when the command line gave nothing readable.
+fn task_result_text(task_id: &str, cli_path: &Path, timeout: Duration) -> Option<String> {
+    let CliRun::Output(out) = run_cli(&["task", "result", task_id], None, cli_path, timeout) else {
+        return None;
+    };
+    let v = serde_json::from_str::<serde_json::Value>(out.trim()).ok()?;
+    let text = v.get("result")?.get("text")?.as_str()?.trim();
+    (!text.is_empty()).then(|| text.to_owned())
+}
+
+/// The job kind of an acting run (`agent.act`).
+const KIND_ACT: &str = "agent.act";
+
+/// Up to and including the first sentence end (`.`, `!` or `?` followed by a space or the end).
+fn first_sentence(text: &str) -> &str {
+    let mut chars = text.char_indices().peekable();
+    while let Some((index, c)) = chars.next() {
+        if matches!(c, '.' | '!' | '?') && chars.peek().is_none_or(|(_, next)| next.is_whitespace())
+        {
+            return &text[..index + c.len_utf8()];
+        }
+    }
+    text
+}
+
+/// What to say aloud for a finished task, or `None` when there is nothing to say yet or ever. The text is
+/// the answer `pulse task result` returns, the same words as the notch's answer card. A reply written
+/// for speech (`reply: "speech"`) is spoken whole; the report of an acting run has no speech style, so
+/// only its first sentence is spoken (`docs/contracts/voice.md`, "Speaking the answer"). Playing it is the
+/// speech player's: `rightkit_tts::speech_out::Speaker::speak`.
+pub fn task_speech_text(task_id: &str, cli_path: &Path, timeout: Duration) -> Option<String> {
+    let CliRun::Output(out) = run_cli(&["task", "status", task_id], None, cli_path, timeout) else {
+        return None;
+    };
+    let status = serde_json::from_str::<serde_json::Value>(out.trim()).ok()?;
+    if status.get("status")?.as_str()? != "succeeded" {
+        return None;
+    }
+    let text = task_result_text(task_id, cli_path, timeout)?;
+    if status.get("kind").and_then(|kind| kind.as_str()) == Some(KIND_ACT) {
+        Some(first_sentence(&text).to_owned())
+    } else {
+        Some(text)
     }
 }

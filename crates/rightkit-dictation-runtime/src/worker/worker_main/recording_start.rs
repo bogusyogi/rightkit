@@ -38,6 +38,8 @@ impl Worker {
             self.capture.pause();
         }
         self.wake.start_pending = false;
+        // A press during an open follow-up window records as usual; the window ends with it.
+        self.wake.close_follow_up();
         // A previous recording's release bookkeeping never carries into this one; the wake
         // handoff below has no capture origin, so a release cannot cut it.
         self.session_attempt = start_attempt;
@@ -93,11 +95,10 @@ impl Worker {
             // can resume anything.
             self.capture.close_attempt(start_attempt);
             let handoff = self.wake.take_handoff();
-            self.session
-                .as_mut()
-                .expect("recording session")
-                .buffer
-                .extend_from_slice(&handoff);
+            let session = self.session.as_mut().expect("recording session");
+            session.addressed = true;
+            session.turn = crate::host::new_turn_tracker();
+            session.buffer.extend_from_slice(&handoff);
             trace_recording_start(
                 &session_id,
                 "wake_audio_handoff",

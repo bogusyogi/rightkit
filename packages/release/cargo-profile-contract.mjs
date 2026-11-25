@@ -129,7 +129,10 @@ export function findProfileRoots(root, manifests = findCargoManifests(root), dec
     if (isWorkspace(entry)) return true;
     return !parsed.some((other) => other !== entry && isWorkspace(other) && isWithinDir(dirOf(entry.file), dirOf(other.file)));
   });
-  return { roots, findings };
+  // Every other parsed manifest (workspace members), less the exempt prefixes. GC-A15 judges all of an app's manifests for
+  // profile tables ("An app carries no Cargo profile table but [profile.release]"), not only the roots Cargo reads.
+  const members = parsed.filter((entry) => !roots.includes(entry) && !exemptPrefixes.some((prefix) => entry.file.startsWith(`${prefix}/`)));
+  return { roots, members, findings };
 }
 
 function* rustFiles(dir) {
@@ -166,8 +169,10 @@ export function scanDebugAssertionSources(root) {
 
 export function scanCargoProfileContract(root, { template = loadCargoProfileTemplate(), sources = true } = {}) {
   const scanRoot = path.resolve(root);
-  const { roots, findings } = findProfileRoots(scanRoot);
+  const { roots, members, findings } = findProfileRoots(scanRoot);
   for (const { toml, file } of roots) findings.push(...checkManifestProfiles(toml, template, file));
+  // GC-A15 forbids every profile table but [profile.release] in an app, including in member manifests Cargo itself ignores.
+  for (const { toml, file } of members) findings.push(...checkManifestProfiles(toml, template, file).filter((f) => f.rule === "profile-extra" || f.rule === "retired-profile"));
   if (sources && existsSync(scanRoot)) findings.push(...scanDebugAssertionSources(scanRoot));
   return findings;
 }

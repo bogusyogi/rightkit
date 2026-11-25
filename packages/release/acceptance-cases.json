@@ -1,0 +1,566 @@
+{
+  "schema": "rightkit.acceptance-cases/1",
+  "about": "The inputs of the twelve-line acceptance run (GATE-CONTRACT GC-A27; rightkit#1514; Adrian, 2026-11-24: 'adopt the 12-line evidence table and its 4 named limits ... and the 7 fixture cases + 1 real build as the acceptance run'). Written by hand from the witness fixture's layout and the contract's rules, fixed with its hash recorded before any run it judges, never regenerated from a run. The time limits are the one exception: each is the first clean measured time multiplied by 1.25 and is filled in once, with the measurement named.",
+  "fixture": {
+    "repository": "rk-witness-fixture",
+    "commit": "9da554ea136a70b7a82fb466ca7e00e0fd85ce37",
+    "stage": "compile",
+    "host": "win32",
+    "hostTriple": "x86_64-pc-windows-msvc",
+    "otherTriples": [
+      "x86_64-unknown-linux-gnu",
+      "aarch64-apple-darwin"
+    ]
+  },
+  "classA": {
+    "source": "The 46 Class A rows of the fixture, from the 18 November inventory (5a, sha256 5463eb8e... as reviewed) which was read from the gate's stored keys and source and checked by a second model. Since that inventory's commit 34788a9 the fixture changed one file (rk/crates/rk-slow/build.rs), which adds and removes no row.",
+    "programRows": {
+      "rustfmt": [
+        "rustfmt:2021"
+      ],
+      "node": [
+        "node-check:app/packages/witness-lib/index.js",
+        "node-check:app/packages/witness-lib/index.test.js",
+        "node-check:app/packages/witness-notest/index.js",
+        "node-check:app/right-release.config.mjs",
+        "node-check:app/scripts/build-web.mjs",
+        "node-check:app/scripts/print-ok.mjs"
+      ],
+      "actionlint": [
+        "actionlint"
+      ],
+      "shellcheck": [
+        "shellcheck"
+      ],
+      "cargo metadata": [
+        "cargo-metadata:app/engine",
+        "cargo-metadata:app/src-tauri",
+        "cargo-metadata:rightkit-a",
+        "cargo-metadata:rightkit-b",
+        "cargo-metadata:rk",
+        "cargo-metadata:tools"
+      ],
+      "cargo-deny": [
+        "cargo-deny:app/engine",
+        "cargo-deny:app/src-tauri",
+        "cargo-deny:rightkit-a",
+        "cargo-deny:rightkit-b",
+        "cargo-deny:rk",
+        "cargo-deny:tools"
+      ],
+      "cargo-audit": [
+        "cargo-audit:app/engine",
+        "cargo-audit:app/src-tauri",
+        "cargo-audit:rightkit-a",
+        "cargo-audit:rightkit-b",
+        "cargo-audit:rk",
+        "cargo-audit:tools"
+      ],
+      "pnpm": [
+        "pnpm-lockfile:app",
+        "pnpm-audit:app"
+      ],
+      "tsc": [
+        "tsc:app-packages-witness-lib",
+        "tsc:app-packages-witness-notest"
+      ],
+      "oxlint": [
+        "oxlint:app-packages-witness-lib",
+        "oxlint:app-packages-witness-notest"
+      ]
+    },
+    "insideGateRows": [
+      "json-parse",
+      "toml-parse",
+      "yaml-parse",
+      "ghsa-audit:app/engine",
+      "ghsa-audit:app/src-tauri",
+      "ghsa-audit:rightkit-a",
+      "ghsa-audit:rightkit-b",
+      "ghsa-audit:rk",
+      "ghsa-audit:tools",
+      "license",
+      "secret-scan",
+      "feature-coverage",
+      "swift-lock:app/macos-native/WitnessHelper"
+    ]
+  },
+  "brokerCommands": {
+    "rule": "NN09: the broker commands of a full compile are exactly this list, each sent once: nothing missing, nothing extra, nothing sent twice. One command per workspace, stage and feature set. Clippy names all three targets in one command where the workspace's crates resolve alike for every target (they have no target-specific dependency), and is one command per target for the Tauri shell app/src-tauri, whose dependency graph differs by target (the split the contract approved on 2026-11-21). A feature set is its own command only where ci/gate.config.json declares it for a crate (rk-core: alpha,excl-a and beta,excl-b; rk-slow: slow), because --features names one crate's features. Docs are built for libraries, with each crate's first declared feature set (rk-core: alpha,excl-a). app/src-tauri declares a feature and no featureSets, so it gets one --all-features lint on the host. The sidecar the Tauri shell needs is one build in app/engine. rk-darwin is not built on this host.",
+    "hostTarget": "x86_64-pc-windows-msvc",
+    "targets": [
+      "x86_64-pc-windows-msvc",
+      "x86_64-unknown-linux-gnu",
+      "aarch64-apple-darwin"
+    ],
+    "commands": [
+      {
+        "workspace": "app/engine",
+        "verb": "build",
+        "features": "",
+        "targets": "host",
+        "why": "the sidecar binary"
+      },
+      {
+        "workspace": "app/engine",
+        "verb": "clippy",
+        "features": "",
+        "targets": "each target"
+      },
+      {
+        "workspace": "app/engine",
+        "verb": "test",
+        "features": "",
+        "targets": "host"
+      },
+      {
+        "workspace": "app/engine",
+        "verb": "doc",
+        "features": "",
+        "targets": "host"
+      },
+      {
+        "workspace": "app/src-tauri",
+        "verb": "clippy",
+        "features": "",
+        "targets": "x86_64-pc-windows-msvc"
+      },
+      {
+        "workspace": "app/src-tauri",
+        "verb": "clippy",
+        "features": "",
+        "targets": "x86_64-unknown-linux-gnu"
+      },
+      {
+        "workspace": "app/src-tauri",
+        "verb": "clippy",
+        "features": "",
+        "targets": "aarch64-apple-darwin"
+      },
+      {
+        "workspace": "app/src-tauri",
+        "verb": "clippy",
+        "features": "--all-features",
+        "targets": "host"
+      },
+      {
+        "workspace": "app/src-tauri",
+        "verb": "test",
+        "features": "",
+        "targets": "host"
+      },
+      {
+        "workspace": "tools",
+        "verb": "clippy",
+        "features": "",
+        "targets": "each target"
+      },
+      {
+        "workspace": "tools",
+        "verb": "test",
+        "features": "",
+        "targets": "host"
+      },
+      {
+        "workspace": "tools",
+        "verb": "doc",
+        "features": "",
+        "targets": "host"
+      },
+      {
+        "workspace": "rk",
+        "verb": "clippy",
+        "features": "",
+        "targets": "each target"
+      },
+      {
+        "workspace": "rk",
+        "verb": "clippy",
+        "features": "--features alpha,excl-a",
+        "targets": "each target"
+      },
+      {
+        "workspace": "rk",
+        "verb": "clippy",
+        "features": "--features beta,excl-b",
+        "targets": "each target"
+      },
+      {
+        "workspace": "rk",
+        "verb": "clippy",
+        "features": "--features slow",
+        "targets": "each target"
+      },
+      {
+        "workspace": "rk",
+        "verb": "test",
+        "features": "",
+        "targets": "host"
+      },
+      {
+        "workspace": "rk",
+        "verb": "test",
+        "features": "--features alpha,excl-a",
+        "targets": "host"
+      },
+      {
+        "workspace": "rk",
+        "verb": "test",
+        "features": "--features beta,excl-b",
+        "targets": "host"
+      },
+      {
+        "workspace": "rk",
+        "verb": "test",
+        "features": "--features slow",
+        "targets": "host"
+      },
+      {
+        "workspace": "rk",
+        "verb": "doc",
+        "features": "",
+        "targets": "host"
+      },
+      {
+        "workspace": "rk",
+        "verb": "doc",
+        "features": "--features alpha,excl-a",
+        "targets": "host"
+      },
+      {
+        "workspace": "crates/rightkit-a",
+        "verb": "clippy",
+        "features": "",
+        "targets": "each target"
+      },
+      {
+        "workspace": "crates/rightkit-a",
+        "verb": "test",
+        "features": "",
+        "targets": "host"
+      },
+      {
+        "workspace": "crates/rightkit-a",
+        "verb": "doc",
+        "features": "",
+        "targets": "host"
+      },
+      {
+        "workspace": "crates/rightkit-b",
+        "verb": "clippy",
+        "features": "",
+        "targets": "each target"
+      },
+      {
+        "workspace": "crates/rightkit-b",
+        "verb": "test",
+        "features": "",
+        "targets": "host"
+      },
+      {
+        "workspace": "crates/rightkit-b",
+        "verb": "doc",
+        "features": "",
+        "targets": "host"
+      }
+    ],
+    "total": 28
+  },
+  "legitimateRepeats": [
+    {
+      "program": "cargo",
+      "args": [
+        "metadata",
+        "--no-deps",
+        "--format-version",
+        "1",
+        "--locked"
+      ],
+      "count": 6,
+      "why": "one per Cargo workspace (the planner's read); the Windows process record keeps no folder, so the six look alike"
+    },
+    {
+      "program": "cargo",
+      "args": [
+        "metadata",
+        "--format-version",
+        "1",
+        "--locked"
+      ],
+      "count": 6,
+      "why": "one per Cargo workspace (the cargo-deny row's own read)"
+    },
+    {
+      "program": "cargo",
+      "args": [
+        "fetch",
+        "--locked"
+      ],
+      "count": 6,
+      "why": "one per Cargo workspace (the cargo-deny row's own fetch)"
+    },
+    {
+      "program": "cargo",
+      "argsPattern": "^audit --db \\S+ --no-fetch( |$)",
+      "count": 6,
+      "why": "one per Cargo workspace (the cargo-audit row); the advisory database path is this machine's"
+    },
+    {
+      "programPattern": "^oxlint",
+      "argsPattern": "^-c \\S*\\.oxlintrc\\.json \\.$",
+      "count": 2,
+      "why": "one per npm package"
+    },
+    {
+      "program": "pnpm",
+      "args": [
+        "exec",
+        "tsc",
+        "--noEmit",
+        "-p",
+        "tsconfig.json"
+      ],
+      "count": 2,
+      "why": "one per npm package"
+    },
+    {
+      "program": "pnpm",
+      "args": [
+        "--version"
+      ],
+      "count": 2,
+      "why": "two different questions: Class A probes pnpm in a neutral folder (its answer is in the pnpm rows' cache keys), compile planning asks in the project folder; pnpm 9+ switches to a project's packageManager version, so the answers can differ. Settled with Gemini, 2026-11-25 (Adrian delegated decisions to Gemini overnight)."
+    }
+  ],
+  "cases": [
+    {
+      "id": 1,
+      "name": "from nothing, with the checkout dirtied",
+      "decides": [
+        "NN01",
+        "NN03",
+        "NN08",
+        "NN09",
+        "NN10",
+        "NN11",
+        "NN12"
+      ],
+      "commit": "fixture",
+      "setup": [
+        "remove the fixture's scan store and its history file",
+        "overwrite rk/crates/rk-leaf/src/lib.rs in the working checkout with text that does not compile; restore it after the run"
+      ],
+      "expect": {
+        "exit": 0
+      }
+    },
+    {
+      "id": 2,
+      "name": "the same commit again",
+      "decides": [
+        "NN06",
+        "NN08"
+      ],
+      "commit": "fixture",
+      "setup": [],
+      "expect": {
+        "exit": 0,
+        "newReceipts": 0,
+        "classAPrograms": 0,
+        "cacheFilesWritten": 0
+      }
+    },
+    {
+      "id": 4,
+      "name": "one cache file deleted (license)",
+      "decides": [
+        "NN04",
+        "NN05"
+      ],
+      "commit": "fixture",
+      "setup": [
+        "delete every store file whose row id is license, keeping a copy; put the copy back after the run"
+      ],
+      "expect": {
+        "exit": "non-zero",
+        "newReceipts": 0,
+        "classAPrograms": 0,
+        "outputNames": [
+          "license"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "name": "one edit to rk-leaf",
+      "decides": [
+        "NN05",
+        "NN07"
+      ],
+      "commit": {
+        "edits": [
+          {
+            "path": "rk/crates/rk-leaf/src/lib.rs",
+            "content": "/// The leaf of the dependency chain rk-core, rk-util, rk-leaf: a one-file edit here rebuilds only this crate.\npub fn leaf() -> u32 {\n    rk_util::doubled() + 1\n}\n\n/// Acceptance case 3: one more public function in the leaf.\npub fn leaf_again() -> u32 {\n    leaf() + 1\n}\n\n#[cfg(test)]\nmod tests {\n    use super::leaf;\n\n    #[test]\n    fn leaf_is_three() {\n        assert_eq!(leaf(), 3);\n    }\n}\n"
+          }
+        ]
+      },
+      "setup": [],
+      "expect": {
+        "exit": 0,
+        "classARows": [
+          "rustfmt:2021",
+          "secret-scan"
+        ],
+        "classAPrograms": [
+          "rustfmt"
+        ],
+        "brokerCrates": [
+          "rk-leaf"
+        ],
+        "brokerCommands": {
+          "workspace": "rk",
+          "clippy": 1,
+          "test": 1,
+          "doc": 1
+        },
+        "compileRows": [
+          "clippy:rk:rk-leaf",
+          "clippy:rk:rk-leaf@x86_64-unknown-linux-gnu",
+          "clippy:rk:rk-leaf@aarch64-apple-darwin",
+          "doc:rk:rk-leaf",
+          "test:rust:rk:rk-leaf"
+        ],
+        "source": "the frozen prediction of 18 November for a one-file edit to rk-leaf: five of 77 compile rows, and the two Class A rows whose read-set holds the file",
+        "brokerCommandsWhy": "one clippy naming all three targets, one test build, one doc, each naming only rk-leaf"
+      }
+    },
+    {
+      "id": 5,
+      "name": "a commit with a malformed tracked JSON file, run twice",
+      "decides": [
+        "NN01",
+        "NN02",
+        "NN06"
+      ],
+      "commit": {
+        "edits": [
+          {
+            "path": "ci/acceptance-broken.json",
+            "content": "{ \"unfinished\": \n"
+          }
+        ]
+      },
+      "setup": [
+        "the working checkout stays clean"
+      ],
+      "runs": 2,
+      "expect": {
+        "exit": "non-zero",
+        "newReceipts": 0,
+        "outputNames": [
+          "json-parse"
+        ],
+        "secondRun": {
+          "classAPrograms": 0,
+          "cacheFilesWritten": 0
+        }
+      }
+    },
+    {
+      "id": 6,
+      "name": "a commit with a failing unit test",
+      "decides": [
+        "NN10"
+      ],
+      "commit": {
+        "edits": [
+          {
+            "path": "rk/crates/rk-leaf/src/lib.rs",
+            "append": "\n#[cfg(test)]\nmod acceptance_case_six {\n    #[test]\n    fn fails_on_purpose() {\n        assert_eq!(super::leaf(), 4);\n    }\n}\n"
+          }
+        ]
+      },
+      "setup": [],
+      "expect": {
+        "exit": "non-zero",
+        "outputNames": [
+          "fails_on_purpose"
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "name": "killed midway, then an ordinary run",
+      "decides": [
+        "NN12"
+      ],
+      "commit": {
+        "edits": [
+          {
+            "path": "rk/crates/rk-slow/build.rs",
+            "append": "\n// Acceptance case 7: a changed build script, so the slow build runs again and the run can be killed midway.\n"
+          }
+        ]
+      },
+      "setup": [
+        "kill the gate and every program it started once its first broker job is running"
+      ],
+      "runs": 2,
+      "expect": {
+        "firstRun": "killed",
+        "secondRun": {
+          "exit": 0
+        }
+      }
+    }
+  ],
+  "order": [
+    1,
+    2,
+    4,
+    3,
+    5,
+    6,
+    7
+  ],
+  "orderWhy": "Case 4 needs the store exactly as case 2 left it, so it runs before the cases that select other commits.",
+  "realBuild": {
+    "repository": "rightkit",
+    "args": [
+      "--to",
+      "compile",
+      "--unit",
+      "cargo:rightkit-time"
+    ],
+    "lines": [
+      "NN01",
+      "NN02",
+      "NN08",
+      "NN10",
+      "NN11",
+      "NN12"
+    ]
+  },
+  "limitsMs": {
+    "case1": null,
+    "case2": null,
+    "case3": null,
+    "case4": null,
+    "case5": null,
+    "case6": null,
+    "case7": null,
+    "realBuild": null
+  },
+  "limitsRule": "first clean measured time x 1.25, filled once; null means not yet measured, and NN11 fails while it is null",
+  "corrections": {
+    "approved": "Adrian, 2026-11-24: \"Approve, keep going\" (to: C1, C4, the sidecar-build half of C2, and C3 tightened to an exact command list). Reviewed first by Gemini, which rejected C3 as first worded (\"in one command or split by target\" lets a gate always split) and the rk-sidecar half of C2.",
+    "previousSha256": "e41bba2b2331adc866ed602f3ab3ecda27adb615d296e981f9a2310479b06bdc",
+    "list": [
+      "C1: per-workspace and per-package commands that look alike in a process record with no folder are pinned with their exact counts (six Cargo workspaces, two npm packages).",
+      "C2: the sidecar build in app/engine is an expected broker command. rk-sidecar gets no command of its own: that split was a gate fault (ci/shards.json solo) and is fixed in the gate.",
+      "C3: the broker commands are an exact list. A workspace whose crates resolve alike for every target is one clippy command naming all three targets; the Tauri shell, whose dependency graph differs by target, is one command per target.",
+      "C4: case 3's edit puts the new function above the test module (clippy rejects an item after a test module)."
+    ]
+  }
+}

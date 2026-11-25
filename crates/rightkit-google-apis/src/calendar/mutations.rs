@@ -12,6 +12,16 @@ pub async fn create_event(
         client_secret.to_string(),
         refresh_token.to_string(),
     );
+    create_event_with(&g, calendar_id, ev).await
+}
+
+/// [`create_event`] through an authorised client (for example one built by `Google::with_store`), so no
+/// refresh token is passed. The same request: `sendUpdates=all`, so Google emails any attendee in `ev`.
+pub async fn create_event_with(
+    g: &Google,
+    calendar_id: &str,
+    ev: EventInput,
+) -> Result<CalEvent, String> {
     let url =
         format!("{BASE}/calendars/{calendar_id}/events?sendUpdates=all&conferenceDataVersion=1");
     let body = event_body(&ev, ev.add_meet);

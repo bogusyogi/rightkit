@@ -926,6 +926,29 @@ fn incremental_partial(
     }
     log.mark("observe", observed.len() as u64);
 
+    // A rename whose source is unknown to the stored graph (for example an atomic save that
+    // renames an untracked temp file over a source path), or whose source survives the event,
+    // cannot be applied as one path-scoped delta. Decide that before anything is written and
+    // rebuild the root, rather than applying part of it and failing as unsupported.
+    if event_kind == EventKind::Rename {
+        let old = &paths[0];
+        if after_paths.contains(old) || !before_paths.contains(old) {
+            let (stored_nodes, stored_edges, _) = view.counts()?;
+            let stored_rows = stored_nodes.saturating_add(stored_edges);
+            drop(view);
+            return full_build_or_defer(
+                request,
+                context,
+                root,
+                db_path,
+                &stored,
+                stored_rows,
+                "rename source/destination is inconsistent",
+                json!({"renameFrom": old, "renameTo": rename_to}),
+            );
+        }
+    }
+
     let source_hash = graph::source_hash_for_files(&source_files);
     let config_digest = crate::static_provider::build_config_digest_for_files(&source_files);
     let observation =
@@ -1331,12 +1354,6 @@ fn incremental_partial(
     )
     .map_err(|error| delta_error(context, error))?;
     log.mark("apply", 0);
-    if event_kind == EventKind::Rename {
-        let old = &paths[0];
-        if after_paths.contains(old) || !before_paths.contains(old) {
-            return Err(unsupported("rename source/destination is inconsistent"));
-        }
-    }
     let status = post_apply_status(db_path)?;
     log.mark("status", 0);
     bounded_generation_response(
@@ -1867,6 +1884,12 @@ fn build_and_publish(
                 .or_else(|| request.input.get("no-readme-link"))
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
+            dry_run: request
+                .input
+                .get("docsDryRun")
+                .or_else(|| request.input.get("docs-dry-run"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
         };
         // Docs generation is a bounded but uncancellable phase; at least refuse
         // to enter it once shutdown has been requested.
@@ -1884,9 +1907,18 @@ fn build_and_publish(
                 crate::lib_generated_docs::ReadmePointerMode::Updated => "updated",
             }})),
             "retired": docs_result.retired,
+            "plan": docs_result.plan.iter().map(|file| json!({
+                "path": file.path,
+                "action": match file.action {
+                    crate::lib_generated_docs::DocAction::Created => "created",
+                    crate::lib_generated_docs::DocAction::Changed => "changed",
+                    crate::lib_generated_docs::DocAction::Unchanged => "unchanged",
+                    crate::lib_generated_docs::DocAction::Removed => "removed",
+                },
+            })).collect::<Vec<_>>(),
         })
     } else {
-        json!({"mode": "skipped", "conflicts": [], "wrote": [], "fallback": [], "readme": null, "retired": []})
+        json!({"mode": "skipped", "conflicts": [], "wrote": [], "fallback": [], "readme": null, "retired": [], "plan": []})
     };
     context.check()?;
     bounded_generation_response(
@@ -1997,6 +2029,12 @@ fn record_construction_event(
 
 // Detailed omissions remain in the durable generation. Project only as many
 // as fit on wire, accounting for the actual response envelope & UTF-8 bytes.
+//
+// When no receipt listing is left to shrink and the response is still over the byte ceiling,
+// it is trimmed the way `query::fit_any_result` trims other operations (largest collections
+// halved, each cut recorded as a `byte_ceiling` omission with its count), then the remaining
+// free-form receipt fields are cut; the response carries `truncated: true` and `byteCeiling`.
+// The answer is never refused for size alone (#601); the limit values are unchanged.
 fn bounded_generation_response(
     request: &BlueprintRequest,
     mut value: Value,
@@ -2067,7 +2105,10 @@ fn bounded_generation_response(
                     .max_by_key(|(_, length)| *length)
                     .map(|(field, _)| field);
                 let Some(field) = largest else {
-                    return Err(error);
+                    if error.code != "blueprint_oversized" {
+                        return Err(error);
+                    }
+                    return trim_to_byte_ceiling(request, value, error);
                 };
                 let kept = {
                     let list = receipt_list_mut(&mut value, field)
@@ -2083,6 +2124,96 @@ fn bounded_generation_response(
                 record_omission(&mut value, field, omitted);
             }
         }
+    }
+}
+
+/// Records `omitted` more cut items for `field` in the response's `omissions` receipt, in the
+/// single cumulative `byte_ceiling` entry per field that `query::fit_any_result` keeps.
+fn add_byte_ceiling_omission(value: &mut Value, field: &str, omitted: u64) {
+    if !value.get("omissions").is_some_and(Value::is_array) {
+        value["omissions"] = json!([]);
+    }
+    let Some(omissions) = value["omissions"].as_array_mut() else {
+        return;
+    };
+    if let Some(existing) = omissions
+        .iter_mut()
+        .find(|entry| entry["reason"] == "byte_ceiling" && entry["field"] == field)
+    {
+        existing["count"] = json!(existing["count"].as_u64().unwrap_or(0) + omitted);
+    } else {
+        omissions.push(json!({"reason": "byte_ceiling", "field": field, "count": omitted}));
+    }
+}
+
+/// A response that is over the byte ceiling with no receipt listing left to shrink. Marks it
+/// truncated, halves its largest collections (`query::fit_to_byte_ceiling`), then cuts the
+/// free-form receipt fields (`sourceObservation`, `freshnessReceipt`, `detail`), largest first:
+/// a long string is halved, anything else is dropped to `null`. Every cut is recorded in
+/// `omissions` (`byte_ceiling`, field, count; a string's count is its removed characters). Only
+/// if the response still cannot fit does it return `error`, the size failure that sent it here.
+fn trim_to_byte_ceiling(
+    request: &BlueprintRequest,
+    mut value: Value,
+    error: BlueprintError,
+) -> Result<Value, BlueprintError> {
+    let bounds = crate::api::Bounds::default();
+    let fits = |candidate: &Value| {
+        crate::api::BlueprintResponse::success(
+            request.request_id.clone(),
+            request.generation.clone(),
+            candidate.clone(),
+        )
+        .validate(bounds)
+        .is_ok()
+    };
+    value["truncated"] = json!(true);
+    value["byteCeiling"] = json!(bounds.max_response_bytes);
+    query::fit_to_byte_ceiling(&mut value, bounds.max_response_bytes, request);
+    for _ in 0..64 {
+        if fits(&value) {
+            return Ok(value);
+        }
+        let Some(field) = ["sourceObservation", "freshnessReceipt", "detail"]
+            .into_iter()
+            .filter_map(|field| {
+                value.get(field).filter(|node| !node.is_null()).map(|node| {
+                    (
+                        field,
+                        serde_json::to_vec(node).map_or(0, |bytes| bytes.len()),
+                    )
+                })
+            })
+            .max_by_key(|(_, size)| *size)
+            .map(|(field, _)| field)
+        else {
+            break;
+        };
+        let node = value[field].take();
+        let (replacement, omitted) = match node {
+            Value::String(text) if text.len() > 256 => {
+                let mut keep = text.len() / 2;
+                while !text.is_char_boundary(keep) {
+                    keep -= 1;
+                }
+                let removed = text[keep..].chars().count();
+                (Value::String(text[..keep].to_string()), removed)
+            }
+            Value::String(text) => (Value::Null, text.chars().count()),
+            Value::Object(map) => (Value::Null, map.len()),
+            Value::Array(list) => (Value::Null, list.len()),
+            other => (other, 0),
+        };
+        value[field] = replacement;
+        if omitted == 0 {
+            break;
+        }
+        add_byte_ceiling_omission(&mut value, field, omitted as u64);
+    }
+    if fits(&value) {
+        Ok(value)
+    } else {
+        Err(error)
     }
 }
 

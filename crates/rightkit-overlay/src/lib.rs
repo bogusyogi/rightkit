@@ -430,6 +430,19 @@ pub enum WindowCreateError {
     Unavailable,
 }
 
+/// Why a titled message-only window could not be created.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MessageOnlyWindowError {
+    /// The class name is empty or holds a NUL.
+    InvalidClassName,
+    /// The title holds a NUL.
+    InvalidTitle,
+    /// `CreateWindowExW` returned a null handle and set this Win32 error code.
+    CreateFailed(u32),
+    /// Native window creation is Windows-only; this target has none.
+    Unavailable,
+}
+
 /// Whether two rectangles share any area. Touching edges do not count as overlap.
 pub fn rects_overlap(a: WorkArea, b: WorkArea) -> bool {
     a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
@@ -500,6 +513,7 @@ pub mod windows {
     use std::sync::{Mutex, OnceLock};
 
     use windows_sys::core::BOOL;
+    use windows_sys::Win32::Foundation::GetLastError;
     use windows_sys::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
     use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
     use windows_sys::Win32::Graphics::Gdi::{
@@ -530,8 +544,8 @@ pub mod windows {
     };
 
     use crate::{
-        ex_style, ForegroundEvent, ForegroundPumpStop, FullScreenProbe, MonitorPlacement,
-        OverlayRect, OverlayStyle, WindowCreateError, WorkArea,
+        ex_style, ForegroundEvent, ForegroundPumpStop, FullScreenProbe, MessageOnlyWindowError,
+        MonitorPlacement, OverlayRect, OverlayStyle, WindowCreateError, WorkArea,
     };
 
     static ORIGINAL_WNDPROCS: OnceLock<Mutex<HashMap<isize, isize>>> = OnceLock::new();
@@ -850,13 +864,26 @@ pub mod windows {
     /// caller registers `class_name`, with its window procedure, on this process's module first,
     /// and destroys the window with `DestroyWindow`.
     pub fn create_message_only_window(class_name: &str) -> Result<isize, WindowCreateError> {
+        create_message_only_window_with_title(class_name, "").map_err(|error| match error {
+            MessageOnlyWindowError::InvalidClassName | MessageOnlyWindowError::InvalidTitle => {
+                WindowCreateError::InvalidClassName
+            }
+            MessageOnlyWindowError::CreateFailed(_) => WindowCreateError::CreateFailed,
+            MessageOnlyWindowError::Unavailable => WindowCreateError::Unavailable,
+        })
+    }
+
+    /// Creates a message-only window with a caller-selected title and retains the native error
+    /// code on failure. Register the class before calling and destroy the result on its owner thread.
+    pub fn create_message_only_window_with_title(
+        class_name: &str,
+        title: &str,
+    ) -> Result<isize, MessageOnlyWindowError> {
         if class_name.is_empty() {
-            return Err(WindowCreateError::InvalidClassName);
+            return Err(MessageOnlyWindowError::InvalidClassName);
         }
-        let Some(class_name) = wide(class_name) else {
-            return Err(WindowCreateError::InvalidClassName);
-        };
-        let title = [0u16];
+        let class_name = wide(class_name).ok_or(MessageOnlyWindowError::InvalidClassName)?;
+        let title = wide(title).ok_or(MessageOnlyWindowError::InvalidTitle)?;
         // SAFETY: a null name returns the handle of the calling process's executable module.
         let hinstance = unsafe { GetModuleHandleW(std::ptr::null()) };
         // SAFETY: every pointer is valid for the call: the class and title are NUL-terminated.
@@ -877,7 +904,10 @@ pub mod windows {
             )
         };
         if hwnd.is_null() {
-            Err(WindowCreateError::CreateFailed)
+            // SAFETY: read the calling thread's error immediately after the unsuccessful call.
+            Err(MessageOnlyWindowError::CreateFailed(unsafe {
+                GetLastError()
+            }))
         } else {
             Ok(hwnd as isize)
         }
@@ -1462,6 +1492,12 @@ pub mod windows {
         _class_name: &str,
     ) -> Result<isize, crate::WindowCreateError> {
         Err(crate::WindowCreateError::Unavailable)
+    }
+    pub fn create_message_only_window_with_title(
+        _class_name: &str,
+        _title: &str,
+    ) -> Result<isize, crate::MessageOnlyWindowError> {
+        Err(crate::MessageOnlyWindowError::Unavailable)
     }
     pub fn set_capture_excluded(_hwnd: isize, _excluded: bool) -> bool {
         false

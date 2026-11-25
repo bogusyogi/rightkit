@@ -1,3 +1,4 @@
+import { formatCountdown, secondsLeft } from "@rightkit/platform-ui/countdown";
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, ConfirmDialog, Select, Toggle } from "@rightkit/react-shell/react";
 import { DEVICE_GRANT_CLASSES, LISTEN_OFF_SENTENCE, devicesApi, isListenOff, setNotchSetting, type DeviceGrantClass, type DeviceRecord, type JoinCreated, type OwnerProof, type PendingPairing } from "../api.js";
@@ -91,9 +92,9 @@ function toView(raw: DeviceRecord): DeviceView {
 const clock = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 function countdown(ms: number, now: number): string {
-  const left = Math.max(0, Math.ceil((ms - now) / 1000));
+  const left = secondsLeft(ms, now);
   if (left === 0) return "expired";
-  return `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+  return formatCountdown(left);
 }
 
 function grantsSummary(d: DeviceView): string {

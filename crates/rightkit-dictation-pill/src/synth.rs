@@ -121,17 +121,25 @@ pub fn swell_wav(spec: &SwellSpec) -> Result<Vec<u8>, SwellError> {
     out.extend_from_slice(&16u16.to_le_bytes());
     out.extend_from_slice(b"data");
     out.extend_from_slice(&payload.to_le_bytes());
+    // Interpolate in log space. Ratios of valid positive inputs can overflow near zero.
+    let [start_pitch, end_pitch] = [spec.start_hz.ln(), spec.end_hz.ln()];
+    let [start_gain, peak_gain, end_gain] = [
+        spec.start_gain.ln(),
+        spec.peak_gain.ln(),
+        spec.end_gain.ln(),
+    ];
+    let interpolate =
+        |start: f64, end: f64, progress: f64| (start + (end - start) * progress).exp();
     let mut phase = 0.0f64;
     for frame in 0..frames {
         let time = frame as f64 / f64::from(sample_rate);
         let progress = (time / spec.glide_secs).min(1.0);
-        let frequency = spec.start_hz * (spec.end_hz / spec.start_hz).powf(progress);
+        let frequency = interpolate(start_pitch, end_pitch, progress);
         let gain = if time <= spec.attack_secs {
-            spec.start_gain * (spec.peak_gain / spec.start_gain).powf(time / spec.attack_secs)
+            interpolate(start_gain, peak_gain, time / spec.attack_secs)
         } else {
-            spec.peak_gain
-                * (spec.end_gain / spec.peak_gain)
-                    .powf(((time - spec.attack_secs) / spec.decay_secs).min(1.0))
+            let progress = ((time - spec.attack_secs) / spec.decay_secs).min(1.0);
+            interpolate(peak_gain, end_gain, progress)
         };
         let sample = ((phase.sin() * gain).clamp(-1.0, 1.0) * f64::from(i16::MAX)) as i16;
         out.extend_from_slice(&sample.to_le_bytes());

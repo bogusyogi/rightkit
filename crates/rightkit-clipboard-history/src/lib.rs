@@ -1,5 +1,5 @@
 //! Clipboard history: classification of copied text ([`detect()`](fn@detect)), the on-disk store with
-//! retention and pinboards (`model`), search (`search`) and encryption at rest (`seal`). On Windows it also holds the clipboard calls (`win`), the capture window (`capture`), the paste engine (`paste`) and the strip (`strip`), picture conversion (`img`) and the nearby shelf (`shelf`).
+//! retention and pinboards (`model`), search (`search`) and encryption at rest (`seal`). On Windows it also holds the clipboard calls (`win`), the capture window (`capture`), the paste engine (`paste`), OLE drag and drop (`drag`), picture conversion (`img`) and the nearby shelf (`shelf`).
 //! The default `history` feature exposes the store and host integration. Disable default features
 //! for portable text detection without history or platform dependencies.
 
@@ -16,6 +16,8 @@ pub mod img;
 /// under its old path.
 #[cfg(feature = "history")]
 pub use rightkit_launcher::json;
+#[cfg(all(feature = "history", windows))]
+pub mod drag;
 #[cfg(feature = "history")]
 pub mod model;
 #[cfg(all(feature = "history", windows))]
@@ -26,8 +28,6 @@ pub mod seal;
 pub mod search;
 #[cfg(all(feature = "history", windows))]
 pub mod shelf;
-#[cfg(all(feature = "history", windows))]
-pub mod strip;
 #[cfg(all(feature = "history", windows))]
 pub mod win;
 

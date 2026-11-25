@@ -470,6 +470,16 @@ pub enum WorkerCmd {
     StopWakeListen {
         reply: Sender<u64>,
     },
+    /// Keep the microphone open for `window`; speech that begins inside it starts an addressed
+    /// recording with no wake word (reported as `WorkerEvent::WakeFired { follow_up: true }`).
+    OpenFollowUp {
+        window: Duration,
+        reply: Sender<Result<(), String>>,
+    },
+    /// Close the follow-up window now. Replies whether one was open.
+    CloseFollowUp {
+        reply: Sender<bool>,
+    },
     StartRecording {
         session_id: String,
         /// The shortcut press this start belongs to. Only the warm-up of the same attempt is
@@ -540,6 +550,8 @@ pub enum WorkerCmd {
 pub enum ControlCutStatus {
     Cut,
     Skipped,
+    /// The full transcript may still contain the confirmed control phrase.
+    Unresolved,
 }
 
 /// Typed ownership of why a recording ended. Text is never used to infer a
@@ -565,6 +577,9 @@ pub struct FinalTranscript {
     pub text: String,
     pub tokens: Vec<TimedToken>,
     pub stop_evidence: StopEvidence,
+    /// The recording began from the wake word (addressed control), not from the dictation key. Only the
+    /// worker sets it, from the wake hand-off of that very recording.
+    pub addressed: bool,
 }
 
 impl FinalTranscript {
@@ -581,7 +596,14 @@ impl FinalTranscript {
                 })
                 .collect(),
             stop_evidence,
+            addressed: false,
         }
+    }
+
+    /// Mark whether the recording began from the wake word.
+    pub fn addressed(mut self, addressed: bool) -> Self {
+        self.addressed = addressed;
+        self
     }
 }
 
@@ -593,6 +615,8 @@ pub enum WorkerEvent {
         ts: f64,
         fire_count: u64,
         threshold: f32,
+        /// Speech began inside an open follow-up window; no wake word was heard.
+        follow_up: bool,
     },
     /// Real-time recording amplitude for the pill glow.
     RecordingLevel { session_id: String, level: f32 },
@@ -784,6 +808,24 @@ impl WorkerHandle {
             .map_err(|_| "worker wake start timed out".to_string())?
     }
 
+    /// Open the follow-up window (see `WorkerCmd::OpenFollowUp`).
+    pub fn open_follow_up(&self, window: Duration) -> Result<(), String> {
+        let (reply, result) = channel();
+        self.send(WorkerCmd::OpenFollowUp { window, reply })?;
+        result
+            .recv_timeout(Duration::from_secs(30))
+            .map_err(|_| "worker follow-up open timed out".to_string())?
+    }
+
+    /// Close the follow-up window; true when one was open.
+    pub fn close_follow_up(&self) -> Result<bool, String> {
+        let (reply, result) = channel();
+        self.send(WorkerCmd::CloseFollowUp { reply })?;
+        result
+            .recv_timeout(Duration::from_secs(5))
+            .map_err(|_| "worker follow-up close timed out".to_string())
+    }
+
     pub fn stop_wake_listen(&self) -> Result<u64, String> {
         let (reply, result) = channel();
         self.send(WorkerCmd::StopWakeListen { reply })?;
@@ -947,6 +989,12 @@ pub fn spawn_dummy_worker(focus: Arc<Mutex<FocusTracker>>) -> Result<WorkerHandl
                     }
                     Ok(WorkerCmd::StopWakeListen { reply }) => {
                         let _ = reply.send(0);
+                    }
+                    Ok(WorkerCmd::OpenFollowUp { reply, .. }) => {
+                        let _ = reply.send(Ok(()));
+                    }
+                    Ok(WorkerCmd::CloseFollowUp { reply }) => {
+                        let _ = reply.send(false);
                     }
                     Ok(WorkerCmd::ReloadModel { reply }) => {
                         if let Some(reply) = reply {

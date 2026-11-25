@@ -2,6 +2,8 @@
 
 Draft for Adrian, 2026-11-07. Written by Legion from both contracts and both codebases as they stand (rightkit `67515ffb5`, rustright `0bbd1e3`). Nothing here is decided until Adrian says so. It replaces no contract yet.
 
+**Reading this on or after 22 November.** Start with the [status file](../../../rustright/docs/audits/loop-2026-11-10/08-state-2026-11-22.md): what Adrian wants, what is decided, what is open and the current state. This plan is still the plan.
+
 **Reading this on 18 November.** The opening records the original draft. Use [§7, order of work](#7-order-of-work) for the agreed sequence & [§11, evidence at handoff](#11-evidence-at-handoff) for the latest Dell reading. The [companion regression matrix, §17](../../../rustright/docs/audits/loop-2026-11-10/00-loop-review.md#17-november-18-regressions) lives in the sibling private RustRight checkout. It records how previous attempts failed, including attempts to follow this plan.
 
 ## 1. The requirement
@@ -37,6 +39,8 @@ Everything below exists to make those three lines true and nothing else.
 **Publication.** Unchanged: RightKit through CI from git; private apps through local qualification then R2; public apps through CI with signed installers.
 
 ## 3. The interface (the one seam; agreed fab and astra, 2026-11-09, after both adversarial reviews; rustright#235; pending Adrian's word, as everything in this plan)
+
+**Status, recorded 2026-11-20: decided and built.** The words "pending Adrian's word" in this heading date from the draft. The seam was built and cut over (broker: Mac `1fd4595c`, Dell `f448a440`; gate: `cf54ceeb3`), and the gate contract records the clauses it replaced as superseded ([GATE-CONTRACT §11](../GATE-CONTRACT.md#11-contract-resolutions-and-requirement-index-audit-gate-broker-2026-10-30-gb-30), G7 to G11). Nothing in this section waits on a decision.
 
 The same text is section 2 of `docs/BUILD.md`.
 

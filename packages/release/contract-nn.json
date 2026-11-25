@@ -1,48 +1,10 @@
 {
   "schema": "rightkit.contract-nn/1",
-  "contractSha256": "28d9ce65c878e04cc24064e1f1df286788f23bab0273d24a974d11b0a35e33dd",
-  "budgetsSha256": "fe547a8f0009f3046827cbbe2eef65e2e2de53cb3d1f746cd3dc4c33452df715",
+  "contractSha256": "591d4ba2c8f6ec5d82daac6074f7a81b606b3c574e0d40e0ba146336f7fe109a",
   "runnerFiles": [
-    "background-process.mjs",
-    "broker-client.mjs",
-    "code-closure.mjs",
-    "disk-policy.mjs",
-    "gate-acceptance.mjs",
-    "gate-seam.mjs",
-    "managed-root-guard.mjs",
-    "managed-roots.mjs",
-    "rustright-names.mjs",
-    "seam-broker.mjs",
-    "snapshot-git.mjs",
-    "snapshot-identity.mjs",
-    "snapshot-root-config.mjs",
-    "snapshot.mjs"
-  ],
-  "signedLaunches": [
-    {
-      "label": "S12:crate",
-      "commands": [
-        "clippy",
-        "test",
-        "build",
-        "check",
-        "doc"
-      ],
-      "exitCode": 0,
-      "commit": "any"
-    },
-    {
-      "label": "S12:manifest",
-      "commands": [
-        "clippy",
-        "test",
-        "build",
-        "check",
-        "doc"
-      ],
-      "exitCode": 0,
-      "commit": "any"
-    }
+    "acceptance-launch.mjs",
+    "acceptance-lines.mjs",
+    "acceptance-lines.test.mjs"
   ],
   "ids": [
     "NN01",
@@ -56,36 +18,149 @@
     "NN09",
     "NN10",
     "NN11",
-    "NN12",
-    "NN13",
-    "NN14",
-    "NN15",
-    "NN16",
-    "NN17",
-    "NN18",
-    "NN19",
-    "NN20",
-    "NN21",
-    "NN22",
-    "NN23",
-    "NN24",
-    "NN25",
-    "NN26",
-    "NN27",
-    "NN28",
-    "NN29",
-    "NN30",
-    "NN31",
-    "NN32",
-    "NN33",
-    "NN34",
-    "NN35",
-    "NN36",
-    "NN37",
-    "NN38",
-    "NN39",
-    "NN40",
-    "NN41",
-    "NN42"
-  ]
+    "NN12"
+  ],
+  "retiredRunner": {
+    "retiredIn": "rightkit#1514 step 9",
+    "ids": [
+      "NN01",
+      "NN02",
+      "NN03",
+      "NN04",
+      "NN05",
+      "NN06",
+      "NN07",
+      "NN08",
+      "NN09",
+      "NN10",
+      "NN11",
+      "NN12",
+      "NN13",
+      "NN14",
+      "NN15",
+      "NN16",
+      "NN17",
+      "NN18",
+      "NN19",
+      "NN20",
+      "NN21",
+      "NN22",
+      "NN23",
+      "NN24",
+      "NN25",
+      "NN26",
+      "NN27",
+      "NN28",
+      "NN29",
+      "NN30",
+      "NN31",
+      "NN32",
+      "NN33",
+      "NN34",
+      "NN35",
+      "NN36",
+      "NN37",
+      "NN38",
+      "NN39",
+      "NN40",
+      "NN41",
+      "NN42",
+      "NN43"
+    ],
+    "contractSha256": "be3b14b429eb1328ea4ee45aa643c79118102f0755f2e373a170bd46b02bc2b1",
+    "budgetsSha256": "c49ca00d962e9352c2d6d3029fce09ff07ef937c8bd6dccaa672998c15559ead",
+    "runnerSha256": "68a396860b00079b0e71a7d37147d9605cee2ca8b28bda52f440a9fa06738d10",
+    "runnerFiles": [
+      {
+        "name": "background-process.mjs",
+        "sha256": "5f04c155825e6272692673cafe2079baa064f100462e18f190a403a42c4d1d7c"
+      },
+      {
+        "name": "broker-client.mjs",
+        "sha256": "0beb5d9b953fe9048944c594dc91c61f5edcc1f4fad2fa8c56eeedff8e434198"
+      },
+      {
+        "name": "code-closure.mjs",
+        "sha256": "f1bcabf9d892d38fd4013ba179209bbbd78e9c36cc66dda214928ddaf53cce4d"
+      },
+      {
+        "name": "disk-policy.mjs",
+        "sha256": "edb494a57fe4c299220b2fdf0521fa16ca8d98fedb169466a54bd7be8e74959e"
+      },
+      {
+        "name": "gate-acceptance.mjs",
+        "sha256": "68a396860b00079b0e71a7d37147d9605cee2ca8b28bda52f440a9fa06738d10"
+      },
+      {
+        "name": "gate-seam.mjs",
+        "sha256": "bdba92b851e5e437a72e12f0a9f4ca224b0252bdd22442f5d7cfb60b4e5e96ec"
+      },
+      {
+        "name": "gate-serve.mjs",
+        "sha256": "390d4ced1d9b6222e409caf6ae8476fe9ffdb3d269236aa120ebf3431e9b476f"
+      },
+      {
+        "name": "managed-root-guard.mjs",
+        "sha256": "64da636e2f11bb21a142eb145c772da66f3e6af0bb4dec66c0a792958e473691"
+      },
+      {
+        "name": "managed-roots.mjs",
+        "sha256": "f5a4bc986b53f83bf63967c839fcfd43bd7491117b8885741ad9757d03f49128"
+      },
+      {
+        "name": "rustright-names.mjs",
+        "sha256": "327cbe8931c61222e11f266fb85026bf8fa371192493d630d4ef1ff6f8f58153"
+      },
+      {
+        "name": "seam-broker.mjs",
+        "sha256": "35fea00c587f40d3f322fba0715e6ee9f773fef7b00624f9d7ad2cbeb200fb1b"
+      },
+      {
+        "name": "snapshot-changes.mjs",
+        "sha256": "2b0bc905a927eb49b2a1617125b82bd36d6317d0266f01e1154c4187b51dd510"
+      },
+      {
+        "name": "snapshot-git.mjs",
+        "sha256": "414d78b32e57b6daa6ab9149179d3d5004842acd27f8df953af2bba66f87d514"
+      },
+      {
+        "name": "snapshot-identity.mjs",
+        "sha256": "0592fe0b891e46a6fe28ee27c540b5f2b217019fe4c3d09f68a9595b5051936a"
+      },
+      {
+        "name": "snapshot-root-config.mjs",
+        "sha256": "c193557e5626c2170792aaefbf617e95153d5e817a0ff827974f15e035c8a7bc"
+      },
+      {
+        "name": "snapshot.mjs",
+        "sha256": "d6b87a03be183ad51a5224088daca91aedd74c0eab5e4a9235f3dfdf675e414a"
+      }
+    ],
+    "signedLaunches": [
+      {
+        "label": "S12:crate",
+        "commands": [
+          "clippy",
+          "test",
+          "build",
+          "check",
+          "doc"
+        ],
+        "exitCode": 0,
+        "commit": "any"
+      },
+      {
+        "label": "S12:manifest",
+        "commands": [
+          "clippy",
+          "test",
+          "build",
+          "check",
+          "doc"
+        ],
+        "exitCode": 0,
+        "commit": "any"
+      }
+    ]
+  }
 }

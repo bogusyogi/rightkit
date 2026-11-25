@@ -5,8 +5,12 @@ use rightkit_child_process::{OwnedChild, OwnedCommand};
 use rightkit_daemon::{Client, ClientConfig, HostExpectation};
 use rightkit_roots::Suite;
 use serde_json::json;
+use std::io::Read;
 use std::process::Stdio;
 use std::time::Instant;
+
+#[path = "owner_schema2.rs"]
+pub(super) mod schema2;
 
 const OWNER_SCHEMA: &str = "rightkit.qa.credential-owner/1";
 const OWNER_SWITCH: &str = "--rightkit-qa-credentials";
@@ -32,8 +36,19 @@ const OWNER_STDERR_QUOTE: usize = 400;
 
 /// `message`, with the owner's own first stderr bytes appended when it wrote any (the file stays in the private snapshot directory).
 fn with_owner_stderr(message: String, file: &Path) -> String {
-    let text = fs::read(file).unwrap_or_default();
-    let text = String::from_utf8_lossy(&text[..text.len().min(OWNER_STDERR_QUOTE)])
+    let options = rightkit_fs::ReadOptions::new().require_single_link(true);
+    let Ok(file_handle) = rightkit_fs::open_read_nofollow(file, &options) else {
+        return message;
+    };
+    let mut text = Vec::with_capacity(OWNER_STDERR_QUOTE);
+    if file_handle
+        .take(OWNER_STDERR_QUOTE as u64)
+        .read_to_end(&mut text)
+        .is_err()
+    {
+        return message;
+    }
+    let text = String::from_utf8_lossy(&text)
         .trim()
         .replace(['\n', '\r'], " | ");
     if text.is_empty() {
@@ -225,12 +240,19 @@ pub(super) struct Metadata {
     verified: bool,
 }
 
-fn exchange(
+enum OwnerReply {
+    Metadata(serde_json::Value),
+    RestoreIncomplete,
+}
+
+fn exchange<T>(
     marker: &Marker,
     operation: &str,
     child: &mut OwnedChild,
     auth: &str,
-) -> Result<Metadata> {
+    schema: &str,
+    validate: impl FnOnce(OwnerReply) -> Result<T>,
+) -> Result<T> {
     let owner = marker.credential_owner.as_ref().unwrap();
     let suite = Suite::per_user_default()
         .map_err(|_| Error("cannot resolve credential owner transport".into()))?;
@@ -275,53 +297,43 @@ fn exchange(
     let health = client
         .call("health", token::with_token(json!({}), Some(auth)))
         .map_err(|_| Error("credential owner authenticated health failed".into()))?;
-    if health.get("schema").and_then(serde_json::Value::as_str) != Some(OWNER_SCHEMA)
+    if health.get("schema").and_then(serde_json::Value::as_str) != Some(schema)
         || health.get("mode").and_then(serde_json::Value::as_str) != Some(OWNER_MODE)
     {
         return err("credential owner health schema/mode mismatch");
     }
     let mut params = json!({
-        "schema": OWNER_SCHEMA,
+        "schema": schema,
         "snapshotId": marker.snapshot_id,
         "snapshotDir": marker.snapshot_dir,
         "credentials": marker.credentials,
     });
-    if operation == "restore" {
+    if matches!(operation, "restore" | "complete") {
         params["credentialsSha256"] = json!(marker
             .credentials_sha256
             .as_ref()
             .ok_or_else(|| Error("credential restore lacks a file digest".into()))?);
     }
-    let response = client
-        .call(
-            &format!("qa_credentials_{operation}"),
-            token::with_token(params, Some(auth)),
-        )
-        .map_err(|_| {
-            Error(format!(
+    let response = client.call(
+        &format!("qa_credentials_{operation}"),
+        token::with_token(params, Some(auth)),
+    );
+    let (reply, expected_exit) = match response {
+        Ok(metadata) => (OwnerReply::Metadata(metadata), 0),
+        Err(error)
+            if schema == schema2::SCHEMA
+                && operation == "complete"
+                && error.code == "restore_incomplete" =>
+        {
+            (OwnerReply::RestoreIncomplete, 1)
+        }
+        Err(_) => {
+            return err(format!(
                 "credential owner {operation} failed; marker retained"
             ))
-        })?;
-    let metadata: Metadata = serde_json::from_value(response)
-        .map_err(|_| Error("credential owner returned invalid metadata".into()))?;
-    if metadata.schema != OWNER_SCHEMA
-        || metadata.operation != operation
-        || metadata.snapshot_id != marker.snapshot_id
-        || !metadata.verified
-        || metadata.item_count
-            != marker
-                .credentials
-                .iter()
-                .map(|c| c.accounts.len())
-                .sum::<usize>()
-        || metadata.credentials_sha256.len() != 64
-        || !metadata
-            .credentials_sha256
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    {
-        return err("credential owner metadata does not prove this operation");
-    }
+        }
+    };
+    let metadata = validate(reply)?;
     drop(client);
     // Observe natural exit before reaping, preserving ownership of any descendant identities.
     let handle = child
@@ -345,8 +357,8 @@ fn exchange(
         "cannot reap credential owner",
         &owner.executable,
     )?;
-    if !status.success() {
-        return err("credential owner exited unsuccessfully");
+    if status.code() != Some(expected_exit) {
+        return err("credential owner exit does not match its operation result");
     }
     ensure_stopped(marker)?;
     owner.verify()?;
@@ -354,6 +366,40 @@ fn exchange(
 }
 
 pub(super) fn operate(marker: &Marker, operation: &str) -> Result<Metadata> {
+    operate_with(marker, operation, OWNER_SCHEMA, |response| {
+        let OwnerReply::Metadata(response) = response else {
+            return err("credential owner returned an invalid schema-1 response");
+        };
+        let metadata: Metadata = serde_json::from_value(response)
+            .map_err(|_| Error("credential owner returned invalid metadata".into()))?;
+        if metadata.schema != OWNER_SCHEMA
+            || metadata.operation != operation
+            || metadata.snapshot_id != marker.snapshot_id
+            || !metadata.verified
+            || metadata.item_count
+                != marker
+                    .credentials
+                    .iter()
+                    .map(|c| c.accounts.len())
+                    .sum::<usize>()
+            || metadata.credentials_sha256.len() != 64
+            || !metadata
+                .credentials_sha256
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
+            return err("credential owner metadata does not prove this operation");
+        }
+        Ok(metadata)
+    })
+}
+
+fn operate_with<T>(
+    marker: &Marker,
+    operation: &str,
+    schema: &str,
+    validate: impl FnOnce(OwnerReply) -> Result<T>,
+) -> Result<T> {
     let owner = marker
         .credential_owner
         .as_ref()
@@ -364,7 +410,10 @@ pub(super) fn operate(marker: &Marker, operation: &str) -> Result<Metadata> {
     if !matches!(
         (operation, marker.state.as_str()),
         ("snapshot", STATE_SNAPSHOTTING) | ("restore", STATE_RESTORING)
-    ) {
+    ) && !(schema == schema2::SCHEMA
+        && operation == "complete"
+        && marker.state == STATE_RESTORING)
+    {
         return err("credential owner operation does not match the restore marker state");
     }
     let token_file = owner.token_file.as_ref().unwrap();
@@ -404,12 +453,16 @@ pub(super) fn operate(marker: &Marker, operation: &str) -> Result<Metadata> {
     let mut child = command
         .spawn()
         .map_err(|_| Error("cannot launch installed credential owner".into()))?;
-    let result = exchange(marker, operation, &mut child, &auth);
+    let result = exchange(marker, operation, &mut child, &auth, schema, validate);
     if result.is_err() {
         // The handle owns only this launch's process group / Job Object. Never kill by name.
         let _ = crate::process::terminate_bounded(&mut child);
     }
-    let result = result.map_err(|Error(message)| Error(with_owner_stderr(message, &stderr_file)));
+    let result = if schema == OWNER_SCHEMA {
+        result.map_err(|Error(message)| Error(with_owner_stderr(message, &stderr_file)))
+    } else {
+        result
+    };
     let _ = fs::remove_file(token_file);
     result
 }

@@ -35,7 +35,10 @@ pub mod voice;
 pub use approval::{ApprovalBinding, ExecutorRef};
 pub use device::{DevicePlatform, DeviceRef};
 pub use effect::EffectClass;
-pub use intent::{DelegationRef, GrantOrigin, Intent, IntentSource};
+pub use intent::{
+    DelegationRef, EngineTrigger, GrantOrigin, Intent, IntentSource, IntentSourceError,
+    MAX_ENGINE_ID_BYTES,
+};
 pub use principal::{Principal, PrincipalKind};
 pub use rightkit_approvals::Binding;
 pub use task::{

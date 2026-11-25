@@ -15,6 +15,7 @@ use crate::scenario::{
     discover, requirement_gate, resolve_run_kind, run_step, scenario_kind, tier_selected,
     unmet_requirement, Ctx, Gate, Scenario, SkipKind, StepHandlers, StepRecord,
 };
+use crate::snapshot::OwnerConfig;
 use crate::steps::{self, StepState};
 use crate::storage::{self, RunKind, RunOutcome};
 use crate::supervise;
@@ -350,7 +351,7 @@ fn ui_binary(cfg: &QaConfig, opts: &SuiteOptions, tracker: &Tracker) -> Result<O
 }
 
 pub fn run_suite(cfg: &QaConfig, opts: &SuiteOptions) -> Result<SuiteReport> {
-    run_suite_at(cfg, opts, None, RunPolicy::default())
+    run_suite_at(cfg, opts, None, RunPolicy::default(), None)
 }
 
 /// [`run_suite`] judged as a qualifying run (Sage C5): the run passes only when every scenario passed
@@ -363,7 +364,22 @@ pub fn run_suite(cfg: &QaConfig, opts: &SuiteOptions) -> Result<SuiteReport> {
 /// [`crate::worker_main::main`] with [`run_spec`]. A worker cannot carry in-process
 /// [`SuiteHooks`]: a qualifying run with hooks is refused (use the step plugin, [`SuiteOptions::plugin`]).
 pub fn run_suite_qualifying(cfg: &QaConfig, opts: &SuiteOptions) -> Result<SuiteReport> {
-    run_suite_at(cfg, opts, None, RunPolicy::qualifying_with_workers()?)
+    run_suite_at(cfg, opts, None, RunPolicy::qualifying_with_workers()?, None)
+}
+
+/// Run a suite with the installed executable as the schema-2 credential owner.
+pub fn run_suite_with_owner(
+    cfg: &QaConfig,
+    opts: &SuiteOptions,
+    qualifying: bool,
+    credential_owner: OwnerConfig,
+) -> Result<SuiteReport> {
+    let policy = if qualifying {
+        RunPolicy::qualifying_with_workers()?
+    } else {
+        RunPolicy::default()
+    };
+    run_suite_at(cfg, opts, None, policy, Some(credential_owner))
 }
 
 /// Test/embedding entry point with an explicit managed root.
@@ -372,7 +388,7 @@ pub fn run_suite_in_managed_root(
     opts: &SuiteOptions,
     managed_root: &Path,
 ) -> Result<SuiteReport> {
-    run_suite_at(cfg, opts, Some(managed_root), RunPolicy::default())
+    run_suite_at(cfg, opts, Some(managed_root), RunPolicy::default(), None)
 }
 
 /// [`run_suite_in_managed_root`] judged as a qualifying run, see [`run_suite_qualifying`].
@@ -386,6 +402,7 @@ pub fn run_suite_qualifying_in_managed_root(
         opts,
         Some(managed_root),
         RunPolicy::qualifying_with_workers()?,
+        None,
     )
 }
 
@@ -432,12 +449,18 @@ fn run_suite_at(
     opts: &SuiteOptions,
     managed_override: Option<&Path>,
     policy: RunPolicy,
+    credential_owner: Option<OwnerConfig>,
 ) -> Result<SuiteReport> {
     let snapshot = cfg.require_snapshot()?;
     let managed_root = managed_override
         .map(Path::to_path_buf)
         .unwrap_or_else(|| crate::storage::managed_root(None));
-    let armed = crate::snapshot::arm(&cfg.app, snapshot, &managed_root)?;
+    let armed = match credential_owner {
+        Some(owner) => {
+            crate::snapshot::arm_with_owner_schema2(&cfg.app, snapshot, &managed_root, owner)?
+        }
+        None => crate::snapshot::arm(&cfg.app, snapshot, &managed_root)?,
+    };
     let result = run_suite_inner(cfg, opts, managed_override, policy);
     crate::snapshot::finish(armed, result)
 }

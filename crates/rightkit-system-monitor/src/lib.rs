@@ -7,6 +7,8 @@
 //! drives. Without one nothing is written.
 
 pub mod drive_health;
+#[cfg(windows)]
+pub mod drive_health_windows;
 pub mod gpu_temp;
 pub mod monitor;
 #[cfg(windows)]
@@ -15,6 +17,7 @@ pub mod process_inspect;
 pub mod process_sampler;
 pub mod processes;
 mod snapshot;
+pub mod system_history;
 
 static STATE_DIRECTORY: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
 
@@ -228,12 +231,19 @@ fn lock_disk_state() -> std::sync::MutexGuard<'static, DiskState> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// Marks the listing finished when its thread ends, even by panic.
-struct DiskListingGuard;
+/// Publish the completed list and release admission together when the worker exits.
+struct DiskListingGuard {
+    completed: Option<Vec<DiskStatus>>,
+}
 
 impl Drop for DiskListingGuard {
     fn drop(&mut self) {
-        lock_disk_state().started = None;
+        let mut state = lock_disk_state();
+        if let Some(disks) = self.completed.take() {
+            state.cache = Some(disks);
+            state.generation = state.generation.wrapping_add(1);
+        }
+        state.started = None;
         DISK_DONE.notify_all();
     }
 }
@@ -460,15 +470,10 @@ fn list_disks() -> Vec<DiskStatus> {
             let spawned = std::thread::Builder::new()
                 .name("rightkit-disk-list".into())
                 .spawn(|| {
-                    let _guard = DiskListingGuard;
+                    let mut listing = DiskListingGuard { completed: None };
                     let list = read_disks();
                     remember_disks(&list);
-                    let mut state = lock_disk_state();
-                    state.cache = Some(list);
-                    state.generation += 1;
-                    state.started = None;
-                    drop(state);
-                    DISK_DONE.notify_all();
+                    listing.completed = Some(list);
                 });
             if spawned.is_err() {
                 state.started = None;

@@ -1,6 +1,24 @@
 # Changelog
 
-## 0.7.3 (unpublished)
+## 0.7.6
+
+- Add `win::clipboard_text::eager_text_formats(text)` (Windows): the Unicode, ANSI, OEM and locale clipboard formats of a text, built before the clipboard is opened so publishing all four under one open prevents the automatic format synthesis on close. The desktop clipboard write (`desktop::windows`) uses it instead of its own encoder; behaviour of that write is unchanged. `rightkit-clipboard-history` writes its text through it as well.
+- `eager_text_formats` derives the ANSI and OEM code pages from the thread locale (`GetLocaleInfoW` default ANSI and OEM code page) instead of the system defaults, so the ANSI, OEM and `CF_LOCALE` entries agree on non-default locales.
+- Add `desktop::windows::try_restore_general_clipboard_if_unchanged(&snapshot, expected_sequence) -> ClipboardReplaceOutcome` (`Written`, `Changed`, `Unavailable`, `LossySnapshot`, `Partial`): restores a Win32 clipboard snapshot without consuming it, so a caller keeps the original through contention or a partial write; all native handles are prepared before the clipboard is cleared, and the sequence is read under the guard. `restore_general_clipboard_if_unchanged` keeps its signature and its partial recovery of a lossy snapshot.
+
+## 0.7.5
+
+- Detection of the owner's own input (AG-12, RK-13; additive): module `input_watch` with the `InputWatch` trait (a count of the owner's own keyboard and mouse events, `None` when unknown), `OwnerInput` and `SystemInputWatch`. macOS reads the HID system state counters (the agent's HID-posted foreground events raise them too, so the count is re-based after each of its own events); Windows runs a low-level keyboard and mouse hook on one dedicated thread and counts an event only when its injected flag is clear (it reads that flags word only, never a key code, position or character; one live watch per process); elsewhere the count is unknown, never "no input". `Automation::set_input_watch(Option<Arc<dyn InputWatch>>)` turns it on (off by default): `act` then stops before any tier, and before each foreground event, once the owner has used the keyboard or mouse since the act began, restores the previous window and returns the new `Error::UserInControl`. A new `Error` variant, so an exhaustive match over `Error` in another crate needs an arm. Design decision for Adrian: whether an agent may watch the owner's input at all, and whether a low-level hook on Windows is acceptable (it observes every key and click system-wide to count them). Unverified: that `SetCursorPos` and the crate's own `SendInput` events carry the injected flag so they are not counted, and that macOS HID-tap posts raise the counters as assumed. Written, not compiled or run.
+- Windows, per-event foreground check (AG-12, RK-13): `WinPlatform::foreground` confirms the target process is still the foreground process before every event and returns `FocusMoved` instead of sending into another window. Written, not compiled.
+
+- Truthful restore (AG-12, RK-13; behaviour fix): the foreground tier of `act` now brings the previously frontmost app back after a failed event too, not only after the last one succeeded, and reports the result: the success detail reads `focus restored` or `focus NOT restored` (it said `focus restored` whatever `restore_front` returned), and a failed event whose restore also failed returns a `Platform` error saying the previous window could not be brought back. Written, not compiled;.
+
+## 0.7.4
+
+- Add `verify` (AG-11, RK-13; additive): `observe_compare(observe, act, delta)` and `compare` take an observation before and after an action and answer `Verdict::Effect`, `NoEffect` or `Unmeasured` (an observation that could not be taken, or a truncated one with no other change, is never a no-effect). `Automation::act_verified` wraps `act` with a before and after snapshot of the window (`WindowState`: node id, role, name, value, enabled, focused node; frames ignored) and returns `VerifiedOutcome`, whose `done()` is false when the verdict is `NoEffect`. `act` itself is unchanged.
+- `act` with `strict_focus` now runs a `FocusWatch` over the whole ladder, so a foreground steal that is undone before the final read sets `focus_moved` and fails with `FocusMoved`. An unmeasured watch never claims a move. Without `strict_focus` nothing changes. `FocusWatch` now stops its thread when dropped without `finish`. Written, not compiled.
+
+## 0.7.3
 
 - Add macOS focus reads with host-supplied timing and diagnostics, reusing the existing AX identity and focused-window rules. No Accessibility attributes are written.
 - Add `NativeTextTarget` for bounded, verified UTF-16 selection on Windows & macOS. Selection requires an exact full-field match in the retained focused control and reports whether a failed readback could safely restore the original selection. Callers must verify the full field and selection again immediately before editing.

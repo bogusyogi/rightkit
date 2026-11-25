@@ -31,6 +31,7 @@ pub mod hello;
 pub mod identity;
 pub mod keys;
 pub mod mailbox;
+pub mod pump;
 pub mod seal;
 pub mod settings;
 pub mod sync;

@@ -110,3 +110,83 @@ pub fn configure_service_log_names(names: ServiceLogNames) -> bool {
 pub fn service_log_names() -> &'static ServiceLogNames {
     SERVICE_LOG_NAMES.get().unwrap_or(&ServiceLogNames::DEFAULT)
 }
+
+static PULSE_HANDOFF: OnceLock<rightkit_dictation_command_host::pulse_handoff::HandoffIdentity> =
+    OnceLock::new();
+
+/// Turn on the hand-off to Pulse (`docs/contracts/voice.md`, decision 5): a recording that began from the
+/// wake word and that no command matched is sent to the Pulse command line as a task instead of being typed.
+/// Call once per process, before `entry::run`; returns `false` when already installed. A host that makes no
+/// call keeps today's behaviour: such a recording is dictated.
+pub fn configure_pulse_handoff(
+    identity: rightkit_dictation_command_host::pulse_handoff::HandoffIdentity,
+) -> bool {
+    PULSE_HANDOFF.set(identity).is_ok()
+}
+
+/// The hand-off identity, when the host turned the hand-off on.
+pub fn pulse_handoff(
+) -> Option<&'static rightkit_dictation_command_host::pulse_handoff::HandoffIdentity> {
+    PULSE_HANDOFF.get()
+}
+
+static ECHO_PATH_DELAY: OnceLock<std::time::Duration> = OnceLock::new();
+
+/// How long audio takes from the speech player's queue to the microphone: queue depth plus device
+/// latency plus air. The open session's echo canceller reads the reference from this long ago. Once per
+/// process; returns `false` when already set. Default 150 ms.
+pub fn configure_echo_path_delay(delay: std::time::Duration) -> bool {
+    ECHO_PATH_DELAY.set(delay).is_ok()
+}
+
+/// The echo path delay in force.
+pub fn echo_path_delay() -> std::time::Duration {
+    ECHO_PATH_DELAY
+        .get()
+        .copied()
+        .unwrap_or(std::time::Duration::from_millis(150))
+}
+
+/// Turn-taking for addressed recordings: when it is set, such a recording ends when
+/// `rightkit_audio::turn::TurnTracker` says the turn is over, instead of at the fixed post-speech
+/// silence.
+#[derive(Clone, Copy)]
+pub struct TurnTaking {
+    pub policy: rightkit_audio::turn::TurnPolicy,
+    /// Builds a model for each recording. `None`: silence alone, the policy's fallback.
+    pub model: Option<fn() -> Box<dyn rightkit_audio::turn::TurnModel>>,
+}
+
+static TURN_TAKING: OnceLock<TurnTaking> = OnceLock::new();
+
+/// Turn on turn-taking for addressed recordings. Once per process; returns `false` when already set. A
+/// host that makes no call keeps the fixed post-speech silence.
+pub fn configure_turn_taking(turn_taking: TurnTaking) -> bool {
+    TURN_TAKING.set(turn_taking).is_ok()
+}
+
+/// A fresh tracker for one addressed recording, when the host turned turn-taking on.
+pub(crate) fn new_turn_tracker() -> Option<rightkit_audio::turn::TurnTracker> {
+    let turn_taking = TURN_TAKING.get()?;
+    Some(rightkit_audio::turn::TurnTracker::new(
+        turn_taking.policy,
+        turn_taking.model.map(|build| build()),
+    ))
+}
+
+static PENDING_INTERVIEW: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// The interview question the agent is waiting on, when the host knows one (Pulse is the source: it says
+/// which question it has pending, and the host passes it here). The next addressed hand-off carries it as
+/// `interview:<question_id>` in `context_refs`, so the answer is filed under the question that was asked.
+/// `None` clears it.
+pub fn set_pending_interview_question(question_id: Option<String>) {
+    if let Ok(mut slot) = PENDING_INTERVIEW.lock() {
+        *slot = question_id;
+    }
+}
+
+/// The pending interview question, if any.
+pub fn pending_interview_question() -> Option<String> {
+    PENDING_INTERVIEW.lock().ok().and_then(|slot| slot.clone())
+}

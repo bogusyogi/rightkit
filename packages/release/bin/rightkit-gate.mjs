@@ -62,11 +62,11 @@
 // rust.<crate>.testInputs lists the paths they read, for npm, node and docs scans, and whenever a reference cannot be resolved
 // statically) are all identical. Stored in <git common dir>/rightkit-gate-cache; a hit prints
 // `cached` and is listed in the result's cacheHits. A deterministic failure (NN41: a compile's authenticated or diagnosed failure, a file-only rule's violations) is cached too and prints `cached-fail`; timeouts, aborts, refusals, infrastructure errors and test runs never are.
-// RK_GATE_JOBS (default 4) sets class A scan concurrency. Class B on a broker host (rightkit#1367 step 2): the gate does not count builds; every
+// Class A scan concurrency is the host's core count; no caller sets it. Class B on a broker host (rightkit#1367 step 2): the gate does not count builds; every
 // component's broker-carried scans (cargo, rustright, carried Swift, and npm suites that declare a broker call) start without a limit, each component in plan order,
 // and the broker queues and orders them. A carried scan's run limit is a stopwatch that stops while the broker holds all its requests QUEUED (broker-admission.mjs),
 // so queue time is neither charged to the scan nor bounded by a gate allowance. Only class B suites the broker never sees (npm or node tests run on this host)
-// keep a local limit of 3, one slot per suite. On a host with no broker RK_GATE_CLASS_B_JOBS (default 3) sets how many components' class B scans run at once; one
+// keep a local limit of 3, one slot per suite. On a host with no broker 3 components' class B scans run at once; one
 // component's scans stay in order (rightkit#1285).
 // A crate whose ci/gate.config.json entry says `quietTests: true` has its test scans run last,
 // one at a time, under the RustRight quiet lease (`rustright quiet acquire`, RUSTRIGHT_QUIET_LEASE in their environment).
@@ -74,6 +74,8 @@
 import fs from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { openClassAHistory, openClassBHistory } from "../class-a-cache-history.mjs";
+/** One line, once, when the gate set an unusable cache aside and started an empty one in the same place (class-a-cache-history.mjs). */
+const cacheRestartNote = (o) => ({ store, reason, storeAside }) => (o.out ?? console.log)(`rightkit-gate: cache restarted: ${store} could not be used (${reason}); ${storeAside ? `the old one is kept at ${storeAside}` : "there was no old store to keep"}; every row is checked once more and stored here`);
 import { writeFileAtomic } from "../atomic-write.mjs";
 import { envNamed, gateRunsRoot, resolveManagedRoots } from "../managed-roots.mjs";
 import { resolveBrokerClient, spawnBrokerClient } from "../broker-client.mjs";
@@ -83,11 +85,24 @@ import { hostTarget } from "../cross-targets.mjs";
 import { FOREIGN_PRE_COMMIT, retireHooksIn } from "../hook-retirement.mjs";
 import { fileURLToPath } from "node:url";
 import { installIdentity, installStateBytes } from "../dependency-identity.mjs";
-import { BIOME_CONFIG_FILES, CHECKER_IDENTITY, OXLINT_CONFIG_FILES, ESLINT_CONFIG_FILES, LOCAL_CLASS_B_JOBS, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, defaultSpawnAsync, judgeUnitList, blockedUnitsOf, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, planUnitListScans, publisherRequirementScan, runScans, sidecarBoundCrate, scanToolPolicyFromPipeline, scanDeferrals, scanFailures, seamRunState } from "../deterministic-scans.mjs";
+import { pnpmVersionAnswer } from "../snapshot-dependency-reuse.mjs";
+import { BIOME_CONFIG_FILES, CHECKER_IDENTITY, OXLINT_CONFIG_FILES, ESLINT_CONFIG_FILES, LOCAL_CLASS_B_JOBS, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, defaultSpawnAsync, rememberReads, judgeUnitList, blockedUnitsOf, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, planUnitListScans, publisherRequirementScan, runScans, sidecarBoundCrate, scanToolPolicyFromPipeline, scanDeferrals, scanFailures, seamRunState } from "../deterministic-scans.mjs";
 import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 import { resolveExecutor } from "../gate-executor.mjs";
 // The gate's own executor: an outer gate's cargo wrapper on PATH is never this gate's cargo (gate-executor.mjs `gateWrappers`).
 const gateResolveExecutor = (args) => resolveExecutor({ ...args, gateWrappers: true });
+/**
+ * NN09, NN25: which cargo and rustc the broker compiles with, read in this process from the broker's own host configuration
+ * (broker-toolchain.mjs) instead of asking through the client (`rustright cargo --version`, `rustright rustc -V`). null for an injected
+ * spawn (a test sees every start it expects), for a host that does not compile through the RustRight client, and on any doubt; the caller then
+ * asks as before.
+ */
+function brokerToolchainOf(o, executor) {
+  if (o.spawn !== defaultSpawn || executor?.kind !== "broker" || !Array.isArray(executor.cargo) || executor.cargo.length < 2) return null;
+  let answer = null;
+  try { const launcher = resolveOnPath(executor.cargo[0], { env: o.env, platform: o.platform }); answer = launcher ? brokerToolchain({ launcher }) : null; } catch { answer = null; }
+  return answer?.ok ? answer : null;
+}
 import { ALL_UNITS_ERRORS, ALL_UNITS_EXCEPTIONS_FILE, BROKER_EXCEPTIONS_FILE, BROKER_EXCEPTION_ERRORS, CARGO_WORKSPACE_LIST_FILE, CARGO_WORKSPACE_LIST_KEY, RIGHTKIT_IDENTITY_FILE, authorizeAllUnits, authorizeNoBroker, checkCargoWorkspaceList, describeAllUnitsException, describeBrokerException, isRightKitIdentity, unitsOfSelector } from "../broker-exception.mjs";
 import { SIGNING_REFUSAL_CODES, suiteSigningRefusals } from "../suite-signing-policy.mjs";
 import { gitListRustFiles } from "../signing-files.mjs";
@@ -110,14 +125,15 @@ import { buildDirectReceipt, directVerdict, resolveTargetDirectory, verifyDirect
 import { platformDirOf } from "../platform-dir.mjs";
 import { buildInventory, classifyUnitResults, dependencyFirstOrder, selectAffectedAcrossInventories, classifyUnitRows, unitListReport } from "../affected-units.mjs";
 import { createRequire } from "node:module";
-import { BUILD_CONTROL_PROTOCOL, HANDSHAKE_PROBE_ID, RUNTIME_MANIFEST_FILE, parseRuntimeIdentity } from "../seam-broker.mjs";
+import { BUILD_CONTROL_PROTOCOL, HANDSHAKE_PROBE_ID, RUNTIME_MANIFEST_FILE, brokerControlTarget, parseRuntimeIdentity } from "../seam-broker.mjs";
 import { snapshotReclaimJudge } from "../seam-broker.mjs";
 import net from "node:net";
 import { installSpawnLedger } from "../spawn-ledger.mjs";
-import { rememberedVersion } from "../tool-version-memo.mjs";
+import { rememberedVersion, resolveOnPath } from "../tool-version-memo.mjs";
+import { brokerToolchain } from "../broker-toolchain.mjs";
 import { SNAPSHOT_PROOF_COUNTS, snapshotProofLine } from "../snapshot.mjs";
 import { contentStore, installProbeMemo } from "../probe-memo.mjs";
-import { setTreeListingStore } from "../snapshot-git.mjs";
+import { discoveryRun, sealedRepoInfo, setTreeListingStore } from "../snapshot-git.mjs";
 import { processIdentity, snapshotLockBody, verdictFileName } from "../gate-seam.mjs";
 
 const PRIVATE_SCOPED_COMPILE = Symbol("private scoped compile");
@@ -150,7 +166,7 @@ export const MOBILE_PLATFORMS = Object.freeze(new Set(["ios", "android"]));
 const CLASS_B_KEY_SCHEMA = "rightkit.class-b-key/3";
 // GC-A24: passing rule-engine verdicts (app rules, RightKit's preflight) of a snapshot, under the checkout's git common directory.
 const RULE_VERDICT_SCHEMA = "rightkit.rule-verdict/1";
-function ruleVerdictCache({ checkout, spawn }) {
+export function ruleVerdictCache({ checkout, spawn }) {
   try {
     const common = spawn("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: checkout });
     if (failed(common) || !text(common).trim()) return null;
@@ -159,7 +175,8 @@ function ruleVerdictCache({ checkout, spawn }) {
     return {
       key: (parts) => createHash("sha256").update(canonicalJson({ schema: RULE_VERDICT_SCHEMA, node: process.version, platform: `${process.platform}-${process.arch}`, ...parts })).digest("hex"),
       passed: (k) => { try { return JSON.parse(fs.readFileSync(file(k), "utf8"))?.status === "pass"; } catch { return false; } },
-      pass: (k) => { try { fs.mkdirSync(dir, { recursive: true }); const tmp = `${file(k)}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify({ schema: RULE_VERDICT_SCHEMA, status: "pass", at: new Date().toISOString() })); fs.renameSync(tmp, file(k)); } catch { /* a cache */ } },
+      // A pass that is already stored is not written back (GC-A27 NN06: nothing is written for a row whose inputs did not change).
+      pass: (k) => { try { if (JSON.parse(fs.readFileSync(file(k), "utf8"))?.status === "pass") return; } catch { /* not stored yet */ } try { fs.mkdirSync(dir, { recursive: true }); const tmp = `${file(k)}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify({ schema: RULE_VERDICT_SCHEMA, status: "pass", at: new Date().toISOString() })); fs.renameSync(tmp, file(k)); } catch { /* a cache */ } },
     };
   } catch { return null; }
 }
@@ -379,11 +396,10 @@ function workspaceMetadata({ root, spawn, cargoCommand, dir, realpath }) {
  * Where the gate's own temporary files live (cargo-deny's metadata file and config overlay, read by the broker by absolute path). The
  * RustRight broker refuses paths on the system volume (RK_INTERNAL_DRIVE_REFUSED: agents never write to the internal drive), and
  * os.tmpdir() is on it on every Mac and Dell, so on a host with a disk-policy scratch root (/Volumes/D/scratch, D:\scratch) they go
- * there. RK_GATE_TMPDIR overrides; os.tmpdir() is the fallback where no scratch root exists (CI runners, cloud containers). The gate
+ * there. No caller chooses it; os.tmpdir() is the fallback where no scratch root exists (CI runners, cloud containers). The gate
  * exports nothing and copies no source: this is not a source location (docs/GATE-CONTRACT.md, 2026-10-29: no export or copy).
  */
 export function gateTmpRoot({ env = process.env, platform = process.platform, exists = fs.existsSync, policy = null } = {}) {
-  if (env.RK_GATE_TMPDIR) return env.RK_GATE_TMPDIR;
   try {
     const roots = scratchRoots(policy ?? readDiskPolicy(), { platform, env });
     const found = roots.find((root) => exists(root));
@@ -506,13 +522,15 @@ export function classAEnvironmentDigest({ root, files, spawn = defaultSpawn, inc
   const gateFiles = [`class-a-key-schema:${CLASS_A_KEY_SCHEMA}`, ...walkGate(gatePkg).sort().map((f) => path.relative(gatePkg, f)).filter((rel) => !releaseOnly(rel)).map((rel) => `${rel}:${fileDigest(path.join(gatePkg, rel))}`)];
   // Bounded: a pnpm that switches itself to the repository's packageManager version on first use, or waits on the network,
   // must fail the probe (and its process tree) within PNPM_PROBE_TIMEOUT_MS, never hang an admission.
-  const pnpmVersion = (() => {
+  // NN25, NN07: asked once and then kept by the open gate process while the files that decide which pnpm runs here are unchanged
+  // (snapshot-dependency-reuse.mjs pnpmVersionAnswer); only the real spawn remembers, a failed or timed-out probe is never kept.
+  const pnpmVersion = pnpmVersionAnswer({ cwd: root, env: process.env, remember: spawn === defaultSpawn, run: () => {
     const r = spawn("pnpm", ["--version"], { cwd: root, boundedMs: PNPM_PROBE_TIMEOUT_MS });
     if (r?.timedOut) throw new Error(`cannot identify pnpm for the class A environment (pnpm --version timed out after ${PNPM_PROBE_TIMEOUT_MS} ms; run it once in ${root} so pnpm can switch to the packageManager version)`);
     if (failed(r) || !text(r).trim()) throw new Error(`cannot identify pnpm for the class A environment (${r?.error ? `could not run pnpm: ${r.error.code ?? r.error.message}` : why(r)})`);
     return text(r).trim();
-  })();
-  const installState = files.filter((f) => /(^|\/)package\.json$/.test(f)).map((f) => path.join(path.dirname(path.join(root, f)), "node_modules", ".modules.yaml")).map((m) => { let d; try { d = createHash("sha256").update(installStateBytes(".modules.yaml", fs.readFileSync(m))).digest("hex"); } catch (error) { d = fileDigest(m, { optional: true }); } return `${path.relative(root, m)}:${d}`; });
+  } });
+  const installState =files.filter((f) => /(^|\/)package\.json$/.test(f)).map((f) => path.join(path.dirname(path.join(root, f)), "node_modules", ".modules.yaml")).map((m) => { let d; try { d = createHash("sha256").update(installStateBytes(".modules.yaml", fs.readFileSync(m))).digest("hex"); } catch (error) { d = fileDigest(m, { optional: true }); } return `${path.relative(root, m)}:${d}`; });
   const installed = installedDependencyDigest({ root, files, includeCaches });
   const bind = (gateInputs) => createHash("sha256").update([`node ${process.version}`, `pnpm ${pnpmVersion}`, `platform ${process.platform}-${process.arch}`, ...gateInputs, ...installState, `installed ${installed}`].join("\n")).digest("hex");
   // The verdict binds all gate data. Only cargo-deny rows using the packaged
@@ -552,8 +570,9 @@ export function pnpmPinProblem({ root, files, spawn = defaultSpawn, readFile = (
     if (pin) pins.set(f, pin);
   }
   if (!pins.size) return null;
-  const r = spawn("pnpm", ["--version"], { cwd: neutralCwd, boundedMs: PNPM_PROBE_TIMEOUT_MS });
-  const onPath = failed(r) ? "" : text(r).trim();
+  // Kept by the open gate process like the Class A environment's probe (pnpmVersionAnswer); a probe that fails is asked again next time.
+  let r = null; // the probe's own result when it ran (the refusals below name its error); null when the kept answer was used
+  const onPath = pnpmVersionAnswer({ cwd: neutralCwd, env: process.env, remember: spawn === defaultSpawn, run: () => { r = spawn("pnpm", ["--version"], { cwd: neutralCwd, boundedMs: PNPM_PROBE_TIMEOUT_MS }); return failed(r) ? "" : text(r).trim(); } }) ?? "";
   const fix = (pin) => `install the pinned pnpm as the pnpm on PATH (for example \`pnpm self-update ${pin}\`), or make the repository's own pin resolvable (corepack enable, network access to the pnpm release), and run again`;
   const bad = [...pins].filter(([, pin]) => pin !== onPath);
   if (!bad.length) return null;
@@ -1651,7 +1670,7 @@ async function installHook(o, root) {
  * apps/coderight-tauri), else the repository root. Every right-release stage runs there, the sealed set is read from there, and the
  * receipt is keyed to it (receiptKey). Returns { appRoot, appDir } with appDir relative to the repository root, "." at the root.
  */
-export function appRootOf({ root, cwd, exists = fs.existsSync, configDirs = null, platform = process.platform }) {
+export function appRootOf({ root, cwd, exists = fs.existsSync, configDirs = null, platform = process.platform, soleNestedApp = false }) {
   // rightkit#1553: on Windows a path names the same directory in any letter case (git reports D:/Claude/heardright, a runner may start in
   // D:\claude\heardright\tauri-app-next). path.win32.relative compares case-blind and keeps the cwd's spelling of each segment; posix stays exact.
   // A sibling sharing a prefix (D:\a\bc against root D:\a\b) is outside: relative() answers "..\bc", never a prefix match.
@@ -1673,6 +1692,14 @@ export function appRootOf({ root, cwd, exists = fs.existsSync, configDirs = null
   if (inside && rel !== "") {
     const segments = rel.split(p.sep).filter(Boolean);
     for (let n = segments.length; n > 0; n--) { const found = configDirAt(segments.slice(0, n).join("/")); if (found) { appDir = found; break; } }
+  }
+  // Dev/test/render hand ONE app to right-release. Run from the root of a repository whose selected commit holds no root
+  // config and exactly one nested app, that app is unambiguous (the witness fixture's app/; "--to test" from its root
+  // refused "no right-release.config at <commit>"). Several nested apps stay ambiguous and the root answer stands, so the
+  // stage refuses naming the missing config instead of guessing. Other stages never take this: their scope stays the cwd's.
+  if (soleNestedApp && committed && inside && rel === "" && appDir === "." && !committed.has(fold("."))) {
+    const dirs = [...committed.values()];
+    if (dirs.length === 1) appDir = dirs[0];
   }
   return { appRoot: appDir === "." ? rootAbs : p.join(rootAbs, ...appDir.split("/")), appDir };
 }
@@ -1814,7 +1841,7 @@ export function changedPathsAt({ git, base, commit }) {
  * (with `--receipt-dir`) plus one aggregate report. Returns the exit the door run ends with: 0 only when every
  * selected unit passed, else the first failing unit's code (1 when only blocked units failed the run).
  */
-export async function runSharedUnitList({ o, io, stage, commit, selected, inventory, receiptDir = undefined, base = null, unmatched = [], runUnit = null }) {
+export async function runSharedUnitList({ o, io, stage, commit, selected, inventory, receiptDir = undefined, base = null, unmatched = [], runUnit = null, root = null }) {
   const tag = "rightkit-gate:";
   const bySelector = new Map((inventory?.units ?? []).map((u) => [u.selector, u]));
   const rows = selected.map((s) => ({ dir: unitDirOfSelector(s.selector), reason: "listed", ...bySelector.get(s.selector), ...s }));
@@ -1874,11 +1901,24 @@ export async function runSharedUnitList({ o, io, stage, commit, selected, invent
     if (receiptDir !== undefined) o.writeFile(path.join(receiptDir, "units-report.json"), `${JSON.stringify(report, null, 2)}\n`);
     return report.ok ? 0 : (exit || 1);
   }
-  const run = runUnit ?? io.runUnitForList ?? (async (selector, receipt) => main(["--to", stage, "--unit", selector, "--commit", commit, ...receipt], { ...io, unitListClassA }));
+  // NN13 (Dell 2026-11-19, `--to check --units-file` of two units: two `snapshot lock held` lines). Each unit of the list is a door run of its own
+  // and each took the repository's snapshot lock again. The list is one run: it takes the lock once, here, every unit's door joins it
+  // (io.unitListLock, read in runUnitSnapshot where a unit run would take its own), and it is released once, after the last unit, on the same
+  // proof as a door's.
+  let listLock = null;
+  if (!runUnit && !io.runUnitForList && !io.unitListLock && root && o.env.GITHUB_ACTIONS !== "true") {
+    const snap = await import("../snapshot.mjs");
+    const snapshotsAt = o.snapshotRoot ?? snap.snapshotRoot({ platform: o.platform, env: o.env });
+    const taken = takeRunLock({ o, checkout: root, snapshotsAt, commit, snap, tag });
+    if (taken.exit !== undefined) return taken.exit;
+    listLock = { ...taken, started: false };
+  }
+  const run = runUnit ?? io.runUnitForList ?? (async (selector, receipt) => main(["--to", stage, "--unit", selector, "--commit", commit, ...receipt], { ...io, unitListClassA, ...(listLock ? { unitListLock: listLock } : {}) }));
   const outcomes = new Map();
   const receiptEvidence = new Map();
   const runId = randomUUID();
   const bad = new Set(); // failed or blocked selectors, for the dependency check of later units
+  try {
   for (const [i, row] of ordered.entries()) {
     const blocker = (bySelector.get(row.selector)?.deps ?? []).find((d) => bad.has(d));
     if (blocker) {
@@ -1902,6 +1942,7 @@ export async function runSharedUnitList({ o, io, stage, commit, selected, invent
     outcomes.set(row.selector, { ran: true, code });
     if (code !== 0) bad.add(row.selector);
   }
+  } finally { if (listLock) releaseSeamLock({ o, release: listLock.release, seamBody: listLock.started ? listLock.body : null, tag }); }
   const results = classifyUnitResults({ selected: ordered, inventory: inventory ?? { units: rows }, outcomes });
   const report = unitListReport({ commit, stage, base, selected: ordered, results, unmatched });
   report.runId = runId;
@@ -1963,7 +2004,7 @@ export async function rightkitDoorRule(o, args, root, git, io, { unitsFileFlag, 
       const unknown = unitList.filter((selector) => !inventory.units.some((u) => u.selector === selector));
       if (unknown.length) { o.err(`${tag} BLOCKED: units missing from inventory: ${unknown.join(", ")}; nothing ran`); return { exit: 2 }; }
       const selected = unitList.map((selector) => ({ selector, reason: "listed" }));
-      return { exit: await runSharedUnitList({ o, io, stage, commit: pinned.commit, selected, inventory, receiptDir }) };
+      return { exit: await runSharedUnitList({ o, io, stage, commit: pinned.commit, selected, inventory, receiptDir, root }) };
     }
     // --changed (rightkit#1505): no handwritten list for routine work. Changed paths against the base select their
     // units plus every transitive dependent (affected-units.mjs); the plan is printed before anything runs.
@@ -1985,13 +2026,13 @@ export async function rightkitDoorRule(o, args, root, git, io, { unitsFileFlag, 
       o.out(`${tag} unit report: 0 passed, 0 failed, 0 blocked, 0 not-run of 0 on ${pinned.commit.slice(0, 12)}`);
       return { exit: 0 };
     }
-    return { exit: await runSharedUnitList({ o, io, stage, commit: pinned.commit, selected: selection.selected, inventory, receiptDir, base, unmatched: selection.unmatched }) };
+    return { exit: await runSharedUnitList({ o, io, stage, commit: pinned.commit, selected: selection.selected, inventory, receiptDir, base, unmatched: selection.unmatched, root }) };
   }
   if (allUnitsFlag) {
     const id = option("--all-units-exception");
     let granted;
     try {
-      const shown = git("show", `${pinned.commit}:${ALL_UNITS_EXCEPTIONS_FILE}`);
+      const shown = git("show", `${PROTECTED_RECORD_REF}:${ALL_UNITS_EXCEPTIONS_FILE}`); // F2: the protected branch's record, never one an agent's own commit adds
       granted = authorizeAllUnits({ id, record: failed(shown) ? null : text(shown), now: o.now ? o.now() : Date.now() });
     } catch (e) {
       if (!e.code?.startsWith("RK_ALL_UNITS_")) throw e;
@@ -2052,7 +2093,7 @@ async function runStages(o, args, root, git, io) {
   const scopeCommit = o.doorSnapshot ? o.doorSnapshot.commit : selected ? selected.commit : text(git("rev-parse", "HEAD")).trim();
   const inventory = committedConfigDirs({ git, commit: scopeCommit });
   if (inventory.refusal) { o.err(`${tag} cannot read the app configuration of the selected commit: ${inventory.refusal}`); return 2; }
-  const { appRoot, appDir } = appRootOf({ root, cwd: o.cwd, configDirs: inventory.dirs });
+  const { appRoot, appDir } = appRootOf({ root, cwd: o.cwd, configDirs: inventory.dirs, soleNestedApp: devTest });
   // `--route`: which route this stage takes here and whether it refuses, answered without running anything (rightkit#1297).
   if (o.routeProbe) return await runRouteProbe(o, args, root, git, { to, platform, stages: devTest ? [] : stages, devTest, appDir });
   // Commit-only build (GATE-CONTRACT §1): on every host (not hosted CI, whose runner checkout is the commit) the door selects a commit
@@ -2121,7 +2162,12 @@ async function runStages(o, args, root, git, io) {
   if (executor.kind === "refuse") { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
   // NN01/NN25: a tool's version is remembered across runs while its program file is unchanged (tool-version-memo.mjs); a shim is asked each time.
   const versionStore = (() => { try { return path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "tool-versions.json"); } catch { return null; } })();
-  const version = (cmd, a) => rememberedVersion(cmd, a, { env: o.env, platform: o.platform, storeFile: o.spawn === defaultSpawn ? versionStore : null, run: (c, args) => { const r = o.spawn(c, args, { cwd: root }); return failed(r) ? null : text(r).trim().split(/\r?\n/)[0]; } });
+  const versionAsked = (cmd, a) => rememberedVersion(cmd, a, { env: o.env, platform: o.platform, storeFile: o.spawn === defaultSpawn ? versionStore : null, run: (c, args) => { const r = o.spawn(c, args, { cwd: root }); return failed(r) ? null : text(r).trim().split(/\r?\n/)[0]; } });
+  // pnpm is a launcher, which tool-version-memo.mjs never remembers by its own file. Its version here is kept by the open gate process while
+  // the files that decide which pnpm runs in this directory are unchanged (pnpmVersionAnswer; NN25: `pnpm --version` on every warm run).
+  const version = (cmd, a) => (cmd === "pnpm" && a.length === 1 && a[0] === "--version"
+    ? pnpmVersionAnswer({ cwd: root, env: o.env, remember: o.spawn === defaultSpawn, run: () => versionAsked(cmd, a) })
+    : versionAsked(cmd, a));
   const listed = git("ls-tree", "-r", "--name-only", "-z", commit);
   const lockFiles = {};
   for (const f of failed(listed) ? [] : text(listed).split("\0").filter((x) => /(^|\/)(Cargo\.lock|pnpm-lock\.yaml)$/.test(x))) {
@@ -2129,7 +2175,7 @@ async function runStages(o, args, root, git, io) {
   }
   const binding = bindingOf({
     tree, lockFiles, gateFile: fileURLToPath(import.meta.url), gateJudge: gateCodeIdentity(), executor: o.brokerException ? `${executor.kind}:exception:${o.brokerException.exceptionId}` : executor.kind,
-    toolchain: { classA: { "cargo-deny": version("cargo-deny", ["--version"]), "cargo-audit": version("cargo-audit", ["--version"]), actionlint: version("actionlint", ["-version"]), shellcheck: version("shellcheck", ["--version"]) }, node: process.version, rustc: version(executor.kind === "broker" && executor.cargo.length > 1 ? executor.cargo[0] : "rustc", executor.kind === "broker" && executor.cargo.length > 1 ? ["rustc", "-V"] : ["-V"]), pnpm: version("pnpm", ["--version"]) },
+    toolchain: { classA: { "cargo-deny": version("cargo-deny", ["--version"]), "cargo-audit": version("cargo-audit", ["--version"]), actionlint: version("actionlint", ["-version"]), shellcheck: version("shellcheck", ["--version"]) }, node: process.version, rustc: brokerToolchainOf(o, executor)?.rustc.version ?? version(executor.kind === "broker" && executor.cargo.length > 1 ? executor.cargo[0] : "rustc", executor.kind === "broker" && executor.cargo.length > 1 ? ["rustc", "-V"] : ["-V"]), pnpm: version("pnpm", ["--version"]) },
   });
   // Release writes to R2. The write credential lives only in the trusted publisher: a GitHub Actions job in the protected
   // publication environment, which sets RIGHTKIT_PUBLISHER=github-environment. Hosts and agents never hold it, so the door refuses the
@@ -2761,6 +2807,70 @@ export function committedSidecarConfigs({ o, git, commit, appDir = ".", base }) 
 }
 
 /**
+ * GC-A27 NN07 (a row whose inputs did not change does no work; acceptance case 3 on 0.6.63, 2026-11-24: a one-file edit in another workspace sent the sidecar's
+ * cargo build to the broker on every run). The sources a staging of Cargo-built sidecars reads, from the commit alone: the crate directory of each staged
+ * package and, followed through their manifests, of every path dependency. Null when a staged file is not a cargo-bin, a package is not found, or a path
+ * dependency is not a committed crate: then nothing is skipped.
+ */
+export function sidecarSourceDirs({ git, commit, result }) {
+  const files = Array.isArray(result?.files) ? result.files : [];
+  if (!files.length || files.some((f) => f?.kind !== "cargo-bin" || typeof f.package !== "string")) return null;
+  const listed = git("ls-tree", "-r", "-z", commit); if (failed(listed)) return null;
+  const manifests = [];
+  for (const line of text(listed).split("\0").filter(Boolean)) {
+    const tab = line.indexOf("\t"); const p = line.slice(tab + 1); if (!/(^|\/)Cargo\.toml$/.test(p)) continue;
+    const blob = git("cat-file", "-p", line.slice(0, tab).split(" ")[2]); if (failed(blob)) return null;
+    manifests.push({ dir: p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : ".", body: text(blob) });
+  }
+  const nameOf = (body) => { let section = null; for (const l of body.split(/\r?\n/)) { const h = /^\s*\[([^\]]+)\]\s*$/.exec(l); if (h) { section = h[1].trim(); continue; } const n = section === "package" && /^\s*name\s*=\s*"([^"]+)"/.exec(l); if (n) return n[1]; } return null; };
+  // Only the dependency tables name crates: `path =` under [lib] or [[bin]] is a source file.
+  const depPaths = (body) => { const out = []; let deps = false; for (const l of body.split(/\r?\n/)) { const h = /^\s*\[\[?([^\]]+)\]\]?\s*$/.exec(l); if (h) { deps = /(^|\.)(dependencies|dev-dependencies|build-dependencies)(\.|$)|^patch\./.test(h[1].trim()); continue; } if (deps) for (const m of l.matchAll(/\bpath\s*=\s*"([^"]+)"/g)) out.push(m[1]); } return out; };
+  const byName = new Map(manifests.map((m) => [nameOf(m.body), m]).filter(([n]) => n));
+  const queue = [...new Set(files.map((f) => f.package))].map((n) => byName.get(n)); if (queue.some((m) => !m)) return null;
+  const dirs = new Set();
+  while (queue.length) {
+    const m = queue.pop(); if (dirs.has(m.dir)) continue; dirs.add(m.dir);
+    for (const rel of depPaths(m.body)) { const d = path.posix.normalize(path.posix.join(m.dir === "." ? "" : m.dir, rel)).replace(/\/$/, "") || "."; const dep = manifests.find((x) => x.dir === d); if (!dep) return null; queue.push(dep); }
+  }
+  return [...dirs].sort();
+}
+/**
+ * The key of those sources: every committed file under the dirs, the Cargo, toolchain and cargo-config files of their ancestors, the release config, the
+ * target, the build mode, the gate's own code, Node, the Cargo and Rust variables, and the installed Rust toolchains' channel manifests (rustup rewrites
+ * them on every update). Null when the commit cannot be listed.
+ */
+export function sidecarSourceKey(args) { const p = sidecarSourceKeyParts(args); return p ? createHash("sha256").update(JSON.stringify(p)).digest("hex") : null; }
+export function sidecarSourceKeyParts({ git, commit, config, target, mode, dirs, env = process.env, gateIdentity, nodeVersion = process.version, toolchains = rustupChannelManifests(env) }) {
+  const listed = git("ls-tree", "-r", "-z", commit); if (failed(listed)) return null;
+  const ancestors = new Set(); for (const d of dirs) { let a = d; for (;;) { ancestors.add(a); if (a === "." || !a.includes("/")) { ancestors.add("."); break; } a = a.slice(0, a.lastIndexOf("/")); } }
+  const rootFiles = ["Cargo.toml", "Cargo.lock", "rust-toolchain", "rust-toolchain.toml", ".cargo/config", ".cargo/config.toml"];
+  const named = new Set([...ancestors].flatMap((a) => rootFiles.map((f) => (a === "." ? f : `${a}/${f}`))));
+  const files = text(listed).split("\0").filter(Boolean).map((l) => { const tab = l.indexOf("\t"); return [l.slice(tab + 1), l.slice(0, tab).split(" ")[2]]; })
+    .filter(([p]) => p === config || named.has(p) || dirs.some((d) => d === "." || p.startsWith(`${d}/`)));
+  return sidecarKeyParts({ config, target, mode, nodeVersion, gateIdentity, env, toolchains, files });
+}
+/**
+ * The parts of the sidecar key, each digested on its own, so a staging that runs again can say which part changed. Only variables that change what Cargo
+ * builds are read: the flags, the toolchain choice, and the profile and build settings. A path the gate or the run picks (a target or home folder, a
+ * wrapper) is left out: it changes on every run without changing the binary (acceptance cases on 0.6.66, 2026-11-24: the key never matched).
+ */
+export const SIDECAR_KEY_ENV = /^(RUSTFLAGS|RUSTDOCFLAGS|CARGO_ENCODED_RUSTFLAGS|CARGO_BUILD_RUSTFLAGS|CARGO_BUILD_TARGET|RUSTUP_TOOLCHAIN|CARGO_PROFILE_[A-Z0-9_]+)$/i;
+export function sidecarKeyParts({ config, target, mode, nodeVersion, gateIdentity, env, toolchains, files }) {
+  const d = (v) => createHash("sha256").update(JSON.stringify(v ?? null)).digest("hex").slice(0, 16);
+  const rustEnv = Object.entries(env ?? {}).filter(([k]) => SIDECAR_KEY_ENV.test(k)).sort(([a], [b]) => (a < b ? -1 : 1));
+  return { schema: "rightkit.sidecar-source/2", config: d(config), target: d(target), mode: d(mode), node: d(nodeVersion), gate: d(gateIdentity), env: d(rustEnv), toolchains: d(toolchains), files: d(files) };
+}
+function rustupChannelManifests(env) {
+  const home = env?.RUSTUP_HOME || path.join(env?.USERPROFILE || env?.HOME || os.homedir(), ".rustup");
+  try { return fs.readdirSync(path.join(home, "toolchains")).sort().map((n) => { try { const st = fs.statSync(path.join(home, "toolchains", n, "lib", "rustlib", "multirust-channel-manifest.toml")); return [n, st.size, Math.trunc(st.mtimeMs)]; } catch { return [n, null, null]; } }); } catch { return null; }
+}
+/** `<managed root>/sidecar-state/<repo key>/<config, target and mode>.json`, beside the snapshot: the key and receipt of the last staging. */
+const sidecarStateFile = (snapshotPath, { config, target, mode }) => path.join(path.dirname(path.dirname(snapshotPath)), "sidecar-state", path.basename(snapshotPath), `${createHash("sha256").update(JSON.stringify([config, target, mode])).digest("hex").slice(0, 32)}.json`);
+const fileSha256 = (file) => { try { return createHash("sha256").update(fs.readFileSync(file)).digest("hex"); } catch { return null; } };
+/** What a staging receipt stages: each file's path and sha256, not when it was written (the time changes on every staging; acceptance cases on 0.6.67). Null when unreadable. */
+export const stagedFilesDigest = (file) => { try { const r = JSON.parse(fs.readFileSync(file, "utf8")); if (!Array.isArray(r?.files)) return null; return createHash("sha256").update(JSON.stringify(r.files.map((x) => [x?.path ?? null, x?.sha256 ?? null]).sort())).digest("hex"); } catch { return null; } };
+
+/**
  * Sidecars are staged ONCE per door run, after the sync and before the first stage that builds the Tauri crate. The step is
  * right-release's own `stage-sidecar --json` run inside the snapshot (the split); this gate then walks the snapshot itself and the
  * step's additions must equal the files it reported plus its receipt (anything else is an unattributed write, RK_CHECK_ERROR). The
@@ -2787,10 +2897,29 @@ export async function stageSidecarsOnce({ o, ds, root, git = null, configs, appD
     const carrier = await carrierForChildren({ o, ds, root, git, executor, stage, tag, appDir });
     if (carrier.refusal) { o.err(`${tag} BLOCKED: ${carrier.refusal}; nothing was staged`); return false; }
     const run = startRun({ commonDir, commit, tree, stage, source });
+    // NN07: when the sidecars' own sources are those of the last staging and its receipt is the one in the snapshot, stage-sidecar only checks that every staged
+    // file is still there with its recorded sha256 (--if-stale); nothing is built. Anything else stages as before.
+    const mode = stage === "dev" ? "dev" : "release"; const stateFile = sidecarStateFile(ds.path, { config, target: key, mode });
+    let prior = null; try { prior = JSON.parse(fs.readFileSync(stateFile, "utf8")); } catch { prior = null; }
+    const partsNow = (dirs) => (git && Array.isArray(dirs) ? sidecarSourceKeyParts({ git, commit, config, target: key, mode, dirs, env: o.env, gateIdentity: gatePackageIdentity(o.gatePackage) }) : null);
+    const keyOf = (parts) => (parts ? createHash("sha256").update(JSON.stringify(parts)).digest("hex") : null);
+    const keyNow = (dirs) => keyOf(partsNow(dirs));
+    const nowParts = prior?.schema === 2 ? partsNow(prior.dirs) : null;
+    // The snapshot sync removes ignored outputs (app/src-tauri/binaries/) when the commit changes (acceptance case 3 on 0.6.70). When the sources are those of
+    // the last staging, its kept copy is put back, as the web build's dist cache is; stage-sidecar --if-stale then checks the files and builds nothing.
+    const keptDir = stateFile.replace(/\.json$/, ".files");
+    if (prior?.schema === 2 && nowParts && keyOf(nowParts) === prior.key && Array.isArray(prior.kept) && typeof prior.receipt === "string" && !fs.existsSync(path.join(ds.path, prior.receipt))) {
+      try { for (const rel of prior.kept) { const from = path.join(keptDir, ...rel.split("/")); const to = path.join(ds.path, ...rel.split("/")); fs.mkdirSync(path.dirname(to), { recursive: true }); fs.copyFileSync(from, to); const st = fs.statSync(from); fs.utimesSync(to, st.atime, st.mtime); } }
+      catch (e) { o.out(tag + " [" + stage + "] stage-sidecar " + config + ": the kept staging could not be put back (" + e.message + ")"); }
+    }
+    const receiptNow = prior?.schema === 2 && typeof prior.receipt === "string" ? stagedFilesDigest(path.join(ds.path, prior.receipt)) : null;
+    const unchanged = Boolean(prior?.schema === 2 && nowParts && keyOf(nowParts) === prior.key && receiptNow === prior.receiptSha256);
+    // Why it stages again, in one line, so a missed reuse can be traced from the run's own output.
+    if (!unchanged) o.out(tag + " [" + stage + "] stage-sidecar " + config + " builds: " + (prior?.schema !== 2 ? "no earlier staging is recorded" : !nowParts ? "its sources cannot be read from the commit" : keyOf(nowParts) !== prior.key ? "changed since the last staging: " + (Object.keys(nowParts).filter((k) => nowParts[k] !== prior.parts?.[k]).join(", ") || "unknown part") : "the staged receipt is not the one recorded (recorded " + String(prior.receiptSha256).slice(0, 12) + ", now " + (receiptNow === null ? (fs.existsSync(path.join(ds.path, prior.receipt)) ? "unreadable" : "absent") + " at " + path.join(ds.path, prior.receipt) : String(receiptNow).slice(0, 12)) + ")"));
     let r;
     try {
-      o.out(`${tag} [${stage}] right-release stage-sidecar --config ${path.join(ds.path, config)}${target ? ` --target ${target}` : ""} (from the snapshot ${ds.path})`);
-      r = (o.spawnCapture ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, encoding: "utf8", maxBuffer: 1 << 26 })))(process.execPath, [cli, "stage-sidecar", "--config", path.join(ds.path, config), ...(target ? ["--target", target] : []), "--json"], { cwd: snapshotAppRootOf(ds.path, appDir), env: carriedEnv(carrier, { ...cleanEnv, ...run.env, ...(stage === "dev" ? { RIGHTKIT_BUILD_MODE: "dev" } : {}) }) });
+      o.out(`${tag} [${stage}] right-release stage-sidecar --config ${path.join(ds.path, config)}${target ? ` --target ${target}` : ""}${unchanged ? " --if-stale (its sources are those of the last staging: the staged files are checked, nothing is built)" : ""} (from the snapshot ${ds.path})`);
+      r = (o.spawnCapture ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, encoding: "utf8", maxBuffer: 1 << 26 })))(process.execPath, [cli, "stage-sidecar", "--config", path.join(ds.path, config), ...(target ? ["--target", target] : []), ...(unchanged ? ["--if-stale"] : []), "--json"], { cwd: snapshotAppRootOf(ds.path, appDir), env: carriedEnv(carrier, { ...cleanEnv, ...run.env, RIGHTKIT_BUILD_MODE: stage === "dev" ? "dev" : "release" }) }); // set, never inherited: the sidecar key names this mode (GC-A27 NN07)
     } finally { endRun(run); }
     const carriedOk = await carrier.finish({ stage });
     if (r?.stderr) o.err(String(r.stderr).trimEnd());
@@ -2813,6 +2942,14 @@ export async function stageSidecarsOnce({ o, ds, root, git = null, configs, appD
     ds.ledger = { entries: walked.entries.map((e) => (priorPaths.has(e.path) && priorByPath.get(e.path).sha256 === e.sha256 ? priorByPath.get(e.path) : { ...e, kind: "staged", producer: { stage: "sidecar", step: config } })) };
     // Evidence for a later "changed after it was staged": the receipt exactly as this staging wrote it.
     if (receiptAbs) { try { (ds.stagedReceipts ??= new Map()).set(receiptAbs, fs.readFileSync(path.join(ds.path, receiptAbs), "utf8")); } catch { /* the close names the change without the field diff */ } }
+    // The sources this staging was built from, for the next run (NN07). Not recordable (a sidecar not built by Cargo, a package not found): the state is removed.
+    try {
+      const dirs = git ? sidecarSourceDirs({ git, commit, result }) : null; const k = dirs ? keyNow(dirs) : null; const sha = receiptAbs ? stagedFilesDigest(path.join(ds.path, receiptAbs)) : null;
+      let kept = null;
+      if (k && sha) { try { const files = [receiptAbs, ...(Array.isArray(result?.files) ? result.files.map((x) => (typeof x?.path === "string" ? underApp(x.path) : null)).filter(Boolean) : [])]; fs.rmSync(keptDir, { recursive: true, force: true }); for (const rel of files) { const from = path.join(ds.path, ...rel.split("/")); const to = path.join(keptDir, ...rel.split("/")); fs.mkdirSync(path.dirname(to), { recursive: true }); fs.copyFileSync(from, to); const st = fs.statSync(from); fs.utimesSync(to, st.atime, st.mtime); } kept = files; } catch (e) { kept = null; o.out(tag + " [" + stage + "] stage-sidecar " + config + ": the staging was not kept (" + e.message + "); the next run builds again"); } }
+      if (k && sha) { fs.mkdirSync(path.dirname(stateFile), { recursive: true }); const tmp = `${stateFile}.${process.pid}.tmp`; fs.writeFileSync(tmp, `${JSON.stringify({ schema: 2, key: k, parts: partsNow(dirs), dirs, receipt: receiptAbs, receiptSha256: sha, ...(kept ? { kept } : {}) })}\n`); fs.renameSync(tmp, stateFile); }
+      else fs.rmSync(stateFile, { force: true });
+    } catch (e) { o.out(`${tag} [${stage}] stage-sidecar ${config}: the staging state was not recorded (${e.message}); the next run stages again`); }
   }
   return true;
 }
@@ -3263,7 +3400,9 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
   const snapshotsAt = o.snapshotRoot ?? snap.snapshotRoot({ platform: o.platform, env: o.env });
   { const mismatch = await declaredSnapshotRootRefusal(o, executor, snapshotsAt); if (mismatch) { o.err(`${tag} BLOCKED: ${mismatch.code}: ${mismatch.message}; nothing ran`); return 1; } }
   // The same one exclusion as the door (takeRunLock): on a broker host the unit's stage calls are seam requests, which the broker admits only under the snapshot lock.
-  const taken = takeRunLock({ o, checkout: root, snapshotsAt, commit, snap, tag });
+  // A unit of a unit list joins the list's one lock (runSharedUnitList, NN13): the lock is not re-entrant, so a second take by this same
+  // process would be refused as busy. Every other unit run takes its own.
+  const taken = io.unitListLock ?? takeRunLock({ o, checkout: root, snapshotsAt, commit, snap, tag });
   if (taken.exit !== undefined) return taken.exit;
   let started = false;
   try {
@@ -3366,7 +3505,9 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
     });
     } finally { bound.cleanup(); }
   } finally {
-    releaseSeamLock({ o, release: taken.release, seamBody: started ? taken.body : null, tag });
+    // The list releases its own lock after its last unit, on the same proof; a unit only tells it that work began under the lock.
+    if (io.unitListLock) { if (started) io.unitListLock.started = true; }
+    else releaseSeamLock({ o, release: taken.release, seamBody: started ? taken.body : null, tag });
   }
 }
 
@@ -3403,12 +3544,12 @@ async function runUnionSnapshot({ o, io, root, git, ds, union, unitListClassA })
   if (!await openSnapshotStage({ o, ds, root, stage: "compile", tag })) return 1;
   let code = 1;
   // Crates build together (docs/design/2026-11-10-gate-fresh-design.md; Adrian, 2026-11-04: "RK has to build all it's necessary crates together"): a list of crates on a
-  // broker host is compiled by gate/compile.mjs as a few Cargo calls naming every crate, each crate with its own result. RK_GATE_LEGACY_ROWS=1 keeps the per-crate rows
-  // until the proof runs pass on both hosts; the legacy branch and that switch are then deleted together.
+  // broker host is compiled by gate/compile.mjs as a few Cargo calls naming every crate, each crate with its own result. No switch selects the per-crate rows
+  // (the RK_GATE_LEGACY_ROWS switch was removed 2026-11-24, rightkit#1514: compiles are combined, GC-A27 NN09).
   let together = null;
   try {
     const ex = (o.resolveExecutor ?? gateResolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which: whichIn(o), readFile: o.readFile });
-    if (o.env.RK_GATE_LEGACY_ROWS !== "1" && ex?.kind === "broker" && union.selected.every((row) => row.selector.startsWith("cargo:"))) together = { client: brokerClientOf(o, ex) };
+    if (ex?.kind === "broker" && union.selected.every((row) => row.selector.startsWith("cargo:"))) together = { client: brokerClientOf(o, ex) };
   } catch { together = null; }
   if (together) {
     try {
@@ -4076,8 +4217,70 @@ export function stageArgsProblem(args) {
   return null;
 }
 
+/**
+ * GC-A15 at the check stage: one line for every Cargo profile table other than `[profile.release]` in the app roots a commit tracks (the
+ * directory of each `right-release.config`), found by the release tool's own scan of the commit's snapshot. `tracked` is the commit's file
+ * list, `snapshotDir` its snapshot, `label` the name printed for an app at the repository root. RightKit's own repository gives none: it is
+ * judged per unit. No lines means the rule holds. Exported for its test.
+ */
+export async function cargoProfileRuleLines({ tracked, snapshotDir, label }) {
+  let rightkitRepo = false;
+  if (tracked.includes(RIGHTKIT_IDENTITY_FILE)) { try { rightkitRepo = isRightKitIdentity(fs.readFileSync(path.join(snapshotDir, ...RIGHTKIT_IDENTITY_FILE.split("/")), "utf8")); } catch { rightkitRepo = false; } }
+  if (rightkitRepo) return [];
+  const appRoots = [...new Set(tracked.filter((f) => /(^|\/)right-release\.config\.(json|mjs)$/.test(f)).map((f) => path.posix.dirname(f)))].sort();
+  const { scanCargoProfileContract, formatCargoProfileFindings } = await import("../cargo-profile-contract.mjs");
+  return appRoots.flatMap((dir) => formatCargoProfileFindings(scanCargoProfileContract(path.join(snapshotDir, ...(dir === "." ? [] : dir.split("/"))), { sources: false }).filter((f) => f.rule === "profile-extra" && /^\[profile\.[^\]]+\] is not allowed/.test(f.message)), dir === "." ? label : dir));
+}
+
+/**
+ * The Cargo home a run's Cargo reads (`CARGO_HOME`, else `.cargo` under the user's home), named by where it really is: the workspace proof
+ * (snapshot-metadata.mjs cargoWorkspaceTopology) refuses any discovery input reached through a link, and an agent profile's `.cargo` is a
+ * link to the user's Cargo home. A Cargo home that does not exist keeps its spelled path (the proof reads it as absent). Exported for its test.
+ */
+export function cargoHomeOf(env, { realpath = fs.realpathSync, homedir = os.homedir } = {}) {
+  let home = env.CARGO_HOME || path.join(env.USERPROFILE || env.HOME || homedir(), ".cargo");
+  try { home = realpath(home); } catch { /* absent: as spelled */ }
+  return home;
+}
+
+/** Marks the gate's calls of itself (an io key no command line can set). */
+export const GATE_SELF = Symbol.for("rightkit-gate.self-call");
+/** Where Adrian's exception records are read from (F2): the protected branch as last fetched. An agent's commit cannot add one; no fetched branch, no record. */
+export const PROTECTED_RECORD_REF = "refs/remotes/origin/main";
+/**
+ * A genuine GitHub-hosted run: GitHub sets all three, and no managed broker runtime is installed on its runners. A variable set by hand on a broker host
+ * does not make one (F3: `GITHUB_ACTIONS=true` alone selected the hosted route, which builds the working checkout with no snapshot).
+ */
+export function genuineGithubRun({ env = {}, platform = process.platform, exists = fs.existsSync } = {}) {
+  if (env.GITHUB_ACTIONS !== "true" || !env.GITHUB_RUN_ID || !env.RUNNER_OS) return false;
+  const runtime = platform === "win32" ? "D:\\.rustright\\runtime" : platform === "darwin" ? "/Volumes/D/.rustright/runtime" : null;
+  return !(runtime && exists(runtime));
+}
+/**
+ * Why a caller's run is refused, or null. `--worktree` reads the working folder, not the commit (F5); `--class-a`, `--all` and `--snapshot` are the gate's
+ * own calls of itself (F6; the git pre-push route, which names none of them, is not touched); `GITHUB_ACTIONS=true` outside a genuine GitHub run selects the
+ * hosted route (F3); `--receipt-in` hands the gate a stage receipt and is the publisher job's only (F7).
+ */
+export function callerRefusal({ args, env = {}, platform = process.platform, exists = fs.existsSync, selfCall = false }) {
+  if (selfCall) return null;
+  if (args.includes("--worktree")) return "--worktree is refused: the gate checks and builds the selected commit only, never the working folder (GC-A27 NN01)";
+  const own = ["--class-a", "--all", "--snapshot"].filter((f) => args.includes(f));
+  if (own.length) return `${own.join(", ")} ${own.length > 1 ? "are" : "is"} the gate's own call of itself and cannot be passed by a caller; run a stage with --to`;
+  const github = genuineGithubRun({ env, platform, exists });
+  if (env.GITHUB_ACTIONS === "true" && !github) return "GITHUB_ACTIONS=true is refused outside a genuine GitHub-hosted run (GITHUB_RUN_ID and RUNNER_OS set, no managed broker on the host): the hosted route builds the working checkout";
+  if (args.includes("--receipt-in") && !github) return "--receipt-in is refused outside the publisher's GitHub run: a stage receipt is not taken from a caller on this host";
+  return null;
+}
+/** Variables the gate drops from a caller's environment: the roots on Mac and Windows (F1), and on every host the scratch root and two guards (step F). */
+export function ignoredCallerVariable(name, platform = process.platform) {
+  const n = String(name).toUpperCase();
+  if (n === "RIGHTKIT_SCRATCH_ROOT" || n === "RIGHTKIT_STAGE_SIDECAR_ALLOW_NESTED" || n === "RUSTRIGHT_OPERATION_DEADLINE_MS") return true;
+  return (platform === "win32" || platform === "darwin") && /^(RUSTRIGHT|RIGHTKIT)_(DATA_ROOT|MANAGED_ROOT|EXTERNAL_ROOT|GATE_ROOT|CONTROL_ROOT|RUNTIME_ROOT)$/.test(n);
+}
 export async function main(argv, io = {}) {
   const o = {
+    // defaultSpawn remembers its read-only answers itself (deterministic-scans.mjs isRememberedRead); a wrapper here switched off the pnpm answers kept
+    // across runs, which test `spawn === defaultSpawn`.
     spawn: defaultSpawn, exists: fs.existsSync, readFile: (f) => fs.readFileSync(f, "utf8"), writeFile: fs.writeFileSync, mkdir: fs.mkdirSync, chmod: fs.chmodSync, readdir: fs.readdirSync,
     readStdin: () => { try { return process.stdin.isTTY ? "" : fs.readFileSync(0, "utf8"); } catch { return ""; } },
     out: (m) => console.log(m), err: (m) => console.error(m), cwd: process.cwd(), env: process.env, platform: process.platform,
@@ -4085,6 +4288,17 @@ export async function main(argv, io = {}) {
     gateFile: fileURLToPath(import.meta.url), ...io,
   };
   const args = [...argv];
+  // Step F of the Dell sequence (status file 11.7, settled with Gemini, 2026-11-24): what a caller may not choose. The gate's own calls of itself carry
+  // GATE_SELF; a caller's do not.
+  const selfCall = io[GATE_SELF] === true;
+  io = { ...io, [GATE_SELF]: true };
+  {
+    const refused = callerRefusal({ args, env: o.env, platform: o.platform, exists: o.exists, selfCall });
+    if (refused) { o.err(`rightkit-gate: ${refused}`); return 2; }
+    // Variables that move the gate's state or loosen a guard are not read from a caller: they are dropped from the run's environment before anything reads it.
+    const dropped = Object.keys(o.env ?? {}).filter((k) => ignoredCallerVariable(k, o.platform));
+    if (dropped.length) { o.env = Object.fromEntries(Object.entries(o.env).filter(([k]) => !ignoredCallerVariable(k, o.platform))); if (!selfCall) o.err(`rightkit-gate: note: ignored from the environment: ${dropped.join(", ")} (the gate's roots and guards are fixed on this host)`); }
+  }
   if (args.includes("--ci-proof-out")) {
     try {
       const problem = stageArgsProblem(args);
@@ -4252,17 +4466,34 @@ export async function main(argv, io = {}) {
     let history;
     if (fullAdmission && snapshotDir && !o.runScans && o.classA !== false) {
       try {
-        const common = o.spawn("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: snapshotCheckout });
-        if (failed(common) || !text(common).trim()) throw new Error("cannot identify Class A cache location");
-        const storeDir = o.env.RK_GATE_CACHE_DIR || path.join(text(common).trim(), "rightkit-gate-cache");
-        history = openClassAHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir });
+        // NN25: no git starts after the resident proof. The snapshot sync already resolved this checkout's repository
+        // (snapshot.mjs repositoryOf -> snapshot-git.mjs sealedRepoInfo, cached per canonical path in this process), so the
+        // common dir is read from that cache, never asked again. An injected spawn (tests) is asked as before.
+        const commonDir = o.spawn === defaultSpawn ? sealedRepoInfo(snapshotCheckout).commonDir : (() => { const common = o.spawn("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: snapshotCheckout }); if (failed(common) || !text(common).trim()) throw new Error("cannot identify Class A cache location"); return text(common).trim(); })();
+        // The store has one fixed place per repository; no caller moves it (Adrian, 2026-11-24, rightkit#1514).
+        const storeDir = path.join(commonDir, "rightkit-gate-cache");
+        history = openClassAHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir, onRestart: cacheRestartNote(o) });
       } catch (error) { o.err(`rightkit-gate: BLOCKED: ${error.message}`); return 1; }
     }
     const ruleCache = snapshotDir && snapshotCommit && !args.includes("--worktree") && !o.appCheck ? ruleVerdictCache({ checkout: snapshotCheckout, spawn: o.spawn }) : null;
     const appKey = ruleCache ? ruleCache.key({ rule: "app-check", tree: snapshotCommit.tree, args: appArgs, gate: gatePackageIdentity(o.gatePackage) }) : null;
-    const appCheck = appKey && ruleCache.passed(appKey)
+    const appCached = Boolean(appKey && ruleCache.passed(appKey));
+    let appCheck = appCached
       ? (o.out(`check: ${snapshotCommit.commit.slice(0, 12)} app rules: cached pass (tree ${snapshotCommit.tree.slice(0, 12)})`), 0)
       : await (o.appCheck ?? (await import("../app-check.mjs")).main)(appArgs, { out: o.out, err: o.err, label: "check", cwd: o.cwd, ...(snapshotDir && !args.includes("--worktree") ? { snapshot: snapshotDir } : {}) });
+    // GC-A15 ("An app carries no Cargo profile table but [profile.release]"; Adrian 2026-11-03: "hard block"). The rule lived only in the release
+    // tool (release.mjs cargo-profile-contract), so a commit that adds [profile.dev] to an app passed check and compile (contract test N15, failed
+    // on sealed 0.6.58 and on the Dell copy 2026-11-19). It is judged here with the app rules, by the release tool's own scan (same workspace
+    // roots, same exemptions), for every app root the commit tracks (a right-release.config), and its verdict is cached with theirs per tree.
+    // RightKit itself is judged per unit (rightkitDoorRule) and is not an app repository: its e2e-app keeps a [profile.dev] for its own harness.
+    if (!appCached && appCheck === 0 && fullAdmission && snapshotDir && snapshotCommit && !o.appCheck) {
+      try {
+        const listed = o.spawn("git", ["ls-tree", "-r", "--name-only", "-z", snapshotCommit.commit], { cwd: snapshotCheckout });
+        if (failed(listed)) throw new Error(`cannot list commit ${snapshotCommit.commit}`);
+        const lines = await cargoProfileRuleLines({ tracked: text(listed).split("\0").filter(Boolean), snapshotDir, label: path.basename(snapshotCheckout) });
+        if (lines.length) { for (const line of lines) o.err(`check: ${line}`); appCheck = 1; }
+      } catch (error) { o.err(`rightkit-gate: BLOCKED: the Cargo profile rule (GC-A15) could not be judged: ${error.message}`); return 1; }
+    }
     if (appKey && appCheck === 0) ruleCache.pass(appKey);
     if (args.includes("--list") || args.includes("--print-baseline") || args.includes("--only") || o.classA === false) {
       // A view of the app rules, never a class A verdict: say so, so no caller can take its exit 0 for a full check.
@@ -4283,8 +4514,9 @@ export async function main(argv, io = {}) {
     // RightKit checking itself: its own rules (line endings, consumer recipes, npm surface, version copies and the version feed, dispatcher
     // pins, consumer locks, generated docs, temp paths: scripts/preflight.mjs) and its exports' import safety are class A for the RightKit repository.
     let selfRules = 0;
-    const top = o.spawn("git", ["rev-parse", "--show-toplevel"], { cwd: checkCwd });
-    const root = failed(top) ? null : path.resolve(text(top).trim());
+    // NN25: in snapshot mode the checkout's canonical top was resolved before the proof (snapshotCheckout); asking git again
+    // here would start a git process after the resident proof for an answer this process already holds.
+    const root = snapshotCheckout ?? (() => { const top = o.spawn("git", ["rev-parse", "--show-toplevel"], { cwd: checkCwd }); return failed(top) ? null : path.resolve(text(top).trim()); })();
     const self = o.selfPath ?? fileURLToPath(import.meta.url);
     // RightKit's own scripts are the checked repository's code: they run only after the app rules and every class A scan passed,
     // never after a failure, so a red tree executes nothing of its own.
@@ -4468,7 +4700,7 @@ export async function main(argv, io = {}) {
       let record = null; let inRightKit = true;
       if (typeof brokerId === "string" && !brokerId.startsWith("--")) {
         const pinned = (await import("../snapshot.mjs")).resolveCommit(root, option("--commit") ?? "HEAD");
-        const shown = git("show", `${pinned.commit}:${BROKER_EXCEPTIONS_FILE}`);
+        const shown = git("show", `${PROTECTED_RECORD_REF}:${BROKER_EXCEPTIONS_FILE}`); // F2: the protected branch's record, never one an agent's own commit adds
         record = failed(shown) ? null : text(shown);
         // The repository identity of the commit decides what an exception must name: RightKit's units, or (every other repository, built whole) nothing.
         inRightKit = rightkitIdentityAt(git, pinned.commit);
@@ -5030,7 +5262,10 @@ export async function main(argv, io = {}) {
     }
     const cargoMetadataTopologies = new Map();
     if (authenticateCargoWorkspace) {
-      const cargoHome = o.env.CARGO_HOME || path.join(o.env.USERPROFILE || o.env.HOME || os.homedir(), ".cargo");
+      // Dell 2026-11-19 (NN01, NN03, NN04, NN10, NN21, NN24): an agent profile's `.cargo` is a link to the user's Cargo home, the proof below
+      // refuses any linked discovery input, so all six fixture workspaces came back unproven and their metadata rows ran real Cargo on every
+      // run. The Cargo home is named by where it really is; a link that moves names another directory and changes the proof.
+      const cargoHome = cargoHomeOf(o.env);
       for (const row of plan.scans.filter((scan) => scan.class === "A" && /^cargo-metadata(:|$)/.test(scan.id))) {
         const proof = classACargoPath && cargoMetadata.cargoWorkspaceTopology({ root: repo, dir: row.cwd ?? ".", cargoHome });
         if (proof) cargoMetadataTopologies.set(row.id, proof);
@@ -5110,7 +5345,7 @@ export async function main(argv, io = {}) {
           const unit = sel?.replace(/^cargo:/, "");
           const quiet = sel?.startsWith("cargo:") ? config.rust?.[unit]?.quietTests === true : false;
           // A crate that ci/shards.json lists solo, or that is sidecar-bound, never joins another crate's invocation (planScans' own rule for its rows).
-          const alone = sel?.startsWith("cargo:") && (solo.includes(unit) || sidecarBoundCrate({ dir: path.join(repo, dirOf.get(sel) ?? `crates/${unit}`), exists: o.exists, readFile: o.readFile }).bound);
+          const alone = sel?.startsWith("cargo:") && (sidecarBoundCrate({ dir: path.join(repo, dirOf.get(sel) ?? `crates/${unit}`), exists: o.exists, readFile: o.readFile }).bound);
           return publisherRequirementScan(requirement, { platform: o.platform, cargoCommand: planCargoCommand, cargoLiveRoot, targetDirs, quiet, allowIgnored: verdicts.get(sel)?.allowIgnored === true, batch: !alone });
         };
         const planned = planUnitListScans({ entries: scoped, planned: plan.scans, normalizedCwds, adapt, blocked });
@@ -5136,17 +5371,23 @@ export async function main(argv, io = {}) {
     o.onQualifyOwed?.((plan.qualifyOwed ?? []).filter((x) => x.kind !== "e2e-crate" || plan.scans.some((s) => s.id === x.id)));
     // GC-A24: class A lanes default to the host's cores (measured, Mac, cold RK class A rows: 4 lanes 14.4 s, 8 lanes 7.0 s, 12 lanes 5.9 s).
     const defaultJobs = typeof os.availableParallelism === "function" ? os.availableParallelism() : os.cpus().length;
-    const jobs = Math.max(1, Number(o.env.RK_GATE_JOBS ?? defaultJobs) || defaultJobs);
+    const jobs = Math.max(1, defaultJobs); // no caller sets it (step F of the Dell sequence, 2026-11-24: RK_GATE_JOBS is not read)
     // A broker host has no gate-side build count: the broker decides it. What remains is the local limit on class B processes the broker never sees.
     const brokerHost = executor.kind === "broker";
-    const classBJobs = brokerHost ? LOCAL_CLASS_B_JOBS : Math.max(1, Number(o.env.RK_GATE_CLASS_B_JOBS ?? 3) || 3);
+    const classBJobs = LOCAL_CLASS_B_JOBS; // on every host; no caller sets it (RK_GATE_CLASS_B_JOBS is not read)
     // The broker's live state of a request (queued or running), asked through the executor's own client with an asynchronous spawn: a carried scan's run limit does not tick
     // while the broker holds it queued. No client to ask (none resolves): no reader, and a carried scan's limit simply runs, counting its queue time.
     // The client is the declared Linux route's, else the managed runtime client, else the executor's own: a broker host whose executor is the `rustright` found on PATH
     // (`["rustright", ...]`) asks through that one. No client to ask (a shim-only executor with none resolved): no reader, and the scan's limit simply runs.
     const executorClient = path.basename(String(cargoCommand[0] ?? "")).replace(/\.(exe|cmd|bat)$/i, "") === "rustright" ? (brokerClientOf(o, executor) ?? cargoCommand[0]) : null;
     const brokerClient = !brokerHost ? null : declaredClient ? "rustright" : managedRuntimeClient(o.env, o.platform, o.exists) ?? executorClient;
-    const brokerLive = brokerClient ? createBrokerLive({ client: brokerClient, env: { ...o.env, ...(executor.env ?? {}) }, spawn: withDeclaredClient(defaultSpawnAsync), platform: o.platform }) : null;
+    // NN07: job states are read over the broker's own endpoint from this process when the endpoint and the runtime identity beside the client
+    // can be established (the same target the snapshot-status query uses); otherwise through the client, as before.
+    const brokerWire = (() => {
+      if (!brokerClient || o.spawn !== defaultSpawn) return null;
+      try { const target = brokerControlTarget({ ...o, env: { ...o.env, ...(executor.env ?? {}) } }, { client: brokerClient }); return target.ok ? { endpoint: target.endpoint, protocol: BUILD_CONTROL_PROTOCOL, runtime: target.identity } : null; } catch { return null; }
+    })();
+    const brokerLive = brokerClient ? createBrokerLive({ client: brokerClient, env: { ...o.env, ...(executor.env ?? {}) }, spawn: withDeclaredClient(defaultSpawnAsync), platform: o.platform, wire: brokerWire }) : null;
 
     if (planOnly) {
       o.out(`${tag} plan: ${plan.scans.length} scan(s) for ${changed.length} changed file(s) vs ${base.slice(0, 12)} (reads the working tree; nothing runs)`);
@@ -5281,8 +5522,9 @@ export async function main(argv, io = {}) {
         const { files, ids, digestOf } = live;
         const under = (dir) => (dir === "." || dir === "" ? files : files.filter((f) => f === dir || f.startsWith(`${dir}/`)));
         const objectId = (p) => (ids.has(p) ? ids.get(p) : under(p).length ? digestOf(under(p)) : null);
-        const storeDir = o.env.RK_GATE_CACHE_DIR ? path.resolve(o.env.RK_GATE_CACHE_DIR) : path.join(path.resolve(root, text(common).trim()), "rightkit-gate-cache");
-        if (guardCargoDiscovery) classAHistory = o[CLASS_A_HISTORY] ?? openClassAHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir });
+        const storeDir = path.join(path.resolve(root, text(common).trim()), "rightkit-gate-cache");
+        // Nov-18 cache rule applies to every bound full-A form (snapshot, hosted, live), not only guarded snapshot discovery.
+        classAHistory = o[CLASS_A_HISTORY] ?? openClassAHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir, onRestart: cacheRestartNote(o) });
         const store = fileScanCache(storeDir);
         const listFiles = (dir) => under(dir);
         const readBlob = (p) => fs.readFileSync(path.join(liveBase, p), "utf8");
@@ -5320,20 +5562,30 @@ export async function main(argv, io = {}) {
       }
     }
     if (!classAOnly) {
-      const needsForecast = Boolean(snapshotB) && !o.runScans;
+      const needsForecast = !o.runScans;
       try {
-        const headSha = snapshotBCommit?.commit ?? text(git("rev-parse", "HEAD")).trim();
+        // The selected commit, never asked again: a self-call names it by its full id (NN08: `git rev-parse HEAD` asked twice in one run on 0.6.71).
+        const named = option("--commit"); const headSha = snapshotBCommit?.commit ?? (/^[0-9a-f]{40}$/.test(named ?? "") ? named : text(git("rev-parse", "HEAD")).trim());
         const treeId = text(git("rev-parse", `${headSha}^{tree}`)).trim();
         const common = git("rev-parse", "--git-common-dir");
         if (headSha && treeId && !failed(common) && text(common).trim()) {
+          // Every blob and tree id of the commit from one listing, read the first time an id is asked for (GC-A27 "no waste": one `git ls-tree <sha> -- <path>`
+          // per path was 545 processes a fixture run, 23 s on a quiet Dell and three minutes on a busy one; the commit's ids cannot change during the run).
+          let treeIds = null;
           const objectId = (p) => {
-            const r = git("ls-tree", headSha, "--", p);
-            if (failed(r)) throw new Error(`git ls-tree failed: ${why(r)}`);
-            const line = text(r).split(/\r?\n/).find(Boolean);
-            return line ? (line.split("\t")[0].split(/\s+/)[2] ?? null) : null;
+            if (!treeIds) {
+              const r = git("ls-tree", "-r", "-t", "-z", headSha);
+              if (failed(r)) throw new Error(`git ls-tree failed: ${why(r)}`);
+              treeIds = new Map();
+              for (const entry of text(r).split("\0").filter(Boolean)) { const tab = entry.indexOf("\t"); treeIds.set(entry.slice(tab + 1), entry.slice(0, tab).split(/\s+/)[2] ?? null); }
+            }
+            const key = String(p).replaceAll("\\", "/").replace(/^\.\//, "").replace(/\/+$/, "");
+            return key === "" || key === "." ? treeId : (treeIds.get(key) ?? null);
           };
-          const storeDir = o.env.RK_GATE_CACHE_DIR ? path.resolve(o.env.RK_GATE_CACHE_DIR) : path.join(path.resolve(root, text(common).trim()), "rightkit-gate-cache");
-          if (needsForecast) classBHistory = openClassBHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir });
+          const storeDir = path.join(path.resolve(root, text(common).trim()), "rightkit-gate-cache");
+          if (needsForecast) classBHistory = openClassBHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir, onRestart: cacheRestartNote(o) });
+          // Mixed A+B in one invocation needs its Class A history too; boundFullA opened it above when that block ran.
+          if (needsForecast && !classAHistory && !(snapshotB && o.classAEarlier === true)) classAHistory = o[CLASS_A_HISTORY] ?? openClassAHistory({ historyRoot: path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-class-a-history"), storeDir, onRestart: cacheRestartNote(o) });
           const store = fileScanCache(storeDir);
           const listFiles = (dir) => {
             const r = git("ls-tree", "-r", "--name-only", "-z", headSha, "--", dir);
@@ -5404,12 +5656,19 @@ export async function main(argv, io = {}) {
       } catch (error) { o.err(`${tag} BLOCKED: RK_SEAM: ${error.message}; nothing ran`); return 1; }
     }
     directTiming.cargoStart = Date.now();
+    const stageClasses = classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"];
     const scanOptions = {
       ...(authenticateCargoWorkspace ? { cargoWorkspaceFactsFor: authenticateCargoWorkspace } : {}),
       ...(classACargoPath ? { classAToolPaths: { cargo: classACargoPath } } : {}),
+      // NN09: the broker's compiler is read from its host configuration in this process; no `rustright cargo --version` starts (broker-toolchain.mjs).
+      ...(() => { const bt = brokerToolchainOf(o, executor); return bt ? { brokerToolchain: bt } : {}; })(),
       // The commit's own files (rightkit#1393): a snapshot is not a git toplevel, so the secret scan needs this list to judge tracked files only and never what a stage wrote there.
       ...(snapshot ? { trackedFiles: files } : {}),
-      classes: classAOnly ? ["A"] : classAEarlier ? ["B"] : ["A", "B"], ...(classAEarlier ? { classAEarlier: true } : {}), jobs, classBJobs, classBBatching: !o[PRIVATE_SCOPED_COMPILE], groupTests: true, classBPipeline: 2, ...(brokerHost ? { brokerHost: true } : {}), ...(brokerLive ? { brokerLive } : {}), signal: ac.signal, ...(cache ? { cache } : {}),
+      classes: stageClasses, ...(classAEarlier ? { classAEarlier: true } : {}), jobs, classBJobs, classBBatching: !o[PRIVATE_SCOPED_COMPILE], groupTests: true,
+      // GC-A27 NN09 (Adrian, 2026-11-25: "I'm not relaxing NN09"): every carried command is handed to the broker as soon as it is ready. The broker holds one job of a
+      // repository at a time (its `exclusive:workspace:<repo>` blocker, seen on every receipt of the 0.6.64 run), so commands of one workspace never run side by
+      // side. 0.6.66 held them back on a misreading: the "two Cargo processes" seen then were one clippy job's own tree (cargo clippy, cargo-clippy, cargo check).
+      classBPipeline: Number.POSITIVE_INFINITY, ...(brokerHost ? { brokerHost: true } : {}), ...(brokerLive ? { brokerLive } : {}), signal: ac.signal, ...(cache ? { cache } : {}),
       // NN41: the installed broker runtime's identity keys every cached compile failure; null (a direct host, an unreadable manifest) means no failure is cached.
       ...(brokerHost && cache ? (() => { const identity = brokerRuntimeIdentityText({ clients: [brokerClient, executor?.client, cargoCommand[0]], env: { ...o.env, ...(executor.env ?? {}) }, platform: o.platform }); return identity ? { failureIdentity: identity } : {}; })() : {}),
       // The declared Linux broker route: the scans are planned with the logical `rustright`, which this spawn (and scanSpawn's pass-through below) starts as the
@@ -5449,68 +5708,51 @@ export async function main(argv, io = {}) {
       })(),
       onResult: (row, p) => o.out(`${tag} [${p.done}/${p.total}] ${(row.cached ? (row.status === "pass" ? "cached" : "cached-fail") : row.status).padEnd(11)} ${row.id} (${p.seconds}s)${row.batchedWith ? ` [batch of ${row.batchedWith.units.length}]` : ""}${row.status === "fail" ? ` :: ${String(row.detail ?? "").slice(0, 300)}` : row.advice ? ` :: ${String(row.advice).slice(0, 300)}` : ""}`),
     };
-    // Adrian 2026-11-06: "every time should be warm". Before anything runs, every planned row is looked up in the cache. If any would miss, the
-    // run stops with a miss report (each row, its cause and the evidence: changed inputs, tool or environment, no stored result, or nothing
-    // changed at all). Every miss is explained in the report and the rows run; a miss where nothing changed is a cache bug to file with the
-    // report, never a reason to stop the run or to ask Adrian (2026-11-08: explained invalidation replaces approval).
-    if (!o.runScans && cache && !classAHistory && !classBHistory) {
-      const lookup = await runScans(plan, { ...scanOptions, cacheLookupOnly: true, onResult: () => {} });
-      const allMisses = lookup.scans.filter((r) => r.lookupMiss);
-      // Adrian 2026-11-06: "when we change something, we know exactly which rows are going to be called. Anything other than that needs approval."
-      // A row that misses ONLY because files in its own key changed (new content ids, no tool, toolchain, broker or environment change) is one this
-      // change must call: it runs, listed. Every other miss (nothing changed, no stored result, a tool or environment change) is reported as unexpected, with its cause.
-      const expected = (r) => r.cacheMiss?.kind === "changed" && (r.cacheMiss.why?.inputsChanged ?? 0) > 0 && r.cacheMiss.why.contentOnly === true && !r.cacheMiss.why.tool && !r.cacheMiss.why.env && !r.cacheMiss.why.inheritedEnv;
-      const called = allMisses.filter(expected);
-      if (called.length) o.out(`${tag} cache lookup: ${called.length} row(s) rerun because their own files changed: ${called.slice(0, 12).map((r) => `${r.id} (${(r.cacheMiss.why.inputs ?? []).slice(0, 2).map((k) => k.replace(/^[^/]*\//, "")).join(", ")})`).join("; ")}${called.length > 12 ? "; ..." : ""}`);
-      const misses = allMisses.filter((r) => !expected(r));
-      if (misses.length) {
-        const prior = new Map(lookup.scans.map((r) => [r.id, r]));
-        const kindOf = (r) => r.cacheMiss?.kind ?? "new";
-        const entries = misses.map((r) => ({ id: r.id, cause: kindOf(r) === "unchanged" ? "nothing changed: the cache failed" : kindOf(r) === "new" ? "no stored result (a new row, or the cache is empty)" : "inputs or environment changed", ...(r.cacheMiss?.why ? { evidence: r.cacheMiss.why } : {}), ...(r.cacheMiss?.last ? { lastPass: r.cacheMiss.last } : {}), ...(r.cacheMiss?.now ? { now: r.cacheMiss.now } : {}) })).sort((a, b) => a.id.localeCompare(b.id));
-        const byCause = entries.reduce((m, e) => ((m[e.cause] = (m[e.cause] ?? 0) + 1), m), {});
-        const changedInputs = {}; for (const e of entries) for (const k of e.evidence?.inputs ?? []) changedInputs[k] = (changedInputs[k] ?? 0) + 1;
-        const tools = [...new Set(entries.filter((e) => e.evidence?.tool).map((e) => `${e.evidence.tool.from} -> ${e.evidence.tool.to}`))];
-        const envs = [...new Set(entries.flatMap((e) => e.evidence?.env ?? []))];
-        const commitOfRun = snapshotBCommit?.commit ?? snapshotCommitId?.commit ?? null;
-        const body = { schema: "rightkit.gate-miss-report/1", commit: commitOfRun, planned: lookup.scans.length, hit: lookup.scans.filter((r) => r.cached).length, uncacheable: lookup.scans.filter((r) => r.uncacheable).length, misses: entries.length, byCause, topChangedInputs: Object.entries(changedInputs).sort((a, b) => b[1] - a[1]).slice(0, 20), tools, env: envs, rows: entries };
-        // The digest names WHAT would run and WHY (commit, row ids, causes), never evidence noise, so the same misses on a rerun match the same approval.
-        const digest = createHash("sha256").update(JSON.stringify({ schema: body.schema, commit: body.commit, rows: entries.map((e) => [e.id, e.cause]) })).digest("hex");
-        const reportFile = path.join(gateRunsRoot({ env: o.env, platform: o.platform }), "rightkit-gate-misses", `${path.basename(root)}-${new Date().toISOString().replace(/[:.]/g, "-")}-${digest.slice(0, 12)}.json`);
-        try { fs.mkdirSync(path.dirname(reportFile), { recursive: true }); fs.writeFileSync(reportFile, `${JSON.stringify({ ...body, digest }, null, 2)}\n`); } catch { /* the summary below still names everything */ }
-        o.out(`${tag} cache lookup: ${body.planned} planned, ${body.hit} hit, ${body.misses} unexpected miss(es) (${Object.entries(byCause).map(([c, n]) => `${n} ${c}`).join("; ")}), ${body.uncacheable} uncacheable by design; report ${reportFile} (digest ${digest})`);
-        if (body.topChangedInputs.length) o.out(`${tag} cache lookup: most-changed inputs ${body.topChangedInputs.slice(0, 8).map(([k, n]) => `${k} (${n})`).join(", ")}`);
-        if (tools.length) o.out(`${tag} cache lookup: tool changes ${tools.slice(0, 5).join("; ")}`);
-        if (envs.length) o.out(`${tag} cache lookup: environment changes ${envs.slice(0, 10).join(", ")}`);
-        o.err(`${tag} RK_CACHE_MISS: ${body.misses} row(s) miss the cache without a change to their own files; they run now. Each miss is explained in the report; a miss where nothing changed is a cache bug: file it with the report`);
-        void prior;
-      } else o.out(`${tag} cache lookup: ${lookup.scans.length} planned, ${lookup.scans.filter((r) => r.cached).length} hit, ${called.length} rerun for changed files, 0 unexpected; ${lookup.scans.filter((r) => r.uncacheable).length} uncacheable by design`);
+    // Adrian 2026-11-18 cache rule supersedes the 2026-11-08 explained-runs path:
+    // every cached class in this invocation needs its independent forecast history.
+    // Without it there is no approved prior outcome to forecast from, so fail closed
+    // before any scan dispatch instead of running unexpected misses.
+    const historyByClass = { A: classAHistory, B: classBHistory };
+    if (!o.runScans && cache) {
+      const missingHistory = stageClasses.filter((cls) => !historyByClass[cls]);
+      if (missingHistory.length) { o.err(`${tag} RK_CACHE_DIVERGENCE: cache forecast history unavailable for class ${missingHistory.join(", ")}; restore its verified history or select a new store for a declared cold run`); return 1; }
     }
     let scanResult;
-    let decisionFile;
-    const history = classBHistory ?? classAHistory;
-    const scanClass = classBHistory ? "B" : "A";
-    const stage = classBHistory ? "class-b" : "class-a";
-    if (history) {
-      decisionFile = path.join(gateRunsRoot({ env: o.env, platform: o.platform }), `rightkit-${stage}-decisions`, randomUUID() + ".json");
-      const evidence = { stage, host: os.hostname(), commit: snapshotBCommit?.commit ?? snapshotCommitId?.commit ?? hostedCommitA?.commit ?? null, tree: snapshotBCommit?.tree ?? liveSnapshot, baseline: history.file };
+    const decisionFiles = {};
+    const activeHistories = stageClasses.filter((cls) => historyByClass[cls]);
+    if (activeHistories.length) {
       try {
-        const forecasts = {};
-        scanOptions[`class${scanClass}CacheForecast`] = (rows, { phase } = {}) => {
-          const forecast = history.forecast(rows);
-          if (phase) forecasts[phase] = forecast;
-          writeFileAtomic(decisionFile, JSON.stringify({ ...evidence, phase: "forecast", forecast, ...(phase ? { forecasts } : {}) }), { mode: 0o600 });
-          return forecast;
-        };
-        scanResult = await runScans(plan, scanOptions);
-        const decision = scanResult[`class${scanClass}CacheDecision`];
-        if (!decision) throw new Error(`Class ${scanClass} scanner returned no forecast decision`);
-        writeFileAtomic(decisionFile, JSON.stringify({ ...evidence, ...decision, phase: "observed" }), { mode: 0o600 });
-        if (decision.mismatches.length) {
-          for (const row of decision.mismatches) o.err(`${tag} RK_CACHE_DIVERGENCE ${JSON.stringify(row)}`);
-          o.err(`${tag} BLOCKED: ${decision.dispatchedRows.length} row dispatches. Evidence: ${decisionFile}`);
-          return 1;
+        for (const cls of activeHistories) {
+          const history = historyByClass[cls];
+          const stage = cls === "B" ? "class-b" : "class-a";
+          const decisionFile = path.join(gateRunsRoot({ env: o.env, platform: o.platform }), `rightkit-${stage}-decisions`, randomUUID() + ".json");
+          decisionFiles[cls] = decisionFile;
+          const evidence = { stage, host: os.hostname(), commit: snapshotBCommit?.commit ?? snapshotCommitId?.commit ?? hostedCommitA?.commit ?? null, tree: snapshotBCommit?.tree ?? liveSnapshot, baseline: history.file };
+          const forecasts = {};
+          scanOptions[`class${cls}CacheForecast`] = (rows, { phase } = {}) => {
+            const forecast = history.forecast(rows);
+            if (phase) forecasts[phase] = forecast;
+            writeFileAtomic(decisionFile, JSON.stringify({ ...evidence, phase: "forecast", forecast, ...(phase ? { forecasts } : {}) }), { mode: 0o600 });
+            return forecast;
+          };
         }
-        o.out(`${tag} Class ${scanClass} cache decision: ${decisionFile}`);
+        scanResult = await runScans(plan, scanOptions);
+        let blocked = false;
+        for (const cls of activeHistories) {
+          const history = historyByClass[cls];
+          const stage = cls === "B" ? "class-b" : "class-a";
+          const decisionFile = decisionFiles[cls];
+          const decision = scanResult[`class${cls}CacheDecision`];
+          if (!decision) throw new Error(`Class ${cls} scanner returned no forecast decision`);
+          const evidence = { stage, host: os.hostname(), commit: snapshotBCommit?.commit ?? snapshotCommitId?.commit ?? hostedCommitA?.commit ?? null, tree: snapshotBCommit?.tree ?? liveSnapshot, baseline: history.file };
+          writeFileAtomic(decisionFile, JSON.stringify({ ...evidence, ...decision, phase: "observed" }), { mode: 0o600 });
+          if (decision.mismatches.length) {
+            blocked = true;
+            for (const row of decision.mismatches) o.err(`${tag} RK_CACHE_DIVERGENCE ${JSON.stringify(row)}`);
+            o.err(`${tag} BLOCKED: ${decision.dispatchedRows.length} row dispatches. Evidence: ${decisionFile}`);
+          } else o.out(`${tag} Class ${cls} cache decision: ${decisionFile}`);
+        }
+        if (blocked) return 1;
       } catch (error) { o.err(`${tag} RK_CACHE_DIVERGENCE: ${error.message}`); return 1; }
     } else scanResult = await (o.runScans ?? runScans)(plan, scanOptions);
     if (nodeCheckRejects.size) o.out(`${tag} node-check cache misses: ${[...nodeCheckRejects].sort(([a], [b]) => a.localeCompare(b)).map(([reason, count]) => `${reason}=${count}`).join(", ")}`);
@@ -5556,10 +5798,14 @@ export async function main(argv, io = {}) {
     // What a full class A verdict binds, green or red: the bytes it judged, unchanged from start to end, and the environment it judged
     // in (gate, tools, installed dependencies, tool caches), unchanged too. A verdict whose binding moved covers nothing: a green one is
     // refused and a red one names no reusable deterministic cause (rightkit#1257). Returns { env, notes } or { prefix, problem, exit }.
+    const recordedHistories = new Set();
     const recordHistory = () => {
-      if (!history) return true;
-      try { history.record(scanResult[`class${scanClass}CacheDecision`]); return true; }
-      catch (error) { o.err(`${tag} BLOCKED: cannot record verified Class ${scanClass} cache outcomes: ${error.message}`); return false; }
+      for (const cls of activeHistories) {
+        if (recordedHistories.has(cls)) continue;
+        try { historyByClass[cls].record(scanResult[`class${cls}CacheDecision`]); recordedHistories.add(cls); }
+        catch (error) { o.err(`${tag} BLOCKED: cannot record verified Class ${cls} cache outcomes: ${error.message}`); return false; }
+      }
+      return true;
     };
     const judgedBinding = async () => {
       if (hostedFullA) {
@@ -5705,9 +5951,13 @@ export async function main(argv, io = {}) {
       // full class A pass, and it says so (reviewer, 2026-10-27). The full gate runs them before any compile.
       const notRun = plan.scans.filter((s) => s.class === "A" && s.executes === true).map((s) => s.id);
       if (notRun.length) o.out(`${tag} class A partial: ${notRun.length} check(s) that execute repository code (tests, typecheck, lint, generated docs) run in the full gate, not in check: ${notRun.slice(0, 8).join(", ")}${notRun.length > 8 ? ", …" : ""}`);
+      if (!recordHistory()) return 1;
       o.out(`${tag} class A content pass: ${scanResult.scans.length} deterministic scan(s) over ${changed.length} file(s) of ${base}`);
+      // F4 (step F, 2026-11-24): a check that skipped the scans that execute repository code is not a pass. Exit 3, as --only's partial run does.
+      if (notRun.length) { o.out(`${tag} PARTIAL: ${notRun.length} executing check(s) did not run; run it with --full-a, or run the stage with --to`); return 3; }
       return 0;
     }
+    if (!recordHistory()) return 1;
     o.out(`${tag} pass (${changed.length} changed file(s) vs ${base}); ${deferrals.length} scan(s) deferred, not passed${scanResult.cacheHits.length ? `; ${scanResult.cacheHits.length} reused from the result cache` : ""}`);
     return 0;
   } finally {
@@ -5745,7 +5995,7 @@ if (invokedDirectly) {
     setTreeListingStore(treeLists ? contentStore(path.join(treeLists, "sealed")) : null);
   }
   // NN11/NN28: how this run proved the snapshot, once, at the end (snapshot.mjs SNAPSHOT_PROOF_COUNTS).
-  process.once("exit", () => { const c = SNAPSHOT_PROOF_COUNTS; if (c.treeHashes + c.verifyWalks + c.residentProofs > 0) { try { process.stdout.write(`rightkit-gate: ${snapshotProofLine("node-fs-watch")}\n`); } catch { /* stdout closed */ } } });
+  process.once("exit", () => { const c = SNAPSHOT_PROOF_COUNTS; if (c.treeHashes + c.verifyWalks + c.residentProofs > 0) { try { process.stdout.write(`${stampChildLines ? `${new Date().toISOString()} ` : ""}rightkit-gate: ${snapshotProofLine(c.changeSource ?? "none")}\n`); } catch { /* stdout closed */ } } });
   // Every child this run starts that can reach rustright (scans, unit stages, right-release dev/test, their builds) inherits it.
   process.env.RUSTRIGHT_CALLING_GATE = callingGatePath();
   delete process.env.RIGHTKIT_CALLING_GATE; // one spelling, never both

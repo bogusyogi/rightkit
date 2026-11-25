@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Settings hotkey recorders (`Settings.tsx` clipboard strip shortcut and settings hotkey rows, `LauncherSettings.tsx` shortcut line) capture keys through `useNativeShortcutCapture` from `@rightkit/react-shell/react` instead of the local `keydown` listener.
+- Removed the now-unused `windowShortcutFrom` helper from `remote/views/settingsKit.tsx`.
+- No version bump until a publish is approved; `package.json` stays at 0.2.1, matching `rightkit-versions.json`.
+- The QR encoder (`remote/lib/qr.ts`, deleted) and the countdown helpers come from `@rightkit/platform-ui/qr` and `@rightkit/platform-ui/countdown` (0.4.4). `PhonePairing`, `Guests` and `Devices` keep their rounding, ceiling and expiry copy; `approvalQueue` uses the shared countdown clamp. Existing countdown exports of this package are preserved.
+
 ## 0.2.1
 
 - Fix: Settings · Agents read the pre-0.3.0 agent wire only (`a.accounts.join`, `r.account_id`); rightkit-agent-gateway 0.3.0 renamed them `scopes` and `scope`, so the agent list threw and the activity log showed no account with a 0.3.0 host. New `approvals/lib/agentWire` (root export): `agentScopes` (`scopes ?? accounts`) and `auditScope` (`scope ?? account_id`); `SettingsAgentsSection` and `SettingsAgentsAudit` read through them, so both gateway versions work. Needs `@rightkit/mail-ui` 0.2.1 (its rows carry both names).

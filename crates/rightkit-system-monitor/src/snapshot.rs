@@ -1,5 +1,5 @@
-//! Versioned snapshot files: `{"version": N, "data": ...}`, the one way an app keeps what it can
-//! rebuild (the last Storage index and view, drive health history and alerts, app inventories).
+//! Versioned snapshot files: `{"version": N, "data": ...}`, used by a host app to retain
+//! rebuildable state.
 //!
 //! The file is read and written through the owner's flat-file store (`rightkit-app-settings`,
 //! `FileFormat::Flat`), so a write is an atomic, owner-only replace, a file that does not parse is
@@ -18,8 +18,8 @@ use std::io;
 use std::path::Path;
 
 fn options(version: u32) -> StoreOptions {
-    // On-disk schema id kept from the first release so existing snapshot files still read.
-    StoreOptions::new(Schema::new("pulse-snapshot", version))
+    // Schema id is private metadata; flat-file bytes remain the stable {version, data} shape.
+    StoreOptions::new(Schema::new("system-monitor-snapshot", version))
         .format(FileFormat::Flat)
         .flat_version_key("version")
         .defaults_provider(|| json!({}))

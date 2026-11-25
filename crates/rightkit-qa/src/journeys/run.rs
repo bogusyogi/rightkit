@@ -984,8 +984,17 @@ impl RunReport {
 
 /// `journeys run` with the real broker, supervisor and bridge executor.
 pub fn run_journeys(opts: &JourneyRunOptions) -> Result<RunReport> {
+    run_journeys_with_owner(opts, None)
+}
+
+/// Run with an explicit installed credential owner. A binding always selects schema 2;
+/// owner refusals never fall back to direct-store access.
+pub fn run_journeys_with_owner(
+    opts: &JourneyRunOptions,
+    credential_owner: Option<crate::snapshot::OwnerConfig>,
+) -> Result<RunReport> {
     let exe = opts.exe.clone();
-    run_with(
+    run_with_owner(
         opts,
         &Hooks {
             broker: &build_record::spawn_broker,
@@ -993,6 +1002,7 @@ pub fn run_journeys(opts: &JourneyRunOptions) -> Result<RunReport> {
             bridge_exec: &|tracker, inv| bridge::owned_exec(tracker.clone())(inv),
             session: &|| interactive::non_interactive_reason(&interactive::session_facts()),
         },
+        credential_owner,
     )
 }
 
@@ -1002,8 +1012,17 @@ pub fn run_journeys_prebuilt(
     opts: &JourneyRunOptions,
     input: &super::prebuilt::PrebuiltInput,
 ) -> Result<RunReport> {
+    run_journeys_prebuilt_with_owner(opts, input, None)
+}
+
+/// Signed prebuilt input with an explicit installed schema-2 credential owner.
+pub fn run_journeys_prebuilt_with_owner(
+    opts: &JourneyRunOptions,
+    input: &super::prebuilt::PrebuiltInput,
+    credential_owner: Option<crate::snapshot::OwnerConfig>,
+) -> Result<RunReport> {
     let exe = opts.exe.clone();
-    run_with(
+    run_with_owner(
         opts,
         &Hooks {
             broker: &|plan| super::prebuilt::build_from_prebuilt(plan, input),
@@ -1011,6 +1030,7 @@ pub fn run_journeys_prebuilt(
             bridge_exec: &|tracker, inv| bridge::owned_exec(tracker.clone())(inv),
             session: &|| interactive::non_interactive_reason(&interactive::session_facts()),
         },
+        credential_owner,
     )
 }
 
@@ -2516,6 +2536,15 @@ fn finish_with_error(prepared: &Prepared, cap: StoreCap, e: &Error) -> CleanupRe
 
 /// Steps 1 to 5 of `journeys run` with `hooks` standing in for the effects. See the module docs.
 pub fn run_with(opts: &JourneyRunOptions, hooks: &Hooks<'_>) -> Result<RunReport> {
+    run_with_owner(opts, hooks, None)
+}
+
+/// [`run_with`] with an installed owner binding; existing callers keep their options layout.
+pub fn run_with_owner(
+    opts: &JourneyRunOptions,
+    hooks: &Hooks<'_>,
+    credential_owner: Option<crate::snapshot::OwnerConfig>,
+) -> Result<RunReport> {
     if let RunMode::Explore(rec) = &opts.mode {
         // An explore run records a scenario. It builds nothing, launches nothing, creates no run
         // and writes no receipt.
@@ -2543,7 +2572,7 @@ pub fn run_with(opts: &JourneyRunOptions, hooks: &Hooks<'_>) -> Result<RunReport
     // before anything launches. `collect` restores and verifies it before the receipt is written;
     // an error on the way restores here. A kill leaves the marker, and the next `rightkit-qa` start
     // restores it before anything else.
-    let mut armed = match arm_snapshot(opts) {
+    let mut armed = match arm_snapshot(opts, credential_owner) {
         Ok(armed) => Some(armed),
         Err(e) => {
             let _ = finish_with_error(&prepared, cap, &e);
@@ -2567,7 +2596,10 @@ pub fn run_with(opts: &JourneyRunOptions, hooks: &Hooks<'_>) -> Result<RunReport
 /// Arm the `[snapshot]` of the app's `rightkit-qa.toml`. A journey run with none is refused: QA runs on
 /// the owner's real data, so it must snapshot and restore it (Adrian, 2026-11-03: "real data. snapshot
 /// and restore.").
-fn arm_snapshot(opts: &JourneyRunOptions) -> Result<crate::snapshot::Armed> {
+fn arm_snapshot(
+    opts: &JourneyRunOptions,
+    credential_owner: Option<crate::snapshot::OwnerConfig>,
+) -> Result<crate::snapshot::Armed> {
     let app_root = canonical_plain(&opts.prepare.app_root).map_err(|e| {
         Error(format!(
             "cannot resolve {}: {e}",
@@ -2583,8 +2615,16 @@ fn arm_snapshot(opts: &JourneyRunOptions) -> Result<crate::snapshot::Armed> {
     }
     let cfg = QaConfig::load(&cfg_path)?;
     let snapshot = cfg.require_snapshot()?;
+    if snapshot.credential_owner_required && credential_owner.is_none() {
+        return err("[snapshot].credential_owner_required needs --credential-owner <absolute installed executable>; direct-store fallback is refused");
+    }
     let managed_root = storage::managed_root(opts.prepare.managed_root.as_deref());
-    crate::snapshot::arm(&cfg.app, snapshot, &managed_root)
+    match credential_owner {
+        Some(owner) => {
+            crate::snapshot::arm_with_owner_schema2(&cfg.app, snapshot, &managed_root, owner)
+        }
+        None => crate::snapshot::arm(&cfg.app, snapshot, &managed_root),
+    }
 }
 
 fn collect(
@@ -2680,7 +2720,7 @@ fn collect(
         roots: u32::try_from(restored.roots_restored).unwrap_or(u32::MAX),
         credentials: u32::try_from(restored.credentials_restored).unwrap_or(u32::MAX),
         android: restored.android_restored,
-        restore_verified: true,
+        restore_verified: !restored.completion_resumed,
     };
     let ended_at = now_iso();
     let results = results_text(prepared, &g, &snap, started_at, &ended_at)?;

@@ -21,6 +21,18 @@ client.set_badge(2)?;
 
 `permission` never prompts; `request_permission` prompts when not determined and blocks until answered, so call it from a worker thread. A send on macOS with permission not determined prompts too. Sending with a key that is still shown replaces it; `Client::close(key)` withdraws it.
 
+## Phone push (APNs), transport-independent (RK-4)
+
+`rightkit_notifications::push` is everything about an APNs phone alert that needs no network:
+
+- `PhoneAlert::new(title, item_id)`: the only alert shape. A title (1 to 64 characters, no control characters, over-long is rejected) and an opaque item id (1 to 128 of `A-Za-z0-9._:-`). There is no body field, so message text cannot be sent.
+- `build_provider_jwt` and `ProviderTokenCache`: the ES256 provider token (`kid`, `iss`, `iat`) signed by `rightkit_crypto::P256Signer`, reused until 50 minutes old (Apple rejects tokens over 60 minutes and throttles minting more often than every 20), `invalidate` after Apple rejects one.
+- `build_request`: a pure `PushRequest` (host, `POST /3/device/<token>`, headers `authorization`, `apns-topic`, `apns-push-type: alert`, `apns-priority`, body). Its `Debug` hides the token and the authorization header.
+- `PushTransport` (host trait), `classify`, `backoff_hint` and `send_alert`: 200 delivered; 410 or `BadDeviceToken` removes the device token; 429 and 5xx (and no answer) return `Retry { after }` with an exponential hint (the server `retry-after` wins); other statuses come back as `Rejected { status, reason }`.
+- `DeviceTokenStore` (host trait, one token per paired device id) and `MemoryTokenStore`.
+
+**The HTTP/2 route is decided by the owner.** `HttpPushTransport` (feature `apns-http`, `src/push/http.rs`, the only file that depends on an HTTP stack) sends through `rightkit-http`'s async client, which offers HTTP/1.1 only, and APNs requires HTTP/2. Enabling reqwest's `http2` feature in `rightkit-http` pulls in the `h2` crate, which I did not find in packages/release/ownership-dependency-allowlist.json. Decision needed: allow `h2` for `rightkit-http` (one `http2` feature line there and ALPN `h2`), or a host supplies its own `PushTransport`. Not compiled or run against APNs.
+
 ## Platforms
 
 | | macOS | Windows | Linux |
@@ -45,4 +57,4 @@ No unit tests or fake backend (the suite's decision: end-to-end only). Acceptanc
 
 ## Not verified here
 
-Written against objc2-user-notifications 0.3.2, `windows` 0.61 and `notify-rust` 4 docs; not compiled or run on a device in this pass.
+The push module is not compiled or run either, and there is no live APNs exchange. Written against objc2-user-notifications 0.3.2, `windows` 0.61 and `notify-rust` 4 docs; not compiled or run on a device in this pass.

@@ -373,6 +373,7 @@ struct Raw {
 /// # include_cache = true               # also the cache folder (re-creatable, off by default)
 /// # extra_paths = ["/abs/other/folder"]
 /// process_names = ["ViewRight"]        # the app's image names: the run refuses while one is running
+/// # credential_owner_required = true  # require an explicit installed credential-owner binding
 ///
 /// [[snapshot.credentials]]             # real OS store items, by the app's namespace
 /// service = "app.orthic.viewright"
@@ -400,6 +401,10 @@ pub struct SnapshotConfig {
     pub process_names: Vec<String>,
     #[serde(default)]
     pub credentials: Vec<CredentialSetConfig>,
+    /// Refuse direct credential-store snapshots. The host opts in when only its installed
+    /// executable may access these items; `journeys run --credential-owner` binds that owner.
+    #[serde(default)]
+    pub credential_owner_required: bool,
     /// Also snapshot the suite shared folder (`Orthic Labs/shared`: the shared model store, the
     /// service records and whatever else the suite's apps keep there). Declare it when the app reads
     /// or writes the shared folder. Every suite app that can touch it must be in `process_names`.
@@ -443,6 +448,9 @@ pub struct CredentialSetConfig {
 
 impl SnapshotConfig {
     pub fn validate(&self) -> Result<()> {
+        if self.credential_owner_required && self.credentials.is_empty() {
+            return err("[snapshot].credential_owner_required needs [[snapshot.credentials]]");
+        }
         let named = self
             .app_name
             .as_deref()

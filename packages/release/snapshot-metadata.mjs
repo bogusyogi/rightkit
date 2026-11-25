@@ -241,8 +241,8 @@ export function carriedScanRefusal(words, { checkout = null } = {}) {
       else own.push(w);
     }
     const f = flagsOf(own, { "--locked": "flag", "--prefix": "value", "-e": "value", "-f": "value", "--all-features": "flag", "--no-default-features": "flag", "--features": "value", "-F": "value" });
-    const shapeOk = f !== null && f.has("--locked") && f.get("--prefix") === "none" && ["normal,build", "normal,build,dev"].includes(f.get("-e") ?? "") && f.get("-f") === "{p}\t{f}" && packages >= 1 && targets <= 1;
-    return shapeOk ? null : "`tree` is admitted as `tree --locked --prefix none -e normal,build[,dev] -f '{p}<tab>{f}' [--all-features] [--no-default-features] [--features <list>] [--target <triple>] -p <crate>...` only (the feature-equivalence partition)";
+    const shapeOk = f !== null && f.has("--locked") && f.get("--prefix") === "none" && ["normal,build", "normal,build,dev"].includes(f.get("-e") ?? "") && f.get("-f") === "{p}\t{f}" && packages >= 1;
+    return shapeOk ? null : "`tree` is admitted as `tree --locked --prefix none -e normal,build[,dev] -f '{p}<tab>{f}' [--all-features] [--no-default-features] [--features <list>] [--target <triple>]... -p <crate>...` only (the feature-equivalence partition)";
   }
   return `\`cargo ${words.join(" ")}\` is not one of the carried read-only shapes (metadata, fetch --locked, deny, audit --db --no-fetch, fmt --check, package -p <unit> --list --locked, tree)`;
 }
@@ -274,7 +274,9 @@ export const carriedReadOnlyScan = (words, options) => carriedScanRefusal(words,
 export function directReadSpawn({ spawn, cargoCommand, snapshotRoot, directPath, pathKey = "PATH", tmpRoot, env, err = () => {}, memo = null, isAsync = false, served = null }) {
   const prefix = cargoCommand.slice(1);
   const refused = (code, message) => { err(`rightkit-gate: ${code}: ${message}`); return { status: CARGO_REFUSAL_STATUS, signal: null, error: null, stdout: "", stderr: `rightkit-gate: ${code}: ${message}\n` }; };
-  return (cmd, args, opts = {}) => {
+  // Anything but cargo in the snapshot goes to `spawn` untouched; `underlying` names it, so a caller can tell this wrapper still starts real programs
+  // (NN08: the scan's pnpm version probe kept no answer behind this wrapper, 0.6.74 case 1).
+  const wrapped = (cmd, args, opts = {}) => {
     const cargo = cmd === cargoCommand[0] && prefix.every((w, i) => args[i] === w);
     if (!cargo || typeof opts.cwd !== "string" || !within(real(opts.cwd), real(snapshotRoot))) return spawn(cmd, args, opts);
     // A seam request (reset plan section 3: RUSTRIGHT_GATE_COMMIT set) is a class B compile the broker admits; it runs in the snapshot by design and is never a
@@ -302,4 +304,6 @@ export function directReadSpawn({ spawn, cargoCommand, snapshotRoot, directPath,
     cleanup();
     return remember(r);
   };
+  wrapped.underlying = spawn;
+  return wrapped;
 }

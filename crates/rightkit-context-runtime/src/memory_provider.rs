@@ -253,13 +253,8 @@ fn scope_chain_for(store: &crate::store::MemoryStore, scope: &str) -> Vec<String
 /// dedup-key groups onto the highest-scoring survivor. Loser ids become
 /// the survivor's `superseded_ids` provenance AND are recorded as
 /// `Superseded` omissions so receipts see both sides of the collapse.
-fn consider_entries(store: &crate::store::MemoryStore, scope_chain: &[String]) -> Vec<Considered> {
+fn consider_entries(all: Vec<MemoryEntry>, scope_chain: &[String]) -> Vec<Considered> {
     let allowed: BTreeSet<&str> = scope_chain.iter().map(String::as_str).collect();
-
-    // Pull the full snapshot through the existing public API. `entries` is
-    // already a public method that returns cloned `MemoryEntry`s — no
-    // private-field reach-around needed.
-    let all = store.entries(usize::MAX);
 
     let mut in_scope: Vec<MemoryEntry> = Vec::new();
     let mut mut_out_of_scope: Vec<MemoryEntry> = Vec::new();
@@ -522,12 +517,53 @@ pub fn produce_baseline_projection(
     scope: &str,
     max_candidates: usize,
 ) -> ContextCandidateSet {
+    project_baseline_candidates(
+        scope,
+        max_candidates,
+        scope_chain_for(store, scope),
+        || store.taste_delivery_inventory(),
+        || store.entries(usize::MAX),
+    )
+}
+
+/// Trusted resident input for baseline projection. The resident verifies Adapt provenance
+/// before supplying eligibility flags and memory bindings. Projection consumes those
+/// decisions without authenticating the records itself.
+pub trait BaselinePreferenceInventory {
+    fn candidates(&self) -> &[rightkit_adapt::delivery::PreferenceDeliveryCandidateV1];
+    fn includes_memory(&self, id: &str) -> bool;
+    fn memory_id(&self, record: &str) -> Option<&str>;
+    fn record_scope(&self, record: &str) -> Option<&str>;
+}
+
+impl BaselinePreferenceInventory for crate::store::TasteDeliveryInventoryV1 {
+    fn candidates(&self) -> &[rightkit_adapt::delivery::PreferenceDeliveryCandidateV1] {
+        &self.candidates
+    }
+    fn includes_memory(&self, id: &str) -> bool {
+        self.memory_ids.contains(id)
+    }
+    fn memory_id(&self, record: &str) -> Option<&str> {
+        self.memory_id_for_record(record)
+    }
+    fn record_scope(&self, record: &str) -> Option<&str> {
+        self.scope_for_record(record)
+    }
+}
+
+/// Preserve inventory failure as an omission & read memory entries only after successful inventory.
+pub fn project_baseline_candidates<I: BaselinePreferenceInventory>(
+    scope: &str,
+    max_candidates: usize,
+    chain: Vec<String>,
+    load_inventory: impl FnOnce() -> Result<I, String>,
+    read_entries: impl FnOnce() -> Vec<MemoryEntry>,
+) -> ContextCandidateSet {
     let trace_id = trace_id_for(BASELINE_TASK_MARKER, scope);
-    let chain = scope_chain_for(store, scope);
     let allowed: BTreeSet<&str> = chain.iter().map(String::as_str).collect();
     let indexed_at = crate::time::now_iso();
 
-    let inventory = match store.taste_delivery_inventory() {
+    let inventory = match load_inventory() {
         Ok(inventory) => inventory,
         Err(_) => {
             // Typed unavailable: never fabricate a standing preference in
@@ -561,19 +597,18 @@ pub fn produce_baseline_projection(
     // Pull entry content through the same public `entries()` API every
     // other projection in this module uses — no second store, no direct
     // SQL from this lane.
-    let content_by_id: HashMap<String, MemoryEntry> = store
-        .entries(usize::MAX)
+    let content_by_id: HashMap<String, MemoryEntry> = read_entries()
         .into_iter()
-        .filter(|entry| inventory.memory_ids.contains(&entry.id))
+        .filter(|entry| inventory.includes_memory(&entry.id))
         .map(|entry| (entry.id.clone(), entry))
         .collect();
 
     let mut ranked: Vec<(ContextCandidate, f64)> = Vec::new();
     let mut omissions: Vec<Omission> = Vec::new();
 
-    for candidate in &inventory.candidates {
+    for candidate in inventory.candidates() {
         let Some(memory_id) = inventory
-            .memory_id_for_record(&candidate.record_id)
+            .memory_id(&candidate.record_id)
             .map(str::to_string)
         else {
             // No binding to a durable memory row at all — nothing to
@@ -581,7 +616,7 @@ pub fn produce_baseline_projection(
             continue;
         };
         let record_scope = inventory
-            .scope_for_record(&candidate.record_id)
+            .record_scope(&candidate.record_id)
             .unwrap_or(candidate.scope.as_str());
         if !allowed.contains(record_scope) {
             omissions.push(Omission {
@@ -712,9 +747,34 @@ pub fn produce_candidate_set(
     max_candidates: usize,
     repo_root: Option<&std::path::Path>,
 ) -> ContextCandidateSet {
+    project_memory_candidates(
+        task,
+        scope,
+        max_candidates,
+        scope_chain_for(store, scope),
+        store.entries(usize::MAX),
+        |ids| store.artifact_dimensions(ids),
+        || {
+            repo_root.is_none_or(|root| {
+                !crate::freshness::evaluate_repository_freshness(store, root.to_path_buf()).stable
+            })
+        },
+    )
+}
+
+/// Project a resident's ordered scope chain & memory snapshot. Read dimensions only
+/// for selected candidates, then sample repository freshness before stamping the result.
+pub fn project_memory_candidates(
+    task: &str,
+    scope: &str,
+    max_candidates: usize,
+    scope_chain: Vec<String>,
+    entries: Vec<MemoryEntry>,
+    dimensions_for: impl FnOnce(&[String]) -> HashMap<String, (String, String)>,
+    is_stale: impl FnOnce() -> bool,
+) -> ContextCandidateSet {
     let trace_id = trace_id_for(task, scope);
-    let chain = scope_chain_for(store, scope);
-    let considered = consider_entries(store, &chain);
+    let considered = consider_entries(entries, &scope_chain);
     let supersession_map = build_supersession_map(&considered);
     let (kept, omissions) = partition(considered);
 
@@ -745,7 +805,7 @@ pub fn produce_candidate_set(
         .iter()
         .map(|candidate| candidate.provenance.memory_id.clone())
         .collect::<Vec<_>>();
-    let dimensions = store.artifact_dimensions(&candidate_ids);
+    let dimensions = dimensions_for(&candidate_ids);
     for candidate in &mut candidates {
         if let Some((artifact_family, producer)) = dimensions.get(&candidate.provenance.memory_id) {
             candidate.artifactFamily = Some(artifact_family.clone());
@@ -758,9 +818,7 @@ pub fn produce_candidate_set(
         .map(|c| c.estimatedTokens)
         .fold(0u64, |acc, t| acc.saturating_add(t));
 
-    let stale = repo_root.is_none_or(|root| {
-        !crate::freshness::evaluate_repository_freshness(store, root.to_path_buf()).stable
-    });
+    let stale = is_stale();
 
     let indexed_at = crate::time::now_iso();
     ContextCandidateSet {

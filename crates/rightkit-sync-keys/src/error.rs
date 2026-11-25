@@ -23,6 +23,10 @@ pub enum Error {
     /// The requested key id or version is not held on this device.
     #[error("sync key not held on this device")]
     UnknownKey,
+    /// A wipe on revoke could not erase one registered local copy. The wipe is still pending
+    /// (keys are kept) and `RevokeWipe::resume` retries it.
+    #[error("could not erase local copy '{copy}'; the wipe is still pending")]
+    WipeFailed { copy: String },
     /// The OS random source failed.
     #[error("random source failed")]
     Random,

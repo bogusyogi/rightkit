@@ -35,6 +35,14 @@ impl SpeechTracker {
 /// recognised as stale through those generations.
 pub(crate) struct RecordingSession {
     pub(crate) id: String,
+    /// The recording began from the wake word (set at the wake hand-off), so its words are addressed to
+    /// the agent. A recording from the dictation key never has it.
+    pub(crate) addressed: bool,
+    /// End-of-turn tracking for an addressed recording, when the host turned turn-taking on
+    /// (`host::configure_turn_taking`). It replaces the fixed post-speech silence for this recording.
+    pub(crate) turn: Option<rightkit_audio::turn::TurnTracker>,
+    /// What `turn` last decided; `None` while there is no tracker.
+    pub(crate) turn_decision: Option<rightkit_audio::turn::TurnDecision>,
     pub(crate) buffer: Vec<f32>,
     pub(crate) speech: SpeechTracker,
     pub(crate) previous_capture_block: Option<CapturePcmHistory>,
@@ -71,6 +79,9 @@ impl RecordingSession {
     pub(crate) fn new(id: String, now: worker_clock::WorkerInstant) -> Self {
         Self {
             id,
+            addressed: false,
+            turn: None,
+            turn_decision: None,
             buffer: Vec::with_capacity(SAMPLE_RATE as usize * 30),
             speech: SpeechTracker::new(now),
             previous_capture_block: None,
@@ -112,7 +123,24 @@ impl RecordingSession {
             self.buffer.len(),
             &mut self.speech.terminal_silences,
         );
+        if let Some(turn) = self.turn.as_mut() {
+            self.turn_decision = Some(turn.push(chunk, rightkit_audio::turn::is_voiced(chunk)));
+        }
         self.buffer.extend_from_slice(chunk);
         keep_warm_burst
+    }
+
+    /// Whether the post-speech stop rule says this recording is over: the turn tracker's decision when
+    /// there is one, else the fixed post-speech silence.
+    pub(crate) fn post_speech_stop(&self, now: worker_clock::WorkerInstant) -> bool {
+        match self.turn_decision {
+            Some(decision) => decision == rightkit_audio::turn::TurnDecision::Ended,
+            None => {
+                silence_decision(
+                    self.speech.heard_voice,
+                    now.duration_since(self.speech.last_voice_at),
+                ) == SilenceDecision::StopAfterPostSpeechSilence
+            }
+        }
     }
 }

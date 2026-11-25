@@ -1,8 +1,89 @@
 # Changelog
 
-## 0.6.62
+## 0.6.76
 
 - `right-release direct-release finalize` materializes the SLSA provenance and CycloneDX SBOM when an asset names none, and passes `allowLocalReleaseRoot` to the bootstrap validator.
+
+## 0.6.75
+
+- NN08: a missing path at a full commit id is recognised when git is named by its full Windows path (the pattern had lost its backslash), and the gate's synchronous read memory keeps that answer too, so `git show <sha>:package.json` is asked once.
+- NN08: the scan version probe shares the pnpm version answer behind the snapshot's direct-read wrapper (it only diverts cargo; `underlying` names the spawn it wraps), so `pnpm --version` is not started again by the probe.
+
+## 0.6.74
+
+- NN08: the scan version probe shares the Class A digest's `pnpm --version` answer where no packageManager pin or manage-package-manager-versions applies (the probe-only variables are left out of the key there); a missing path at a full commit id (status 128) is kept on the asynchronous path too.
+- Acceptance run: cases including case 2 do not start within 45 minutes of UTC midnight (the advisory rows change key at midnight).
+
+## 0.6.73
+
+- NN08: a remembered read is answered even when the caller passes a cancel signal (Class A's version probe always does), so `pnpm --version` is not asked again in the real pass; a path missing from a commit named by its full id (`git show <sha>:<path>`, status 128) is remembered; the advisory database's HEAD question names its checkout with `-C`, so it is told apart from the fixture's.
+
+## 0.6.72
+
+- NN08: the snapshot is not asked for its top level (the gate knows it is a snapshot when it passes the tracked-file list); the Class-A-only path uses the `--commit` id instead of asking HEAD; content-addressed git questions are remembered whatever folder asks; versions of actionlint, shellcheck, oxlint, cargo-deny and cargo-audit are asked once (rustup proxies and pnpm stay per folder).
+
+## 0.6.71
+
+- NN07: the snapshot sync removes the staged sidecar (app/src-tauri/binaries/) whenever the commit changes, so every run rebuilt it. The gate now keeps a copy of the receipt and staged files after each staging and, when the sidecar's sources match the last staging, puts them back before `stage-sidecar --if-stale`, as the web build's dist cache already does. When it rebuilds anyway it prints both receipt digests.
+
+## 0.6.70
+
+- NN09 (GC-A27; Adrian, 2026-11-25: "I'm not relaxing NN09"): every carried compile command is handed to the broker as soon as it is ready again. The broker holds one job of a repository at a time (`exclusive:workspace:<repo>` on every receipt), so commands of one workspace never run side by side. 0.6.66 held them back on a misreading: the "two Cargo processes" seen on 0.6.64 were one clippy job's own process tree (`cargo clippy`, `cargo-clippy`, `cargo check`).
+- The acceptance runner records the machine's CPU load for every run (Adrian, 2026-11-25).
+
+## 0.6.69
+
+- Fix: 0.6.68 (never installed or published) lost the gate's default file functions (`readFile`, `writeFile`, `mkdir`, `chmod`, `readdir`) to a comment, so `--units-file` and every file write of a command-line run failed. Restored, with a test that runs the command-line defaults.
+
+## 0.6.68
+
+Faults the acceptance cases showed on 0.6.67 (GC-A27; rightkit#1514), each with a test.
+
+- NN07: the sidecar's last staging is recognised by the files it staged (each path and sha256), not by the receipt's bytes, whose time changes on every staging.
+- NN08: the gate runs with `defaultSpawn` itself again. The 0.6.64 wrapper had switched off the pnpm answers kept across runs (`pnpm --version` and `pnpm config`, which check `spawn === defaultSpawn`). The run's read-only answers are now kept inside `defaultSpawn`, keyed by what decides each: an object named by its hash in any folder, a tool's version by the binary that runs, anything else by folder and environment.
+
+## 0.6.67
+
+Step F of the Dell sequence, settled with Gemini (status file 11.7), and faults the 0.6.66 acceptance runs showed (GC-A27), each with a test.
+
+- No waste: a compile run's class B keys read every file id from one listing of the commit, not one `git ls-tree <sha> -- <path>` per path (545 processes a fixture run; 23 s quiet, three minutes busy).
+- NN07: the sidecar key reads only the variables that change what Cargo builds; folders and wrappers a run picks are left out (they changed the key on every run). When staging runs, the gate says which part of the key changed.
+- NN08: a tool's own version, pnpm's resolved configuration, and the reads already remembered are answered once per folder and environment on both ways the gate starts programs.
+- F1: on Mac and Windows the `RUSTRIGHT_`/`RIGHTKIT_` root variables are dropped from a caller's environment; on every host `RIGHTKIT_SCRATCH_ROOT`, `RIGHTKIT_STAGE_SIDECAR_ALLOW_NESTED` and `RUSTRIGHT_OPERATION_DEADLINE_MS` are.
+- F2: `--no-broker` and `--all-units-exception` records are read from `origin/main`, never from the selected commit.
+- F3, F7: `GITHUB_ACTIONS=true` and `--receipt-in` are refused outside a genuine GitHub run (GITHUB_RUN_ID and RUNNER_OS set, no managed broker on the host).
+- F4: `check` that skipped the scans that execute repository code exits 3 (partial), never 0.
+- F5, F6: `--worktree` is refused; `--class-a`, `--all` and `--snapshot` are refused from a caller (the gate's own calls keep them; the git pre-push route is unchanged).
+
+## 0.6.66
+
+- NN09: one carried command per workspace is in flight at a time again, every workspace at once. 0.6.64 sent every command of a workspace together; the broker then ran clippy and check of one crate side by side on one output folder, and one clippy took 615 s instead of 3.
+
+## 0.6.65
+
+- NN07 (GC-A27): the sidecar's cargo build no longer goes to the broker on a commit that does not change it. The gate keys the sidecar's own sources from the commit (its crate and path dependencies, their Cargo and toolchain files, the release config, target, mode, the gate's code, the Rust variables and the installed toolchains); when the key is that of the last staging and its receipt is in the snapshot, stage-sidecar only checks the staged files (`--if-stale`). Found by acceptance case 3 on 0.6.63.
+- NN08: `git ls-tree <sha>` and `git cat-file -p <sha>` are answered from memory within a run, like the other read-only commands.
+- Step F: `RK_GATE_JOBS`, `RK_GATE_CLASS_B_JOBS` and `RK_GATE_TMPDIR` are no longer read; sidecar staging is told its build mode instead of inheriting a caller's `RIGHTKIT_BUILD_MODE`.
+
+## 0.6.64
+
+Five faults the first run of the twelve-line acceptance cases showed on 0.6.63 (GC-A27; rightkit#1514), each with a test.
+
+- NN09: on a broker host every carried compile of a workspace is handed to the broker when it is ready. With two rows of a workspace in flight, and a combined command counting as several rows, the last of 30 commands went out three minutes after the first.
+- NN09: `ci/shards.json` `solo` sizes CI jobs and no longer splits a crate out of its workspace's combined command.
+- NN08: `git show <sha>:<path>`, `git rev-parse --show-toplevel` and `pnpm --version` are asked once per folder and environment in a run, not two to four times.
+- NN06: a rule verdict that is already stored as a pass is not written back.
+- NN02: a Class A verdict file this run already wrote is not written a second time, so the file stays older than the jobs that name it.
+
+## 0.6.63
+
+- A snapshot lock left by a gate that was killed together with its job holder is now reclaimed by the next run. When the holder does not answer, the gate asks Windows about the named job directly: no such job, or a job with no process in it, proves every process of it has ended. Before, the lock stayed busy until the next reboot.
+
+## 0.6.62
+
+- The scan-result cache has one fixed place per repository, the folder `rightkit-gate-cache` in the repository's git folder. The gate no longer reads `RK_GATE_CACHE_DIR`.
+- A cache the gate cannot use (one with no history, or with a history from before compile results were recorded) is set aside under a dated name beside it and restarted empty in the same place by the gate itself, with one line saying so. It was a refusal that told the caller to choose another folder.
+- `RK_GATE_LEGACY_ROWS` and `RK_GATE_SERVE=0` are removed: compiles are always combined, and the resident gate process cannot be switched off.
 
 ## 0.6.61
 

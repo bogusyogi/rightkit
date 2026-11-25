@@ -6,6 +6,8 @@ use super::{
     worker_main::*,
 };
 
+const CONTROL_ALIGNMENT_BUDGET: Duration = Duration::from_millis(400);
+
 #[derive(Debug)]
 pub(crate) struct ProbeRequest {
     pub(crate) generation: u64,
@@ -416,11 +418,12 @@ pub(crate) enum FinalRequest {
 }
 
 /// Final transcription plus cleanup evidence for a confirmed stop/send.
-/// Unsupported runtimes return `method = "legacy_cut"` and no boundary.
+/// Unsupported runtimes only attempt explicit suffix removal.
 #[derive(Debug)]
 pub(crate) struct FinalControlResult {
     pub(crate) original_text: String,
     pub(crate) transcript: TranscriptionResult,
+    pub(crate) trigger_removed: bool,
     pub(crate) method: &'static str,
     pub(crate) boundary_sec: Option<f32>,
     pub(crate) score: Option<f32>,
@@ -1298,12 +1301,13 @@ impl AsrExecutor {
                             .map(|full| {
                                 if !control_cleanup_supported {
                                     let original_text = full.text.clone();
-                                    let stripped = rightkit_text_polish::text_pipeline::strip_fired_control_tail(
+                                    let stripped = rightkit_dictation_inference::control_cleanup::strip_explicit_control_tail(
                                         &original_text,
                                         intent,
                                     );
+                                    let trigger_removed = stripped.is_some();
                                     let mut transcript = full;
-                                    if stripped != transcript.text {
+                                    if let Some(stripped) = stripped {
                                         transcript.tokens.clear();
                                         transcript.text = stripped;
                                     }
@@ -1314,6 +1318,7 @@ impl AsrExecutor {
                                     return FinalControlResult {
                                         original_text,
                                         transcript,
+                                        trigger_removed,
                                         method: "unsupported_backend",
                                         boundary_sec: None,
                                         score: None,
@@ -1322,28 +1327,36 @@ impl AsrExecutor {
                                     };
                                 }
                                 let original_text = full.text.clone();
+                                let mut alignment_deadline = None;
                                 let cleanup = rightkit_dictation_inference::control_cleanup::cleanup_confirmed_control_with_exact_retry(
                                     full,
                                     &audio,
                                     intent,
                                     onset_sample,
                                     |conditioned, command, earliest_sec, exact_only| {
-                                        model.with_inference_lease("control_alignment", |model| {
+                                        let deadline = *alignment_deadline.get_or_insert_with(|| {
+                                            Instant::now() + CONTROL_ALIGNMENT_BUDGET
+                                        });
+                                        model.with_inference_lease_until("control_alignment", deadline, |model| {
                                             crate::asr::apply_utterance_bias(model);
                                             #[cfg(target_os = "windows")]
                                             if exact_only {
-                                                return model.align_control_suffix_exact_under_lease(
-                                                    conditioned, command, earliest_sec,
+                                                return model.align_control_suffix_exact_until_under_lease(
+                                                    conditioned, command, earliest_sec, Some(deadline),
                                                 );
                                             }
                                             let _ = exact_only;
-                                            model.align_control_suffix_under_lease(conditioned, command, earliest_sec)
+                                            model.align_control_suffix_until_under_lease(
+                                                conditioned, command, earliest_sec, Some(deadline),
+                                            )
                                         })
                                     },
                                 );
+                                let trigger_removed = cleanup.removed_words_from(&original_text);
                                 FinalControlResult {
                                     original_text,
                                     transcript: cleanup.transcript,
+                                    trigger_removed,
                                     method: cleanup.method,
                                     boundary_sec: cleanup.boundary_sec,
                                     score: cleanup.score,

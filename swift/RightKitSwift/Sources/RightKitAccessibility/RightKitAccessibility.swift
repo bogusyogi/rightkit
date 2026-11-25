@@ -67,6 +67,13 @@ public struct RightKitAXElement: @unchecked Sendable, Hashable {
     public static var systemWide: RightKitAXElement { .init(AXUIElementCreateSystemWide()) }
     public static func application(pid: pid_t) -> RightKitAXElement { .init(AXUIElementCreateApplication(pid)) }
 
+    /// Creates an application element with a per-element messaging timeout in seconds.
+    public static func application(pid: pid_t, messagingTimeout: Float) -> RightKitAXElement {
+        let element = application(pid: pid)
+        element.setMessagingTimeout(messagingTimeout)
+        return element
+    }
+
     public static func == (lhs: Self, rhs: Self) -> Bool { CFEqual(lhs.raw, rhs.raw) }
     public func hash(into hasher: inout Hasher) { hasher.combine(CFHash(raw)) }
 
@@ -101,6 +108,27 @@ public struct RightKitAXElement: @unchecked Sendable, Hashable {
     public func elements(_ attribute: String) -> [RightKitAXElement] {
         guard let v = try? value(attribute), let list = v as? [AXUIElement] else { return [] }
         return list.map(RightKitAXElement.init)
+    }
+
+    /// An absent or unsupported list is empty. An unreadable or malformed list is unknown.
+    public func elementsIfReadable(_ attribute: String) -> [RightKitAXElement]? {
+        var result: CFTypeRef?
+        switch AXUIElementCopyAttributeValue(raw, attribute as CFString, &result) {
+        case .success:
+            guard let result, CFGetTypeID(result) == CFArrayGetTypeID(),
+                  let members = result as? [AnyObject] else { return nil }
+            var elements: [RightKitAXElement] = []
+            elements.reserveCapacity(members.count)
+            for member in members {
+                guard CFGetTypeID(member) == AXUIElementGetTypeID() else { return nil }
+                elements.append(RightKitAXElement(member as! AXUIElement))
+            }
+            return elements
+        case .noValue, .attributeUnsupported:
+            return []
+        default:
+            return nil
+        }
     }
 
     /// An integer attribute (for example `AXNumberOfCharacters`). A boolean or non-numeric value is nil.

@@ -1,6 +1,6 @@
 mod sync_full;
-pub use sync_full::fetch_sync;
 pub use sync_full::FullSyncApi;
+pub use sync_full::{fetch_sync, fetch_sync_with};
 mod message_fetch;
 use message_fetch::{get_full, get_metadata};
 mod types;
@@ -335,6 +335,20 @@ pub async fn modify_labels(
         client_secret.to_string(),
         refresh_token.to_string(),
     );
+    modify_labels_with(&g, ids, add, remove).await
+}
+
+/// [`modify_labels`] through an authorised client (for example one built by `Google::with_store`), so no
+/// refresh token is passed.
+pub async fn modify_labels_with(
+    g: &Google,
+    ids: &[String],
+    add: &[&str],
+    remove: &[&str],
+) -> Result<(), String> {
+    if ids.is_empty() {
+        return Ok(());
+    }
     let body = serde_json::json!({
         "ids": ids,
         "addLabelIds": add,

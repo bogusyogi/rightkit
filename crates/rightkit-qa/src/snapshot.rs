@@ -55,8 +55,31 @@ const STATE_SNAPSHOTTING: &str = "snapshotting";
 const STATE_ARMED: &str = "armed";
 const STATE_RESTORING: &str = "restoring";
 
+mod coordinator;
 mod owner;
 pub use owner::OwnerConfig;
+
+/// Explicit credential wire protocol. Missing fields in old markers remain schema 1.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CredentialProtocol {
+    #[default]
+    #[serde(rename = "rightkit.qa.credential-owner/1")]
+    Schema1,
+    #[serde(rename = "rightkit.qa.credential-owner/2")]
+    Schema2,
+}
+
+/// Durable schema-2 custody & restore progress; never inferred from a transport failure.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct OwnerProgress {
+    snapshot_requested: bool,
+    credentials_restored: bool,
+    roots_verified: BTreeSet<usize>,
+    android_verified: bool,
+    completion_requested: bool,
+    completed: bool,
+}
 
 // ------------------------------------------------------------------------------------ records
 
@@ -115,6 +138,10 @@ struct Marker {
     /// Installed credential owner & transport, retained for crash recovery.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     credential_owner: Option<OwnerConfig>,
+    #[serde(default)]
+    credential_protocol: CredentialProtocol,
+    #[serde(default)]
+    owner_progress: OwnerProgress,
     #[serde(default)]
     process_names: Vec<String>,
     /// The Android package whose data dir the snapshot also holds (`[snapshot.android]`).
@@ -177,11 +204,15 @@ pub struct RestoreReport {
     /// The marker read `snapshotting`: nothing live had been changed, the half-built snapshot was
     /// discarded.
     pub discarded: bool,
+    /// Completion/cleanup resumed from persisted verification; no fresh restore claim.
+    pub completion_resumed: bool,
 }
 
 impl RestoreReport {
     pub fn describe(&self) -> String {
-        if self.discarded {
+        if self.completion_resumed {
+            format!("snapshot {} of {}: completed recovery cleanup using persisted restore verification", self.snapshot_id, self.app)
+        } else if self.discarded {
             format!(
                 "snapshot {} of {}: discarded an unfinished snapshot, live data was never touched",
                 self.snapshot_id, self.app
@@ -1270,6 +1301,7 @@ fn read_marker(path: &Path) -> Result<Marker> {
             m.schema
         ));
     }
+    coordinator::validate(&m)?;
     Ok(m)
 }
 
@@ -1324,6 +1356,18 @@ impl Armed {
         unregister(&self.marker_path);
         restore_marker(&self.marker_path, &mut self.marker)
     }
+
+    /// Explicit schema-2 restore. A protocol mismatch retains its marker without running restore.
+    pub fn restore_schema2(mut self) -> Result<RestoreReport> {
+        self.done = true;
+        unregister(&self.marker_path);
+        if self.marker.credential_protocol != CredentialProtocol::Schema2 {
+            return err(
+                "explicit schema-2 restore refused a different marker protocol; marker retained",
+            );
+        }
+        restore_marker(&self.marker_path, &mut self.marker)
+    }
 }
 
 fn unregister(marker_path: &Path) {
@@ -1351,6 +1395,10 @@ impl Drop for Armed {
 /// failed run reports a failed restore as well. The marker stays after a failed restore.
 pub fn finish<T>(armed: Armed, result: Result<T>) -> Result<T> {
     match (result, armed.restore()) {
+        (Ok(_), Ok(done)) if done.completion_resumed => {
+            eprintln!("[qa] {}", done.describe());
+            err("snapshot recovery completed from persisted verification; this run has no fresh restore proof")
+        }
         (Ok(v), Ok(done)) => {
             eprintln!("[qa] {}", done.describe());
             Ok(v)
@@ -1382,7 +1430,44 @@ pub fn arm_with_owner(
     managed_root: &Path,
     credential_owner: Option<OwnerConfig>,
 ) -> Result<Armed> {
+    arm_with_protocol(
+        app,
+        cfg,
+        managed_root,
+        credential_owner,
+        CredentialProtocol::Schema1,
+    )
+}
+
+/// Explicit schema-2 owner path. Refusal never downgrades to schema 1 or direct-store access.
+pub fn arm_with_owner_schema2(
+    app: &str,
+    cfg: &SnapshotConfig,
+    managed_root: &Path,
+    credential_owner: OwnerConfig,
+) -> Result<Armed> {
+    arm_with_protocol(
+        app,
+        cfg,
+        managed_root,
+        Some(credential_owner),
+        CredentialProtocol::Schema2,
+    )
+}
+
+fn arm_with_protocol(
+    app: &str,
+    cfg: &SnapshotConfig,
+    managed_root: &Path,
+    credential_owner: Option<OwnerConfig>,
+    credential_protocol: CredentialProtocol,
+) -> Result<Armed> {
     cfg.validate()?;
+    if cfg.credential_owner_required
+        && (credential_protocol != CredentialProtocol::Schema2 || credential_owner.is_none())
+    {
+        return err("this snapshot requires an installed schema-2 credential owner");
+    }
     if credential_owner.is_some() && cfg.credentials.is_empty() {
         return err("a credential owner requires snapshot credential sets");
     }
@@ -1450,12 +1535,14 @@ pub fn arm_with_owner(
         manifest_sha256: None,
         credentials_sha256: None,
         credential_owner,
+        credential_protocol,
+        owner_progress: OwnerProgress::default(),
         process_names: cfg.process_names.clone(),
         android: cfg.android.as_ref().map(AndroidRecord::from_config),
     };
     // The marker comes first: nothing is copied or read from the OS store before it exists.
     claim_marker(&marker_path, &marker)?;
-    match build_snapshot(&snap_dir, &mut marker) {
+    match build_snapshot(&marker_path, &snap_dir, &mut marker) {
         Ok((manifest_sha, cred_sha)) => {
             ensure_stopped(&marker)?;
             marker.manifest_sha256 = Some(manifest_sha);
@@ -1484,7 +1571,11 @@ pub fn arm_with_owner(
     }
 }
 
-fn build_snapshot(snap_dir: &Path, marker: &mut Marker) -> Result<(String, Option<String>)> {
+fn build_snapshot(
+    marker_path: &Path,
+    snap_dir: &Path,
+    marker: &mut Marker,
+) -> Result<(String, Option<String>)> {
     fs_ctx(
         rightkit_fs::private::ensure_private_dir(snap_dir),
         "cannot create",
@@ -1555,7 +1646,19 @@ fn build_snapshot(snap_dir: &Path, marker: &mut Marker) -> Result<(String, Optio
             listing_sha256: rec.listing_sha256.clone().unwrap_or_default(),
         });
     }
-    let cred_sha = if marker.credentials.is_empty() {
+    let bytes = serde_json::to_vec_pretty(&manifest)?;
+    let path = snap_dir.join(MANIFEST_FILE);
+    fs_ctx(
+        rightkit_fs::private::write_private_file(&path, &bytes),
+        "cannot write",
+        &path,
+    )?;
+    let manifest_sha = sha256_hex(&bytes);
+    marker.manifest_sha256 = Some(manifest_sha.clone());
+    write_marker(marker_path, marker)?;
+    let cred_sha = if marker.credential_protocol == CredentialProtocol::Schema2 {
+        Some(coordinator::snapshot(marker_path, marker)?)
+    } else if marker.credentials.is_empty() {
         None
     } else if marker.credential_owner.is_some() {
         let metadata = owner::operate(marker, "snapshot")?;
@@ -1576,14 +1679,7 @@ fn build_snapshot(snap_dir: &Path, marker: &mut Marker) -> Result<(String, Optio
         )?;
         Some(sha256_hex(&bytes))
     };
-    let bytes = serde_json::to_vec_pretty(&manifest)?;
-    let path = snap_dir.join(MANIFEST_FILE);
-    fs_ctx(
-        rightkit_fs::private::write_private_file(&path, &bytes),
-        "cannot write",
-        &path,
-    )?;
-    Ok((sha256_hex(&bytes), cred_sha))
+    Ok((manifest_sha, cred_sha))
 }
 
 // ------------------------------------------------------------------------------------ restore / recover
@@ -1593,7 +1689,9 @@ fn restore_marker(marker_path: &Path, marker: &mut Marker) -> Result<RestoreRepo
     let snap_dir = PathBuf::from(&marker.snapshot_dir);
     if let Some(owner) = &marker.credential_owner {
         owner.verify()?;
-        owner::verify_location(marker)?;
+        if !marker.owner_progress.completed {
+            owner::verify_location(marker)?;
+        }
         if snap_dir
             != managed
                 .join(SNAPSHOTS_DIR)
@@ -1604,17 +1702,36 @@ fn restore_marker(marker_path: &Path, marker: &mut Marker) -> Result<RestoreRepo
             return err("credential owner snapshot directory differs from this restore marker");
         }
     }
+    coordinator::validate(marker)?;
     ensure_stopped_before_restore(marker)?;
     let mut report = RestoreReport {
         app: marker.app.clone(),
         snapshot_id: marker.snapshot_id.clone(),
         ..RestoreReport::default()
     };
+    if marker.credential_protocol == CredentialProtocol::Schema2 && marker.owner_progress.completed
+    {
+        report.completion_resumed = true;
+        return coordinator::cleanup_completed(marker_path, marker, report);
+    }
     if marker.state == STATE_SNAPSHOTTING {
-        // The journey never started; live data was only read.
-        discard(marker_path, &snap_dir);
-        report.discarded = true;
-        return Ok(report);
+        if marker.credential_protocol == CredentialProtocol::Schema2
+            && marker.owner_progress.snapshot_requested
+        {
+            // A lost owner response never proves no custody exists. Do not repeat snapshot.
+            if marker.credentials_sha256.is_none() {
+                return err(
+                    "schema-2 snapshot custody is ambiguous; marker retained for reconciliation",
+                );
+            }
+            marker.state = STATE_RESTORING.into();
+            write_marker(marker_path, marker)?;
+        } else {
+            // No schema-2 custody was requested; live data was only read.
+            discard(marker_path, &snap_dir);
+            report.discarded = true;
+            return Ok(report);
+        }
     }
     report.manifest_sha256 = marker.manifest_sha256.clone().unwrap_or_default();
     report.credentials_sha256 = marker.credentials_sha256.clone();
@@ -1657,7 +1774,15 @@ fn restore_marker(marker_path: &Path, marker: &mut Marker) -> Result<RestoreRepo
             }
         }
     }
-    let cred_file = if marker.credentials.is_empty() {
+    if marker.credential_protocol == CredentialProtocol::Schema2 {
+        let want = marker.credentials_sha256.as_deref().ok_or_else(|| {
+            Error("schema-2 credential manifest lacks recorded digest; marker retained".into())
+        })?;
+        owner::schema2::load_manifest(marker, want)?;
+    }
+    let cred_file = if marker.credentials.is_empty()
+        || marker.credential_protocol == CredentialProtocol::Schema2
+    {
         None
     } else {
         let want = marker.credentials_sha256.as_deref().ok_or_else(|| {
@@ -1693,6 +1818,9 @@ fn restore_marker(marker_path: &Path, marker: &mut Marker) -> Result<RestoreRepo
             return err("the Android snapshot in the manifest does not match the restore marker; live data was NOT touched");
         }
         crate::snapshot_android::verify_copy(rec, &snap_dir)?;
+    }
+    if marker.credential_protocol == CredentialProtocol::Schema2 {
+        return coordinator::restore(marker_path, marker, &manifest, report);
     }
     ensure_stopped_before_restore(marker)?;
     marker.state = STATE_RESTORING.into();

@@ -4159,7 +4159,11 @@ pub fn render_emerging_picture(
         (picture.height as f32, picture.width as f32)
     };
     let place = contents_place(tail.edge, start, pose, origin_along, pose.across, own);
-    composite_clipped(&mut canvas, picture, place, shown);
+    canvas.composite_clipped(
+        picture,
+        (place.0.round() as i32, place.1.round() as i32),
+        shown,
+    );
     canvas
 }
 
@@ -4183,38 +4187,6 @@ pub fn picture_origin(
     };
     let place = contents_place(tail.edge, start, pose, origin_along, pose.across, own);
     (place.0.round() as i32, place.1.round() as i32)
-}
-
-/// `ink` (premultiplied, with its own alpha) laid over `canvas` at `origin`, clipped to what
-/// `canvas` already covers, at opacity `shown`.
-fn composite_clipped(canvas: &mut Canvas, ink: &Canvas, origin: (f32, f32), shown: f32) {
-    let (ox, oy) = (origin.0.round() as i32, origin.1.round() as i32);
-    for y in 0..ink.height {
-        let ty = y as i32 + oy;
-        if ty < 0 || ty as usize >= canvas.height {
-            continue;
-        }
-        for x in 0..ink.width {
-            let tx = x as i32 + ox;
-            if tx < 0 || tx as usize >= canvas.width {
-                continue;
-            }
-            let over = ink.pixels[y * ink.width + x];
-            let under = &mut canvas.pixels[ty as usize * canvas.width + tx as usize];
-            let keep = shown * (*under >> 24) as f32 / 255.0;
-            let a = (over >> 24) as f32 / 255.0 * keep;
-            if a <= 0.0 {
-                continue;
-            }
-            let below = *under;
-            let mix = |shift: u32| {
-                let top = ((over >> shift) & 0xFF) as f32 * keep;
-                let rest = ((below >> shift) & 0xFF) as f32 * (1.0 - a);
-                ((top + rest).round().clamp(0.0, 255.0) as u32) << shift
-            };
-            *under = mix(24) | mix(16) | mix(8) | mix(0);
-        }
-    }
 }
 
 /// The body's low side across, in the window: the notch's face sits 2pt in from the window's
@@ -4329,20 +4301,7 @@ fn lay_contents(
         pen.flow(content, &laid, live, origin);
     }
     // Premultiplied, over the body and clipped to it.
-    for (under, over) in canvas.pixels.iter_mut().zip(&ink.pixels) {
-        let keep = shown * (*under >> 24) as f32 / 255.0;
-        let a = (*over >> 24) as f32 / 255.0 * keep;
-        if a <= 0.0 {
-            continue;
-        }
-        let below = *under;
-        let mix = |shift: u32| {
-            let top = ((*over >> shift) & 0xFF) as f32 * keep;
-            let rest = ((below >> shift) & 0xFF) as f32 * (1.0 - a);
-            ((top + rest).round().clamp(0.0, 255.0) as u32) << shift
-        };
-        *under = mix(24) | mix(16) | mix(8) | mix(0);
-    }
+    canvas.composite_clipped(&ink, (0, 0), shown);
 }
 
 /// A card's body as a gliding card has it (the Mac's `NoticePose`), in screen device pixels:

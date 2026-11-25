@@ -42,6 +42,8 @@ import { HostConfigError, hostConfigFile, readSnapshotRootConfig } from "./snaps
 import { discoveryGit, discoveryRun, sealedRepoInfo, sealedRun, withSealedGit } from "./snapshot-git.mjs";
 import { SOURCE_IDENTITY_FILE, sourceIdentityBytes } from "./snapshot-identity.mjs";
 import { parseIdentity, processIdentity } from "./gate-seam.mjs";
+import { serveRequest } from "./gate-serve.mjs";
+import { treeStandsAfterChanges } from "./snapshot-changes.mjs";
 // The error class and the managed-root guard live in managed-root-guard.mjs (decision D4 rule 1).
 import { SnapshotError, requireManagedRoot } from "./managed-root-guard.mjs";
 
@@ -238,9 +240,46 @@ export function resolveCommit(checkout, rev = "HEAD") {
  * checkout's `.git`, always removed.
  */
 /** How often this process hashed a snapshot's tree, walked it to verify it, and took the resident gate's proof instead (NN11): one line per run. */
-export const SNAPSHOT_PROOF_COUNTS = { treeHashes: 0, verifyWalks: 0, residentProofs: 0 };
+export const SNAPSHOT_PROOF_COUNTS = { treeHashes: 0, verifyWalks: 0, residentProofs: 0, changedFileProofs: 0, changeSource: null };
+/** NN28: remembers how the open gate process said it learns of changes (`source` of its answers), for the run's `snapshot proof:` line. */
+export function noteChangeSource(reply) { if (typeof reply?.source === "string" && reply.source) SNAPSHOT_PROOF_COUNTS.changeSource = reply.source; return reply; }
 /** The `snapshot proof:` line the contract test reads (NN11, NN28). `changeSource`: how the resident gate learns of changes. */
-export const snapshotProofLine = (changeSource) => `snapshot proof: tree-hashes=${SNAPSHOT_PROOF_COUNTS.treeHashes} verify-walks=${SNAPSHOT_PROOF_COUNTS.verifyWalks} resident-proofs=${SNAPSHOT_PROOF_COUNTS.residentProofs} change-source=${changeSource}`;
+export const snapshotProofLine = (changeSource) => `snapshot proof: tree-hashes=${SNAPSHOT_PROOF_COUNTS.treeHashes} verify-walks=${SNAPSHOT_PROOF_COUNTS.verifyWalks} resident-proofs=${SNAPSHOT_PROOF_COUNTS.residentProofs} changed-file-proofs=${SNAPSHOT_PROOF_COUNTS.changedFileProofs} change-source=${changeSource}`;
+
+/**
+ * NN11: whether the tree the open gate process last saw proven in `dir` still stands, judged from its record of what changed since
+ * (`reply`: its answer to "check"; snapshot-changes.mjs). True only after the caller's own walk of the snapshot has passed: then the tree id
+ * depends on the commit's files alone, and each one the changes could have touched is compared with the commit's blob here. False on any
+ * doubt, and the caller hashes the tree.
+ */
+export function treeProvenByChanges({ reply, dir, tree, entries, objectFormat }) {
+  const base = reply?.base;
+  if (!base || base.tree !== tree) return false;
+  if (!treeStandsAfterChanges({ dir, entries, changes: { changed: base.changed, renamed: base.renamed }, objectFormat }).ok) return false;
+  SNAPSHOT_PROOF_COUNTS.changedFileProofs += 1;
+  return true;
+}
+/**
+ * The open gate process's change generation for `dir`, taken before a proof begins (gate-serve.mjs "begin"), or null. When the process was
+ * not running it is started (for the host's own snapshot root only) and asked again for a short while: a proof recorded now saves every later
+ * hash of this run.
+ */
+export function beginResidentProof(dir, { env = process.env, ask = serveRequest, waitMs = 8000 } = {}) {
+  const root = path.dirname(path.resolve(dir));
+  // Only the first question may start the process (each start is a launcher of its own on Windows); the ones after it only ask.
+  let r = noteChangeSource(ask({ op: "begin", dir }, { env, root }));
+  if (Number.isInteger(r?.generation)) return r.generation;
+  if (residentWaitFailed) return null; // it did not come up within the wait once already in this process: not waited for again
+  const until = Date.now() + waitMs;
+  while (Date.now() < until) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+    r = noteChangeSource(ask({ op: "begin", dir }, { env }));
+    if (Number.isInteger(r?.generation)) return r.generation;
+  }
+  residentWaitFailed = true;
+  return null;
+}
+let residentWaitFailed = false;
 
 export function snapshotTree({ checkout, dir, baseTree, repo = repositoryOf(checkout), indexStore = treeIndexStoreOf(dir) }) {
   SNAPSHOT_PROOF_COUNTS.treeHashes += 1;
@@ -768,6 +807,12 @@ export const windowsSelfCheckScript = (name) => [
   "$in = $false; if (-not [RkJob]::IsProcessInJob([RkJob]::GetCurrentProcess(), $j, [ref]$in)) { 'ERR:' + [Runtime.InteropServices.Marshal]::GetLastWin32Error(); exit 0 }",
   "if ($in) { 'IN' } else { 'OUT' }",
 ].join("\n");
+/** Asks Windows itself about a named job, with no holder: `GONE:<error>` when no such job exists any more, else `ACTIVE:<count>`. */
+export const windowsJobProbeScript = (name) => [
+  "$ErrorActionPreference = 'Stop'", JOB_TYPE,
+  `$j = [RkJob]::OpenJobObjectW(0x0004, $false, ${psString(name)}); if ($j -eq [IntPtr]::Zero) { 'GONE:' + [Runtime.InteropServices.Marshal]::GetLastWin32Error(); exit 0 }`,
+  "'ACTIVE:' + [RkJob]::Active($j)",
+].join("\n");
 const readJson = (file) => { try { return JSON.parse(fs.readFileSync(file, "utf8").replace(/^﻿/, "")); } catch { return null; } };
 const sleepMs = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 /** The real Windows operations; tests pass their own. */
@@ -780,6 +825,18 @@ export const windowsJobOps = {
     const out = String(r.stdout ?? "").trim();
     if (r.error || r.status !== 0 || !/^(IN|OUT)$/m.test(out)) throw new Error(`the containment self-check gave no answer (${r.error?.message ?? out.slice(0, 120)})`);
     return /^IN$/m.test(out) ? "IN" : "OUT";
+  },
+  /**
+   * The named job as Windows shows it, asked without its holder: `{ exists: false }` when Windows has no job of that name (a job with no open handle
+   * and no process in it is deleted by Windows, so every process of it has ended), else `{ exists: true, active }`. Throws when Windows gave no answer.
+   */
+  jobActive(name) {
+    const r = spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(windowsJobProbeScript(name), "utf16le").toString("base64")], { encoding: "utf8", timeout: 60_000, windowsHide: true });
+    const out = String(r.stdout ?? "").trim(); const gone = /^GONE:(\d+)$/m.exec(out); const active = /^ACTIVE:(\d+)$/m.exec(out);
+    if (r.error || r.status !== 0 || (!gone && !active)) throw new Error(`Windows gave no answer about the job (${r.error?.message ?? out.slice(0, 120)})`);
+    // 2 is ERROR_FILE_NOT_FOUND: no object of that name. Any other failure to open it (access denied, ...) proves nothing.
+    if (gone) { if (Number(gone[1]) !== 2) throw new Error(`the job could not be opened (Windows error ${gone[1]})`); return { exists: false }; }
+    return { exists: true, active: Number(active[1]) };
   },
   sleep: sleepMs,
   /** The host's last boot as Unix ms (the deleted build-ownership.mjs read it the same way: [DateTimeOffset] of LastBootUpTime, never local-time arithmetic). */
@@ -849,7 +906,7 @@ export function queryJobHolder(file, { job, timeoutMs = 5000, sleep = sleepMs } 
  * A record that is not contained proves nothing, at the holder's own release or after it died: live (acquisition refuses a self-check OUT, so only a damaged record says so).
  * A dead holder's job made before the host's last boot is gone (the reboot ended it); a holder killed without a reboot leaves the lock busy (fail closed).
  */
-export function windowsJobLive(lockFile, { self = 0, query = queryJobHolder, bootTime = () => windowsJobOps.bootTime() } = {}) {
+export function windowsJobLive(lockFile, { self = 0, query = queryJobHolder, bootTime = () => windowsJobOps.bootTime(), probe = (name) => windowsJobOps.jobActive(name) } = {}) {
   let record = null;
   try { record = JSON.parse(fs.readFileSync(jobRecordOf(lockFile), "utf8")); } catch (e) { if (e?.code === "ENOENT") return []; return [`job record unreadable (${e?.code ?? e?.message})`]; }
   if (record?.schema !== WINDOWS_JOB_SCHEMA || typeof record.job !== "string" || typeof record.holder !== "string" || !HOLDER_NAME.test(record.holder)) return ["job record malformed"];
@@ -864,7 +921,16 @@ export function windowsJobLive(lockFile, { self = 0, query = queryJobHolder, boo
   const state = readJson(file);
   if (state?.schema === WINDOWS_JOB_SCHEMA && state.job === record.job && state.state === "drained") return [];
   try { const { active } = query(file, { job: record.job }); return active - self > 0 ? [`job ${record.job} (${active - self} process(es))`] : []; }
-  catch (e) { return [`job ${record.job} unknown (${e.message})`]; }
+  catch (e) {
+    // The holder did not answer. For a dead lock holder that is what a holder killed with its gate looks like (GC-A27 NN12: the next ordinary run must start
+    // by itself), so Windows is asked directly: no job of that name left, or a job with no process in it, proves every process of it has ended. Anything
+    // Windows cannot say stays unknown, which counts as live. A holder asking about its own job (self > 0) never takes this path.
+    if (self === 0) {
+      try { const seen = probe(record.job); if (!seen.exists || seen.active === 0) return []; return [`job ${record.job} (${seen.active} process(es); its holder is gone)`]; }
+      catch (p) { return [`job ${record.job} unknown (${e.message}; ${p.message})`]; }
+    }
+    return [`job ${record.job} unknown (${e.message})`];
+  }
 }
 
 /** The recorded process groups of `lockFile` that still answer (kill(-group, 0) is not ESRCH); a group that cannot be judged counts as alive.
@@ -1103,7 +1169,7 @@ export const lockView = (release) => ({ token: release.token, lockFile: release.
 // `lock`: the snapshot lock of this sync (reset plan section 3). `held` is a lock the caller already took with `takeSnapshotLock` for this same snapshot: the sync
 // uses it, re-checks it before every write and never releases it (the caller holds it through the batch). Without `held` the sync takes the lock itself, for the sync
 // alone: `body` is the seam's lock body the broker reads (gate-seam.mjs snapshotLockBody) and `judge` decides a dead holder's reclaim on the broker's proof.
-export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), managedRoot = hostManagedRootFor(root), device, now = () => Date.now(), lock = {} } = {}) {
+export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), managedRoot = hostManagedRootFor(root), device, now = () => Date.now(), lock = {}, resident = managedRoot ? serveRequest : null } = {}) {
   const started = now();
   const repo = repositoryOf(checkout);
   const { commit, tree } = resolveCommit(repo.checkout, rev);
@@ -1292,10 +1358,15 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), ma
     }
 
     assertLockHeld();
+    // NN11: this walk and hash are a proof like any other, and the first of the run. The open gate process is told (its change generation is
+    // taken before the walk, so a change during the proof refuses the record), and every later proof of this run starts from it instead of
+    // hashing the tree again. On a host's managed root only: a test's temporary root has no such process (`resident` is the transport, for tests).
+    const residentGeneration = resident ? beginResidentProof(dir, { ask: resident }) : null;
     const extra = snapshotProblem({ dir, entries, checkout: repo.checkout, commit });
     if (extra) throw new SnapshotError("mismatch", `snapshot ${dir} is not exactly commit ${commit} after sync: ${extra}`);
     const actual = snapshotTree({ checkout: repo.checkout, dir, baseTree: tree, repo });
     if (actual !== tree) throw new SnapshotError("mismatch", `snapshot ${dir} is tree ${actual} after sync, not tree ${tree} of commit ${commit}`);
+    if (residentGeneration !== null) resident({ op: "record", dir, tree, generation: residentGeneration });
     writeState(stateFile, { schema: STATE_SCHEMA, repo: repo.checkout, repoKey: repo.key, commit, tree, paths: [...wanted.keys()], stat: nextStat, syncedAt: new Date(now()).toISOString() });
     return { schema: SNAPSHOT_SCHEMA, path: dir, repoKey: repo.key, commit, tree, written, removed, removedPaths: removedPaths.slice(0, 8), modesFixed, unchanged, linksRemoved, hardLinksReplaced, casesFixed, identity, ms: now() - started };
   } finally {
@@ -1320,7 +1391,7 @@ export function syncSnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), ma
  * result carry `ledger: [{ path, type, size, sha256, execBit }]`, every admitted entry. The tree id is still the commit's tree:
  * an ignored output does not change it. With neither option nothing beyond the commit (and 5.09's allowances) is accepted.
  */
-export function verifySnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), dir, managedRoot = hostManagedRootFor(root), device, environment, ledger, admitNew } = {}) {
+export function verifySnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), dir, managedRoot = hostManagedRootFor(root), device, environment, ledger, admitNew, resident = serveRequest } = {}) {
   const repo = repositoryOf(checkout);
   const { commit, tree } = resolveCommit(repo.checkout, rev);
   if (managedRoot) requireManagedRoot(managedRoot, { device });
@@ -1328,12 +1399,30 @@ export function verifySnapshot({ checkout, rev = "HEAD", root = snapshotRoot(), 
   // The root the snapshot sits directly in is private to this user, as at sync (a root another principal can use proves nothing).
   if (path.resolve(path.dirname(at)) === path.resolve(root)) requirePrivateRoot(root, lstat(root));
   if (!lstat(at)?.isDirectory()) throw new SnapshotError("mismatch", `no snapshot directory at ${at}`);
+  // NN11 (Dell 2026-11-19, every warm run of the witness fixture: tree-hashes=3): the door verifies at each stage's start and end, and each
+  // verify walked and hashed the snapshot again although the check's own verify of the same directory took the resident gate's proof. When
+  // nothing beyond the commit is admitted (no ledger entry to match) and no environment is asked for, the resident gate's answer is the same
+  // proof as in snapshot-check.mjs verifySnapshotDir: this directory was proven to be exactly this tree and nothing under it changed since.
+  // Clean means no stage output exists, so the admitted ledger is empty. Any doubt (no resident gate, another tree, a change) is the full verify.
+  const nothingAdmitted = (ledger === undefined || (Array.isArray(ledger) && ledger.length === 0)) && environment === undefined;
+  let residentGeneration = null;
+  // Asked in every case: with outputs admitted the answer is never "nothing changed", but it still says what changed since the tree was proven.
+  const c = noteChangeSource(resident({ op: "check", dir: at, tree }, { root: path.dirname(path.resolve(at)) }));
+  if (nothingAdmitted && c?.clean === true) { SNAPSHOT_PROOF_COUNTS.residentProofs += 1; return { schema: SNAPSHOT_SCHEMA, path: at, repoKey: repo.key, commit, tree, ...(ledger !== undefined || admitNew ? { ledger: [] } : {}) }; }
+  if (Number.isInteger(c?.generation)) residentGeneration = c.generation;
   // The seeded tree id cannot see an ignored file or follow a link, so the directory itself is walked first (E6, §1 exact snapshot).
-  const inspected = snapshotProblem({ dir: at, entries: treeEntries(repo.checkout, commit), checkout: repo.checkout, commit, ledger, admitNew });
+  const entries = treeEntries(repo.checkout, commit);
+  const inspected = snapshotProblem({ dir: at, entries, checkout: repo.checkout, commit, ledger, admitNew });
   const extra = ledger !== undefined || admitNew ? inspected.problem : inspected;
   if (extra) throw new SnapshotError("mismatch", `the snapshot at ${at} is not exactly commit ${commit}${ledger !== undefined || admitNew ? " plus its stage-output ledger" : ""}: ${extra}`);
-  const actual = snapshotTree({ checkout: repo.checkout, dir: at, baseTree: tree, repo });
+  // NN11: the walk passed. When the open gate process knows what changed since this tree was proven, only the commit's files those changes
+  // could have touched are compared (treeProvenByChanges); otherwise the tree is hashed.
+  const actual = treeProvenByChanges({ reply: c, dir: at, tree, entries }) ? tree : snapshotTree({ checkout: repo.checkout, dir: at, baseTree: tree, repo });
   if (actual !== tree) throw new SnapshotError("mismatch", `the snapshot at ${at} is tree ${actual}, not tree ${tree} of commit ${commit}`);
+  // "record" (exactly this tree, nothing else) only after a verify that could admit nothing: no ledger, no admitNew, no environment. A walk
+  // with a ledger, even an empty one, passes over an ignored empty directory without listing it (inspectSnapshot), which a plain walk
+  // refuses; so its proof is "tree-record": the commit's files are this tree, which is what a later proof starts from (review 2026-11-19).
+  if (residentGeneration !== null) resident({ op: ledger === undefined && admitNew !== true && environment === undefined ? "record" : "tree-record", dir: at, tree, generation: residentGeneration });
   if (environment !== undefined) {
     if (!environment || !/^[0-9a-f]{64}$/.test(String(environment.expected ?? "")) || typeof environment.compute !== "function") throw new SnapshotError("error", "verify with an environment needs { expected: <64 hex env digest>, compute: <function> }");
     let now;

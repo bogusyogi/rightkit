@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.1
+
+- Added `server::ServerStoreAdapter<S: server::TokenStore>` (feature `server`): presents a server-mode store (`SealedFileTokenStore`, `KeychainTokenStore` or any other `server::TokenStore`) as the crate-root `TokenStore`, for one fixed provider name, so a `credentials::Resolver` or `rightkit-google-apis`'s `Google::with_store` can run over the sealed file store. Failures map to `OAuthError::Storage("token store unavailable")` (or `NeedsReauth` when the store asks for reauthorization); `Debug` prints `ServerStoreAdapter { [redacted] }`. No token, key or path reaches an error, a log or `Debug`. No existing item changed.
+
 ## 0.11.0
 
 - Requires `rightkit-http` 0.4.0 (a breaking release), so this release is breaking too.

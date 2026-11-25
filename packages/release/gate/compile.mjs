@@ -10,6 +10,7 @@ import { DOC_DENY, osOfTriple, planCalls, planNotes } from "./calls.mjs";
 import { fileStore, resultsByCrate, runCalls } from "./run-calls.mjs";
 import { runTests } from "./tests.mjs";
 import { CROSS_TARGETS, hostTarget } from "../cross-targets.mjs";
+import { resolveBrokerClient } from "../broker-client.mjs";
 import { runSeamCargoCall } from "../seam-broker.mjs";
 import { codeClosure } from "../code-closure.mjs";
 
@@ -90,6 +91,9 @@ const STAGES = ["lint", "test-build", "docs"];
  * Returns { code, byCrate: { name: { result, stages: { lint, "test-build", docs, tests } } }, counts, notes, calls }.
  */
 export async function compileTogether({ snapshot, commit, crates, rustConfig = {}, platform = process.platform, arch = process.arch, client = "rustright", env = process.env, verdictFile, storeDir, out = () => {}, onUnsettled = () => {}, send = null, runTestsWith = runTests, identityOf = gateIdentity, askBroker = runningBrokerDigest }) {
+  // The client as it is spawned (broker-client.mjs): a win32 `.cmd` shim resolves to its target `.exe` here, once, so the identity's manifest,
+  // the running-broker probe and every seam call name the `.exe`; an unresolvable shim refuses before anything is looked up or sent.
+  if (client) client = resolveBrokerClient(client, { platform }).file;
   // ci/asset-gated.json of the commit: a listed crate runs its tests with RIGHTKIT_REQUIRE_ASSETS=0, every other with 1, as on the per-crate rows.
   let gated = {};
   try { gated = JSON.parse(fs.readFileSync(path.join(snapshot, "ci", "asset-gated.json"), "utf8")).crates ?? {}; } catch { gated = {}; }

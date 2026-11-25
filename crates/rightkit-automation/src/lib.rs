@@ -47,6 +47,7 @@ pub mod events;
 pub mod focus;
 pub mod foreign;
 pub mod in_app;
+pub mod input_watch;
 pub mod json;
 pub mod keys;
 pub mod lease;
@@ -66,6 +67,7 @@ pub mod secret;
 pub mod sensitive;
 pub mod text_select;
 pub mod uia_text;
+pub mod verify;
 
 #[cfg(target_os = "macos")]
 pub mod macos;
@@ -78,6 +80,7 @@ pub use delivery::{DeliveryOptions, DeliveryOutcome, DeliveryRecord, FocusPin, W
 pub use engine::{ActOptions, ActOutcome, Automation, Guard};
 pub use events::{DeniedBy, Journal, LifecycleEvent, MemoryJournal, Metrics};
 pub use focus::{FocusReport, FocusWatch};
+pub use input_watch::{InputWatch, OwnerInput, SystemInputWatch};
 pub use lease::{Fence, Lease, LeaseRequest, LeaseStatus};
 pub use media_keys::{send_media_key, MediaKey};
 pub use model::*;
@@ -92,6 +95,9 @@ pub use secret::{origin_of_url, FieldOrigin, Secret};
 pub use text_select::{
     ControlIdentity, DocumentSnapshot, ObservedSelection, SelectionProof, TextSelectError,
     TextSelectResult,
+};
+pub use verify::{
+    compare, observe_compare, Delta, Observed, Verdict, VerifiedOutcome, WindowState,
 };
 
 #[cfg(target_os = "macos")]

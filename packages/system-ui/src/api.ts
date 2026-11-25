@@ -440,7 +440,36 @@ export interface ActivityRow {
   open: "cleanup" | "apps" | "storage" | "chat" | null;
 }
 
+/** Totals for one UTC period, as the engine reads them over the merged records. */
+export interface ActivityTotal {
+  period: "week" | "month";
+  /** Unix seconds, UTC: the start of the period (inclusive). */
+  from: number;
+  /** Unix seconds, UTC: when the timeline was read. */
+  to: number;
+  events: number;
+  transfers: number;
+  moved_bytes: number;
+}
+
+export interface ActivityPageEntry {
+  cursor: string;
+  position: string;
+  row: ActivityRow & { id: string };
+}
+
+export type ActivityPageReply = ActivityPage | { expired: true };
+
+export interface ActivityPage {
+  entries: ActivityPageEntry[];
+  next_cursor: string | null;
+  totals: ActivityTotal[];
+  unreadable: string[];
+}
+
 export interface ActivityTimeline {
+  /** Omitted by hosts without aggregate activity counts. */
+  totals?: ActivityTotal[];
   rows: ActivityRow[];
   /** Sources that exist but could not be read. */
   unreadable: string[];
@@ -529,6 +558,7 @@ export interface SystemClient {
   /** Drive health for these mounts; samples smartctl only when ten minutes have passed. */
   driveHealth: (mounts: string[]) => Promise<HealthReport>;
   /** Read-only merge of the records each feature keeps; newest first, at most `limit` rows older than `before`. */
+  activityPage?: (limit: number, cursor: string | null) => Promise<ActivityPageReply>;
   activityTimeline: (limit: number, before: number | null) => Promise<ActivityTimeline>;
   homePath: () => Promise<string>;
   duplicatesScan: (path: string) => Promise<DuplicateReport>;

@@ -164,6 +164,36 @@ pub fn now_secs(raw: Option<&str>) -> Result<i64, ZoneError> {
     }
 }
 
+/// The UTC offset in seconds (east positive) that `zone_name` observes at the UTC instant `unix`.
+///
+/// Reads the same offset tables as [`to_utc`], so it covers the same zones: `UTC`,
+/// `Asia/Kolkata`, `Europe/London` and `America/New_York`. An instant at a transition takes the
+/// new offset. Any other zone is `timezone_unsupported`; an instant outside 2026 and 2027 (UTC
+/// year) in a DST zone is `time_out_of_table`, because the table cannot say which side of a
+/// transition it falls on.
+pub fn offset_at(zone_name: &str, unix: i64) -> Result<i32, ZoneError> {
+    let z = zone(zone_name)?;
+    if let Some((first, last)) = z.years {
+        let (year, _, _) = civil_from_days(unix.div_euclid(DAY));
+        if year < first || year > last {
+            return Err((
+                "time_out_of_table",
+                format!(
+                    "{} has offset rules only for {first} and {last}; instant {unix} is outside them",
+                    z.name
+                ),
+            ));
+        }
+    }
+    let mut offset = z.initial;
+    for &(at, next) in &z.transitions {
+        if unix >= at {
+            offset = next;
+        }
+    }
+    Ok(offset as i32)
+}
+
 /// The UTC instant of a local wall time in a zone.
 ///
 /// The wall time is matched against each offset period: a candidate instant `u` is valid when

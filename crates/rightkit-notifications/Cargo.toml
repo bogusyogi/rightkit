@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-notifications"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -11,8 +11,16 @@ keywords = ["notifications", "toast", "badge", "desktop"]
 categories = ["os", "gui"]
 include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
+[features]
+# `push::HttpPushTransport`: the APNs transport over rightkit-http's async client. It needs HTTP/2, which
+# rightkit-http does not enable yet (an open owner decision: it adds the `h2` crate there). Off by default.
+apns-http = ["dep:rightkit-http", "dep:tokio"]
+
 [dependencies]
 thiserror = "2"
+rightkit-crypto = { version = "0.1.4", path = "../rightkit-crypto" }
+rightkit-http = { version = "0.4.0", path = "../rightkit-http", default-features = false, features = ["async"], optional = true }
+tokio = { version = "1", default-features = false, features = ["rt", "time", "net"], optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

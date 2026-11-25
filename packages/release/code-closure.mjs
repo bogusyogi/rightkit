@@ -1,6 +1,6 @@
 // The files a piece of gate code is made of: the entry files and every file they import by a relative path, followed to the end.
-// Two users: the build-together path's remembered-call key (gate/compile.mjs) and the contract-test receipt (gate-acceptance.mjs), which
-// lists the runner's files so an installer can compare each with the copy inside a sealed gate.
+// Users: the build-together path's remembered-call key (gate/compile.mjs) and, until rightkit#1514 step 9, the contract-test receipt of the retired
+// runner, which listed the runner's files so an installer could compare each with the copy inside a sealed gate.
 import fs from "node:fs";
 import path from "node:path";
 

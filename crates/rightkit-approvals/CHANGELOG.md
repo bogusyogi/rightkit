@@ -18,6 +18,10 @@
 
 ## Unreleased
 
+- Additive (RK-5, blueprint AG-4 and AG-6, rule 7): the exact-effect binding and the authority re-check at execution. No version bump.
+  - `args_digest` and `canonical_json`: a domain-tagged SHA-256 of the canonical text of JSON arguments (keys sorted at every depth, no whitespace), for `Binding::args`; `Binding::of_effect(args, destination, expires_ms, revision)` builds the whole binding. A draft's recipient, subject or body changing changes the digest.
+  - `authority` (`recheck`, `begin`, `void_changed`; `Authority`, `Approver`, `Rechecked`): the host calls `recheck` immediately before it runs the effect, or `begin`, which then claims the approval in the same call. It re-checks that the record is still approved, given for this kind, scope, door and filer, bound to the same arguments digest, destination and revision (any difference voids the approval for good: denied, reason `binding_changed`), carries an arguments digest and an expiry, is a one-act grant (`Grant::Once`; a session grant never approves one exact effect), is unexpired, that the host's `Authority` re-verifies the signature against the keys enrolled now (a revoked key fails), and that the approver is the owner: an owner key, or a paired device that is active, owner-paired and not a guest (`Approver::is_owner`). Any doubt refuses; there is no setting that skips a step. No new `Error` variant: the authority's refusal and `approver_not_owner` come as `Error::Proof`.
+  - End-to-end test `tests/exact_effect_e2e.rs` (not run: written without a build).
 - Unit tests and debug-assertion switches removed (Adrian, 2026-11-03: end-to-end tests only; no debug assertions). Release behaviour unchanged.
 
 ## 0.1.0 (unreleased)

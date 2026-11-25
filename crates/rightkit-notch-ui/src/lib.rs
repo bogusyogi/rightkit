@@ -1,5 +1,6 @@
 //! The notch drawing core: geometry ([`layout`]), motion ([`motion`]), the hover card model
-//! (`card`), the software renderer (`render`) and the card swell (`swell`). The renderer and
+//! (`card`), the software renderer (`render`), the card swell (`swell`), the card glide (`glide`)
+//! and the card sequencing (`card_flow`). The renderer and
 //! the card model are Windows-only; the application supplies switches, thumbnails and
 //! translation through [`host`].
 
@@ -7,6 +8,10 @@
 pub mod blur;
 #[cfg(windows)]
 pub mod card;
+#[cfg(windows)]
+pub mod card_flow;
+#[cfg(windows)]
+pub mod glide;
 pub mod host;
 pub mod layout;
 pub mod motion;

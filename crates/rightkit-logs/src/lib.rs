@@ -14,6 +14,7 @@ mod known;
 mod log_bridge;
 mod outbox;
 mod privacy_scan;
+mod recent;
 mod redact;
 mod rotate;
 pub mod scrub;
@@ -25,6 +26,8 @@ mod stderr_tracing;
 mod store;
 pub mod system;
 mod textlog;
+#[cfg(feature = "timeline")]
+pub mod timeline;
 #[cfg(feature = "tracing")]
 mod tracing_file;
 mod upload;
@@ -49,6 +52,7 @@ pub use outbox::{EnqueueError, Outbox, OutboxConfig, OutboxEvent, OutboxHealth, 
 pub use privacy_scan::{
     scan_privacy, scan_store_privacy, PrivacyFinding, PrivacyKind, PrivacyReport,
 };
+pub use recent::RecentJsonl;
 pub use redact::RedactionPolicy;
 pub use rotate::{rotated_generation_path, RotatedNaming};
 #[cfg(feature = "token-hash")]
@@ -65,7 +69,10 @@ pub use series::{
 pub use stderr_fmt::stderr_layer;
 #[cfg(feature = "tracing")]
 pub use stderr_tracing::{install_stderr_tracing, install_stderr_tracing_or_noop};
-pub use store::{tail_bytes, JsonlStore, JsonlStoreConfig, RetainReport, StoreStatus};
+pub use store::{
+    read_line_tail, tail_bytes, JsonlStore, JsonlStoreConfig, LineCutoff, LineTail, RetainReport,
+    StoreStatus,
+};
 pub use textlog::{capture_stderr, RotatingTextWriter, StderrCapture, StderrLine};
 #[cfg(feature = "tracing")]
 pub use tracing_file::{

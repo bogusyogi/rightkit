@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4
+
+- Additive. `useTauriEvent(subscribe, event, handler, onReady?)` takes an optional fourth argument, run once after the listener is registered (skipped if the subscription was cleaned up or replaced first; a throw, rejection or non-settlement never affects the unlisten). The handler and `onReady` are published at commit and a listener reaches them only while its own `subscribe` and `event` are the committed ones, so a listener being replaced cannot deliver to its successor. Without the argument nothing changes.
+
 ## 0.4.3
 
 - Added `useRecoveryNotice` to `@rightkit/tauri/react` for backup notice state, dismissal & diagnostic export with host-owned presentation.

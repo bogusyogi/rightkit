@@ -33,12 +33,25 @@ test("prior verified results independently determine warm, changed, reverted & m
   assert.deepEqual(openClassAHistory(dirs).forecast([first, changed]).map((r) => r.expected), ["hit", "hit"]);
 });
 
-test("existing cache without history & corrupted history cannot declare a cold run", (t) => {
+test("a cache with no history is set aside and restarted by the gate itself, once, in the same place; corrupted history still refuses", (t) => {
   const dirs = location(t);
   fs.mkdirSync(dirs.storeDir);
-  assert.throws(() => openClassAHistory(dirs), /existing store/);
-  fs.rmdirSync(dirs.storeDir);
-  const history = openClassAHistory(dirs);
+  fs.writeFileSync(path.join(dirs.storeDir, "old-result.json"), JSON.stringify({ status: "pass" }));
+  const notes = [];
+  const restarted = openClassAHistory({ ...dirs, onRestart: (n) => notes.push(n) });
+  // Reported once, with where the old store went; the old result is kept there and is not in the new store.
+  assert.equal(notes.length, 1); assert.equal(notes[0].store, path.resolve(dirs.storeDir)); assert.match(notes[0].reason, /no history/);
+  assert.ok(notes[0].storeAside.startsWith(path.resolve(dirs.storeDir) + ".set-aside-"));
+  assert.equal(JSON.parse(fs.readFileSync(path.join(notes[0].storeAside, "old-result.json"), "utf8")).status, "pass");
+  assert.deepEqual(fs.readdirSync(dirs.storeDir), []);
+  // The new store starts with an empty history: every row is a first observation, and a result recorded now is a hit on the next open.
+  const row = fingerprint("restarted", "source-a");
+  assert.equal(restarted.forecast([row])[0].expected, "run");
+  restarted.record({ fingerprints: [row], retained: [{ id: row.id, key: row.key, status: "pass" }], mismatches: [] });
+  const again = []; const warm = openClassAHistory({ ...dirs, onRestart: (n) => again.push(n) });
+  assert.equal(warm.forecast([row])[0].expected, "hit"); assert.equal(again.length, 0, "a store with its history is not restarted");
+  fs.rmSync(notes[0].storeAside, { recursive: true, force: true });
+  const history = warm;
   fs.writeFileSync(history.file, JSON.stringify({ body: "{}", sha256: "invalid" }));
   assert.throws(() => openClassAHistory(dirs), /checksum/);
 });
@@ -93,20 +106,30 @@ test("legacy Class A history stays readable without inventing Class B evidence",
   fs.writeFileSync(a.file, JSON.stringify({ body, sha256: createHash("sha256").update(body).digest("hex") }));
   const legacy = fs.readFileSync(a.file, "utf8");
   assert.equal(openClassAHistory(dirs).forecast([row])[0].expected, "hit");
-  assert.throws(() => openClassBHistory(dirs), /Class B cache history missing.*legacy store/);
-  assert.equal(fs.readFileSync(a.file, "utf8"), legacy);
-  const changed = fingerprint("legacy", "source-b");
-  openClassAHistory(dirs).record({ fingerprints: [changed], retained: [{ id: changed.id, key: changed.key, status: "pass" }], mismatches: [] });
-  assert.equal(JSON.parse(JSON.parse(fs.readFileSync(a.file, "utf8")).body).schema, 1);
-  assert.throws(() => openClassBHistory(dirs), /legacy store/);
+  // A history from before compile results were recorded cannot forecast them: the gate sets the store and that history aside and restarts both.
+  const notes = [];
+  const b = openClassBHistory({ ...dirs, onRestart: (n) => notes.push(n) });
+  assert.equal(notes.length, 1); assert.match(notes[0].reason, /before compile results were recorded/);
+  assert.equal(fs.readFileSync(notes[0].historyAside, "utf8"), legacy, "the old history is kept as it was");
+  assert.equal(JSON.parse(JSON.parse(fs.readFileSync(a.file, "utf8")).body).schema, 2);
+  assert.equal(b.forecast([{ ...row, invocationId: row.id }])[0].expected, "run");
+  assert.equal(openClassAHistory(dirs).forecast([row])[0].expected, "run", "Class A starts again with the store it belongs to");
+  if (notes[0].storeAside) fs.rmSync(notes[0].storeAside, { recursive: true, force: true });
+  fs.rmSync(notes[0].historyAside, { force: true });
 });
 
-test("Class B refuses lost history on populated or empty existing stores", (t) => {
+test("Class B restarts a populated store that has no history, and keeps the old one beside it", (t) => {
   const dirs = location(t);
   fs.mkdirSync(dirs.storeDir);
-  assert.throws(() => openClassBHistory(dirs), /Class B cache history missing.*existing store/);
   fs.writeFileSync(path.join(dirs.storeDir, "live-result.json"), JSON.stringify({ status: "pass" }));
-  assert.throws(() => openClassBHistory(dirs), /existing store/);
+  const notes = [];
+  const b = openClassBHistory({ ...dirs, onRestart: (n) => notes.push(n) });
+  assert.equal(notes.length, 1);
+  assert.ok(fs.existsSync(path.join(notes[0].storeAside, "live-result.json")));
+  assert.deepEqual(fs.readdirSync(dirs.storeDir), []);
+  const row = { ...fingerprint("b-row", "source-a"), invocationId: "b-row" };
+  assert.equal(b.forecast([row])[0].expected, "run");
+  fs.rmSync(notes[0].storeAside, { recursive: true, force: true });
 });
 
 test("Class B handles uncacheable rows, groups, changed & reverted keys", (t) => {

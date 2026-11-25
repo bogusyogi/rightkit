@@ -7,14 +7,17 @@ pub use mutations::*;
 // Create/delete whole calendars is NOT in scope (requires `calendar` scope).
 //
 // Public surface:
-//   list_calendars  – GET  calendarList
-//   list_events     – GET  calendars/{id}/events (time range, singleEvents)
+//   list_calendars  – GET  calendarList (every page)
+//   list_events     – GET  calendars/{id}/events (time range, singleEvents, every page)
+//   list_calendars_with / list_events_with – the same over a `&Google` the caller built
+//                      (for example `Google::with_store`), with a caller-set `PageCap`
 //   create_event    – POST calendars/{id}/events (Meet + recurrence + reminders)
 //   update_event    – PATCH calendars/{id}/events/{eid}
 //   delete_event    – DELETE calendars/{id}/events/{eid}?sendUpdates=all
 //   rsvp_event      – PATCH self attendee responseStatus
 
-use crate::google::Google;
+use crate::google::{Google, GoogleError};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -111,6 +114,8 @@ struct RawCalendarInfo {
 struct CalendarListResp {
     #[serde(default)]
     items: Vec<RawCalendarInfo>,
+    #[serde(rename = "nextPageToken", default)]
+    next_page_token: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -179,6 +184,98 @@ struct RawEvent {
 struct EventListResp {
     #[serde(default)]
     items: Vec<RawEvent>,
+    #[serde(rename = "nextPageToken", default)]
+    next_page_token: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Paging
+// ---------------------------------------------------------------------------
+
+/// Caller-set bounds for a paged calendar read: at most `max_pages` requests and `max_items`
+/// results. A value of 0 counts as 1. The read stops at whichever bound is reached first and
+/// says so in [`Paged::truncated`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PageCap {
+    pub max_pages: usize,
+    pub max_items: usize,
+}
+
+impl PageCap {
+    pub const fn new(max_pages: usize, max_items: usize) -> Self {
+        Self {
+            max_pages,
+            max_items,
+        }
+    }
+}
+
+impl Default for PageCap {
+    /// 40 pages and 10,000 items: far beyond a normal calendar window.
+    fn default() -> Self {
+        Self::new(40, 10_000)
+    }
+}
+
+/// The results of a paged read. `truncated` is true when the cap stopped the read while Google
+/// still had more to give, so a caller never mistakes a capped list for the whole one.
+#[derive(Debug, Clone)]
+pub struct Paged<T> {
+    pub items: Vec<T>,
+    pub truncated: bool,
+}
+
+/// Follow `nextPageToken` from `url` until Google has no more pages or `cap` is reached.
+/// `split` takes one decoded page and returns its items and its next-page token. A token that
+/// repeats the one just used is a stuck server and ends the read with `GoogleError::Parse`
+/// rather than looping.
+async fn read_pages<R, T>(
+    g: &Google,
+    url: &str,
+    base_query: &[(&str, String)],
+    cap: PageCap,
+    split: impl Fn(R) -> (Vec<T>, Option<String>),
+) -> Result<Paged<T>, GoogleError>
+where
+    R: DeserializeOwned,
+{
+    let max_pages = cap.max_pages.max(1);
+    let max_items = cap.max_items.max(1);
+    let mut items: Vec<T> = Vec::new();
+    let mut token: Option<String> = None;
+    let mut pages = 0usize;
+    loop {
+        let mut query = base_query.to_vec();
+        if let Some(t) = &token {
+            query.push(("pageToken", t.clone()));
+        }
+        let resp: R = g.get_json(url, &query).await?;
+        pages += 1;
+        let (page, next) = split(resp);
+        items.extend(page);
+        let over = items.len() > max_items;
+        if over {
+            items.truncate(max_items);
+        }
+        let Some(next) = next.filter(|t| !t.is_empty()) else {
+            return Ok(Paged {
+                items,
+                truncated: over,
+            });
+        };
+        if over || pages >= max_pages || items.len() >= max_items {
+            return Ok(Paged {
+                items,
+                truncated: true,
+            });
+        }
+        if token.as_deref() == Some(next.as_str()) {
+            return Err(GoogleError::Parse(
+                "calendar paging did not advance".to_string(),
+            ));
+        }
+        token = Some(next);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -328,7 +425,8 @@ fn random_hex_id() -> String {
 // Public API
 // ---------------------------------------------------------------------------
 
-/// List all calendars in the authenticated user's calendar list.
+/// List all calendars in the authenticated user's calendar list, following every page up to
+/// `PageCap::default()`. Use [`list_calendars_with`] to set the cap or reuse a client.
 pub async fn list_calendars(
     client_id: &str,
     client_secret: &str,
@@ -339,24 +437,41 @@ pub async fn list_calendars(
         client_secret.to_string(),
         refresh_token.to_string(),
     );
-    let url = format!("{BASE}/users/me/calendarList");
-    let resp: CalendarListResp = g.get_json(&url, &[]).await.map_err(String::from)?;
+    list_calendars_with(&g, PageCap::default())
+        .await
+        .map(|paged| paged.items)
+        .map_err(String::from)
+}
 
-    Ok(resp
-        .items
-        .into_iter()
-        .map(|c| CalendarInfo {
-            id: c.id,
-            summary: c.summary,
-            background_color: c.background_color,
-            primary: c.primary.unwrap_or(false),
-            access_role: c.access_role,
-        })
-        .collect())
+/// List the calendars in the user's calendar list through a client the caller built (for
+/// example [`Google::with_store`]), following `nextPageToken` up to `cap`.
+pub async fn list_calendars_with(
+    g: &Google,
+    cap: PageCap,
+) -> Result<Paged<CalendarInfo>, GoogleError> {
+    let url = format!("{BASE}/users/me/calendarList");
+    let query: &[(&str, String)] = &[("maxResults", "250".to_string())];
+    read_pages(g, &url, query, cap, |resp: CalendarListResp| {
+        let items = resp
+            .items
+            .into_iter()
+            .map(|c| CalendarInfo {
+                id: c.id,
+                summary: c.summary,
+                background_color: c.background_color,
+                primary: c.primary.unwrap_or(false),
+                access_role: c.access_role,
+            })
+            .collect();
+        (items, resp.next_page_token)
+    })
+    .await
 }
 
 /// List events in a calendar within [time_min, time_max] (RFC3339).
-/// Expands recurring events (singleEvents=true), ordered by startTime.
+/// Expands recurring events (singleEvents=true), ordered by startTime. Follows every page up
+/// to `PageCap::default()`; use [`list_events_with`] to set the cap, see whether it cut the
+/// list short, or reuse a client.
 pub async fn list_events(
     client_id: &str,
     client_secret: &str,
@@ -370,7 +485,27 @@ pub async fn list_events(
         client_secret.to_string(),
         refresh_token.to_string(),
     );
-    let url = format!("{BASE}/calendars/{calendar_id}/events");
+    list_events_with(&g, calendar_id, time_min, time_max, PageCap::default())
+        .await
+        .map(|paged| paged.items)
+        .map_err(String::from)
+}
+
+/// List events in a calendar within [time_min, time_max] (RFC3339) through a client the caller
+/// built (for example [`Google::with_store`]), following `nextPageToken` up to `cap`. Expands
+/// recurring events (singleEvents=true), ordered by startTime. `calendar_id` is escaped for
+/// the URL path.
+pub async fn list_events_with(
+    g: &Google,
+    calendar_id: &str,
+    time_min: &str,
+    time_max: &str,
+    cap: PageCap,
+) -> Result<Paged<CalEvent>, GoogleError> {
+    let url = format!(
+        "{BASE}/calendars/{}/events",
+        rightkit_http::percent_encode_component(calendar_id)
+    );
     let query: &[(&str, String)] = &[
         ("timeMin", time_min.to_string()),
         ("timeMax", time_max.to_string()),
@@ -378,11 +513,13 @@ pub async fn list_events(
         ("orderBy", "startTime".to_string()),
         ("maxResults", "2500".to_string()),
     ];
-    let resp: EventListResp = g.get_json(&url, query).await.map_err(String::from)?;
-
-    Ok(resp
-        .items
-        .into_iter()
-        .map(|e| parse_event(e, calendar_id))
-        .collect())
+    read_pages(g, &url, query, cap, |resp: EventListResp| {
+        let items = resp
+            .items
+            .into_iter()
+            .map(|e| parse_event(e, calendar_id))
+            .collect();
+        (items, resp.next_page_token)
+    })
+    .await
 }

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.8
+
+- Added options to `restartOnboardingSetup`: `existingProgress: { firstStep, resetStepProgress }` keeps the fields it does not reset, leaves absent progress absent and can go to a step without clearing its history, and `alongside` patches host settings (for example a separate flow draft) in the same revision-checked write. Without options it behaves as before: the first step, setup progress cleared, the legal acceptance kept.
+
 ## 0.6.6
 
 - Added `useTrialActivation` for onboarding trial requests, activation & entitlement refresh with host-owned text.

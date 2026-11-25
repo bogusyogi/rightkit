@@ -29,6 +29,14 @@ depends on the other; a small adapter bridges them (see the `provider` module do
 implements it over a `KeyManager`; `StaticKeys` is for tests. Seal the key id next to the
 ciphertext and in the associated data; treat an unknown id as an undecodable record.
 
+## Wipe on revoke
+
+`issue_revoke_notice` (on a device holding the current key, before `rotate`) makes an opaque notice for
+a device id. On the revoked device, `RevokeWipe::resume` runs at every start and `handle_notice` for every
+notice that reaches it: it erases the registered `LocalCopy` items, destroys every key version, and clears a
+durable pending mark (a crash is finished by the next `resume`). A device that is off or never reconnects
+keeps its copy; a deadman wipe is not built. See the notes at the top of `src/revoke.rs`.
+
 ## Device-approval transfer (#145)
 
 Protocol `rightkit-sync-keys-transfer/1`, four opaque messages through any relay:

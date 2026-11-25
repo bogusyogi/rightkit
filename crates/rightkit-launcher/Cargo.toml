@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-launcher"
-version = "0.2.0"
+version = "0.2.2"
 edition = "2024"
 rust-version = "1.98.0"
 description = "Portable command launcher core: calculator and unit conversion that never hand typed text to an evaluator, user items and snippets, word lookup, currency rates, notes, custom commands and the file search."
@@ -21,4 +21,5 @@ rightkit-time = { version = "0.1.3", path = "../rightkit-time" }
 
 [target.'cfg(windows)'.dependencies]
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Threading"] }
+rightkit-file-watch = { version = "0.4.4", default-features = false, path = "../rightkit-file-watch" }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Threading", "Win32_System_IO"] }

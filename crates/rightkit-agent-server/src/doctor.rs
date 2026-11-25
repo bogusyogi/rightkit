@@ -87,10 +87,12 @@ pub struct Facts {
     pub sandbox_os_supported: bool,
 }
 
-include!("doctor_impl.rs");
-include!("doctor_dimension_probes.rs");
-include!("doctor_dimensions.rs");
-include!("doctor_runtime.rs");
 use rightkit_doctor::probe::{
     clipboard_candidates as candidate_clipboard_bins, copy_to_clipboard as try_copy_to_clipboard,
 };
+
+include!("doctor_impl.rs");
+include!("doctor_dimensions.rs");
+include!("doctor_runtime.rs");
+// Holds the `hooks_probe_tests` test module, so it must stay the last include.
+include!("doctor_dimension_probes.rs");

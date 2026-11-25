@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- Added `IntentSource::Engine { trigger: EngineTrigger, rule_id, rule_revision, occurrence_key }` (wire `kind: "engine"`), for a run the engine starts from a schedule or a standing instruction the owner approved. It carries no quote, message id or chat: nothing the owner said this time. `EngineTrigger` is `Schedule` or `Signal` (kebab-case). Only the engine builds it, from its own store; the receiver accepts it only while `rule_id` is active at exactly `rule_revision` and runs it with the unattended tool set (Pulse's rule, not enforced here). `IntentSource::validate()` checks an engine source: `rule_id` and `occurrence_key` non-empty, at most 256 bytes (`MAX_ENGINE_ID_BYTES`), no control character, `rule_revision` at least 1 (`IntentSourceError`); other sources are accepted as before. That `occurrence_key` is unique per occurrence is the store's rule: derive the task's idempotency key from it. Existing sources serialize and deserialize unchanged. A new enum variant: an exhaustive match over `IntentSource` in another crate needs an arm (none in this repository). Written, not compiled.
+
 ## 0.1.1
 
 - Breaking for dependents: a dependency requirement was raised to a semver-breaking version.

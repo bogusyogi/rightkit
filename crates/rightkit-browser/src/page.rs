@@ -1,3 +1,4 @@
+use crate::act::{ActResult, ActionWatch, NodeChange, NodeState, ObservationDiff, RefAction};
 use crate::cdp_ext::{
     command_for, download_params, page_scale_params, parse_ax_tree, run_interceptor, summarize_ax,
     AxNode, AxSummary, DownloadBehavior, InterceptDecision, InterceptFailure, InterceptedRequest,
@@ -229,6 +230,11 @@ struct ObsState {
     /// Stable ids of the previous observation's selectors (bounded by its node count).
     stable: HashMap<String, u64>,
     next_stable: u64,
+    /// Identity (frame id and loader id) of the main document the refs were read from. A navigation or
+    /// reload changes the loader, so a ref from before it is refused.
+    frame: Option<String>,
+    /// State of each selectable element in the latest observation, for the diff [`BrowserPage::act`] returns.
+    sigs: HashMap<String, NodeState>,
 }
 
 /// What the request-interception pump has done on one page. Reported when a navigation
@@ -295,6 +301,8 @@ pub struct BrowserPage {
     design_gesture: Arc<NativeGestureLatch>,
     /// Isolated-world context of the design-mode picker, once enabled.
     design_context: StdMutex<Option<ExecutionContextId>>,
+    /// Repeat counter behind the action-loop watchdog of [`BrowserPage::act`].
+    watch: StdMutex<ActionWatch>,
 }
 
 /// Buffered capacity of an exception subscription; a slower receiver sees `Lagged`.
@@ -437,6 +445,7 @@ impl BrowserPage {
             exception_tx,
             design_gesture: Arc::new(NativeGestureLatch::new()),
             design_context: StdMutex::new(None),
+            watch: StdMutex::new(ActionWatch::default()),
         })
     }
 
@@ -764,6 +773,8 @@ impl BrowserPage {
         o.epoch += 1;
         o.refs.clear();
         o.fingerprint.clear();
+        o.frame = None;
+        o.sigs.clear();
         // A navigation starts a new document: its selectors do not carry stable ids over.
         o.stable.clear();
     }
@@ -1002,8 +1013,17 @@ impl BrowserPage {
 
     // ---- observation -----------------------------------------------------
 
+    /// Compact tree of the page's controls, each with a ref (`r<epoch>.<n>`). A ref is accepted only in the
+    /// epoch it was issued in, for the document it was read from, and while the element behind it still has
+    /// the tag, role and name it had here; see [`BrowserPage::act`].
     pub async fn observe(&self) -> Result<Observation> {
         let _l = self.lane.lock().await;
+        self.observe_locked().await
+    }
+
+    /// Caller holds the lane.
+    async fn observe_locked(&self) -> Result<Observation> {
+        let frame_sig = self.frame_signature().await?;
         let frame_id = self
             .inner
             .mainframe()
@@ -1014,7 +1034,7 @@ impl BrowserPage {
         let ax = summarize_ax(&self.ax_tree(Some(OBSERVE_AX_DEPTH)).await?);
         let raw: Vec<RawNode> = self
             .inner
-            .evaluate(OBSERVE_JS)
+            .evaluate(observe_js())
             .await
             .map_err(cdp)?
             .into_value()
@@ -1036,16 +1056,27 @@ impl BrowserPage {
             })
             .collect::<Vec<_>>()
             .join("\n");
+        // The document must be the same one at the end of the read as at the start, or the nodes and the
+        // identity above describe two different pages.
+        if self.frame_signature().await? != frame_sig {
+            return Err(BrowserError::Cdp(
+                "the document was replaced during observation; observe again".into(),
+            ));
+        }
         let (epoch, nodes, added, removed) = {
             let mut o = self.obs.lock().unwrap();
-            if o.fingerprint != fingerprint {
+            // A replaced document advances the epoch even when its controls look the same, so refs from the
+            // old document are refused rather than matched by selector in the new one.
+            if o.fingerprint != fingerprint || o.frame.as_deref() != Some(frame_sig.as_str()) {
                 o.epoch += 1;
                 o.fingerprint = fingerprint;
             }
+            o.frame = Some(frame_sig.clone());
             let epoch = o.epoch;
             o.refs.clear();
             let mut cur = HashMap::new();
             let mut cur_stable: HashMap<String, u64> = HashMap::new();
+            let mut cur_sigs: HashMap<String, NodeState> = HashMap::new();
             let mut nodes = Vec::new();
             for (i, n) in raw.into_iter().enumerate() {
                 let name = if n.sensitive {
@@ -1080,7 +1111,7 @@ impl BrowserPage {
                     );
                     cur.insert(n.selector.clone(), format!("{}|{}", n.role, name));
                 }
-                nodes.push(ObservedNode {
+                let node = ObservedNode {
                     node_ref,
                     role: n.role,
                     name,
@@ -1092,9 +1123,14 @@ impl BrowserPage {
                     frame_id: frame_id.clone(),
                     stable_id,
                     bounds: n.bounds,
-                });
+                };
+                if !node.selector.is_empty() {
+                    cur_sigs.insert(node.selector.clone(), NodeState::of(&node));
+                }
+                nodes.push(node);
             }
             o.stable = cur_stable;
+            o.sigs = cur_sigs;
             let added = cur
                 .keys()
                 .filter(|k| !o.previous.contains_key(*k))
@@ -1153,26 +1189,189 @@ impl BrowserPage {
                 if ref_epoch != current_epoch {
                     return Err(BrowserError::StaleRef(r.clone()));
                 }
-                // Identity check: the element behind the selector must still look
-                // like what was observed, else the page changed under the ref.
-                let sig = self
-                    .eval(&format!(
-                        "(()=>{{const l=document.querySelectorAll({s});if(l.length!==1)return null;const e=l[0];\
-                         return {{tag:e.tagName.toLowerCase(),name:(e.getAttribute('aria-label')||e.innerText||e.value||e.getAttribute('placeholder')||'').trim().slice(0,160)}}}})()",
-                        s = js(&entry.selector)
-                    ))
-                    .await?;
-                let ok = sig.get("tag").and_then(Value::as_str) == Some(entry.tag.as_str())
-                    && sig.get("name").and_then(Value::as_str) == Some(entry.name.as_str())
-                    || (sig.get("tag").and_then(Value::as_str) == Some(entry.tag.as_str())
-                        && matches!(entry.tag.as_str(), "input" | "textarea" | "select")); // value changes as the user types
-                if !ok {
+                // The document the ref was read from must still be the page's document: a navigation or
+                // reload replaced the frame, and a selector can match a different element in the new one.
+                let seen = self.obs.lock().unwrap().frame.clone();
+                if seen.as_deref() != Some(self.frame_signature().await?.as_str()) {
                     return Err(BrowserError::StaleRef(r.clone()));
                 }
-                let _ = &entry.role;
+                // Identity check: the element behind the selector must still have the tag, the role and the
+                // name it had when it was observed, else the page changed under the ref. Role is compared
+                // as `observe` computed it (the `role` attribute, else the tag's implied role), so a
+                // same-tag element that takes over a selector with another role is refused.
+                let script = ELEMENT_IDENTITY_JS
+                    .replace("__ROLE__", ROLE_EXPR)
+                    .replace("__SELECTOR__", &js(&entry.selector));
+                let sig = self.eval(&script).await?;
+                let text = |k: &str| sig.get(k).and_then(Value::as_str);
+                let same_tag = text("tag") == Some(entry.tag.as_str());
+                let same_role = text("role") == Some(entry.role.as_str());
+                let same_name = text("name") == Some(entry.name.as_str());
+                // An editable control's text changes as the user types, so its name is not compared.
+                let editable = matches!(entry.tag.as_str(), "input" | "textarea" | "select");
+                if !(same_tag && same_role && (same_name || editable)) {
+                    return Err(BrowserError::StaleRef(r.clone()));
+                }
                 Ok(Some(entry.selector))
             }
         }
+    }
+
+    /// Identity of the main document: its frame id and its loader id. A navigation or reload gives the frame a
+    /// new loader; a same-document change (history API, hash) does not.
+    async fn frame_signature(&self) -> Result<String> {
+        use chromiumoxide::cdp::browser_protocol::page::GetFrameTreeParams;
+        let tree = self
+            .inner
+            .execute(GetFrameTreeParams::default())
+            .await
+            .map_err(cdp)?;
+        let frame = &tree.result.frame_tree.frame;
+        Ok(format!("{:?}|{:?}", frame.id, frame.loader_id))
+    }
+
+    /// Run one action on an observed ref and return what it changed.
+    ///
+    /// Before anything happens the ref is checked: it must be from the page's current epoch, the document it
+    /// was read from must still be the page's document, and the element behind it must still have the tag,
+    /// role and name it had at observe. Any mismatch is [`BrowserError::StaleRef`]. The action is then
+    /// admitted (the hook sees the ref and the element's role and name), run under the page lane, and the
+    /// page is observed again under that same lane hold, so nothing else acts in between. The returned
+    /// [`ObservationDiff`] says what appeared, disappeared or changed; when the epoch moved, earlier refs are
+    /// refused and the diff carries the new refs of what is new.
+    ///
+    /// The watchdog counts an action that left no diff (or failed) against its ref. After
+    /// [`DEFAULT_ACTION_LOOP_LIMIT`](crate::DEFAULT_ACTION_LOOP_LIMIT) such repeats (see
+    /// [`BrowserPage::set_action_loop_limit`]) the next identical action is refused with
+    /// [`BrowserError::ActionLoop`], and so is every action after it until
+    /// [`BrowserPage::reset_action_watch`].
+    pub async fn act(&self, node_ref: &str, action: &RefAction) -> Result<ActResult> {
+        let key = action.watch_key(node_ref);
+        self.watch.lock().unwrap().before(&key)?;
+        match self.act_once(node_ref, action).await {
+            Ok(mut result) => {
+                result.repeats = self
+                    .watch
+                    .lock()
+                    .unwrap()
+                    .after(key, result.diff.is_empty());
+                Ok(result)
+            }
+            Err(e) => {
+                self.watch.lock().unwrap().after(key, true);
+                Err(e)
+            }
+        }
+    }
+
+    /// Set how many identical no-diff actions [`BrowserPage::act`] allows (at least 1).
+    pub fn set_action_loop_limit(&self, limit: u32) -> Result<()> {
+        self.watch.lock().unwrap().set_limit(limit)
+    }
+
+    /// Clear the watchdog's count and its stop. Call it when a person or the host decided the run may go on.
+    pub fn reset_action_watch(&self) {
+        self.watch.lock().unwrap().reset();
+    }
+
+    async fn act_once(&self, node_ref: &str, action: &RefAction) -> Result<ActResult> {
+        let target = Target::Ref(node_ref.to_string());
+        let element = {
+            let o = self.obs.lock().unwrap();
+            o.refs
+                .get(node_ref)
+                .map(|e| format!("element role={} name={}", e.role, e.name))
+        };
+        let (kind, detail) = action.admission();
+        let detail = match (detail, element) {
+            (Some(d), Some(e)) => Some(format!("{d}; {e}")),
+            (Some(d), None) => Some(d),
+            (None, e) => e,
+        };
+        self.admit(kind, None, Some(describe(&target)), detail)
+            .await?;
+        let _l = self.lane.lock().await;
+        let url_before = self.url().await;
+        let (epoch_before, before, frame_before) = {
+            let o = self.obs.lock().unwrap();
+            (o.epoch, o.sigs.clone(), o.frame.clone())
+        };
+        match action {
+            RefAction::Click => self.click_n(&target, 1).await?,
+            RefAction::DoubleClick => self.click_n(&target, 2).await?,
+            RefAction::Hover => {
+                let (x, y) = self.point_of(&target).await?;
+                self.move_to(x, y).await?;
+            }
+            RefAction::Fill { text, clear } => self.fill_locked(&target, text, *clear).await?,
+            RefAction::SelectOption { value } => self.select_locked(&target, value).await?,
+        }
+        let obs = self.observe_after_action().await?;
+        let document_replaced = self.obs.lock().unwrap().frame != frame_before;
+        let mut added = Vec::new();
+        let mut changed = Vec::new();
+        let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for n in &obs.nodes {
+            if n.selector.is_empty() {
+                continue;
+            }
+            seen.insert(n.selector.as_str());
+            match before.get(&n.selector) {
+                None => added.push(n.clone()),
+                Some(b) => {
+                    let a = NodeState::of(n);
+                    if *b != a {
+                        changed.push(NodeChange {
+                            node_ref: n.node_ref.clone(),
+                            selector: n.selector.clone(),
+                            before: b.clone(),
+                            after: a,
+                        });
+                    }
+                }
+            }
+        }
+        let mut removed: Vec<String> = before
+            .keys()
+            .filter(|k| !seen.contains(k.as_str()))
+            .cloned()
+            .collect();
+        removed.sort();
+        Ok(ActResult {
+            page_id: obs.page_id.clone(),
+            node_ref: node_ref.to_string(),
+            epoch: obs.epoch,
+            diff: ObservationDiff {
+                epoch_before,
+                epoch_after: obs.epoch,
+                url_before,
+                url_after: obs.url.clone(),
+                document_replaced,
+                added,
+                removed,
+                changed,
+            },
+            repeats: 0,
+        })
+    }
+
+    /// Observe once the action's effect has settled. An action can start a navigation; an observation that
+    /// straddles the document swap fails, so it is tried again a few times. Caller holds the lane.
+    async fn observe_after_action(&self) -> Result<Observation> {
+        let mut last = None;
+        for attempt in 0..4u32 {
+            if attempt > 0 {
+                tokio::time::sleep(Duration::from_millis(150)).await;
+            }
+            match self.observe_locked().await {
+                Ok(obs) => return Ok(obs),
+                Err(e) => last = Some(e),
+            }
+        }
+        Err(BrowserError::Cdp(format!(
+            "the action ran, but the page could not be observed afterwards: {}",
+            last.map(|e| e.to_string()).unwrap_or_default()
+        )))
     }
 
     async fn unique(&self, selector: &str) -> Result<()> {
@@ -1528,6 +1727,11 @@ impl BrowserPage {
         )
         .await?;
         let _l = self.lane.lock().await;
+        self.fill_locked(target, text, clear).await
+    }
+
+    /// Caller holds the lane.
+    async fn fill_locked(&self, target: &Target, text: &str, clear: bool) -> Result<()> {
         self.click_n(target, 1).await?;
         if clear {
             let sel_all = if cfg!(target_os = "macos") {
@@ -1554,6 +1758,11 @@ impl BrowserPage {
         )
         .await?;
         let _l = self.lane.lock().await;
+        self.select_locked(target, value).await
+    }
+
+    /// Caller holds the lane.
+    async fn select_locked(&self, target: &Target, value: &str) -> Result<()> {
         let sel = self
             .resolve(target)
             .await?
@@ -1881,7 +2090,7 @@ fn js(s: &str) -> String {
     serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into())
 }
 
-const OBSERVE_JS: &str = r#"(() => {
+const OBSERVE_JS_TEMPLATE: &str = r#"(() => {
   const esc = globalThis.CSS?.escape || (v => String(v).replace(/[^a-zA-Z0-9_-]/g, '\\$&'));
   const unique = c => { if (!c) return null; try { return document.querySelectorAll(c).length === 1 ? c : null; } catch (_) { return null; } };
   const selectorFor = el => {
@@ -1914,7 +2123,7 @@ const OBSERVE_JS: &str = r#"(() => {
       return r.width > 0 && r.height > 0;
     })();
     return {
-      role: el.getAttribute('role') || ({A:'link',BUTTON:'button',INPUT:'textbox',SELECT:'combobox',TEXTAREA:'textbox'}[el.tagName] || el.tagName.toLowerCase()),
+      role: __ROLE__,
       name: (el.getAttribute('aria-label') || el.innerText || el.value || el.getAttribute('placeholder') || '').trim().slice(0, 160),
       tag: el.tagName.toLowerCase(), selector: selectorFor(el), visible,
       disabled: !!el.disabled || el.getAttribute('aria-disabled') === 'true', sensitive,
@@ -1922,3 +2131,114 @@ const OBSERVE_JS: &str = r#"(() => {
     };
   });
 })()"#;
+
+/// The role of `el`, exactly as `observe` reports it: the `role` attribute, else the tag's implied role, else
+/// the tag name. The ref check evaluates this same text, so the two cannot disagree.
+const ROLE_EXPR: &str = "el.getAttribute('role') || ({A:'link',BUTTON:'button',INPUT:'textbox',SELECT:'combobox',TEXTAREA:'textbox'}[el.tagName] || el.tagName.toLowerCase())";
+
+fn observe_js() -> String {
+    OBSERVE_JS_TEMPLATE.replace("__ROLE__", ROLE_EXPR)
+}
+
+/// Reads the one element a ref's selector matches: its tag, role and name, as `observe` computes them.
+/// `null` when the selector no longer matches exactly one element.
+const ELEMENT_IDENTITY_JS: &str = r#"(()=>{const l=document.querySelectorAll(__SELECTOR__);if(l.length!==1)return null;const el=l[0];
+return {tag:el.tagName.toLowerCase(),role:__ROLE__,name:(el.getAttribute('aria-label')||el.innerText||el.value||el.getAttribute('placeholder')||'').trim().slice(0,160)}})()"#;
+
+/// The `http` or `https` origin of `url` (scheme, host, non-default port; lower case; no userinfo, path,
+/// query or fragment), or `None` for any other kind of address.
+#[cfg(feature = "secret-fill")]
+fn origin_of(url: &str) -> Option<String> {
+    let (scheme, rest) = url.trim().split_once("://")?;
+    let scheme = scheme.to_ascii_lowercase();
+    if scheme != "http" && scheme != "https" {
+        return None;
+    }
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let host_port = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host)
+        .to_ascii_lowercase();
+    if host_port.is_empty() || host_port.contains(char::is_whitespace) {
+        return None;
+    }
+    let (host, port) = match host_port.rsplit_once(':') {
+        Some((host, port)) if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) => {
+            (host, Some(port))
+        }
+        _ => (host_port.as_str(), None),
+    };
+    if host.is_empty() {
+        return None;
+    }
+    let default = if scheme == "https" { "443" } else { "80" };
+    Some(match port {
+        Some(port) if port != default => format!("{scheme}://{host}:{port}"),
+        _ => format!("{scheme}://{host}"),
+    })
+}
+
+/// True for an `<input>` that is a password or a card field: `type=password`, or an `autocomplete`
+/// token of `current-password`, `new-password` or starting `cc-`. Takes the selector as a JS string literal.
+#[cfg(feature = "secret-fill")]
+const CREDENTIAL_FIELD_JS: &str = r#"(()=>{const e=document.querySelector(__SELECTOR__);
+if(!e||e.tagName!=='INPUT')return false;
+if((e.type||'').toLowerCase()==='password')return true;
+return (e.getAttribute('autocomplete')||'').toLowerCase().split(/\s+/).some(t=>t==='current-password'||t==='new-password'||t.startsWith('cc-'))})()"#;
+
+#[cfg(feature = "secret-fill")]
+impl BrowserPage {
+    /// Type a secret into a password or card field of this page (feature `secret-fill`; works on every
+    /// platform the crate runs on, Linux included).
+    ///
+    /// Refused, with nothing typed, unless: `claimed_origin` is an `http` or `https` address whose origin
+    /// equals the origin of the page's own current address (the page is asked, never the caller's word
+    /// about it), and `target` resolves to one `<input>` that is `type=password` or has an `autocomplete`
+    /// of `current-password`, `new-password` or `cc-*`. The audit record carries only the character count
+    /// (as for `fill`). The secret is a [`rightkit_crypto::Secret`], wiped when dropped; it is typed one
+    /// key event at a time, and the per-key event descriptors this makes are not wiped (a limit).
+    pub async fn fill_secret(
+        &self,
+        target: &Target,
+        secret: &rightkit_crypto::Secret,
+        claimed_origin: &str,
+        clear: bool,
+    ) -> Result<()> {
+        let claimed = origin_of(claimed_origin).ok_or_else(|| {
+            BrowserError::Invalid("the claimed origin is not an http or https address".into())
+        })?;
+        let actual = origin_of(&self.url().await)
+            .ok_or_else(|| BrowserError::Denied("the page has no http or https origin".into()))?;
+        if claimed != actual {
+            return Err(BrowserError::Denied(
+                "the page origin is not the claimed origin".into(),
+            ));
+        }
+        let text = std::str::from_utf8(secret.expose())
+            .map_err(|_| BrowserError::Invalid("the secret is not text".into()))?;
+        self.admit(
+            ActionKind::Fill,
+            None,
+            Some(describe(target)),
+            Some(format!(
+                "chars={} clear={clear} secret",
+                text.chars().count()
+            )),
+        )
+        .await?;
+        let _l = self.lane.lock().await;
+        let selector = self
+            .resolve(target)
+            .await?
+            .ok_or_else(|| BrowserError::Invalid("fill_secret needs an element".into()))?;
+        let is_credential = self
+            .eval_internal(&CREDENTIAL_FIELD_JS.replace("__SELECTOR__", &js(&selector)))
+            .await?;
+        if is_credential.as_bool() != Some(true) {
+            return Err(BrowserError::Denied(
+                "the field is not a password or card field".into(),
+            ));
+        }
+        self.fill_locked(target, text, clear).await
+    }
+}

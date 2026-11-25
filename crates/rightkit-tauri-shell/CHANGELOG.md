@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.8
+
+- Add `hub_window::NativeWindowOptions` (decorations, macOS title bar style, hidden title, background-throttling policy) and `build_window_with_native_options`: native options set before the webview exists, with the same validation, hidden construction and guarded reveal as `build_window`, which now delegates to it with defaults. A route is also refused when it has an authority (`//`) or any control character (it was: a scheme, a backslash or NUL).
+- `single_instance_host::ForwardedLaunch<T>` carries a payload (default `()`, so existing hosts compile unchanged): `ForwardedLaunch::new_payload()`, `forward_payload(payload, deliver)` and `bind_payload_app(app, deliver)` keep only the latest forwarded payload until setup binds the app handle and deliver it once through the host function, which owns dispatch to the UI thread; delivery is serialised.
+
 ## 0.8.7
 
 - Package docs & examples use neutral host identities. `devtools::OWNER_DECISION` keeps its public `&str` API with a general policy summary; original wording is preserved in release policy documentation. Runtime authorization, markers & compatibility names are unchanged.

@@ -3,6 +3,13 @@
 ## 0.9.6 - 2026-11-24
 
 - RightKitOAuth adds the RFC 8628 device authorization grant: DeviceCodeClient, DeviceCodeConfig with a GitHub preset, DeviceCodePresenting and SystemDeviceCodePresenter. OAuthError gains deviceCodeExpired, accessDenied and deviceFlowDisabled.
+- RightKitSystem adds `RightKitExtensionLifecycle` (PL-34): the restart-state launch re-arm of an app extension. `suspendAtQuit()` disables an enabled extension, `resumeAtLaunch()` enables it again only for a user who had it on, using two `UserDefaults` flags (was enabled, resume failed) the host names so it keeps the keys it already wrote; an extension the user turned off, or one macOS never registered, is never touched; both entry points share one serial queue and take a `timeout` per `pluginkit` call (3 s default). Both return an `Outcome` (`changed`, `ok`) for the host's own logging. Ported from Pulse's `FinderExtensionLifecycle`. Written, not compiled, not run on a Mac.
+- RightKitPermissionProbes (RightKitSystem) adds `setExtension(identifier:enabled:timeout:)` (`pluginkit -e use` or `-e ignore`, bounded) and a `timeout` argument on `extensionStatus(identifier:)` (default 10 s, unchanged), so a host that runs the extension lifecycle at Quit and at launch keeps its 3 s bound and its disable step without a local `Process` wrapper (PL-33). `enableExtension(identifier:)` now calls `setExtension`. Written, not compiled.
+- RightKitAccessibility adds `RightKitAXElement.application(pid:messagingTimeout:)` (a per-element messaging timeout) and `elementsIfReadable(_:)` (an absent or unsupported list is empty, an unreadable or malformed one is unknown). RightKitOverlay adds `RightKitWindowVisibility.isOnScreen(_:)`, `RightKitAllSpacesWindows.contains(ownerPID:layer:matchingSize:)` (WindowServer, hidden and minimized windows included) and ordered `onScreenWindowRecords()` (`OnScreenWindow`: pid, bounds, layer, owner name, alpha) for hosts that detect full-screen or hidden windows.
+- RightKitEngineClient adds `ResidentRecordPolicy` (`allowUntimestamped`, `requireHeartbeat`) for discovering an endpoint from a record: `requireHeartbeat` accepts only a structured heartbeat within the existing freshness limit (future wall-clock timestamps are accepted); an explicit endpoint stays subject to peer verification under either policy. The default keeps the flat-record behaviour.
+- RightKitHotkeys adds `RightKitHotkeyText` and `RightKitHotkeyText.parse(_:options:)`: hotkey text with its Carbon combo and canonical spelling (control, option, shift, command order), with opt-in `Options` for whitespace, modifier aliases, empty separators, repeated-modifier rejection and the navigation, punctuation, escape and function key families. A modifier is required, so a global binding never takes ordinary typing. `esc` and `escape` both parse and canonicalize to `escape`.
+- RightKitSystem adds `RightKitHistoryWindow<Row, Total>` and `RightKitHistoryError`: one read of a bounded history for a native screen, with a cursor bound to its snapshot, opaque ASCII position keys (the first `#` starts a tied occurrence), per-source `unreadable` notes and `read(previous:older:...)`, so a refresh keeps the rows already shown and an expired cursor recovers with a warning. Pairs with the `timeline` feature of `rightkit-logs` 0.4.5.
+- RightKitOverlay adds `RightKitDisplayLookup.screen(at:containment:)` (main actor): the first screen in AppKit order whose frame holds a point, by `CGRect.contains` or by `NSMouseInRect` (`Containment`). The point is an autoclosure evaluated per screen visited and never when there are no screens, so a host passes `NSEvent.mouseLocation` to read the pointer as each screen is tested or a point it captured earlier. The host keeps its fallback (`NSScreen.main`) and its placement.
 
 ## 0.9.5 - 2026-11-21
 
@@ -26,6 +33,8 @@
 - RightKitLLM adds host-configured BYOK settings, output validation and available on-device model support.
 
 ## 0.9.1 (unreleased, rightkit#762; not tagged)
+
+- Added macOS products `RightKitActionChannel` for peer-verified action delivery, `RightKitMenuBarHelper` for the status item and helper lifecycle, and `RightKitDictationPill` for overlay and splash state, clipboard, and transitions. Hosts supply identity, views, copy, motion, and actions. Awaiting native qualification.
 
 Closes the eight ScrapeRight port gaps in #762 and the two follow-ups in its thread. No tests were added; coverage is end-to-end.
 

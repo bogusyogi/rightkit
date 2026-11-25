@@ -2,6 +2,7 @@
 
 ## 0.1.1 candidate
 
+- Require `rightkit-overlay` 0.2.4 (titled message-only window), matching the workspace path crate.
 - Add caller-required geometry, motion, hint/cadence, event pipeline & session infrastructure with host-supplied presentation inputs.
 - Add host-configured native C bridge & generation-aware clipboard override lifecycle, including settled refresh identity.
 - Carry splash generations through truthful show/dismiss acknowledgment, forced completion & close callback; buffer reentrant close & sample app readiness outside Rust mutex.

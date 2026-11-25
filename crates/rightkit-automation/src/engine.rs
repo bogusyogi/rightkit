@@ -4,7 +4,9 @@
 
 use crate::admission::{Admission, Admit, EffectKind, EffectRequest, Settled};
 use crate::events::{Counters, DeniedBy, Journal, LifecycleEvent, Metrics};
+use crate::focus::FocusWatch;
 use crate::in_app::InApp;
+use crate::input_watch::{InputWatch, OwnerInput};
 use crate::keys;
 use crate::lease::{Admitted, Fence, Lease, LeaseRequest, LeaseStatus, Leases};
 use crate::model::*;
@@ -12,6 +14,7 @@ use crate::platform::{InputEvent, Platform};
 use crate::policy::*;
 use crate::redact::{self, Redactor, ShotContext, ShotReport};
 use crate::secret::{FieldOrigin, Secret};
+use crate::verify::{self, VerifiedOutcome, WindowState};
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -97,6 +100,7 @@ pub struct Automation<P: Platform> {
     session_seq: AtomicU64,
     pub(crate) leases: Leases,
     admission: Mutex<Option<Arc<dyn Admission>>>,
+    input_watch: Mutex<Option<Arc<dyn InputWatch>>>,
     journals: Mutex<Vec<Arc<dyn Journal>>>,
     redactors: Mutex<Vec<Arc<dyn Redactor>>>,
     pub(crate) counters: Counters,
@@ -142,6 +146,7 @@ impl<P: Platform> Automation<P> {
             session_seq: AtomicU64::new(0),
             leases: Leases::default(),
             admission: Mutex::new(None),
+            input_watch: Mutex::new(None),
             journals: Mutex::new(vec![]),
             redactors: Mutex::new(vec![]),
             counters: Counters::default(),
@@ -164,6 +169,12 @@ impl<P: Platform> Automation<P> {
     /// validation and before execution; a denial runs nothing.
     pub fn set_admission(&self, a: Arc<dyn Admission>) {
         *self.admission.lock().unwrap() = Some(a);
+    }
+    /// Turn on detection of the owner's own keyboard and mouse use (see [`crate::input_watch`]): an act
+    /// then stops with `Error::UserInControl` before any tier or foreground event it would send once the
+    /// owner has used the keyboard or mouse since the act began. `None` turns it off, which is the default.
+    pub fn set_input_watch(&self, watch: Option<Arc<dyn InputWatch>>) {
+        *self.input_watch.lock().unwrap() = watch;
     }
     /// Receive structured lifecycle events (start, stop, target exit, denied, lease).
     pub fn add_journal(&self, j: Arc<dyn Journal>) {
@@ -1220,6 +1231,13 @@ impl<P: Platform> Automation<P> {
 
         let front0 = self.front_pid();
         rc.frontmost_before = front0;
+        let owner = OwnerInput::begin(self.input_watch.lock().unwrap().clone());
+        // With `strict_focus`, sample the foreground for the whole span of the ladder, so a steal
+        // that is undone before the final read still counts. Dropped on any early return.
+        let focus_watch = opts.strict_focus.then(|| {
+            let p = self.p.clone();
+            FocusWatch::start(move || p.frontmost(), Duration::from_millis(10))
+        });
 
         // The ladder.
         let mut last_err: Option<Error> = None;
@@ -1239,7 +1257,19 @@ impl<P: Platform> Automation<P> {
             if killed() {
                 return Err(Error::Blocked("kill switch engaged".into()));
             }
-            match self.try_tier(tier, pid, window_id, el.as_ref(), frame, action, front0) {
+            if owner.used() {
+                return Err(Error::UserInControl);
+            }
+            match self.try_tier(
+                tier,
+                pid,
+                window_id,
+                el.as_ref(),
+                frame,
+                action,
+                front0,
+                &owner,
+            ) {
                 Ok(detail) => {
                     rc.attempts.push(Attempt {
                         tier,
@@ -1269,15 +1299,32 @@ impl<P: Platform> Automation<P> {
         }
         let front1 = self.front_pid();
         rc.frontmost_after = front1;
-        rc.focus_moved =
-            rc.tier_used != Some(Tier::Foreground) && front0.is_some() && front0 != front1;
+        // The first app the watch saw in front that was not the starting one, if any. Samples the
+        // platform could not read say nothing, so an unmeasured watch never claims a move.
+        let stolen_by = focus_watch.map(FocusWatch::finish).and_then(|report| {
+            if report.measured == 0 {
+                return None;
+            }
+            report
+                .states
+                .iter()
+                .map(|(pid, _)| *pid)
+                .find(|pid| Some(*pid) != front0)
+        });
+        rc.focus_moved = rc.tier_used != Some(Tier::Foreground)
+            && front0.is_some()
+            && (front0 != front1 || stolen_by.is_some());
         if rc.focus_moved && opts.strict_focus {
             if let Some(b) = front0 {
                 self.restore_front(b);
             }
             return Err(Error::FocusMoved {
                 before: front0,
-                after: front1,
+                after: if front0 != front1 {
+                    front1
+                } else {
+                    stolen_by.or(front1)
+                },
             });
         }
         if done {
@@ -1312,6 +1359,52 @@ impl<P: Platform> Automation<P> {
             let _ = round;
         }
         self.front_pid() == Some(pid)
+    }
+
+    /// [`Automation::act`] with the window observed before and after, so an action that a control
+    /// ignored is reported as [`verify::Verdict::NoEffect`] instead of looking done.
+    ///
+    /// A fresh snapshot of the snapshot's own target is taken just before the act (the stored one
+    /// may already be old) and another after it, and they are compared on each node's id, role,
+    /// name, value and enabled flag plus the focused node (`WindowState`). Both snapshots go
+    /// through the same kill switch, allowlist and admission `Observe` gate as any snapshot.
+    /// `opts.settle_ms` is the time the app gets to react before the second one; set it for a
+    /// control that answers slowly.
+    ///
+    /// The verdict is `None` when the guard found the snapshot stale (nothing ran). An app that
+    /// exited during the act is an effect. A snapshot that could not be taken, or one that hit its
+    /// node limit with nothing else changed, is `Unmeasured`: the caller must not read that as
+    /// either an effect or a no-effect. An error from the act itself is returned as is.
+    pub fn act_verified(
+        &self,
+        snapshot: &str,
+        element: Option<&str>,
+        action: Action,
+        opts: &ActOptions,
+    ) -> Result<VerifiedOutcome> {
+        let (target, limits, pid) =
+            self.with_stored(snapshot, |s| (s.target.clone(), s.limits, s.snap.pid))?;
+        let before = self
+            .snapshot(target.clone(), limits)
+            .ok()
+            .map(|s| WindowState::from_snapshot(&s));
+        let outcome = self.act(snapshot, element, action, opts)?;
+        if outcome.fresh.is_some() {
+            return Ok(VerifiedOutcome {
+                outcome,
+                verdict: None,
+            });
+        }
+        let after = match self.snapshot(target, limits) {
+            Ok(s) => Some(WindowState::from_snapshot(&s)),
+            Err(_) if self.p.app(pid).is_none() => Some(WindowState::gone()),
+            Err(_) => None,
+        };
+        let verdict = verify::compare(before.as_ref(), after.as_ref(), WindowState::delta);
+        Ok(VerifiedOutcome {
+            outcome,
+            verdict: Some(verdict),
+        })
     }
 
     /// Run a sequence of acts; the kill switch is honoured between steps.
@@ -1448,6 +1541,7 @@ impl<P: Platform> Automation<P> {
         frame: Option<Rect>,
         action: &Action,
         front0: Option<i32>,
+        owner: &OwnerInput,
     ) -> std::result::Result<String, TierFail> {
         let skip = |s: &'static str| TierFail {
             error: Error::Unsupported(s),
@@ -1571,19 +1665,50 @@ impl<P: Platform> Automation<P> {
                     }
                     let mut n = 0;
                     for ev in &evs {
-                        self.p.foreground(pid, ev).map_err(|e| TierFail {
-                            error: e,
-                            stop: n > 0,
-                        })?;
+                        // The owner touched the keyboard or mouse since the act began: stop before this
+                        // event, put the window that was in front back, and say whose hands are on it.
+                        if owner.used() {
+                            if let Some(b) = front0 {
+                                if b != pid {
+                                    self.restore_front(b);
+                                }
+                            }
+                            return Err(TierFail {
+                                error: Error::UserInControl,
+                                stop: true,
+                            });
+                        }
+                        if let Err(e) = self.p.foreground(pid, ev) {
+                            // The window that was in front comes back after a failed event too, and
+                            // an error that could not put it back says so instead of hiding it.
+                            let restored = match front0 {
+                                Some(b) if b != pid => self.restore_front(b),
+                                _ => true,
+                            };
+                            return Err(TierFail {
+                                error: if restored {
+                                    e
+                                } else {
+                                    Error::Platform(
+                                        0,
+                                        "a foreground event failed and the previous window could not be brought back",
+                                    )
+                                },
+                                stop: n > 0,
+                            });
+                        }
                         n += 1;
+                        owner.own_event_sent();
                         std::thread::sleep(Duration::from_millis(20));
                     }
-                    if let Some(b) = front0 {
-                        if b != pid {
-                            self.restore_front(b);
-                        }
-                    }
-                    Ok(format!("{n} foreground event(s); focus restored"))
+                    let restored = match front0 {
+                        Some(b) if b != pid => self.restore_front(b),
+                        _ => true,
+                    };
+                    Ok(format!(
+                        "{n} foreground event(s); focus {}",
+                        if restored { "restored" } else { "NOT restored" }
+                    ))
                 }
             }
         }

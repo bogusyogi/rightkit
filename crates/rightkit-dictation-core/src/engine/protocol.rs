@@ -122,6 +122,12 @@ pub enum EngineSchemaName {
     WakeListenStarted,
     WakeListenStopped,
     WakeEvent,
+    /// Shell -> engine: open the follow-up window (`EnginePayload::FollowUpOpen`). Answered with an
+    /// `EngineAck` (`ok`, or an error frame when a recording or wake listening owns the microphone).
+    FollowUpOpen,
+    /// Shell -> engine: close the follow-up window now. Answered with an `EngineAck` whose status is
+    /// `closed`, or `noop` when none was open.
+    FollowUpClose,
 }
 
 /// Capability string a sidecar advertises in its `EngineCapabilities` reply when
@@ -539,6 +545,14 @@ pub enum EnginePayload {
         #[serde(default)]
         score: Option<f32>,
     },
+    /// Payload of `EngineSchemaName::FollowUpOpen`: keep the microphone open for `window_ms`; speech
+    /// that begins inside it starts an addressed recording with no wake word, announced as a
+    /// `WakeFired` whose `model` is `follow-up`. The engine clamps the window to 500..=30000 ms.
+    FollowUpOpen {
+        window_ms: u64,
+    },
+    /// Payload of `EngineSchemaName::FollowUpClose`.
+    FollowUpClose,
 }
 
 /// Start-bound field context. This is content provenance for one recording;

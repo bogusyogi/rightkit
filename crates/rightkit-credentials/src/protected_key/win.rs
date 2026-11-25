@@ -132,6 +132,17 @@ pub(super) fn public_key(tag: &str) -> Result<Option<PublicKey>> {
     })
 }
 
+/// Whether Windows Hello can make and use key credentials on this computer. A failed query is `false`.
+pub(super) fn hello_supported() -> bool {
+    on_mta(|| {
+        KeyCredentialManager::IsSupportedAsync()
+            .map_err(os("hello support"))?
+            .join()
+            .map_err(os("hello support"))
+    })
+    .unwrap_or(false)
+}
+
 pub(super) fn create(tag: &str, _protection: Protection) -> Result<PublicKey> {
     let name = HSTRING::from(tag);
     on_mta(move || {

@@ -3,6 +3,10 @@ use super::*;
 #[allow(unused_imports)]
 use super::{events::*, server::*};
 
+/// Shortest and longest follow-up window the engine opens, in milliseconds.
+const FOLLOW_UP_MIN_MS: u64 = 500;
+const FOLLOW_UP_MAX_MS: u64 = 30_000;
+
 pub(crate) fn handle(
     runtime: &Arc<Mutex<EngineRuntime>>,
     writer: &Arc<Mutex<io::Stdout>>,
@@ -576,6 +580,47 @@ pub(crate) fn handle(
                     model: model.or_else(|| Some("kws-hey-zephyr".into())),
                     threshold: Some(threshold),
                     fake: None,
+                }),
+                None,
+            )
+        }
+        Request::OpenFollowUp { window_ms } => {
+            let window_ms = window_ms.clamp(FOLLOW_UP_MIN_MS, FOLLOW_UP_MAX_MS);
+            let opened = runtime.lock().worker_handle().and_then(|handle| {
+                handle.open_follow_up(std::time::Duration::from_millis(window_ms))
+            });
+            if let Err(message) = opened {
+                return error_frame(request_id, &trace_id, None, &message);
+            }
+            EngineFrame::base(
+                EngineSchemaName::EngineAck,
+                request_id,
+                None,
+                &trace_id,
+                Some(EnginePayload::EngineAck {
+                    status: "ok".into(),
+                    detail: Some(format!("window_ms={window_ms}")),
+                }),
+                None,
+            )
+        }
+        Request::CloseFollowUp => {
+            let was_open = match runtime
+                .lock()
+                .worker_handle()
+                .and_then(|handle| handle.close_follow_up())
+            {
+                Ok(was_open) => was_open,
+                Err(message) => return error_frame(request_id, &trace_id, None, &message),
+            };
+            EngineFrame::base(
+                EngineSchemaName::EngineAck,
+                request_id,
+                None,
+                &trace_id,
+                Some(EnginePayload::EngineAck {
+                    status: if was_open { "closed" } else { "noop" }.into(),
+                    detail: None,
                 }),
                 None,
             )

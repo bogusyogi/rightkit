@@ -92,10 +92,12 @@ pub fn sync() {
     }
 }
 
-/// The application wrote the clipboard itself (a paste or a copy from the strip): that change, and the
-/// ones the write makes while it runs, are not copies. Called with the clipboard closed.
-pub fn note_own_write() {
-    OWN_SEQ.store(win::sequence(), Ordering::Relaxed);
+/// Records an eager write's final sequence while its clipboard guard is held.
+/// The returned sequence lets the caller verify ownership before restoring.
+pub fn note_own_write(_open: &Open) -> u32 {
+    let sequence = win::sequence();
+    OWN_SEQ.store(sequence, Ordering::Relaxed);
+    sequence
 }
 
 // ---- the listener thread ------------------------------------------------------------------
@@ -264,7 +266,7 @@ fn reader_main(rx: &Receiver<Change>) {
         while let Ok(next) = rx.try_recv() {
             change = next;
         }
-        if host::switch_on("launcherClipboard") {
+        if host::switch_on("launcherClipboard") && host::capture_reads_enabled() {
             read(&change);
         }
     }
@@ -452,7 +454,7 @@ fn capture_from(raw: Raw, source: Option<SourceApp>, change: &Change) -> Option<
                 return None;
             }
             capture.kind = Kind::Image;
-            capture.thumb = thumbnail_of(&bytes);
+            capture.thumb = clip_img::thumbnail_png(&bytes);
             capture.screenshot = is_screenshot(source.as_ref(), change, width, height);
             capture.png = Some((bytes, width, height));
         }
@@ -540,16 +542,6 @@ fn store(raw: Raw, source: Option<SourceApp>, change: &Change) {
         // The hub's count of items follows.
         host::store_changed();
     }
-}
-
-/// The card's thumbnail of a PNG, made from a temporary file.
-fn thumbnail_of(png: &[u8]) -> Option<Vec<u8>> {
-    let path = clip::tmp_file("png")?;
-    let made = rightkit_fs::atomic_write(&path, png)
-        .ok()
-        .and_then(|()| clip_img::thumbnail(&path));
-    let _ = std::fs::remove_file(&path);
-    made
 }
 
 /// A picture is a screenshot when its source is a screenshot tool or the application's own, or it is

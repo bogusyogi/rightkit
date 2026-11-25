@@ -55,6 +55,26 @@ impl KeyManager {
         format!("sync-keys/{}/v{}", self.account_id, version)
     }
 
+    fn wipe_marker_name(&self) -> String {
+        format!("sync-keys/{}/wipe-pending", self.account_id)
+    }
+
+    /// Durable "a revoke wipe was started" mark (survives `forget_all`, which leaves it alone).
+    pub(crate) fn mark_wipe_pending(&self, issued_at: i64) -> Result<()> {
+        self.store
+            .set_str(&self.wipe_marker_name(), &issued_at.to_string())?;
+        Ok(())
+    }
+
+    pub(crate) fn wipe_pending(&self) -> Result<bool> {
+        Ok(self.store.exists(&self.wipe_marker_name())?)
+    }
+
+    pub(crate) fn clear_wipe_pending(&self) -> Result<()> {
+        self.store.delete(&self.wipe_marker_name())?;
+        Ok(())
+    }
+
     fn read_pointer(&self) -> Result<Option<u32>> {
         let Some(secret) = self.store.get(&self.pointer_name())? else {
             return Ok(None);

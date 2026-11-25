@@ -8,7 +8,10 @@
 //!   [`drafts`] and [`attachments`].
 //! - [`calendar`], [`drive`], [`people`] (contacts, groups, recipients), [`tasks`] and [`meet`].
 //!
-//! Tokens never leave the process except to Google; the caller stores refresh tokens.
+//! Tokens never leave the process except to Google. The caller stores refresh tokens: either
+//! passing one to [`google::Google::new`], or keeping it in a store of its own that
+//! [`google::Google::with_store`] reads and refreshes (feature `sealed-store` adds an encrypted
+//! file store, `oauth::sealed_file_store`).
 
 pub mod attachments;
 pub mod calendar;

@@ -956,7 +956,9 @@ impl NativeWatcher {
         path_is_source(&event.path) || event.rename_to.as_deref().is_some_and(path_is_source)
     }
 
-    fn take_native_events(&mut self) -> Result<(bool, Vec<WatchEvent>), WatchError> {
+    /// Drain the native queue. The third value is true when the queue overflowed: the events
+    /// were dropped and the caller must reconcile from a snapshot instead of publishing them.
+    fn take_native_events(&mut self) -> Result<(bool, Vec<WatchEvent>, bool), WatchError> {
         let Ok(mut queue) = self.native_queue.lock() else {
             self.gap = Some(EventGap {
                 reason: GapReason::EventOverflow,
@@ -991,10 +993,9 @@ impl NativeWatcher {
                 "event_overflow",
                 Some(format!("{actual}>{}", self.config.max_events)),
             );
-            return Err(WatchError::EventOverflow {
-                actual,
-                limit: self.config.max_events,
-            });
+            // Not a failure: the dropped events are recovered by one forced snapshot
+            // reconcile, which clears this gap when it succeeds.
+            return Ok((true, Vec::new(), true));
         }
         let events = std::mem::take(&mut queue.events);
         queue.keys.clear();
@@ -1004,7 +1005,7 @@ impl NativeWatcher {
             .into_iter()
             .filter(|event| self.native_event_is_source(event))
             .collect();
-        Ok((observed, events))
+        Ok((observed, events, false))
     }
 
     fn apply_known_event(&mut self, event: &WatchEvent) {
@@ -1147,7 +1148,8 @@ impl NativeWatcher {
             self.emit("poll_cancelled", None);
             return Err(WatchError::Snapshot(SnapshotError::Cancelled));
         }
-        let (native_events_observed, native_events) = self.take_native_events()?;
+        let (native_events_observed, native_events, queue_overflowed) =
+            self.take_native_events()?;
         let now = Instant::now();
         let backstop = self.backstop_interval();
         let marker = git_marker(&self.config.root);
@@ -1180,12 +1182,33 @@ impl NativeWatcher {
                     .saturating_add(native_events.len() as u64 + 1),
             });
         }
+        // An overflowing batch is never published event by event. Drop it and reconcile from a
+        // snapshot now; the snapshot diff is the truth, so no event is lost or applied twice.
+        let overflowed = queue_overflowed || native_events.len() > self.config.max_events;
+        if overflowed && !queue_overflowed {
+            self.gap = Some(EventGap {
+                reason: GapReason::EventOverflow,
+                source_clock: self.source_clock,
+            });
+            self.emit(
+                "event_overflow",
+                Some(format!(
+                    "{}>{}",
+                    native_events.len(),
+                    self.config.max_events
+                )),
+            );
+        }
+        if overflowed {
+            native_events.clear();
+        }
+        let snapshot_forced = force_snapshot || overflowed;
         // Notifications for ignored/generated paths are still observations,
         // but they do not identify a source event. Keep the snapshot drift
         // backstop active when filtering removed every queued event; otherwise
         // an unrelated `.agent`/directory notification can suppress the
         // reconciliation that discovers a missed source edit.
-        let snapshot_due = force_snapshot
+        let snapshot_due = snapshot_forced
             || self
                 .last_snapshot_at
                 .is_none_or(|at| at.elapsed() >= backstop);
@@ -1203,7 +1226,7 @@ impl NativeWatcher {
         // native queue it is the drift backstop, not the per-tick path.
         // Supervised residents configure a real interval so each supervisor
         // pass stays cheap; an explicit reconcile still forces one.
-        if !force_snapshot
+        if !snapshot_forced
             && self
                 .last_snapshot_at
                 .is_some_and(|at| at.elapsed() < backstop)
@@ -1257,20 +1280,24 @@ impl NativeWatcher {
             }
         };
         let events = reconcile_snapshots(&self.previous, &current, self.source_clock);
-        if events.len() > self.config.max_events {
-            self.gap = Some(EventGap {
-                reason: GapReason::EventOverflow,
-                source_clock: self.source_clock,
-            });
+        let events = if events.len() > self.config.max_events {
+            // Too many changes to hand over one by one (a branch switch, a generated tree).
+            // Hand over one root-level refresh instead and keep the watcher running: the
+            // consumer treats the `.git/HEAD` marker as "discover every change by digest",
+            // and the current snapshot becomes the baseline below.
             self.emit(
                 "event_overflow",
                 Some(format!("{}>{}", events.len(), self.config.max_events)),
             );
-            return Err(WatchError::EventOverflow {
-                actual: events.len(),
-                limit: self.config.max_events,
-            });
-        }
+            vec![WatchEvent {
+                kind: EventKind::Modify,
+                path: ".git/HEAD".into(),
+                rename_to: None,
+                source_clock: self.source_clock.saturating_add(1),
+            }]
+        } else {
+            events
+        };
         self.source_clock = self.source_clock.saturating_add(events.len() as u64);
         for event in &events {
             if let Err(error) = schedule_rebuild(event) {

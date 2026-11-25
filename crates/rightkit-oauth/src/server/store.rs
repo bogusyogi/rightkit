@@ -77,6 +77,61 @@ impl SealedFileTokenStore {
     }
 }
 
+/// Presents a server-mode [`TokenStore`] (locked get/put/delete over an account and a provider)
+/// as the crate-root [`crate::TokenStore`] (load/save/delete over one account), so a
+/// `credentials::Resolver` or any other crate-root consumer can run over the sealed file store.
+///
+/// Every call is made for the one `provider` string given at construction, so accounts of
+/// different providers in the same store never collide. Failures are reported as
+/// [`crate::OAuthError::Storage`] with fixed text (or `NeedsReauth` when the store asks for
+/// reauthorization); no path, key or token byte reaches an error, a log or `Debug` output.
+pub struct ServerStoreAdapter<S: TokenStore> {
+    inner: S,
+    provider: String,
+}
+
+impl<S: TokenStore> ServerStoreAdapter<S> {
+    /// `provider` must be non-empty; it names the provider half of the store key.
+    pub fn new(inner: S, provider: impl Into<String>) -> Result<Self, ServerAuthError> {
+        let provider = provider.into();
+        if provider.is_empty() {
+            return Err(ServerAuthError::InvalidConfig);
+        }
+        Ok(Self { inner, provider })
+    }
+}
+
+impl<S: TokenStore> std::fmt::Debug for ServerStoreAdapter<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ServerStoreAdapter { [redacted] }")
+    }
+}
+
+fn adapter_error(error: ServerAuthError) -> crate::OAuthError {
+    match error {
+        ServerAuthError::ReauthRequired => crate::OAuthError::NeedsReauth,
+        _ => crate::OAuthError::Storage("token store unavailable".to_string()),
+    }
+}
+
+impl<S: TokenStore> crate::TokenStore for ServerStoreAdapter<S> {
+    fn load(&self, account: &str) -> Result<Option<TokenSet>, crate::OAuthError> {
+        self.inner
+            .get(account, &self.provider)
+            .map_err(adapter_error)
+    }
+    fn save(&self, account: &str, tokens: &TokenSet) -> Result<(), crate::OAuthError> {
+        self.inner
+            .put(account, &self.provider, tokens)
+            .map_err(adapter_error)
+    }
+    fn delete(&self, account: &str) -> Result<(), crate::OAuthError> {
+        self.inner
+            .delete(account, &self.provider)
+            .map_err(adapter_error)
+    }
+}
+
 struct FileGuard<'a> {
     store: &'a SealedFileTokenStore,
     _lock: File,

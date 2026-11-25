@@ -215,16 +215,7 @@ fn timestamp_from_ms(value: i64) -> String {
     let days = seconds.div_euclid(86_400);
     let rem = seconds.rem_euclid(86_400);
     let (hour, minute, second) = (rem / 3_600, (rem % 3_600) / 60, rem % 60);
-    let z = days + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = if month <= 2 { y + 1 } else { y };
+    let (year, month, day) = rightkit_time::civil_from_days(days);
     format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millis:03}Z")
 }
 
@@ -274,12 +265,23 @@ impl TemporalValidityV1 {
     }
 }
 
-pub struct TemporalFactStore {
-    pub(crate) db: MemDb,
+/// Supplies the existing writer connection for each temporal operation.
+pub trait TemporalDatabase {
+    fn lock_temporal(&self) -> std::sync::MutexGuard<'_, rusqlite::Connection>;
 }
 
-impl TemporalFactStore {
-    pub fn new(db: MemDb) -> Self {
+impl TemporalDatabase for MemDb {
+    fn lock_temporal(&self) -> std::sync::MutexGuard<'_, rusqlite::Connection> {
+        self.lock()
+    }
+}
+
+pub struct TemporalFactStore<D = MemDb> {
+    pub(crate) db: D,
+}
+
+impl<D: TemporalDatabase> TemporalFactStore<D> {
+    pub fn new(db: D) -> Self {
         Self { db }
     }
 
@@ -311,7 +313,7 @@ impl TemporalFactStore {
         observed_at: Option<&str>,
     ) -> Result<TemporalValidityReceiptV1, String> {
         record.validate()?;
-        let conn = self.db.lock();
+        let conn = self.db.lock_temporal();
         let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
         let payload_sha256 = digest(&record)?;
 
@@ -456,7 +458,7 @@ impl TemporalFactStore {
         &self,
         record_id: &str,
     ) -> Result<Option<TemporalValidityReceiptV1>, String> {
-        let conn = self.db.lock();
+        let conn = self.db.lock_temporal();
         let Some(payload_sha256) = conn
             .query_row(
                 "SELECT payload_sha256 FROM membrane_temporal_fact WHERE fact_id=?1",
@@ -520,7 +522,7 @@ impl TemporalFactStore {
         {
             return Err("temporal_validity_query_invalid".into());
         }
-        let conn = self.db.lock();
+        let conn = self.db.lock_temporal();
         for scope in scope_chain {
             let candidates = load_candidates(&conn, &scope, &subject, &predicate)?;
             if candidates.is_empty() {
@@ -557,7 +559,7 @@ impl TemporalFactStore {
         if record_id.trim().is_empty() {
             return Err("temporal_validity_identity_invalid".into());
         }
-        let conn = self.db.lock();
+        let conn = self.db.lock_temporal();
         load_memory_record(&conn, record_id)
     }
 
@@ -566,7 +568,7 @@ impl TemporalFactStore {
         if record_id.trim().is_empty() {
             return Err("temporal_validity_identity_invalid".into());
         }
-        let conn = self.db.lock();
+        let conn = self.db.lock_temporal();
         if load_record(&conn, record_id)?.is_none() {
             return memory_lineage(&conn, record_id);
         }
@@ -611,7 +613,7 @@ impl TemporalFactStore {
         single_valued: bool,
     ) -> Result<TemporalFactReceipt, String> {
         validate_fact(&fact)?;
-        let conn = self.db.lock();
+        let conn = self.db.lock_temporal();
         let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
         let mut fact = fact;
         if let Some((existing, stored_supersedes)) = tx
@@ -750,7 +752,7 @@ impl TemporalFactStore {
         // `membrane_temporal_fact` so the fact-shaped read stays truthful;
         // rows with no fact-table entry (memory-derived validity) keep the
         // recorded-time fallback.
-        let conn = self.db.lock();
+        let conn = self.db.lock_temporal();
         outcome
             .records
             .into_iter()

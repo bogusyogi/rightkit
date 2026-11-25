@@ -5,7 +5,8 @@
 //! rightkit-qa list    [--tier fast|local-models|paid|all[,..]] [--only s]
 //! rightkit-qa run     [--tier ..] [--only s] [--engine path] [--ui-binary path]
 //!                     [--build] [--build-ui] [--keep-data] [--kind functional|visual]
-//!                     [--qualifying] [FILE.scenario.toml ...]
+//!                     [--qualifying] [--credential-owner <absolute installed executable>]
+//!                     [FILE.scenario.toml ...]
 //!                     (a qualifying run, `--qualifying` or RIGHTKIT_QA_QUALIFYING=1, refuses
 //!                     --build, --build-ui and --kill-orphans)
 //! rightkit-qa worker  <world dir>     (started by a qualifying run, never by hand: runs the one
@@ -29,6 +30,7 @@
 //!                     [--results <results.jsonl>] [--evidence-root <dir>] [--allow-dirty]
 //! rightkit-qa journeys run [--root <app root>] [--id J-001]... [--platform P] [--tier fast[,full,paid]]
 //!                     [--run-store-cap-bytes N] [--prepare-only]
+//!                     [--credential-owner <absolute installed executable>]
 use rightkit_qa::config::QaConfig;
 use rightkit_qa::evidence::Bundle;
 use rightkit_qa::guard::{
@@ -37,9 +39,12 @@ use rightkit_qa::guard::{
 };
 use rightkit_qa::process;
 use rightkit_qa::scenario::{discover, unmet_requirement, Scenario};
+use rightkit_qa::snapshot::OwnerConfig;
 use rightkit_qa::storage::RunKind;
-use rightkit_qa::suite::{run_suite, run_suite_qualifying, select, SuiteOptions};
-use rightkit_qa::util::{err, Result};
+use rightkit_qa::suite::{
+    run_suite, run_suite_qualifying, run_suite_with_owner, select, SuiteOptions,
+};
+use rightkit_qa::util::{err, Error, Result};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -96,6 +101,7 @@ impl Args {
             "--id",
             "--platform",
             "--run-store-cap-bytes",
+            "--credential-owner",
         ];
         let mut out = vec![];
         let mut skip = false;
@@ -621,8 +627,9 @@ fn journeys_run(a: &Args) -> Result<i32> {
         build_from_prebuilt, plan_report, PrebuiltInput, ATTESTATION_FLAG, LISTING_FLAG,
     };
     use rightkit_qa::journeys::run::{
-        close_prepared, plan_only, prepare_with, refuse_flags_in_qualifying, run_journeys,
-        run_journeys_prebuilt, JourneyRunOptions, PrepareOptions, RunMode, StoreCap,
+        close_prepared, plan_only, prepare_with, refuse_flags_in_qualifying,
+        run_journeys_prebuilt_with_owner, run_journeys_with_owner, JourneyRunOptions,
+        PrepareOptions, RunMode, StoreCap,
     };
     // `journeys run` is always a qualifying run: no build flags, no quiet orphan kills.
     refuse_flags_in_qualifying(&a.0)?;
@@ -668,12 +675,35 @@ fn journeys_run(a: &Args) -> Result<i32> {
         exe: std::env::current_exe()?,
         mode: RunMode::Qualifying,
     };
+    let credential_owner = installed_credential_owner(a)?;
     let report = match &prebuilt {
-        Some(input) => run_journeys_prebuilt(&run_options, input)?,
-        None => run_journeys(&run_options)?,
+        Some(input) => run_journeys_prebuilt_with_owner(&run_options, input, credential_owner)?,
+        None => run_journeys_with_owner(&run_options, credential_owner)?,
     };
     println!("{}", report.describe());
     Ok(report.exit_code())
+}
+
+fn installed_credential_owner(a: &Args) -> Result<Option<OwnerConfig>> {
+    if a.0.iter().any(|arg| arg.starts_with("--credential-owner=")) {
+        return err("use --credential-owner <absolute installed executable>");
+    }
+    if a.0
+        .iter()
+        .filter(|arg| *arg == "--credential-owner")
+        .count()
+        > 1
+    {
+        return err("--credential-owner must name exactly one installed executable");
+    }
+    if a.has("--credential-owner") {
+        let path = a.value("--credential-owner").ok_or_else(|| {
+            Error("--credential-owner needs an absolute installed executable".into())
+        })?;
+        OwnerConfig::for_executable(Path::new(&path)).map(Some)
+    } else {
+        Ok(None)
+    }
 }
 
 const GENERAL_USAGE: &str = "usage: rightkit-qa <doctor|list|run|guard|sweep|prune-runs|homes|clean|verify|run-tests|journeys|install|exec|proc|control|display-prefs|release-kept> [--config rightkit-qa.toml] ...\nrun `rightkit-qa <command> --help` for one command's usage";
@@ -712,7 +742,7 @@ fn command_usage(cmd: &str) -> String {
     let line = match cmd {
         "doctor" => "usage: rightkit-qa doctor [--config rightkit-qa.toml]",
         "list" => "usage: rightkit-qa list [--config rightkit-qa.toml]",
-        "run" => "usage: rightkit-qa run [--config rightkit-qa.toml] [--qualifying] [--build] [--build-ui] [--kill-orphans] ...",
+        "run" => "usage: rightkit-qa run [--config rightkit-qa.toml] [--qualifying] [--credential-owner <absolute installed executable>] [--build] [--build-ui] [--kill-orphans] ...",
         "guard" => "usage: rightkit-qa guard [--app-root <dir>] [--config rightkit-qa.toml] [--backend control|wdio]",
         "sweep" => "usage: rightkit-qa sweep [--config rightkit-qa.toml] ...",
         "prune-runs" => "usage: rightkit-qa prune-runs [--config rightkit-qa.toml] ...",
@@ -735,7 +765,7 @@ fn journeys_usage(sub: Option<&str>) -> String {
     let line = match sub {
         Some("check") => "usage: rightkit-qa journeys check [--root <dir>]",
         Some("validate-receipt") => "usage: rightkit-qa journeys validate-receipt <receipt.json> [--tree <40-hex>] [--manifest <path>] [--results <file>] [--evidence-root <dir>] [--allow-dirty]",
-        Some("run") => "usage: rightkit-qa journeys run [--qualifying] [--prepare-only] [--from-cargo-json <listing> --prebuilt-attestation <file>] [--print-build-plan] [--config rightkit-qa.toml] ...\n  --from-cargo-json/--prebuilt-attestation (capability journeys-prebuilt-input): consume the gate's carried, signed build; nothing compiles\n  --print-build-plan [--from-cargo-json <listing>]: print the declared build and the role to executable mapping as JSON; nothing is built",
+        Some("run") => "usage: rightkit-qa journeys run [--qualifying] [--prepare-only] [--from-cargo-json <listing> --prebuilt-attestation <file>] [--print-build-plan] [--credential-owner <absolute installed executable>] [--config rightkit-qa.toml] ...\n  --from-cargo-json/--prebuilt-attestation (capability journeys-prebuilt-input): consume the gate's carried, signed build; nothing compiles\n  --credential-owner: bind the installed schema-2 credential owner for an executed run; no direct-store fallback\n  --print-build-plan [--from-cargo-json <listing>]: print the declared build and the role to executable mapping as JSON; nothing is built",
         _ => "usage: rightkit-qa journeys <check|validate-receipt|run> ...",
     };
     line.to_string()
@@ -764,8 +794,10 @@ fn run() -> Result<i32> {
         Some("list") => list(&a),
         Some("run") => {
             let mut opts = options(&a)?;
+            let qualifying =
+                rightkit_qa::journeys::run::is_qualifying(&a.0, &|k| std::env::var(k).ok());
             // A qualifying run never compiles and never kills survivors quietly.
-            if rightkit_qa::journeys::run::is_qualifying(&a.0, &|k| std::env::var(k).ok()) {
+            if qualifying {
                 rightkit_qa::journeys::run::refuse_flags_in_qualifying(&a.0)?;
                 rightkit_qa::journeys::run::refuse_options_in_qualifying(&opts)?;
             }
@@ -774,10 +806,12 @@ fn run() -> Result<i32> {
             opts.plugin = cfg.plugin_spec()?;
             // A qualifying run is judged by the strict rule and runs each scenario in a supervised
             // worker (`<this exe> worker <world dir>`); any other run stays in this process.
-            if rightkit_qa::journeys::run::is_qualifying(&a.0, &|k| std::env::var(k).ok()) {
-                return Ok(run_suite_qualifying(&cfg, &opts)?.exit_code);
-            }
-            Ok(run_suite(&cfg, &opts)?.exit_code)
+            let report = match installed_credential_owner(&a)? {
+                Some(owner) => run_suite_with_owner(&cfg, &opts, qualifying, owner)?,
+                None if qualifying => run_suite_qualifying(&cfg, &opts)?,
+                None => run_suite(&cfg, &opts)?,
+            };
+            Ok(report.exit_code)
         }
         Some(rightkit_qa::worker_main::WORKER_SUBCOMMAND) => {
             let Some(dir) = a.0.get(1) else {

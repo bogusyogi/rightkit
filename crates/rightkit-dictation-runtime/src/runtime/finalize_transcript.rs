@@ -50,6 +50,9 @@ pub(crate) struct FinalizeCapture {
     pub(crate) stop_started_at: Option<Instant>,
     pub(crate) transcript: String,
     pub(crate) stop_evidence: crate::worker::StopEvidence,
+    /// The recording began from the wake word: its words are addressed to the agent. When no command
+    /// matches, they go to Pulse (when the host turned the hand-off on) instead of being typed.
+    pub(crate) addressed: bool,
     pub(crate) standalone_action: Option<rightkit_voice_commands::command::CommandAction>,
     pub(crate) send_enter: bool,
     pub(crate) ai_transform: Option<rightkit_text_polish::text_pipeline::AiTransformIntent>,
@@ -175,6 +178,7 @@ impl EngineRuntime {
                 text,
                 tokens: Vec::new(),
                 stop_evidence: crate::worker::StopEvidence::Manual,
+                addressed: false,
             }),
             audio_secs,
             None,
@@ -199,8 +203,12 @@ impl EngineRuntime {
         let stop_started_at = self.stop_started_at.take();
         let send_enter = std::mem::take(&mut self.pending_send_enter);
         let local_only_stop = std::mem::take(&mut self.pending_local_only);
-        let (mut transcript, stop_evidence) = match result {
-            Ok(final_transcript) => (final_transcript.text, final_transcript.stop_evidence),
+        let (mut transcript, stop_evidence, addressed) = match result {
+            Ok(final_transcript) => (
+                final_transcript.text,
+                final_transcript.stop_evidence,
+                final_transcript.addressed,
+            ),
             Err(message) => {
                 self.record_terminal_tombstone(session_id);
                 self.state = EngineState::Error {
@@ -214,13 +222,16 @@ impl EngineRuntime {
         // Wake command authority arrives only from KWS through
         // `pending_send_enter` or the worker's cancel event. Final main-ASR
         // text remains dictation; it cannot select STOP, SEND, or CANCEL.
-        let mut ai_transform = take_final_ai_transform(&mut transcript).inspect(|intent| {
-            tracing::info!(
-                intent = ?intent,
-                parser = "final_asr_lexical",
-                "ai_transform_tail_detected"
-            );
-        });
+        let mut ai_transform = (!unresolved_control_tail(&stop_evidence))
+            .then(|| take_final_ai_transform(&mut transcript))
+            .flatten()
+            .inspect(|intent| {
+                tracing::info!(
+                    intent = ?intent,
+                    parser = "final_asr_lexical",
+                    "ai_transform_tail_detected"
+                );
+            });
         // Field bug 2026-07-16: saying just "summarize" (ASR often adds a
         // leading filler the tail parser strips) matched the TAIL lane with
         // EMPTY content — L3 then summarized nothing and pasted the model's
@@ -250,6 +261,7 @@ impl EngineRuntime {
                 stop_started_at,
                 transcript,
                 stop_evidence,
+                addressed,
                 standalone_action,
                 send_enter,
                 ai_transform,
@@ -429,6 +441,65 @@ pub(crate) fn stale_selection_fallback_commit(
     )
 }
 
+/// Hand an addressed recording that no command matched to Pulse as a task (`docs/contracts/voice.md`, VO-1).
+/// `None` when the host did not turn the hand-off on, or the recording is not eligible: the caller then
+/// carries on as dictation, as it always did. The words are cleared only on an accepted receipt
+/// (`CommandDispatched`, action `pulse.task`); every other receipt keeps them (`HandoffKept`) and nothing
+/// is typed or replayed. Runs unlocked, in phase 2, and blocks for at most the command line's timeouts.
+fn pulse_handoff_commit(
+    session_id: &str,
+    transcript: &str,
+    stop_evidence: &crate::worker::StopEvidence,
+) -> Option<FinalizeCommit> {
+    use rightkit_dictation_command_host::pulse_handoff::{submit_installed, Receipt};
+
+    let identity = crate::host::pulse_handoff()?;
+    let words = transcript.trim();
+    let cancelled = matches!(
+        stop_evidence,
+        crate::worker::StopEvidence::Zephyr {
+            intent: rightkit_text_polish::text_pipeline::ControlIntent::Cancel,
+            ..
+        }
+    );
+    if words.is_empty() || cancelled {
+        return None;
+    }
+    // The interview question Pulse is waiting on, if any, rides along; an accepted hand-off answers it.
+    let question = crate::host::pending_interview_question();
+    let record = identity.record_for(session_id, words, question.as_deref());
+    let outcome = match submit_installed(&record, identity.spoken_reply) {
+        Receipt::Accepted {
+            task_id,
+            task_status,
+            ..
+        } => {
+            if question.is_some() {
+                crate::host::set_pending_interview_question(None);
+            }
+            FinalizeOutcome::CommandDispatched {
+                action: "pulse.task".to_string(),
+                detail: format!("{task_id} {task_status}"),
+            }
+        }
+        kept => FinalizeOutcome::HandoffKept {
+            text: words.to_string(),
+            message: kept.pill_message().unwrap_or_default(),
+        },
+    };
+    Some(FinalizeCommit::outcome_only(outcome))
+}
+
+fn unresolved_control_tail(evidence: &crate::worker::StopEvidence) -> bool {
+    matches!(
+        evidence,
+        crate::worker::StopEvidence::Zephyr {
+            cut_status: crate::worker::ControlCutStatus::Unresolved,
+            ..
+        }
+    )
+}
+
 pub(crate) fn finalize_phase2_process(
     capture: FinalizeCapture,
     is_current: &dyn Fn() -> bool,
@@ -437,7 +508,8 @@ pub(crate) fn finalize_phase2_process(
         session_id,
         stop_started_at,
         mut transcript,
-        stop_evidence: _stop_evidence,
+        stop_evidence,
+        addressed,
         standalone_action,
         send_enter,
         mut ai_transform,
@@ -450,6 +522,30 @@ pub(crate) fn finalize_phase2_process(
         context_request_attempted,
         context_original_binding,
     } = capture;
+
+    if !local_only_stop && !transcript.trim().is_empty() && unresolved_control_tail(&stop_evidence)
+    {
+        trace_stop_to_engine_outcome(stop_started_at, "zephyr_trigger_unresolved");
+        let captured_target = focus.lock().captured_target();
+        let target = captured_target.unwrap_or_else(snapshot_target);
+        let recording_ms = audio_secs.map(|seconds| (seconds.max(0.0) * 1000.0) as u64);
+        let reason = CopyFallbackReason::clipboard_preserved();
+        let record = rightkit_transcript_library::delivery::copy_fallback_record_with_clipboard(
+            &transcript,
+            reason.clone(),
+            target,
+            |_| Err(reason),
+        )
+        .with_raw(None, recording_ms);
+        return Ok(FinalizeCommit::with_record(
+            FinalizeOutcome::Delivery {
+                record: record.clone(),
+                send_enter: false,
+            },
+            record,
+            false,
+        ));
+    }
 
     // Standalone voice commands are a Pro feature (root CLAUDE.md §6). The
     // SAME classifier the worker's streaming auto-fire uses decides command vs
@@ -662,6 +758,23 @@ pub(crate) fn finalize_phase2_process(
                     message: "selection_changed".to_string(),
                 },
             ));
+        }
+    }
+    // Addressed (wake-started) recording that matched no command, no AI-transform tail and is not the bare
+    // summarize trigger: it is a request to the agent, not dictation. It goes to Pulse and is never typed
+    // (decision 5, `docs/contracts/voice.md`). The classifier above is the one that decides "no command".
+    if addressed
+        && !local_only_stop
+        && ai_transform.is_none()
+        && !standalone_summarize_requested
+        && !rightkit_text_polish::text_pipeline::is_bare_summarize_trigger(&transcript)
+    {
+        if discard_if_superseded(is_current, &session_id, "before_pulse_handoff") {
+            return Ok(FinalizeCommit::discard());
+        }
+        if let Some(commit) = pulse_handoff_commit(&session_id, &transcript, &stop_evidence) {
+            trace_stop_to_engine_outcome(stop_started_at, "pulse_handoff");
+            return Ok(commit);
         }
     }
     // Copy-fallback (Adrian, 2026-07-16): a selection in a READ-ONLY region

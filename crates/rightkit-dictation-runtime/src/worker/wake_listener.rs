@@ -1,7 +1,7 @@
 #[allow(unused_imports)]
 use super::*;
 #[allow(unused_imports)]
-use super::{unified_probe_lane::*, worker_api::*};
+use super::{follow_up::*, unified_probe_lane::*, worker_api::*};
 
 const IDLE_AUDIO_WINDOW_SAMPLES: usize = rightkit_dictation_inference::IDLE_AUDIO_WINDOW_SAMPLES;
 
@@ -19,6 +19,9 @@ pub(crate) struct WakeListener {
     idle_audio_window: std::collections::VecDeque<f32>,
     idle_audio_origin: usize,
     handoff_audio: Vec<f32>,
+    /// An open session (see `FollowUpWatch`). Never set while `listening`, `start_pending` or a
+    /// recording is active.
+    follow_up: Option<FollowUpWatch>,
 }
 
 impl WakeListener {
@@ -33,11 +36,25 @@ impl WakeListener {
             idle_audio_window: std::collections::VecDeque::with_capacity(IDLE_AUDIO_WINDOW_SAMPLES),
             idle_audio_origin: 0,
             handoff_audio: Vec::with_capacity(SAMPLE_RATE as usize * 2),
+            follow_up: None,
         }
     }
 
+    /// The worker must poll audio, not park, while this is true: wake listening, a wake that is
+    /// waiting for its recording, or an open follow-up window.
     pub(crate) fn is_active(&self) -> bool {
-        self.listening || self.start_pending
+        self.listening || self.start_pending || self.follow_up.is_some()
+    }
+
+    /// Open the follow-up window for `window` from now. The caller has resumed capture.
+    pub(crate) fn open_follow_up(&mut self, window: Duration) {
+        self.handoff_audio.clear();
+        self.follow_up = Some(FollowUpWatch::open(Instant::now(), window));
+    }
+
+    /// Close the window; true when one was open. The caller pauses capture if no recording owns it.
+    pub(crate) fn close_follow_up(&mut self) -> bool {
+        self.follow_up.take().is_some()
     }
 
     /// Record a successful StartWakeListen once KWS and capture are running.
@@ -61,6 +78,7 @@ impl WakeListener {
         self.diagnostics = None;
         self.listening = false;
         self.start_pending = false;
+        self.follow_up = None;
         self.idle_audio_window.clear();
         self.handoff_audio.clear();
         self.fire_count
@@ -124,6 +142,7 @@ impl WakeListener {
                             ts,
                             fire_count: self.fire_count,
                             threshold: self.threshold,
+                            follow_up: false,
                         });
                     }
                     Ok(_) => {
@@ -161,23 +180,66 @@ impl WakeListener {
         }
     }
 
+    /// One chunk inside an open follow-up window: speech starts a recording seeded with the audio
+    /// heard so far (the same hand-off a wake makes, reported as a wake whose `follow_up` is set),
+    /// and an expired window closes and pauses capture.
+    fn pump_follow_up(
+        &mut self,
+        chunk: &[f32],
+        capture: &WorkerCapture,
+        event_tx: &Sender<WorkerEvent>,
+    ) {
+        let Some(watch) = self.follow_up.as_mut() else {
+            return;
+        };
+        match watch.ingest(Instant::now(), chunk) {
+            FollowUpStep::Waiting => {}
+            FollowUpStep::Speech(audio) => {
+                self.follow_up = None;
+                self.start_pending = true;
+                self.fire_count = self.fire_count.saturating_add(1);
+                self.handoff_audio = audio;
+                let ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs_f64();
+                tracing::info!(fire_count = self.fire_count, "follow-up speech began");
+                let _ = event_tx.send(WorkerEvent::WakeFired {
+                    ts,
+                    fire_count: self.fire_count,
+                    threshold: self.threshold,
+                    follow_up: true,
+                });
+            }
+            FollowUpStep::Expired => {
+                self.follow_up = None;
+                capture.pause();
+            }
+        }
+    }
+
     /// Feed idle KWS while listening, or buffer handoff audio while the
     /// runtime has not yet sent StartRecording.
     pub(crate) fn pump_audio(
         &mut self,
         asr_executor: &AsrExecutor,
         capture: &mut Option<WorkerCapture>,
+        event_tx: &Sender<WorkerEvent>,
     ) {
         if !self.is_active() {
             return;
         }
         let Some(cap) = capture else {
+            // No stream (a lost device, a suspend): a window cannot hear anything, so it ends.
+            self.follow_up = None;
             return;
         };
         cap.wait_for_audio(CAPTURE_POLL);
         match cap.read_f32(usize::MAX) {
             Ok(chunk) if !chunk.is_empty() => {
-                if self.listening {
+                if self.follow_up.is_some() {
+                    self.pump_follow_up(&chunk, cap, event_tx);
+                } else if self.listening {
                     if let Some(diagnostics) = self.diagnostics.as_mut() {
                         diagnostics.observe_audio(&chunk);
                     }

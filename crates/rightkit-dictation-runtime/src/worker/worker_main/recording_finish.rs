@@ -137,10 +137,12 @@ impl Worker {
         owner_diagnostics::capture_audio_parts(&session_id, &session.buffer, &[]);
         let final_audio_secs = audio_secs(&session.buffer);
         let final_audio = std::mem::take(&mut session.buffer);
+        let addressed = session.addressed;
         let asr_started = Instant::now();
         let transcribed = self.transcribe_final_result(final_generation, final_audio);
         let result = transcribed.map(|result| {
             crate::worker::FinalTranscript::from_asr(result, crate::worker::StopEvidence::Manual)
+                .addressed(addressed)
         });
         let asr_elapsed_ms = asr_started.elapsed().as_millis() as u64;
         rightkit_dictation_inference::timeline_recorder::mark(|t| &mut t.asr_done_ms);
@@ -239,6 +241,7 @@ impl Worker {
                 stop_evidence: crate::worker::StopEvidence::Standalone {
                     action: standalone_action.clone(),
                 },
+                addressed: false,
             }),
             audio_secs: Some(audio_secs(&session.buffer)),
             send_enter: false,
@@ -389,6 +392,9 @@ impl Worker {
                 );
                 let asr_elapsed = started.elapsed().as_millis() as u64;
                 let asr_elapsed_ms = Some(asr_elapsed);
+                let trigger_removed = cleanup
+                    .as_ref()
+                    .is_ok_and(|outcome| outcome.trigger_removed);
                 let (
                     result,
                     original_text,
@@ -417,9 +423,14 @@ impl Worker {
                                     intent,
                                     control_start_sample: Some(onset_sample),
                                     control_end_sample: None,
-                                    cut_status: crate::worker::ControlCutStatus::Skipped,
+                                    cut_status: if trigger_removed {
+                                        crate::worker::ControlCutStatus::Skipped
+                                    } else {
+                                        crate::worker::ControlCutStatus::Unresolved
+                                    },
                                 },
-                            )),
+                            )
+                            .addressed(session.addressed)),
                             Some(original_text),
                             outcome.boundary_sec,
                             Some(outcome.method),
@@ -456,7 +467,7 @@ impl Worker {
                     session_id: sid,
                     result,
                     audio_secs: Some(audio_secs(&session.buffer)),
-                    send_enter,
+                    send_enter: send_enter && trigger_removed,
                     standalone_action: None,
                     stage_metrics: RecordingStageMetrics {
                         vad_observed_frame_count: vad_aggregate.map(|value| value.0),
@@ -505,7 +516,7 @@ impl Worker {
                 trace_trigger_audio_cut_fallback(Some(&sid), reason, session.buffer.len());
                 (
                     session.buffer.len(),
-                    crate::worker::ControlCutStatus::Skipped,
+                    crate::worker::ControlCutStatus::Unresolved,
                 )
             }
         };
@@ -524,7 +535,7 @@ impl Worker {
                 "cut_decode_failed_full_buffer_retry",
                 session.buffer.len(),
             );
-            cut_status = crate::worker::ControlCutStatus::Skipped;
+            cut_status = crate::worker::ControlCutStatus::Unresolved;
             result = self.transcribe_final_result(final_generation, session.buffer.clone());
         }
         let asr_elapsed_ms = if decode_end == 0 {
@@ -542,10 +553,24 @@ impl Worker {
             } else {
                 full.text.clone()
             };
-            let stripped = rightkit_text_polish::text_pipeline::strip_fired_control_tail(
-                &residue_stripped,
-                intent,
-            );
+            let stripped = if cut_status == crate::worker::ControlCutStatus::Unresolved {
+                // With no reliable audio cut, only remove one explicit command.
+                // The repeated residue stripper can eat user words before it.
+                match rightkit_dictation_inference::control_cleanup::strip_explicit_control_tail(
+                    &full.text, intent,
+                ) {
+                    Some(text) => {
+                        cut_status = crate::worker::ControlCutStatus::Skipped;
+                        text
+                    }
+                    None => full.text.clone(),
+                }
+            } else {
+                rightkit_text_polish::text_pipeline::strip_fired_control_tail(
+                    &residue_stripped,
+                    intent,
+                )
+            };
             owner_diagnostics::record_event(json!({
                 "event": "final_transcript",
                 "session_id": &sid,
@@ -574,6 +599,7 @@ impl Worker {
                     cut_status,
                 },
             )
+            .addressed(session.addressed)
         });
         owner_diagnostics::capture_audio_parts(&sid, &session.buffer, &[]);
         let vad_aggregate = self.speech_vad.recording_aggregate();
@@ -581,7 +607,7 @@ impl Worker {
             session_id: sid,
             result,
             audio_secs: Some(audio_secs(&session.buffer)),
-            send_enter,
+            send_enter: send_enter && cut_status != crate::worker::ControlCutStatus::Unresolved,
             standalone_action: None,
             stage_metrics: RecordingStageMetrics {
                 vad_observed_frame_count: vad_aggregate.map(|value| value.0),
@@ -680,6 +706,7 @@ impl Worker {
         }
         let final_audio_secs = audio_secs(&session.buffer);
         let final_audio = std::mem::take(&mut session.buffer);
+        let addressed = session.addressed;
         let asr_started = Instant::now();
         let result = self
             .transcribe_final_result(final_generation, final_audio)
@@ -692,6 +719,7 @@ impl Worker {
                         crate::worker::StopEvidence::Silence
                     },
                 )
+                .addressed(addressed)
             });
         let asr_elapsed_ms = asr_started.elapsed().as_millis() as u64;
         let vad_aggregate = self.speech_vad.recording_aggregate();

@@ -21,6 +21,7 @@ pub use kdf::{
 pub use secret::{wipe, Secret};
 pub use sign::{
     ecdsa_p256_verify, ed25519_verify, rsa_pkcs1_sha256_verify, EcdsaEncoding, Ed25519Signer,
+    P256Signer,
 };
 
 use serde_json::Value;

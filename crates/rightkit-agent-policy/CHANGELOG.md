@@ -3,6 +3,8 @@
 ## 0.2.4
 
 - New `exec_reason(program, args, cwd)` checks what is about to be executed (the script file an interpreter will run, or the program file itself) with the destructive guard, so write-then-run forms through `split` or an interpreter are refused at launch (CodeRight #457 item 3, decision D6).
+- Additive (RK-5, blueprint AG-9): `hard_to_undo`, the one list of hard-to-undo steps from the permissions table. `HardToUndo` (send, reply, forward, move to Trash, change a shared event, submit, pay, publish, buy over the limit, sign in, open a site not on the list, run a terminal command, write outside approved folders; `ALL`, `as_str` for the approval kind, `task_scope_may_cover`: never for send, pay, publish or delete), `NeverClass` (show a secret to a model, delete permanently, change settings or approvals, act on the app or a security prompt, approve its own request, follow an instruction found in content, trade or move money), `StepFacts`, `OwnerLimits`, `PurchaseFacts`, `StepClass` and `classify_step`. A purchase under the owner's limit from a listed merchant acts alone; an unreadable amount, another currency, no limit or an unlisted merchant asks. The never class is decided first and reads no setting. `refuse_if_never` is the check a host runs before it files any approval. No version bump; no existing item changes.
+- End-to-end test `tests/hard_to_undo_e2e.rs` (not run: written without a build).
 
 ## 0.2.3
 

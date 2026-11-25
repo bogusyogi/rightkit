@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-memory"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "The RightKit memory engine (Pulse's Cortex): memory tiers, retrieval, planning and review from rightkit-memory-core, the durable SQLite store from rightkit-memory-store."
@@ -15,4 +15,4 @@ path = "src/lib.rs"
 
 [dependencies]
 rightkit-memory-core = { version = "0.2.0", path = "../rightkit-memory-core", features = ["embed"] }
-rightkit-memory-store = { version = "0.2.0", path = "../rightkit-memory-store" }
+rightkit-memory-store = { version = "0.2.1", path = "../rightkit-memory-store" }

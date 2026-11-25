@@ -79,6 +79,44 @@ pub fn aux_origin(
     (x.round() as i32, y.round() as i32)
 }
 
+/// Native window observations used when a pill frame or hitbox has not arrived yet.
+pub struct PillWindowProbe<'a> {
+    pub outer_position: &'a dyn Fn() -> Option<(f64, f64)>,
+    pub scale_factor: &'a dyn Fn() -> Option<f64>,
+    pub outer_size: &'a dyn Fn() -> Option<(f64, f64)>,
+}
+
+/// Anchor an auxiliary window to the reported pill frame and hitbox or native window bounds.
+pub fn aux_position(
+    probe: &PillWindowProbe<'_>,
+    popup_w: f64,
+    popup_h: f64,
+    gap: f64,
+) -> Option<(i32, i32)> {
+    let frame = match pill_physical_frame_snapshot() {
+        Some(frame) => frame,
+        None => {
+            let (x, y) = (probe.outer_position)()?;
+            PillPhysicalFrame {
+                x,
+                y,
+                scale: (probe.scale_factor)().unwrap_or(1.0),
+            }
+        }
+    };
+    let hitbox = pill_hitbox_snapshot().or_else(|| {
+        let scale = frame.scale.max(0.1);
+        let (width, height) = (probe.outer_size)()?;
+        Some(PillHitbox {
+            x: 0.0,
+            y: 0.0,
+            width: width / scale,
+            height: height / scale,
+        })
+    })?;
+    Some(aux_origin(&frame, &hitbox, popup_w, popup_h, gap))
+}
+
 static PILL_HITBOX: Mutex<Option<PillHitbox>> = Mutex::new(None);
 static PILL_PHYSICAL_FRAME: Mutex<Option<PillPhysicalFrame>> = Mutex::new(None);
 

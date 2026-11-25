@@ -147,6 +147,19 @@ pub async fn fetch_sync(
     .await
 }
 
+/// `fetch_sync` over a client the caller built (for example `Google::with_store`), so the
+/// refresh token stays in the caller's store. Same pass deadline and same result.
+pub async fn fetch_sync_with(
+    g: &Google,
+    start_history_id: Option<&str>,
+) -> Result<SyncWork, String> {
+    with_pass_deadline(
+        super::deadline::SYNC_PASS_DEADLINE,
+        run_sync_pass(g, start_history_id),
+    )
+    .await
+}
+
 /// Bound one whole sync pass by `limit`; expiry drops the pass (cancelling it)
 /// and returns a retryable error.
 pub async fn with_pass_deadline<T>(

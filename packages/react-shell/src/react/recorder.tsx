@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Kbd, usePlatform } from "@rightkit/platform-ui/react";
 import type { Platform } from "@rightkit/platform-ui";
-import { chordFromEvent } from "../shortcuts.js";
+import { chordFromEvent, nativeShortcutFromEvent, type NativeShortcutOptions } from "../shortcuts.js";
 import { useShellOptional } from "./provider.js";
 import { cx } from "./ui.js";
 
@@ -73,4 +73,48 @@ export function ShortcutRecorder({ value, onChange, label, platform, emptyLabel 
       )}
     </button>
   );
+}
+
+export interface NativeShortcutCaptureOptions extends NativeShortcutOptions {
+  active: boolean;
+  onRecord: (shortcut: string) => void;
+  onCancel: () => void;
+}
+
+const activeCaptures = new WeakMap<Window, () => void>();
+
+/** While active, take window key presses for a native binding. Escape cancels. The caller owns recording state. */
+export function useNativeShortcutCapture({ active, onRecord, onCancel, alt, meta, backspace }: NativeShortcutCaptureOptions): void {
+  const callbacks = useRef({ onRecord, onCancel });
+  useEffect(() => {
+    callbacks.current = { onRecord, onCancel };
+  }, [onRecord, onCancel]);
+
+  useEffect(() => {
+    if (!active) return;
+    const release = () => {
+      window.removeEventListener("keydown", onKey, true);
+      if (activeCaptures.get(window) === cancel) activeCaptures.delete(window);
+    };
+    const cancel = () => {
+      release();
+      callbacks.current.onCancel();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.code === "Escape") {
+        cancel();
+        return;
+      }
+      const shortcut = nativeShortcutFromEvent(event, { alt, meta, backspace });
+      if (shortcut === null) return;
+      release();
+      callbacks.current.onRecord(shortcut);
+    };
+    activeCaptures.get(window)?.();
+    activeCaptures.set(window, cancel);
+    window.addEventListener("keydown", onKey, true);
+    return release;
+  }, [active, alt, meta, backspace]);
 }

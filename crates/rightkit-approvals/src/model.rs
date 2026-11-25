@@ -297,3 +297,23 @@ impl Change {
         record.result = self.result.clone();
     }
 }
+
+impl Binding {
+    /// A binding to the arguments `args` (hashed by [`crate::args_digest`], so key order and
+    /// spacing do not matter), the `destination`, an absolute `expires_ms` (Unix milliseconds,
+    /// nonzero: [`crate::authority::recheck`] accepts no approval without one) and the
+    /// `revision` of the thing approved (a draft's revision counter).
+    pub fn of_effect(
+        args: &Value,
+        destination: impl Into<String>,
+        expires_ms: u64,
+        revision: u64,
+    ) -> Binding {
+        Binding {
+            args: crate::digest::args_digest(args),
+            destination: destination.into(),
+            expires_ms,
+            revision,
+        }
+    }
+}

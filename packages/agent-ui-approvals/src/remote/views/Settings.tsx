@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { useSearchKeys, useSettingsSearch, useSettingsSearchField } from "@rightkit/settings-ui/headless";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { Badge, Button, Checkbox, ConfirmDialog, IconButton, SegmentedControl, Select, Slider, Toggle, Input } from "@rightkit/react-shell/react";
+import { Badge, Button, Checkbox, ConfirmDialog, IconButton, SegmentedControl, Select, Slider, Toggle, Input, useNativeShortcutCapture } from "@rightkit/react-shell/react";
 import { formatChord, getPlatform } from "@rightkit/platform-ui";
 import type { AutoUpdateStatus } from "@rightkit/app-update";
 import { UpdatesControls, type UpdatesController } from "@rightkit/settings-ui/standard";
@@ -16,7 +16,7 @@ import { api, isWindows, tone, type DiskIndexHealth } from "@rightkit/system-ui/
 import { devicesApi, isProtectedKey, setProtectedSetting, type DeviceRecord } from "../api.js";
 import { Bar } from "@rightkit/system-ui/views/Storage";
 import { SettingRow, SettingsGroup, SettingsItem, SettingsSearchProvider, SettingsSearchSection } from "@rightkit/settings-ui/core";
-import { NeedsLine, openSectionLabel, windowShortcutFrom } from "./settingsKit.js";
+import { NeedsLine, openSectionLabel } from "./settingsKit.js";
 import { clearVisibleInterval, visibleInterval } from "@rightkit/system-ui/visible";
 
 /** "Show onboarding again" fires this on `window`; the host's onboarding gate listens for it. */
@@ -1196,26 +1196,17 @@ function ClipboardHotkeyRow({ value, status, set }: {
   set: (key: string, value: unknown) => void;
 }) {
   const [recording, setRecording] = useState(false);
-  useEffect(() => {
-    if (!recording) return;
-    const onKey = (e: KeyboardEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.code === "Escape") {
-        setRecording(false);
-        return;
-      }
-      const shortcut = windowShortcutFrom(e);
-      if (!shortcut) return;
-      // The recorder names Option "opt"; the clipboard grammar says "alt". Windows has no Command or Windows key here.
-      const parts = shortcut.split("+").map((p) => (p === "opt" ? "alt" : p));
-      if (isWindows && parts.includes("cmd")) return;
-      set("clipboardHotkey", parts.join("+"));
+  useNativeShortcutCapture({
+    active: recording,
+    alt: "alt",
+    meta: isWindows ? null : "cmd",
+    backspace: "delete",
+    onCancel: () => setRecording(false),
+    onRecord: (shortcut) => {
+      set("clipboardHotkey", shortcut);
       setRecording(false);
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [recording, set]);
+    },
+  });
   return (
     <>
       <SettingRow className="ck-set" label="Clipboard strip shortcut"
@@ -1351,23 +1342,17 @@ function SettingsHotkeyRow({ h, set }: {
   set: (key: string, value: unknown) => void;
 }) {
   const [recording, setRecording] = useState(false);
-  useEffect(() => {
-    if (!recording) return;
-    const onKey = (e: KeyboardEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.code === "Escape") {
-        setRecording(false);
-        return;
-      }
-      const shortcut = windowShortcutFrom(e);
-      if (!shortcut) return;
+  useNativeShortcutCapture({
+    active: recording,
+    alt: "opt",
+    meta: "cmd",
+    backspace: "delete",
+    onCancel: () => setRecording(false),
+    onRecord: (shortcut) => {
       set("settingsHotkey", shortcut);
       setRecording(false);
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [recording, set]);
+    },
+  });
   return (
     <SettingRow className="ck-set" label="Open Settings with a shortcut"
       description={isWindows
@@ -1394,24 +1379,17 @@ function WindowManagementGroup({ w, accessibility, s, set }: {
   set: (key: string, value: unknown) => void;
 }) {
   const [recording, setRecording] = useState<string | null>(null);
-  // While an action waits for its shortcut, the next key press with a modifier is taken.
-  useEffect(() => {
-    if (!recording) return;
-    const onKey = (e: KeyboardEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.code === "Escape") {
-        setRecording(null);
-        return;
-      }
-      const shortcut = windowShortcutFrom(e);
-      if (!shortcut) return;
-      set(`windowHotkey.${recording}`, shortcut);
+  useNativeShortcutCapture({
+    active: Boolean(recording),
+    alt: "opt",
+    meta: "cmd",
+    backspace: "delete",
+    onCancel: () => setRecording(null),
+    onRecord: (shortcut) => {
+      if (recording) set(`windowHotkey.${recording}`, shortcut);
       setRecording(null);
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [recording, set]);
+    },
+  });
 
   const searching = useSettingsSearch().active;
   const wmOn = Boolean(s.windowManagementEnabled);

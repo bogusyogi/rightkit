@@ -84,8 +84,18 @@ const git = (spawn, cwd, args) => {
  * a revision that cannot be read, or a file that is not the pipeline schema, is a refusal. Never the working tree, the selected commit or the snapshot.
  * `{ pipeline, revision }`. Shared by the pins fallback below and the scan-tool policy fallback (scan-tool-enrolment.mjs).
  */
-export function readGateRevisionPipeline({ gateFile, checkout, spawn = spawnSync, realpath = (p) => fs.realpathSync.native(p) }) {
+export function readGateRevisionPipeline({ gateFile, checkout, spawn = spawnSync, realpath = (p) => fs.realpathSync.native(p), exists = (p) => fs.existsSync(p), env = process.env }) {
   const here = path.dirname(gateFile);
+  // NN25 (Dell 2026-11-19: `git rev-parse --show-toplevel` in the gate's own folder on every run, after the snapshot proof). A sealed gate is
+  // installed outside any repository: no directory from its folder up to the root of the drive holds a `.git`, so git would only say "not a
+  // repository" and nothing is started to hear it. With a `.git` above it (a checkout gate), or a GIT_DIR in the environment, git is asked.
+  if (!env.GIT_DIR && !env.GIT_WORK_TREE) {
+    // Walked from the folder as spelled and from where it really is (a gate reached through a link or a junction lives in its target's repository).
+    const starts = [here]; try { const real = realpath(here); if (real !== here) starts.push(real); } catch { /* the spelled folder alone */ }
+    let found = false;
+    for (const start of starts) { for (let at = start; ; at = path.dirname(at)) { if (exists(path.join(at, ".git"))) { found = true; break; } if (path.dirname(at) === at) break; } if (found) break; }
+    if (!found) return null;
+  }
   const top = git(spawn, here, ["rev-parse", "--show-toplevel"]);
   if (!top) return null;
   let same = false;

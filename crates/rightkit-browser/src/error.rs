@@ -33,6 +33,10 @@ pub enum BrowserError {
     Cdp(String),
     #[error("stale or foreign ref '{0}'; observe again before acting")]
     StaleRef(String),
+    /// [`BrowserPage::act`](crate::BrowserPage::act) refused an action because the run repeated the same
+    /// action on the same ref with no effect. Cleared by `reset_action_watch`.
+    #[error("action loop stopped: {0}")]
+    ActionLoop(String),
     #[error("no element matched '{0}'")]
     NoElement(String),
     #[error("selector '{0}' is ambiguous ({1} matches)")]

@@ -179,6 +179,11 @@ impl std::fmt::Debug for ZoneKey {
 /// scope-change path. (The design sketch spells this `sha256("rightkit-cloud|app|zone|account|key_id")`;
 /// length prefixes replace `|` so the join cannot be ambiguous. Only consistency between
 /// devices matters, and every device uses this function.)
+///
+/// `rightkit_sync::scope::account_scope(app, zone, account_id, Some(key_id))` computes the same
+/// string for every input this accepts (this crate cannot call it and it cannot call this one,
+/// as neither depends on the other). The domain label and field order are the contract; change
+/// neither here without the other.
 pub fn account_scope(app: &str, zone: &str, account_id: &str, key_id: &KeyId) -> Result<String> {
     check_component("app", app)?;
     check_component("zone", zone)?;

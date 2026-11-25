@@ -133,11 +133,6 @@ impl<V> PinStore<V> {
         self.map.len()
     }
 
-    #[cfg(test)]
-    pub(crate) fn pending_eviction(&self) -> usize {
-        self.evicted.len()
-    }
-
     /// Token names this store's handle and generation.
     pub(crate) fn owns(&self, token: u64) -> bool {
         token_belongs(token, self.handle, self.generation)
@@ -277,10 +272,5 @@ impl PendingReleases {
         all.into_iter()
             .filter(|token| token_belongs(*token, handle, generation))
             .collect()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn len(&self) -> usize {
-        self.tokens.len()
     }
 }
