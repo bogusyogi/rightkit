@@ -5,6 +5,7 @@
 - Package admission resolves each Cargo workspace's target from the compile stage's broker receipts, so a multi-workspace app (CodeRight) packages on a broker host (#1736).
 - The package ships every file of its contract test (`acceptance-lines.test.mjs`), so `rustright-install trusted-gate promote` can check an installed candidate (#1733).
 - NN07/NN08 pnpm answer tests run only where the gate identifies a pnpm program (#1726).
+- The gate package's Mac package stage binds the repository's root Cargo workspace for its swap helper (rightkit-fs is a member of it); 0.6.80 bound the crate's folder and the helper build was still refused.
 - First gate released the local way: packed on the Mac, accepted on the Dell from that archive, published with `publish-local npm --archive`.
 
 ## 0.6.80
