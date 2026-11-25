@@ -2,7 +2,7 @@
 //!
 //! A Tauri host registers a single command and forwards to [`invoke`]:
 //!
-//! ```ignore
+//! ```text
 //! #[tauri::command]
 //! fn send_invoke(state: State<SendState>, command: String, args: serde_json::Value)
 //!     -> Result<serde_json::Value, rightkit_send::Error> {
