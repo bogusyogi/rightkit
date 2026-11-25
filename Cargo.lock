@@ -10863,7 +10863,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-chat-bridge"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "libc 0.2.191",
  "rightkit-ai-accounts",
@@ -12736,7 +12736,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa"
-version = "0.10.12"
+version = "0.10.11"
 dependencies = [
  "getrandom 0.4.3",
  "png",

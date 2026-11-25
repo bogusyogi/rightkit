@@ -2449,11 +2449,11 @@
       "gateEvidence": "no assets needed; in-memory values only; screenshot argument validation without native capture",
       "consumes": "PK14-4 named QA glue consumers per 01-packages.md: MailRight tauri_run.rs:109 QA registration, HeardRight and ScrapeRight journey runners; exercised modules: scenario, config, settings, check, storage, util (crates/rightkit-qa/src/lib.rs)",
       "files": {
-        "Cargo.toml": "0944c2a222749538685a544d72e025b4343df7852aae8914aa4aad6e62e82494",
+        "Cargo.toml": "8df07d6bc20fedce6de2578510d61bc78da8b5cfba4aa383f1bac812eba0b15b",
         "README.md": "2a7c250cf674ea7a29db3b2f93367691102bb0e44ec155b50f6186e64f5be910",
         "src/main.rs": "ec89757f6e854649383ac355a419d5977b51f236e7ee1a5767bfe00bd8a358eb"
       },
-      "aggregateSha256": "1381aa2871045933e67ebeca837ba3cf4b440d7045aeff6c9abcc725449eb38e"
+      "aggregateSha256": "1536ff412d0855755d8b14d26cc2c30dcbac9d32f5b9b8eb8ed1ca474b6b8c5d"
     },
     "rightkit-sandbox": {
       "pkId": "PK12",
@@ -3823,7 +3823,7 @@
       "pkId": "PK165",
       "id": "ci/consumers/rightkit-chat-bridge/src/main.rs",
       "files": {
-        "Cargo.toml": "110dec047714b8213be969d3c3565847467d243fe895a3ee444226146bef100a",
+        "Cargo.toml": "4d7df7ca0d6bda82db951246fd8324539b2d36a03968fd266fe071de9769753c",
         "README.md": "55704f4024119e42fc28dad9e529ce3ef1cf30f95166889d902ba765087b996b",
         "src/main.rs": "72b5d81d5ee3555eaee6746feb93cbac8930deaabd875b7391786c6db9841925"
       }

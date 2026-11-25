@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-qa = { version = "=0.10.12", features = ["credential-owner", "in-app-shot"] }
+rightkit-qa = { version = "=0.10.11", features = ["credential-owner", "in-app-shot"] }
 serde_json = "1"
