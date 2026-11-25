@@ -7,6 +7,7 @@
 //! that the same store runs drains and reopens the very connection the history uses. No connection
 //! escapes the closure, so none can outlive a drain.
 
+use super::EventSink;
 use crate::history::HistoryError;
 use rightkit_db::rusqlite::Connection;
 
@@ -25,6 +26,13 @@ pub trait HistoryConnection: Send {
         &mut self,
         operation: impl FnOnce(&mut Connection) -> Result<R, HistoryError>,
     ) -> Result<R, HistoryError>;
+
+    /// Re-encrypt the store under a freshly minted key, reporting through `events`. Only a
+    /// connection that owns its key lifecycle overrides this; the default refuses, as the
+    /// `HistoryStore` default does.
+    fn rotate_encryption_key(&self, _events: EventSink) -> Result<(), HistoryError> {
+        Err(HistoryError::new("this history store is not encrypted"))
+    }
 }
 
 impl HistoryConnection for Connection {
@@ -43,6 +51,20 @@ impl HistoryConnection for Connection {
     }
 }
 
+/// What the host supplies so `HistoryStore::rotate_encryption_key` can rotate a managed store: how
+/// a new key is minted and the telemetry names the rotation reports under. The event sink is the
+/// one the store was opened with.
+#[cfg(feature = "managed-store")]
+pub struct KeyRotation {
+    /// Mint the next key. An error is returned before the store is touched (no recovery pass, no
+    /// rotation).
+    pub mint_key: Box<dyn Fn() -> Result<String, String> + Send + Sync>,
+    /// Event name for a recovery pass; the detail is the owner's report.
+    pub recovery_event: &'static str,
+    /// Event name for a rotation that committed but left cleanup for the next open.
+    pub cleanup_pending_event: &'static str,
+}
+
 /// An open encrypted store whose managed writer serves the history. The lifecycle owner stays
 /// reachable (`DeliveryHistoryStore::store`) for backup, restore, recovery and rotation.
 ///
@@ -51,7 +73,10 @@ impl HistoryConnection for Connection {
 /// settles succeeds. A store left blocked by an unresolved transition answers every call with the
 /// recovery-required error until `EncryptedStore::recover_rotation` settles it.
 #[cfg(feature = "managed-store")]
-pub struct ManagedConnection(pub(super) rightkit_db::encrypted_lifecycle::EncryptedStore);
+pub struct ManagedConnection(
+    pub(super) rightkit_db::encrypted_lifecycle::EncryptedStore,
+    pub(super) Option<KeyRotation>,
+);
 
 #[cfg(feature = "managed-store")]
 impl std::fmt::Debug for ManagedConnection {
@@ -80,5 +105,30 @@ impl HistoryConnection for ManagedConnection {
         self.0
             .with_writer(operation)
             .map_err(|error| HistoryError::new(format!("history database: {error}")))?
+    }
+
+    /// With a [`KeyRotation`]: mint a key, settle any leftover rotation state, rotate through the
+    /// owner and report (`rightkit_db::encrypted_lifecycle::support::rotate_with_new_key`). `Ok`
+    /// only when the new key is the stored primary key and opens the file; a rotation that is not
+    /// settled returns an error that begins `key rotation pending`. Without one: the default
+    /// refusal.
+    fn rotate_encryption_key(&self, events: EventSink) -> Result<(), HistoryError> {
+        let Some(rotation) = &self.1 else {
+            return Err(HistoryError::new("this history store is not encrypted"));
+        };
+        rightkit_db::encrypted_lifecycle::support::rotate_with_new_key(
+            &self.0,
+            &*rotation.mint_key,
+            |new_key| {
+                let request = rightkit_db::encrypted_lifecycle::RotationRequest::new(new_key);
+                self.0.rotate_key(request)
+            },
+            rightkit_db::encrypted_lifecycle::support::RotationEvents {
+                recovery: rotation.recovery_event,
+                cleanup_pending: rotation.cleanup_pending_event,
+            },
+            events,
+        )
+        .map_err(HistoryError::new)
     }
 }

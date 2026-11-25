@@ -25,6 +25,12 @@
 //!   reveal-after-splash retry thread (`reveal_retry`), the one-guardian slot
 //!   (`guardian_worker::GuardianSlot`) and, on Windows, restart-on-dictation-start
 //!   (`supervisor`) and the title-based no-activate sweep (`noactivate`)
+//! * the composed session flows a host calls in order: one guardian batch and the install and
+//!   shutdown of hints, guardian and native pill (`session_host`), the reveal-after-splash retry
+//!   (`session_policy::schedule_reveal_after_splash`), the clip-card show, close and hold release
+//!   on an overlay or a native panel (`clip_flow`), the hint set with the screenshot notice, the
+//!   once-only hints and the feature-tip cycle (`hint_session`) and, on Windows, the full-screen
+//!   verdict for the pill's monitor (`fullscreen_win`)
 //!
 //! What the host supplies, always: the look ([`look::Painters`], required, no default), the
 //! interaction regions each painter returns, [`config::HostInputs`] (status words, timings,
@@ -69,6 +75,7 @@ pub mod anim;
 pub mod bars;
 pub mod bridge;
 pub mod capsule;
+pub mod clip_flow;
 pub mod clip_override;
 pub mod clipboard;
 pub(crate) mod clock;
@@ -85,6 +92,7 @@ pub mod guardian;
 pub mod guardian_worker;
 pub mod hint;
 pub mod hint_flow;
+pub mod hint_session;
 pub mod host_glue;
 pub(crate) mod lifecycle;
 pub mod look;
@@ -95,6 +103,7 @@ pub mod regions;
 pub(crate) mod retire;
 pub mod reveal_retry;
 pub mod screenshot_notice;
+pub mod session_host;
 pub mod session_policy;
 pub mod splash_handoff;
 pub mod synth;
@@ -105,6 +114,8 @@ pub mod visibility_policy;
 
 #[cfg(target_os = "windows")]
 mod driver;
+#[cfg(target_os = "windows")]
+pub mod fullscreen_win;
 #[cfg(target_os = "windows")]
 mod gfx;
 #[cfg(target_os = "windows")]

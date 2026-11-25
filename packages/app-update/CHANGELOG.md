@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.7
+
+- Add `relaunchForUpdate` (`./native`), `RELAUNCH_FOR_UPDATE_COMMAND` and `RelaunchForUpdateOptions`: calls the shell's PID-ordered relaunch command and runs the caller's fallback when the host does not answer it.
+
 ## 0.4.6
 `useModalDialog` option `restoreFocusOnUnmount` (default true; with `closeOnUnmount`): set false when the host restores focus itself on dismiss. Unmounting an already closed dialog never restores focus.
 

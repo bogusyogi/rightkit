@@ -588,15 +588,22 @@ pub fn image_report(rgba: &[u8], width: u32, height: u32) -> ImageReport {
 /// Decode a PNG (pure Rust) to RGBA8.
 pub fn decode_png(path: &Path) -> Result<(u32, u32, Vec<u8>)> {
     let bytes = fs::read(path)?;
+    decode_png_bytes(&bytes).map_err(|e| crate::util::Error(format!("{}: {}", path.display(), e.0)))
+}
+
+/// Decode PNG bytes (pure Rust) to RGBA8: 16-bit samples are reduced to 8, palettes and grey are
+/// expanded. A decoder error starts with `PNG decode:`; the (unreachable after expansion) palette
+/// branch reads `PNG palette was not expanded` without that prefix.
+pub fn decode_png_bytes(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>)> {
     let mut dec = png::Decoder::new(std::io::Cursor::new(bytes));
     dec.set_transformations(png::Transformations::normalize_to_color8());
     let mut reader = dec
         .read_info()
-        .map_err(|e| crate::util::Error(format!("{}: PNG decode: {e}", path.display())))?;
+        .map_err(|e| crate::util::Error(format!("PNG decode: {e}")))?;
     let mut buf = vec![0u8; reader.output_buffer_size().unwrap_or(0)];
     let info = reader
         .next_frame(&mut buf)
-        .map_err(|e| crate::util::Error(format!("{}: PNG decode: {e}", path.display())))?;
+        .map_err(|e| crate::util::Error(format!("PNG decode: {e}")))?;
     buf.truncate(info.buffer_size());
     let rgba = match info.color_type {
         png::ColorType::Rgba => buf,

@@ -12,7 +12,7 @@ import {
   type EscapeClears,
   type SettingsHighlight,
 } from "./search.js";
-import type { SettingsBackend, SettingsContext, SettingsSection, SettingsSnapshot } from "./types.js";
+import type { SettingsBackend, SettingsContext, SettingsRevision, SettingsSection, SettingsSnapshot } from "./types.js";
 import { useSettings } from "./useSettings.js";
 
 /** Sort by group (first appearance), then `order`, then label. Sections an app adds slot in by `order`. */
@@ -107,12 +107,12 @@ export interface NavItemState {
 /** `navigate`: today's behaviour (the nav lists matching sections and entries, one section shows). `all-sections`: see `searchMode`. */
 export type SearchMode = "navigate" | "all-sections";
 
-export interface SettingsPanelProps {
+export interface SettingsPanelProps<R extends SettingsRevision = number> {
   /**
    * Persistence port. Optional: without it the panel keeps an in-memory store, so sections that bring their own controls and
    * state need no backend. Sections still receive a `SettingsContext`.
    */
-  backend?: SettingsBackend;
+  backend?: SettingsBackend<R>;
   sections: readonly SettingsSection[];
   title?: ReactNode;
   /** Nav heading. Takes precedence over `title`; `false` omits the heading. */
@@ -196,7 +196,7 @@ export interface SettingsPanelProps {
    * A snapshot already known to the caller (for example `createMemorySettings(...).snapshot()`). With it, the first render
    * shows the sections and never "Loading settings…".
    */
-  initial?: SettingsSnapshot;
+  initial?: SettingsSnapshot<R>;
   className?: string;
 }
 
@@ -204,13 +204,14 @@ export interface SettingsPanelProps {
  * Settings frame: grouped section nav with search on the left, the active section on the right.
  * Persistence is the backend's; sections receive a `SettingsContext` and never touch storage themselves.
  */
-export function SettingsPanel(props: SettingsPanelProps) {
+export function SettingsPanel<R extends SettingsRevision = number>(props: SettingsPanelProps<R>) {
   const { backend, sections, title = "Settings", navHeading, navFooter, renderNavItem, hideNav = false, defaultActiveId, search, hideSearch = false, searchLabel = "Search settings", loading, hideSectionHeading = false, initial, className, keepMounted = false, paint = true, nativePreSize = false, classNames } = props;
   const { searchMode = "navigate", highlight = false, openSectionLabel, resultHeadingLevel, findShortcut, escapeClears, formatAnnouncement } = props;
   const allSections = searchMode === "all-sections";
   const announce = props.announceResults ?? allSections;
   const fallback = useMemo(() => (backend ? undefined : createMemorySettings()), [backend]);
-  const settings = useSettings(backend ?? fallback!, { initial: backend ? initial : (initial ?? fallback!.snapshot()) });
+  // Without a backend the panel runs on the number-revision memory store; only the store-facing calls see it, and it is never mixed with a caller-typed `R`.
+  const settings = useSettings<R>((backend ?? fallback) as SettingsBackend<R>, { initial: backend ? initial : (initial ?? fallback!.snapshot()) as SettingsSnapshot<R> });
   const ctx: SettingsContext = settings;
   const ordered = useMemo(() => orderSections(sections.filter((s) => !s.visible || s.visible(ctx))), [sections, ctx]);
   const [innerQuery, setInnerQuery] = useState("");

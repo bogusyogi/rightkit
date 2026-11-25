@@ -139,6 +139,43 @@ pub fn submit_feedback(
         .ok_or_else(|| "feedback endpoint omitted report ID".to_string())
 }
 
+/// Send one feedback note and then its diagnostics, paired by one fresh submission id.
+///
+/// Blocking, like [`submit_feedback`]; the host runs it off the UI thread. The feedback note
+/// is sent first and its failure is returned as is. `send_diagnostics(report_id,
+/// submission_id)` is the host's diagnostics upload (it builds the archive and calls
+/// [`upload_diagnostics_archive`]); it runs only after the note was accepted. A diagnostics
+/// failure never fails the feedback: it goes to `on_diagnostics_failure(report_id, error)`
+/// and the feedback's report id is still returned.
+pub fn submit_feedback_with_diagnostics(
+    message: &str,
+    contact: Option<&str>,
+    send_diagnostics: impl FnOnce(&str, &str) -> Result<String, String>,
+    on_diagnostics_failure: impl FnOnce(&str, &str),
+) -> Result<String, String> {
+    // One random id per submission, shared by the note and its diagnostics, never stored.
+    let submission_id = new_submission_id();
+    attach_diagnostics(
+        &submission_id,
+        |submission_id| submit_feedback(message, contact, submission_id),
+        send_diagnostics,
+        on_diagnostics_failure,
+    )
+}
+
+fn attach_diagnostics(
+    submission_id: &str,
+    submit: impl FnOnce(&str) -> Result<String, String>,
+    send_diagnostics: impl FnOnce(&str, &str) -> Result<String, String>,
+    on_diagnostics_failure: impl FnOnce(&str, &str),
+) -> Result<String, String> {
+    let report_id = submit(submission_id)?;
+    if let Err(error) = send_diagnostics(report_id.as_str(), submission_id) {
+        on_diagnostics_failure(report_id.as_str(), error.as_str());
+    }
+    Ok(report_id)
+}
+
 /// Upload one host-created diagnostics archive after explicit user consent and delete it.
 /// The archive is read once, never more than `max_bytes` + 1 bytes: the checked bytes are sent.
 /// It is removed whether or not reading succeeds, since it exists only for this upload.

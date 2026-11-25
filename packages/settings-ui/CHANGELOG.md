@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.7
+
+- `SettingsPanel` and `SettingsModal` are generic over the revision type (`SettingsPanel<R>`, default `number`), so a `SettingsBackend<string>` can be passed. Existing callers compile unchanged.
+- Add `useConfirmedAction` (`./headless`): confirm, run and report for one guarded action; the caller supplies the wording.
+
 ## 0.7.6
 Additive. Logic lifted from an app's settings pages so the app keeps only copy, composition and configuration. New exports in `./core` and the root entry; all but `useSettingsPage` and its helpers are also in `./headless` (no DOM beyond a ref, `react` only).
 

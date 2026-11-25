@@ -118,7 +118,7 @@
         "reason": "ci/asset-gated.json: ONNX Runtime and model files; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "rightkit-qa": {
-        "version": "0.10.11",
+        "version": "0.10.12",
         "allow": [
           "allow_missing_assets"
         ],
@@ -132,7 +132,7 @@
         "reason": "ci/asset-gated.json lists @rightkit/release only because local-publish.mjs forwards RIGHTKIT_REQUIRE_ASSETS to the units it runs; the package's own 296 tests need no assets and run in full on every host."
       },
       "@rightkit/legal": {
-        "version": "0.6.3",
+        "version": "0.6.4",
         "allow": [
           "allow_missing_assets"
         ],

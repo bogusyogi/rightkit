@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.6
+
+- Add `deliveryLibrarySource` (`./tauri`): a `LibrarySource` over a delivery-history host (query mapping, change subscription, export and save path, retention, recovery status, diagnostics export, app icons). Command and event names are options.
+
 ## 0.2.5
 Additive. Every new option and field is optional: a host that sets none renders and behaves as 0.2.3.
 

@@ -22,6 +22,7 @@ mod ledger_guard;
 mod outbox;
 mod pending;
 mod remote_window;
+pub mod renderer_status;
 mod scheduler;
 mod sync;
 mod traits;

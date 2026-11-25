@@ -18,6 +18,10 @@ use std::{
     time::Duration,
 };
 
+use tauri::{AppHandle, Manager, Runtime, Webview, Wry};
+
+use crate::error::ShellError;
+
 /// Host-supplied settings of the private restart protocol. Both the process that asks for a
 /// restart and the helper it spawns must be built with the same `flag_prefix`.
 #[derive(Clone, Debug)]
@@ -155,6 +159,51 @@ pub fn relaunch_self(
     crate::single_instance::SingleInstance::destroy();
     app.exit(0);
     Ok(())
+}
+
+/// What [`rightkit_relaunch_for_update`] relaunches with: the app's [`Protocol`] and the optional restart
+/// marker, supplied once by the app with [`install`]. The protocol must be the one the app's `main` passes
+/// to [`dispatch`].
+pub struct RelaunchService {
+    protocol: Protocol,
+    marker: Option<PathBuf>,
+}
+
+/// Manage the [`RelaunchService`] the command uses. `false` when one was already installed (the first one
+/// stays). `marker` is written before the helper spawns, as for [`relaunch_self`].
+pub fn install<R: Runtime>(
+    app: &AppHandle<R>,
+    protocol: Protocol,
+    marker: Option<PathBuf>,
+) -> bool {
+    app.manage(RelaunchService { protocol, marker })
+}
+
+fn not_configured() -> ShellError {
+    ShellError::Unsupported("relaunch for update is not configured".into())
+}
+
+/// Restart the app after an update installed, PID-ordered ([`relaunch_self`], reason `update`, with the
+/// installed marker): a detached helper waits for this process to exit, then launches the replacement, so
+/// the single-instance guard never sees both. Not `tauri::process::restart`, which spawns first.
+///
+/// Answers `unsupported` until the app calls [`install`]. A webview the shell's caller gate does not trust
+/// (a content webview, a foreign page) is refused when the shell is installed; an app that does not install
+/// the shell has no registry to ask, so the command is then open to its own webviews, as an app-local command
+/// is. List it in the app's `generate_handler!`, or take it from [`crate::handler!`].
+#[tauri::command]
+pub async fn rightkit_relaunch_for_update(
+    webview: Webview<Wry>,
+    app: AppHandle<Wry>,
+) -> Result<(), ShellError> {
+    if app.try_state::<crate::ShellState>().is_some() {
+        crate::caller_gate::require_app_caller(&webview)?;
+    }
+    let service = app
+        .try_state::<RelaunchService>()
+        .ok_or_else(not_configured)?;
+    relaunch_self(&app, &service.protocol, "update", service.marker.as_deref())
+        .map_err(ShellError::Other)
 }
 
 fn launch_command(executable: PathBuf) -> rightkit_child_process::OwnedCommand {

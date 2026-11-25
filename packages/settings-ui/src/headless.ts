@@ -66,3 +66,5 @@ export { micSelectionLabel } from "./mic-device-options.js";
 export type { MicSelectionLabels } from "./mic-device-options.js";
 export { useResolvedMicLabel } from "./mic-devices.js";
 export { WHISPER_LANGUAGE_CODES, DEFAULT_LANGUAGE_NAME_OVERRIDES, languageDisplayName, languageOptions } from "./languages.js";
+export { useConfirmedAction } from "./confirmed-action.js";
+export type { ConfirmedAction, ConfirmedActionMessages, ConfirmedActionResult, UseConfirmedActionOptions } from "./confirmed-action.js";

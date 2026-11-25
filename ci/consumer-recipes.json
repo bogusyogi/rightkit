@@ -2286,11 +2286,11 @@
       "pkId": "PK08",
       "id": "ci/consumers/rightkit-tauri-shell/src/main.rs",
       "files": {
-        "Cargo.toml": "675ff0dd61643e9d415171f8671cc7a7c4184eccf76fe408e3a0c6018ced641b",
+        "Cargo.toml": "7711ad8cc355e29a6e87239d2e56a2809305cf1c91e71cfe548d4352f820cf3a",
         "README.md": "a2282b07f9d914c51a800347320775a5ff75793554fcd33e84c429066ad37aa7",
         "src/main.rs": "4466993524e48ab50d8c4771cc6ad800763b9062217ac40773d1aa3fe6e6bee0"
       },
-      "aggregateSha256": "5cc20a43c213d97db751d01533b6644969412bb3f13288aa3af6653703469907"
+      "aggregateSha256": "aadd3d0ab7298cb29e3e50ec19051070c711cc95f96c3805a36ce04125e8ac22"
     },
     "rightkit-oauth": {
       "pkId": "PK06",
@@ -2449,11 +2449,11 @@
       "gateEvidence": "no assets needed; in-memory values only; screenshot argument validation without native capture",
       "consumes": "PK14-4 named QA glue consumers per 01-packages.md: MailRight tauri_run.rs:109 QA registration, HeardRight and ScrapeRight journey runners; exercised modules: scenario, config, settings, check, storage, util (crates/rightkit-qa/src/lib.rs)",
       "files": {
-        "Cargo.toml": "8df07d6bc20fedce6de2578510d61bc78da8b5cfba4aa383f1bac812eba0b15b",
+        "Cargo.toml": "0944c2a222749538685a544d72e025b4343df7852aae8914aa4aad6e62e82494",
         "README.md": "2a7c250cf674ea7a29db3b2f93367691102bb0e44ec155b50f6186e64f5be910",
         "src/main.rs": "ec89757f6e854649383ac355a419d5977b51f236e7ee1a5767bfe00bd8a358eb"
       },
-      "aggregateSha256": "1536ff412d0855755d8b14d26cc2c30dcbac9d32f5b9b8eb8ed1ca474b6b8c5d"
+      "aggregateSha256": "1381aa2871045933e67ebeca837ba3cf4b440d7045aeff6c9abcc725449eb38e"
     },
     "rightkit-sandbox": {
       "pkId": "PK12",
@@ -2627,7 +2627,7 @@
       "pkId": "PK19",
       "id": "ci/consumers/rightkit-audio/src/main.rs",
       "files": {
-        "Cargo.toml": "25c37ef44efad77b6a5b484a7b05222045fd7b9367f1e43ffab45b3a0196036c",
+        "Cargo.toml": "bb235ee5e8011e0f7ac1f35bda873023d55b2c8d5cc251480958232245650e1b",
         "README.md": "df869ff38ab41ec3c708dd21b21dd19c0354f5ce3f0a15e75f65f557b6d23b08",
         "src/main.rs": "3137d2e7bfe3964b09dbda3956476a04a316652ea19a81373778e8b786450c87"
       }
@@ -2772,7 +2772,7 @@
       "pkId": "PK42",
       "id": "ci/consumers/rightkit-sync/src/main.rs",
       "files": {
-        "Cargo.toml": "97627ef0992181bde44c1b61a9d366c3af54adfca06986bbc0d78112bd820f0d",
+        "Cargo.toml": "8922ae35b9110f0823b874f779a5498eeb0deeaf20a7f0b56e4f7f0af1c9525c",
         "README.md": "bcb366f9d833841c364d0476b5c8eaf25a4f5e198162b96a968b05690b3c8af6",
         "src/main.rs": "ed39c50408f11c09d1c1efd8f9b87c1239b9caa0e940af3c5ad934044c0e54e2"
       }
@@ -3450,7 +3450,7 @@
       "pkId": "PK121",
       "id": "ci/consumers/rightkit-transcript-library/src/main.rs",
       "files": {
-        "Cargo.toml": "f569d1c48ec2bf765c258ec8c422448c081786f155be1c10c3633776e0a86f56",
+        "Cargo.toml": "36a33a8db97a0911a79cef5735c627b15012397ef2180c0112659b525082c4ec",
         "README.md": "8e685f87f7210537486f6ae1bb0f7938c13cfc0a6802b20e42e22da312397842",
         "src/main.rs": "f2a6783eb56f523a25be4745ea4d9aecbaf46ff60dc8ea581bf3235c33b96459"
       }
@@ -3625,7 +3625,7 @@
       "pkId": "PK146",
       "id": "ci/consumers/rightkit-dictation-telemetry/src/main.rs",
       "files": {
-        "Cargo.toml": "6f3a63ec6c51c031fa3260e454e599f1f657112560a6fe927dfa9e3fa8c822df",
+        "Cargo.toml": "8bcb6da4e701279e091f2df662fcce2904909c048d0a0b4458bda6aaa6374600",
         "README.md": "a5b5087164f70739458685cec61c5e018d871ddfc4aaf852f870763181ac79e5",
         "src/main.rs": "14c75b6c4fa711ce954c315ae91eed48ddc6a084e373f5ce59f748978b45faeb"
       }
@@ -4310,7 +4310,7 @@
       "pkId": "PK254",
       "id": "ci/consumers/rightkit-dictation-pill/src/main.rs",
       "files": {
-        "Cargo.toml": "af3cc31781a9100071f1b599f11a4fd6aecf81984c32c8125a64bbfaa2f4f9fc",
+        "Cargo.toml": "a7314419a46c86aae5a6a3a1d737138d13a45cfad52d480ea8b378386ad922c6",
         "README.md": "5b0c85deed90eb46194077a55871d9407ba6e18066e5bf97b642784cc2d94511",
         "src/main.rs": "b015d3f1bd808981646567ad1e5b60dcb8ce79218e340b8b34e0d28398d1c4e0"
       }

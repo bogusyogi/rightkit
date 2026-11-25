@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.6
+
+- Add `useHotkeyConflict` (`./react`): reads the current hotkey conflict, follows the conflict event and retries registration.
+- Add `useRefreshedValue` (`./react`): a value re-read on mount, on window focus and on named window events.
+
 ## 0.4.5
 Additive; existing exports unchanged.
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.8
+
+- Add `KeyRotation` and `DeliveryHistoryStore::open_managed_with_rotation`: a managed store opened with a key-mint closure and the host's two event names implements `HistoryStore::rotate_encryption_key` itself (mint, settle, rotate, event, in that order). `open_managed` is unchanged and still answers that the store is not encrypted for rotation.
+- Require `rightkit-db` 0.5.11 for `rotate_with_new_key`.
+
 ## 0.1.7
 
 - Add `HistoryStore::default_total` for recovery replay verification. Totals beyond the receipt format return an error.
