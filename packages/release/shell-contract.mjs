@@ -780,6 +780,38 @@ const grantFinding = (source, id) => ({ file: source.file,
 });
 
 // ---- R6 qa-window-label ------------------------------------------------------------------------------------------------------
+/** Windows an app builds through the shell's own hub_window builder: each `WindowBuild { label: X, .. }` (handed to
+ * `hub_window::build_window` / `build_window_with_native_options`) creates the label X at run time. Returns the labels, plus whether
+ * one could not be read (then nothing about the main label is concluded). */
+export function hubWindowLabels(parsedFiles, consts = stringConsts(parsedFiles)) {
+  const labels = new Set();
+  let unknown = false;
+  for (const f of parsedFiles) for (const m of f.skel.matchAll(/\b(?:hub_window\s*::\s*)?WindowBuild\s*\{/g)) {
+    const open = m.index + m[0].length - 1;
+    const close = matchClose(f.skel, open);
+    if (close < 0) { unknown = true; continue; }
+    // The `label:` field at the struct's own depth.
+    let depth = 0; let found = null;
+    for (let k = open + 1; k < close && found === null; k++) {
+      const c = f.skel[k];
+      if (c === "(" || c === "[" || c === "{") depth += 1;
+      else if (c === ")" || c === "]" || c === "}") depth -= 1;
+      else if (depth === 0 && /\blabel\s*:/y.test(f.skel.slice(k, k + 64)) && !/\w/.test(f.skel[k - 1])) found = k;
+    }
+    if (found === null) { unknown = true; continue; }
+    const valueFrom = f.skel.indexOf(":", found) + 1;
+    let end = valueFrom;
+    for (let d = 0; end < close; end++) {
+      const c = f.skel[end];
+      if (c === "(" || c === "[" || c === "{") d += 1;
+      else if (c === ")" || c === "]" || c === "}") d -= 1;
+      else if (c === "," && d === 0) break;
+    }
+    const label = labelOf(f.code.slice(valueFrom, end).trim(), consts);
+    if (label === undefined) unknown = true; else labels.add(label);
+  }
+  return { labels, unknown };
+}
 const qaWindowLabel = perApp(({ app, root }) => {
   const out = [];
   const parsed = readRust(root, app);
@@ -865,6 +897,10 @@ const qaWindowLabel = perApp(({ app, root }) => {
     const label = arg ? labelOf(f.code.slice(arg[0], arg[1]), consts) : undefined;
     if (label === undefined) unknownBuilder = true; else created.add(label);
   }
+  // The shell's hub_window builder creates its WindowBuild's label at run time (Pulse's "main", created by create_hub_window).
+  const hub = hubWindowLabels(parsed, consts);
+  for (const label of hub.labels) created.add(label);
+  if (hub.unknown) unknownBuilder = true;
   if (created.size > 0 && !created.has(shellLabel) && !unknownBuilder) {
     out.push({
       file: shellAt.file,
