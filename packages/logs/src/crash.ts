@@ -1,8 +1,53 @@
-import type { LogsInvoke } from './index.js';
+import type { LogsClient, LogsInvoke } from './index.js';
 
 /** Tauri command the app registers; it deserializes a `WindowErrorReport` and calls
  * `rightkit_crash::record_window_error`. */
 export const RIGHTKIT_CRASH_WINDOW_ERROR_COMMAND = 'rightkit_crash_window_error';
+
+export interface RenderCrashReportConfig {
+  /** The app's logs client. It receives one content-free `render_crash` line naming the boundary, then a flush. */
+  logs: Pick<LogsClient, 'error' | 'flush'>;
+  /** The app's Tauri invoke adapter. The scrubbed report is sent through it and its errors are swallowed. */
+  invoke: LogsInvoke;
+  /** Which root or surface crashed, for example `hub` or `pill`. It is written into the log line and the report. */
+  boundary: string;
+  /** The command the app registers for window error reports. Default `RIGHTKIT_CRASH_WINDOW_ERROR_COMMAND`. */
+  command?: string;
+}
+
+/** The part of a React `ErrorInfo` the report reads. A host passes its boundary's `info` straight through. */
+export interface RenderCrashInfo {
+  componentStack?: string | null;
+}
+
+/**
+ * Builds the error handler for a render-crash boundary (`onError(error, info)`): a content-free log line, then a
+ * scrubbed report of the message (at most 1000 characters) and component stack (at most 8000) through the
+ * app's crash command. It never throws and never rejects: a crash in the crash path is swallowed. The host
+ * supplies its own boundary label; this function supplies no copy.
+ */
+export function reportRenderCrash(config: RenderCrashReportConfig): (error: unknown, info?: RenderCrashInfo | null) => void {
+  const { logs, invoke, boundary, command = RIGHTKIT_CRASH_WINDOW_ERROR_COMMAND } = config;
+  return (error: unknown, info?: RenderCrashInfo | null): void => {
+    try {
+      logs.error('render_crash', { surface: boundary });
+      void logs.flush().catch(() => undefined);
+      const record = error as { message?: unknown; stack?: unknown } | null | undefined;
+      const message = `render_crash boundary=${boundary} ${String(record?.message ?? error)}`;
+      const stack = String(info?.componentStack ?? record?.stack ?? '');
+      void invoke(command, {
+        report: {
+          kind: 'error',
+          message: scrubWindowCrashText(message).slice(0, 1_000),
+          stack: scrubWindowCrashText(stack).slice(0, 8_000),
+          source: null,
+        },
+      }).catch(() => undefined);
+    } catch {
+      // never raise from the crash path
+    }
+  };
+}
 
 export interface WindowCrashPayload {
   kind: 'error' | 'unhandledrejection';

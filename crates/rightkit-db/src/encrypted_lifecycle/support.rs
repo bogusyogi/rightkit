@@ -11,8 +11,8 @@
 //! in as closures and the telemetry names come in as inputs.
 
 use super::{
-    EncryptedStore, KeySource, LegacyQuarantineJournal, LifecycleError, QuarantineKind,
-    QuarantineNotice, RebuildReason, RecordedMove, RotationReport,
+    EncryptedStore, EncryptedStoreConfig, KeySource, LegacyQuarantineJournal, LifecycleError,
+    QuarantineKind, QuarantineNotice, RebuildReason, RecordedMove, RotationReport,
 };
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -140,6 +140,75 @@ pub fn rotate_settling(
             ))
         }
     }
+}
+
+/// The text a host shows for a [`LifecycleError`]: `"{key_store_prefix}: {err}"` when the credential
+/// store failed ([`LifecycleError::KeyStore`]), `"{other_prefix}: {err}"` for everything else.
+/// The host passes both prefixes (for example `"credential store"` and `"history database"`).
+pub fn lifecycle_error_text(
+    err: &LifecycleError,
+    key_store_prefix: &str,
+    other_prefix: &str,
+) -> String {
+    match err {
+        LifecycleError::KeyStore { .. } => format!("{key_store_prefix}: {err}"),
+        _ => format!("{other_prefix}: {err}"),
+    }
+}
+
+/// Open an encrypted store with the sequence every app repeats, in this order and with these
+/// error mappings:
+///
+/// 1. [`orphan_reason_before_open`] with `key_is_stored` and `ensure_key`; its text error goes
+///    through `map_text`.
+/// 2. `config` builds the [`EncryptedStoreConfig`] from the orphan reason (its own error is
+///    returned unchanged).
+/// 3. [`EncryptedStore::open`]; a [`LifecycleError`] goes through `map_lifecycle`.
+/// 4. If the store reports [`EncryptedStore::degraded`], `on_degraded` receives the note.
+/// 5. `after_open` runs (the host asks for its restoring pull here).
+/// 6. [`verify_secure_delete`]; [`SecureDeleteError::Store`] goes through `map_lifecycle`, the
+///    other variants through `map_text` with their `Display` text.
+///
+/// The host passes the closures and its own error type `E`; nothing here names a credential, an
+/// event or a path.
+#[allow(clippy::too_many_arguments)]
+pub fn open_store_checked<E>(
+    db_path: &Path,
+    key_is_stored: impl FnOnce() -> Result<bool, String>,
+    ensure_key: impl FnOnce() -> Result<(), String>,
+    config: impl FnOnce(Option<RebuildReason>) -> Result<EncryptedStoreConfig, E>,
+    map_text: impl Fn(String) -> E,
+    map_lifecycle: impl Fn(LifecycleError) -> E,
+    on_degraded: impl FnOnce(&str),
+    after_open: impl FnOnce(),
+) -> Result<EncryptedStore, E> {
+    let orphan_reason =
+        orphan_reason_before_open(db_path, key_is_stored, ensure_key).map_err(&map_text)?;
+    let store = EncryptedStore::open(config(orphan_reason)?).map_err(&map_lifecycle)?;
+    if let Some(note) = store.degraded() {
+        on_degraded(&note);
+    }
+    after_open();
+    verify_secure_delete(&store).map_err(|err| match err {
+        SecureDeleteError::Store(err) => map_lifecycle(err),
+        other => map_text(other.to_string()),
+    })?;
+    Ok(store)
+}
+
+/// Mint a new key, then rotate with [`rotate_settling`]. A `mint` error is returned before the
+/// store is touched (no recovery pass, no rotation). `rotate` receives the minted key and performs
+/// the rotation (for a managed store: `|key| history.rotate_key(RotationRequest::new(key))`).
+/// The host passes `mint`, `rotate`, the telemetry names in `events` and the `sink`.
+pub fn rotate_with_new_key<K>(
+    store: &EncryptedStore,
+    mint: impl FnOnce() -> Result<K, String>,
+    rotate: impl FnOnce(K) -> RotationReport,
+    events: RotationEvents<'_>,
+    sink: impl Fn(&str, &str),
+) -> Result<(), String> {
+    let new_key = mint()?;
+    rotate_settling(store, || rotate(new_key), events, sink)
 }
 
 /// The whole suffix of a quarantined database file: `<mark><unix ms>`. `mark` is the host's

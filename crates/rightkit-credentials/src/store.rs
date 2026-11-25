@@ -9,6 +9,15 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
+/// Create the directory a host passes to [`Config::rotation_lock_dir`] (and its parents) with the
+/// default permissions, and return it. The error is `"credential lock directory {dir}: {error}"`.
+pub fn create_rotation_lock_dir(dir: impl Into<PathBuf>) -> std::result::Result<PathBuf, String> {
+    let dir = dir.into();
+    std::fs::create_dir_all(&dir)
+        .map_err(|err| format!("credential lock directory {}: {err}", dir.display()))?;
+    Ok(dir)
+}
+
 /// What a write may do to a credential that already exists. Every write a [`Store`] makes that
 /// can replace a stored value goes through [`Store::put`] with one of these, chosen by the
 /// caller; nothing replaces a value by default. This covers [`Store`] only: the
@@ -628,6 +637,19 @@ impl Store {
     /// `Ok(None)` only when the store authoritatively reports the item absent.
     pub fn get(&self, account: &str) -> Result<Option<Secret>> {
         self.run("get", account, false, |b, ns, a, m| b.get(&ns, &a, m))
+    }
+    /// [`Store::get`] as text: `Ok(None)` only when the store authoritatively reports the item
+    /// absent; a value that is not UTF-8 and every store error is `Err` with the error's text
+    /// (never the secret value).
+    pub fn get_text(&self, account: &str) -> std::result::Result<Option<String>, String> {
+        match self.get(account) {
+            Ok(Some(secret)) => secret
+                .expose_str()
+                .map(|s| Some(s.to_owned()))
+                .map_err(|e| e.to_string()),
+            Ok(None) => Ok(None),
+            Err(e) => Err(e.to_string()),
+        }
     }
     /// Passive presence. Never requests secret bytes and never prompts.
     pub fn exists(&self, account: &str) -> Result<bool> {

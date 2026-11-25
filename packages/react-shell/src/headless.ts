@@ -25,8 +25,13 @@ export {
   shouldFeatureReelAutoAdvance,
   toggleFeatureReelAutoAdvance,
   useFeatureReelPlayback,
+  useFeatureReelFrame,
+  useFeatureReelPreload,
+  preloadImagesWhenIdle,
   type FeatureReelControlLabels,
   type FeatureReelPlayback,
+  type UseFeatureReelFrameOptions,
+  type PreloadImagesOptions,
 } from "./feature-reel.js";
 export { focusConnectedOrPageDestination, focusPageDestination, type FocusPageOptions } from "./focus-page.js";
 export { useHashRoute, type UseHashRouteOptions } from "./hash-route.js";
@@ -37,7 +42,30 @@ export {
   useSplashStall,
   useSplashWallpaper,
   useTickingValue,
+  formatMenuBarClock,
+  formatTaskbarClock,
+  type ClockFormatOptions,
   type SplashStage,
   type SplashStatus,
   type UseSplashStallOptions,
 } from "./splash.js";
+export { createFieldStore, useField, type FieldStore } from "./field-store.js";
+export { createErrorHumanizer, humanizeError, type ErrorRule, type HumanizeErrorOptions } from "./humanize-error.js";
+export { usePaletteFocusRestore, type UsePaletteFocusRestoreOptions } from "./palette-focus-restore.js";
+export {
+  useHubSetupGate,
+  useStartupRead,
+  useThemeChoiceSave,
+  useWindowCustomEvent,
+  type UseHubSetupGateOptions,
+  type UseStartupReadOptions,
+  type UseThemeChoiceSaveOptions,
+} from "./hub-boot.js";
+export {
+  buildCatalogView,
+  useCatalogView,
+  useLoadedList,
+  type CatalogEntryLike,
+  type CatalogView,
+  type CatalogViewOptions,
+} from "./catalog-view.js";

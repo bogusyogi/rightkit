@@ -26,9 +26,9 @@ pub use handle::{
 };
 pub use manifest::{Kind, Manifest, ManifestError, Mismatch, Setting, Target};
 pub use options::{
-    DefaultsProvider, FileFormat, FlatMigration, KeyOrder, KeyValidator, NullMeans, OnCorrupt,
-    OnRefused, QuarantineName, ReadOptions, ReplaceMode, SharingRetry, StoreOptions, Validator,
-    WriteSecurity,
+    migrated_default, DefaultsProvider, FileFormat, FlatMigration, KeyOrder, KeyValidator,
+    NullMeans, OnCorrupt, OnRefused, QuarantineName, ReadOptions, ReplaceMode, SharingRetry,
+    StoreOptions, Validator, WriteSecurity,
 };
 pub use request::{ChangeRequest, ChangeRequestQueue, RequestOutcome, RequestPolicy};
 pub use rightkit_fs::PublicationDurability;

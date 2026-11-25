@@ -575,3 +575,10 @@ export {
   type UpdateSessionOptions,
   type UpdateSessionTransport,
 } from './session.js';
+export {
+  autoInstallFromSettings,
+  isUpdateTierEligible,
+  qaUpdateStatus,
+  startBackgroundUpdateChecks,
+  type QaUpdateStatusOptions,
+} from './session-helpers.js';

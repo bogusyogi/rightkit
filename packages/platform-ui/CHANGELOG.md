@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.5
+Additive.
+
+- `pushToTalkChord(os, alias?)`, `pushToTalkCopy(os, alias?, labels?)` and `pushToTalkSendGesture(os, alias?, labels?)` (root, `./headless`, `src/ptt.ts`), with the type `PushToTalkLabels`: the push-to-talk chord token for `formatChord`, the help sentence ("hold the key, release to paste, how to send") and the short send gesture, from the platform and the configured `rightkit-hotkeys` `PttAlias`. Every word is a default the host can replace through `labels`.
+
 ## 0.4.4
 
 - Additive. New subpath exports `./qr` (`qrMatrix(text)`, `qrSvgPath(matrix)`: a byte-mode QR encoder, error correction M, versions 1 to 20) and `./countdown` (`secondsLeft(expiresAt, now)`, `formatCountdown(seconds)`: neutral countdown clamps). Standalone entries: they pull in no native detection and no UI dependency. Moved from the copies in `@rightkit/agent-ui-approvals` and Pulse.

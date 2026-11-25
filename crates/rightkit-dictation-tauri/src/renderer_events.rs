@@ -109,3 +109,27 @@ impl RendererEvents {
         })
     }
 }
+
+impl RendererEvents {
+    /// Emit `event` on the main thread, for a call from an input-hook thread (the renderer is
+    /// addressed from the main thread). `Ok` means only that the hop was scheduled
+    /// (`schedule_failed=<error>` otherwise); once the emit has run, `complete` receives its actual
+    /// result. `payload` must be owned because it crosses threads.
+    pub fn emit_on_main_thread<R, S>(
+        &'static self,
+        app: &tauri::AppHandle<R>,
+        event: &'static str,
+        payload: S,
+        complete: impl FnOnce(Result<(), String>) + Send + 'static,
+    ) -> Result<(), String>
+    where
+        R: Runtime,
+        S: Serialize + Send + 'static,
+    {
+        let handle = app.clone();
+        app.run_on_main_thread(move || {
+            complete(self.emit(&handle, event, &payload));
+        })
+        .map_err(|error| format!("schedule_failed={error}"))
+    }
+}

@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.3.7
+- Add pure typed accessors over `SettingsBlob` (`*_or_default` getters, `audio_policy`, `pill_visibility_normalized`, `model_choice`/`set_model_choice`, `set_close_behavior`, per-monitor `pill_position_for_monitor`/`set_pill_position_for_monitor` under a host key prefix, `replace_retired_asr_backend`) and `settings::{screenshot_destination_patch, validate_close_behavior, normalize_pill_visibility, pill_position_key, CLOSE_BEHAVIORS, AUDIO_POLICY_CONDITIONED, AUDIO_POLICY_RAW, MODEL_CHOICE_KEY}`. Additive; hosts keep persistence and call these inside their own transaction.
+
 ## 0.3.6
 
 - Add the follow-up window frames (VO-2): `EngineSchemaName::FollowUpOpen` with `EnginePayload::FollowUpOpen { window_ms }` and `FollowUpClose`, both validated. A new `EngineSchemaName` variant and `EnginePayload` variants are source-breaking for an exhaustive `match`; older engines answer an unknown schema name with an error frame.

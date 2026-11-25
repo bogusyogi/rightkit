@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.1.4
+- Add `polish_jsonl` (`polish_jsonl`, `polish_jsonl_line`, `json_string_field`, `json_escape`, `json_unescape`, and `polish_json_array` behind `store`): a JSON-lines driver that applies a host polish function to each `text` field, plus an `examples/polish_jsonl.rs` harness. Additive.
+
 ## 0.1.3
 - Add `vocabulary_limits` (`Limits`, `validate_term`, `validate_aliases`, `check_import_count`; moved from HeardRight `commands/vocabulary.rs`).
 - Add `text_pipeline::capitalize_first_alpha` (moved from HeardRight; same body).

@@ -397,6 +397,13 @@ export function satisfiesRequirement(view: LicenseView | null, requirement: Lice
     && (!requirement.allFeatures || hasAllFeatures(view, requirement.allFeatures))
     && (!requirement.anyFeature || hasAnyFeature(view, requirement.anyFeature));
 }
+/**
+ * US spelling for licence text the host already rendered: `licence` and `licences` (any capital) become
+ * `license` and `licenses`, keeping the capital. Pure; text without the British form is returned unchanged.
+ */
+export function usLicenseWords(text: string): string {
+  return text.replace(/\b([Ll])icence(s?)\b/g, '$1icense$2');
+}
 export * from './lifecycle.js';
 export * from './proBridge.js';
 export * from './appLicense.js';

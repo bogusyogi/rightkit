@@ -1088,6 +1088,47 @@ impl Op {
     }
 }
 
+/// A process-wide cell holding the one [`KeySlot`] a host binds for a credential, for a `static`.
+///
+/// The first successful bind is kept for the process; a failed bind is NOT remembered, so a later
+/// call binds again. The cell's lock is held across the bind (which [`KeySlot::new`] bounds by its
+/// `resolve_wait`), so a second caller waits for that one binding rather than starting another. A
+/// poisoned lock is recovered.
+pub struct SharedKeySlot {
+    slot: Mutex<Option<KeySlot>>,
+}
+
+impl SharedKeySlot {
+    /// An empty cell, usable in a `static`.
+    pub const fn new() -> Self {
+        Self {
+            slot: Mutex::new(None),
+        }
+    }
+
+    /// The bound slot, or the result of `bind` (kept on success). The host's `bind` builds its
+    /// store and calls [`KeySlot::new`] with its account, policy and resolve wait, mapping its own
+    /// errors to text.
+    pub fn get_or_bind(
+        &self,
+        bind: impl FnOnce() -> Result<KeySlot, String>,
+    ) -> Result<KeySlot, String> {
+        let mut bound = self.slot.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(slot) = bound.as_ref() {
+            return Ok(slot.clone());
+        }
+        let slot = bind()?;
+        *bound = Some(slot.clone());
+        Ok(slot)
+    }
+}
+
+impl Default for SharedKeySlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// A handle onto one native credential's key slot. See the module documentation. Handles to the
 /// same credential share the coordination record (busy, closed, unsettled, stamp, copy) and
 /// nothing else: each runs on its own pinned store, account and access. Cloning is cheap and

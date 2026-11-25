@@ -1,5 +1,12 @@
+mod accessors;
 mod blob;
 mod patch;
+
+pub use accessors::{
+    normalize_pill_visibility, pill_position_key, screenshot_destination_patch,
+    validate_close_behavior, AUDIO_POLICY_CONDITIONED, AUDIO_POLICY_RAW, CLOSE_BEHAVIORS,
+    MODEL_CHOICE_KEY,
+};
 
 pub use blob::{
     configure_legal_contract, legal_accepted_at_is_canonical_utc, migrate,

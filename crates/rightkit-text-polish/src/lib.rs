@@ -11,6 +11,7 @@
 //! Spoken standalone-command recognition lives in `rightkit-voice-commands`; this crate uses it
 //! only to keep visual chunking off command-shaped text.
 
+pub mod polish_jsonl;
 pub mod text_pipeline;
 pub mod vocab_learn;
 pub mod vocabulary;

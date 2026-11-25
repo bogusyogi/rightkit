@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.6
+Additive. Logic lifted from an app's settings pages so the app keeps only copy, composition and configuration. New exports in `./core` and the root entry; all but `useSettingsPage` and its helpers are also in `./headless` (no DOM beyond a ref, `react` only).
+
+- `settingsPaletteCommands(entries, options)` / `useSettingsPaletteCommands(entries, options)`: a host's searchable-setting table to command-palette entries (`setting:<id>`, hint `Page › Group`, choose = navigate then reveal; the id goes to `navigate` only for the settings page), then the host's `actions`. Filtered with `filterSettingEntries`. Types `PaletteSettingEntry`, `SettingsPaletteCommand` (structurally `Command` from `@rightkit/react-shell`), `SettingsPaletteOptions`.
+- `settingsEntriesForSection(entries, section, scope, page?)` and `settingsSectionFor(entries, id, page?)`: the rows of one tab, in the shape `SettingsSection.entries` takes, and the tab that holds a row. Type `SectionedSettingEntry`.
+- `useFeedbackForm({ submit, maxChars?, fallbackError? })` and `feedbackErrorText`: idle / sending / sent / error state of an inline feedback card (trim, no empty or double send, report id, reset). Types `FeedbackForm`, `FeedbackStatus`, `UseFeedbackFormOptions`.
+- `useKeyPanelDisclosure({ hasKey, setEnabled, focusSelector? })`: open state of a provider-key panel under a feature row; switching the feature on with no key opens it and enables only after the save, managing keys never enables; scrolls the panel into view and focuses its field. Types `KeyPanelDisclosure`, `UseKeyPanelDisclosureOptions`.
+- `useLaunchAtLogin({ read, write, active? })`: OS-held launch-at-login toggle, optimistic with revert and error text. Types `LaunchAtLogin`, `UseLaunchAtLoginOptions`.
+- `useSettingsPage(options)`, `visibleTabSections(sections, ctx?)`, `settingPatcher`, `settingString`, `settingStringOrUndefined`, `settingFlag`, `settingNumber`, `settingOr`: active tab and search state, deep link (switch tab, reveal on the next frame), Escape clears search, the tab list the panel shows, and value readers for a section's render. Types `SettingsPageState`, `UseSettingsPageOptions`. Not in `./headless` (it imports the panel's `revealSetting`).
+- `mapLegacyValue`, `flagKeyChoiceValue`, `writeFlagKeyChoice`, `withSelection`: a stored value mapped from its legacy spelling; a flag plus a key shown as one "off or key" choice, written key first then flag; a boolean selection map updated by one key. Types `FlagKeyChoice`, `WriteFlagKeyChoiceOptions`.
+- `onEnterKey(action)`, `removalDialogProps(flow)`, `useFocusWhen(active)`: Enter-to-submit handler, the confirm dialog's cancel / backdrop / Escape wiring for `useRemovalFlow`, and a ref that takes focus when `active` turns true. Type `RemovalDialogProps`.
+- `bridgeChannelLabels(bridge, labels, statuses?)` (in `device-sync`): the credential and Pro-resolution status word and tone. Type `BridgeChannelLabels`.
+- `micSelectionLabel(selection, labels)` and `useResolvedMicLabel(selection, labels, onResolved)`: the line that names the microphone in use. Type `MicSelectionLabels`.
+- `WHISPER_LANGUAGE_CODES`, `languageDisplayName(code, options?)`, `languageOptions(options?)`, `DEFAULT_LANGUAGE_NAME_OVERRIDES`: the whisper.cpp language table (same 100 codes as `rightkit-asr`) with display names and a sorted picker list.
+
 ## 0.7.4
 
 Additive. Moved from `@rightkit/dictation-ui`, which is being removed. Both are in `./core` and the root entry.

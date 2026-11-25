@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.5
+Additive. Every new option and field is optional: a host that sets none renders and behaves as 0.2.3.
+
+- `src/home/recent-rows.ts` (root): the logic of a home page's recent strip and file drop row, no markup. `compactTimeAgo(ms, labels?, now?)` (`CompactTimeAgoLabels`), `originMetaText(origin)`, `isDragPositionInside(el, position, scale?)` (`NativeDragPosition`), `useFileDropZone({ subscribe, onEnterZone })` (`DropZoneEvent`, `FileDropZone`: a ref, the pointer-over flag and the once-per-drag open call) and `useRecentRowActions({ copyText, copyFailedMessage, saveCorrection, onSaved?, ... })` (`RecentRowActions`: copy with a flash cleared on unmount, fix-a-transcript draft, original/polished toggle, one error text).
+- `useFileTranscription`: options `permissionErrorMarker`, `permissionRecoveryApplies` and `removablePathPrefixes`, port method `openPermissionSettings?(removable)`, and result fields `permissionDenied` and `openPermissionSettings()`, for a host that offers a "open privacy settings" recovery. `saveDialogFilters(ext)` (`SaveDialogFilter`) builds the save dialog's file-type filter.
+
 ## 0.2.3
 
 - Added (optional, defaults unchanged): `LibraryOrigin.iconTitle`, the hover title of the origin icon tile (default `label`), and `LibraryOrigin.processName`, the raw process name a source uses for its icon lookup when it differs from `filterKey`.

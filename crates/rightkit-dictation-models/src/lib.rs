@@ -4,6 +4,7 @@ pub mod ane_cache_prune;
 pub mod archive_install;
 mod confined_remove;
 pub mod install_flow;
+pub mod local_model_status;
 pub mod model_download_grant;
 pub mod model_fetch;
 pub mod model_flow;

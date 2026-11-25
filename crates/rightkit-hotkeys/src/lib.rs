@@ -38,7 +38,7 @@ pub use chord::{
     parse_chord, parse_modifier_token, parse_ptt_key_name, Chord, ChordError, Key, Modifier,
     ParsedModifier, Platform, Side,
 };
-pub use conflict::{ChordRegistry, HotkeyConflict, RegistryConflict};
+pub use conflict::{ChordRegistry, ConflictState, HotkeyConflict, RegistryConflict};
 pub use hold::{HoldKeys, HoldTracker, HotkeyState, KeyStateSource};
 pub use hook_chord::{AlreadyBound, HookChords, HookOutcome};
 pub use hook_detail::{is_thread_message, KeyEventDetail, MouseEvent, MouseKind};

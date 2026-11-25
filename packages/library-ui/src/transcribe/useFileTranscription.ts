@@ -26,6 +26,26 @@ export interface FileTranscriptionPort<R extends FileTranscriptLike> {
   /** Opens the save dialog for a default file name and extension; resolves the path or a falsy value. */
   pickSavePath(defaultName: string, ext: string): Promise<string | null | undefined>;
   writeText(path: string, contents: string): Promise<void>;
+  /**
+   * Opens the system's file-access settings, for a host that recovers from a permission error
+   * (`UseFileTranscriptionOptions.permissionErrorMarker`). `removable` is true when the file is on a
+   * removable volume (`removablePathPrefixes`). Optional: without it `openPermissionSettings` does nothing.
+   */
+  openPermissionSettings?(removable: boolean): Promise<void>;
+}
+
+/** One entry of a save dialog's file-type filter. */
+export interface SaveDialogFilter {
+  name: string;
+  extensions: string[];
+}
+
+/**
+ * The save dialog filter for one extension: its upper-case name and the extension, for example
+ * `[{ name: "TXT", extensions: ["txt"] }]`. For a host's `pickSavePath` port.
+ */
+export function saveDialogFilters(ext: string): SaveDialogFilter[] {
+  return [{ name: ext.toUpperCase(), extensions: [ext] }];
 }
 
 export interface UseFileTranscriptionOptions {
@@ -35,6 +55,15 @@ export interface UseFileTranscriptionOptions {
   copyFailedMessage(detail: string): string;
   /** The default stem of a saved file when no file was chosen. Default `transcript`. */
   fallbackStem?: string;
+  /**
+   * Text an error contains when the system denied access to the file (for example `E_PERMISSION`). When set,
+   * `permissionDenied` is true while the current error contains it. Default unset: `permissionDenied` stays false.
+   */
+  permissionErrorMarker?: string;
+  /** Whether the permission recovery applies on this platform (for example a macOS check). Default always. */
+  permissionRecoveryApplies?: () => boolean;
+  /** Path prefixes that mean a removable volume (for example `/Volumes/`), passed on as `removable`. Default none. */
+  removablePathPrefixes?: string[];
 }
 
 export type TranscriptView = "original" | "segmented";
@@ -52,6 +81,10 @@ export interface FileTranscription<R extends FileTranscriptLike> {
   copied: string;
   selectedName: string;
   hasSrt: boolean;
+  /** The error is a permission denial the host marked and recovery applies here: show a button for `openPermissionSettings`. */
+  permissionDenied: boolean;
+  /** Opens the system's file-access settings through the port; errors are swallowed. No-op without the port method. */
+  openPermissionSettings(): Promise<void>;
   /** A transcript exists and nothing is running: the drop zone shrinks to a slim bar. */
   collapsed: boolean;
   run(filePath: string): Promise<void>;
@@ -152,6 +185,21 @@ export function useFileTranscription<R extends FileTranscriptLike>(
     [path],
   );
 
+  const marker = options.permissionErrorMarker;
+  const permissionDenied =
+    !!marker && error.includes(marker) && (options.permissionRecoveryApplies?.() ?? true);
+
+  const openPermissionSettings = useCallback(async () => {
+    const open = portRef.current.openPermissionSettings;
+    if (!open) return;
+    const prefixes = optionsRef.current.removablePathPrefixes ?? [];
+    try {
+      await open.call(portRef.current, prefixes.some((prefix) => path.startsWith(prefix)));
+    } catch {
+      // The settings pane is a convenience; a failure leaves the error text in place.
+    }
+  }, [path]);
+
   return {
     path,
     busy,
@@ -164,6 +212,8 @@ export function useFileTranscription<R extends FileTranscriptLike>(
     copied,
     selectedName: path ? baseName(path) : "",
     hasSrt: !!result?.srt?.trim(),
+    permissionDenied,
+    openPermissionSettings,
     collapsed: !!result && !busy,
     run,
     choose,

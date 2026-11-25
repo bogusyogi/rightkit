@@ -38,11 +38,15 @@ pub mod consent;
 pub mod content_webview;
 #[cfg(feature = "crash")]
 pub mod crash_commands;
+#[cfg(feature = "crash")]
+pub mod crash_hang;
 pub mod devtools;
 #[cfg(feature = "engine")]
 pub mod engine;
+pub mod entitlement_backend;
 mod entropy;
 pub mod error;
+pub mod external_link;
 pub mod frameless;
 pub mod harden;
 #[cfg(feature = "host-services")]
@@ -50,6 +54,7 @@ pub mod host;
 pub mod hub_window;
 pub mod idle;
 pub mod install_location;
+pub mod key_slot;
 pub mod launch_handoff;
 pub mod launch_origin;
 pub mod lifecycle;
@@ -69,8 +74,10 @@ pub mod opener;
 pub mod os_settings;
 #[cfg(feature = "overlay")]
 pub mod overlay_host;
+pub mod patch_keys;
 #[cfg(feature = "pdf-host")]
 pub mod pdf_host;
+pub mod platform_init;
 #[cfg(feature = "viewer")]
 pub mod preview;
 #[cfg(feature = "viewer")]
@@ -78,6 +85,8 @@ pub mod print;
 pub mod quit;
 pub mod recovery;
 pub mod relaunch;
+pub mod self_test;
+pub mod shortcut_routing;
 pub mod single_instance_host;
 #[cfg(feature = "viewer")]
 pub mod site;
@@ -999,18 +1008,7 @@ impl Shell {
 /// `@rightkit/platform-ui` returns, from the compile target. `None` on a target that package does not
 /// name (Android), so the renderer keeps its fallback.
 pub(crate) fn platform_init_script() -> Option<String> {
-    let name = if cfg!(target_os = "macos") {
-        "macos"
-    } else if cfg!(target_os = "ios") {
-        "ios"
-    } else if cfg!(target_os = "windows") {
-        "windows"
-    } else if cfg!(target_os = "linux") {
-        "linux"
-    } else {
-        return None;
-    };
-    Some(format!("window.__RIGHTKIT_PLATFORM__ = \"{name}\";"))
+    platform_init::script()
 }
 
 /// Build the plugin for `cfg`, honouring `cfg.modules`. Shared by [`Shell::plugin`] and

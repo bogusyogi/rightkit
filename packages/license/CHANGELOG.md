@@ -1,3 +1,9 @@
+## 0.3.5
+Additive; existing exports and wire behaviour unchanged. Defaults send exactly what 0.3.4 sent.
+
+- `createAppAccountSession({ ..., argumentNames?, deleteArguments? })`: `argumentNames` (`Partial<AppAccountArgumentNames>`, default `APP_ACCOUNT_ARGUMENT_NAMES` = `{ token: 'token', deviceId: 'deviceIdHash' }`) names the arguments of the sign-in completion and device commands for a native side that uses other names; `deleteArguments` is sent with the deletion command (for example `{ confirmed: true }`). Both are exported types and constants alongside `AppAccountArgumentNames`.
+- `usLicenseWords(text)`: US spelling for licence text a host already rendered (`licence`/`licences` to `license`/`licenses`, capital kept).
+
 ## 0.3.3
 
 Additive; existing exports and wire behaviour unchanged. `dist/appLicense.js` and `dist/appLicense.d.ts` join the published files.

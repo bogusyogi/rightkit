@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.5.10
+- Add `key_slot::SharedKeySlot` (a `static` cell that binds a `KeySlot` once and retries after a failed bind), `Store::get_text`, `Secret::to_text` and `create_rotation_lock_dir`. Additive.
+
 ## 0.5.9
 
 - `protected_key::hello_supported() -> bool` (feature `protected-key`): the Windows Hello support probe (`KeyCredentialManager::IsSupportedAsync` on a bounded worker thread), `false` on a failed query and on every other platform. Lets Pulse drop its last direct `windows::Security::Credentials` use. Written, not compiled.

@@ -50,3 +50,36 @@ export {
   setupModelAdvancePatch,
   setupStepProgressLabel,
 } from "./setup-flow.js";
+export { useAccessibilityWatch } from "./accessibility-watch.js";
+export type { AccessibilityWatchPort, UseAccessibilityWatchOptions } from "./accessibility-watch.js";
+export { clampMicLevel, micMeterActiveBars, micMeterBarHeight, useMicLevel } from "./mic-meter.js";
+export type { MicLevelSubscribe, MicMeterBarShape } from "./mic-meter.js";
+export { platformPttMatcher, resolvePttKey } from "./ptt.js";
+export type { PlatformPttMatchers, ResolvePttKeyConfig } from "./ptt.js";
+export {
+  activateInstalledModel,
+  createModelAutoAdvance,
+  createSingleModelBackend,
+  modelEntryFromEvent,
+  modelEntryFromStatus,
+} from "./model-backend.js";
+export type {
+  InvokeModelsBackendOptions,
+  ModelActivationOptions,
+  ModelDownloadEvent,
+  SingleModelConfig,
+} from "./model-backend.js";
+export {
+  DEFAULT_LEGAL_SETTINGS_FIELDS,
+  createReAcceptanceHandlers,
+  createSettingsLegalReceiptPort,
+  legalAcceptanceCurrentFromSettings,
+} from "./legal-settings.js";
+export type {
+  LegalContract,
+  LegalSettingsFields,
+  LegalSettingsOptions,
+  ReAcceptanceHandlersOptions,
+  SettingsLegalReceiptPortOptions,
+} from "./legal-settings.js";
+export { useStepReady } from "./ready-sync.js";
