@@ -64,7 +64,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | browser-automation | `rightkit-browser` | block | fingerprinted | 11 (5 block, 6 advise) | rightkit-browser: published 0.3.6 (crates.io) |
 | browser-qa | `@rightkit/qa-chrome` | advise | fingerprinted | 5 (0 block, 5 advise) | @rightkit/qa-chrome: published 0.1.12 (npm) |
 | channel-memory | `rightkit-channel-memory` | none | declaration-only | 0 | rightkit-channel-memory: published 0.2.1 (crates.io) |
-| chat-bridge | `rightkit-chat-bridge` | none | declaration-only | 0 | rightkit-chat-bridge: staged 0.2.3, not published |
+| chat-bridge | `rightkit-chat-bridge` | none | declaration-only | 0 | rightkit-chat-bridge: staged 0.2.4, not published |
 | cloud-sync | `rightkit-sync` | none | declaration-only | 0 | rightkit-sync: published 0.4.1 (crates.io) |
 | code-audit-provider-sdk | `rightkit-code-audit-provider-sdk` | none | declaration-only | 0 | rightkit-code-audit-provider-sdk: staged 0.1.1, not published |
 | composition-model | `rightkit-compose` | none | declaration-only | 0 | rightkit-compose: published 0.2.0 (crates.io) |

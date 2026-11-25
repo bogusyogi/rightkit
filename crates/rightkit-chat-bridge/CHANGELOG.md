@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4
+
+- `test-overrides` also lets `RIGHTKIT_CODEX_BIN` name the Codex CLI, and adds `codex` on the search path to the candidates, for end-to-end journeys (bogusyogi/pulse#643). A release build reads neither.
+
 ## 0.2.3
 
 - `test-overrides` feature: `RIGHTKIT_CHAT_SSH` names a program run instead of ssh, for end-to-end journeys (bogusyogi/pulse#643). Not compiled into a release build.

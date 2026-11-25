@@ -145,9 +145,21 @@ pub fn codex_home() -> PathBuf {
 /// Most Codex binaries probed when looking for one that can queue.
 const MAX_PROBED: usize = 6;
 
-/// Every Codex CLI this computer has, best guess first.
+/// Every Codex CLI this computer has, best guess first. In a build with `test-overrides`,
+/// `$RIGHTKIT_CODEX_BIN`, when it names a file, is the only entry and the search path is read
+/// too; a release build reads neither.
 fn codex_candidates() -> Vec<PathBuf> {
-    #[cfg_attr(not(any(target_os = "macos", windows)), allow(unused_mut))]
+    #[cfg(feature = "test-overrides")]
+    if let Some(chosen) = std::env::var_os("RIGHTKIT_CODEX_BIN").filter(|v| !v.is_empty()) {
+        let chosen = PathBuf::from(chosen);
+        if chosen.is_file() {
+            return vec![chosen];
+        }
+    }
+    #[cfg_attr(
+        not(any(target_os = "macos", windows, feature = "test-overrides")),
+        allow(unused_mut)
+    )]
     let mut candidates: Vec<PathBuf> = Vec::new();
     #[cfg(target_os = "macos")]
     {
@@ -177,6 +189,19 @@ fn codex_candidates() -> Vec<PathBuf> {
             versions.sort_by_key(|a| std::cmp::Reverse(a.0));
             candidates.extend(versions.into_iter().map(|(_, exe)| exe));
             candidates.push(bin.join("codex.exe"));
+        }
+    }
+    #[cfg(feature = "test-overrides")]
+    if let Some(paths) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&paths) {
+            let names: &[&str] = if cfg!(windows) {
+                &["codex.exe", "codex.cmd"]
+            } else {
+                &["codex"]
+            };
+            for name in names {
+                candidates.push(dir.join(name));
+            }
         }
     }
     let mut found: Vec<PathBuf> = Vec::new();
