@@ -49,7 +49,7 @@
     "@rightkit/qa": "0.7.0",
     "@rightkit/qa-chrome": "0.1.12",
     "@rightkit/react-shell": "0.7.9",
-    "@rightkit/release": "0.6.81",
+    "@rightkit/release": "0.6.82",
     "@rightkit/send-ui": "0.1.0",
     "@rightkit/settings-ui": "0.7.7",
     "@rightkit/social-ui": "0.2.1",
@@ -446,7 +446,8 @@
       "0.6.77",
       "0.6.78",
       "0.6.79",
-      "0.6.80"
+      "0.6.80",
+      "0.6.81"
     ],
     "@rightkit/settings-ui": [
       "0.1.0",
@@ -914,7 +915,7 @@
       "@rightkit/qa": "0.7.0",
       "@rightkit/qa-chrome": "0.1.12",
       "@rightkit/react-shell": "0.7.7",
-      "@rightkit/release": "0.6.80",
+      "@rightkit/release": "0.6.81",
       "@rightkit/settings-ui": "0.7.4",
       "@rightkit/shell": "0.1.1",
       "@rightkit/tauri": "0.4.3",
