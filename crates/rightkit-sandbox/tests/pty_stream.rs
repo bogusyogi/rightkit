@@ -167,9 +167,14 @@ async fn input_is_echoed_and_the_streams_are_taken_once() {
         .await
         .expect("writing input must not block for 60 s")
         .unwrap();
-    // The terminal echoes "echo hi" and the shell then prints its output on a line of its own.
-    let text = read_until(&mut reader, "\nhi\r").await;
-    assert!(text.contains("\nhi\r"), "{text:?}");
+    // The terminal echoes "echo hi" and the shell then prints "hi" on a line of its own. The input
+    // can arrive before the shell's first prompt, so the prompt may land between the echo and the
+    // output ("echo hi\r\n$ hi\r\n"): count the two "hi" line ends instead of matching a newline.
+    let mut text = read_until(&mut reader, "hi\r\n").await;
+    while text.matches("hi\r\n").count() < 2 {
+        text.push_str(&read_until(&mut reader, "hi\r\n").await);
+    }
+    assert!(text.matches("hi\r\n").count() >= 2, "{text:?}");
 
     cancel(&mut streamed).await;
 }

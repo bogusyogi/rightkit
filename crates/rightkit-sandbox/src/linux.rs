@@ -606,6 +606,7 @@ const ALLOWED_SYSCALLS: &[u32] = &[
     110, // getppid
     111, // getpgrp
     112, // setsid
+    130, // rt_sigsuspend: a shell's `wait` sleeps here until SIGCHLD; refused, it spins forever
     131, // sigaltstack
     158, // arch_prctl
     186, // gettid
