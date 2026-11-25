@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+- Adds `LOCAL_SERVER_ENDPOINTS: [&str; 3]`, the three localhost base URLs the catalog points at (Ollama, LM Studio, llama.cpp). The catalog now reads them from the constant; the URLs are unchanged, so there is no behaviour change. A host can name the same endpoints the catalog uses instead of repeating the strings.
+
 ## 0.1.2
 
 - Depends on rightkit-sandbox 0.7.0. `probe_hardware_with_adapter` takes the 0.7.0 `ProcessLaunchAdapter` and `ProcessLaunchContext`; hosts must depend on the same rightkit-sandbox version.

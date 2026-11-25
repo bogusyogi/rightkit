@@ -384,6 +384,14 @@ async fn probe_text_with_adapter(
     }
 }
 
+/// The base URLs the catalog points at, one per local runtime (Ollama, LM Studio, llama.cpp). A
+/// discovery probe with no candidates of its own tries these.
+pub const LOCAL_SERVER_ENDPOINTS: [&str; 3] = [
+    "http://127.0.0.1:11434/v1",
+    "http://127.0.0.1:1234/v1",
+    "http://127.0.0.1:8080/v1",
+];
+
 pub fn model_catalog(hardware: HardwareReport) -> LocalModelCatalog {
     let candidates = [
         (
@@ -395,7 +403,7 @@ pub fn model_catalog(hardware: HardwareReport) -> LocalModelCatalog {
             16384,
             Some(6144),
             Some(8192),
-            "http://127.0.0.1:11434/v1",
+            LOCAL_SERVER_ENDPOINTS[0],
         ),
         (
             "qwen2.5-coder-14b",
@@ -406,7 +414,7 @@ pub fn model_catalog(hardware: HardwareReport) -> LocalModelCatalog {
             32768,
             Some(10240),
             Some(16384),
-            "http://127.0.0.1:11434/v1",
+            LOCAL_SERVER_ENDPOINTS[0],
         ),
         (
             "deepseek-coder-v2-lite",
@@ -417,7 +425,7 @@ pub fn model_catalog(hardware: HardwareReport) -> LocalModelCatalog {
             24576,
             Some(8192),
             Some(12288),
-            "http://127.0.0.1:1234/v1",
+            LOCAL_SERVER_ENDPOINTS[1],
         ),
         (
             "llama-cpp-coder-7b",
@@ -428,7 +436,7 @@ pub fn model_catalog(hardware: HardwareReport) -> LocalModelCatalog {
             16384,
             Some(4096),
             Some(8192),
-            "http://127.0.0.1:8080/v1",
+            LOCAL_SERVER_ENDPOINTS[2],
         ),
     ];
     let detected_vram_mb = hardware

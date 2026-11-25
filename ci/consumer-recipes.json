@@ -3742,7 +3742,7 @@
       "pkId": "PK213",
       "id": "ci/consumers/rightkit-agent-local-models/src/main.rs",
       "files": {
-        "Cargo.toml": "363b23577af5d6367c7e920511ecf0b5c51a76713146446b46a7b5ca44be938d",
+        "Cargo.toml": "29d2416df6ebeb30c92233d84fb532d2621a2d695914e9d92963439a0fd50845",
         "README.md": "358c9b31e697f80dcb116ab7a7799c5f0ebe499a4bf4573004706bc152c8acf2",
         "src/main.rs": "ddc56e127ab10e25a51cbe8cb00aa2486da1a3cc2c1fa401b461f285b9b29ce6"
       }
