@@ -11,7 +11,7 @@ include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LI
 
 [dependencies]
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
-rightkit-pty = { version = "0.1.2", path = "../rightkit-pty", optional = true }
+rightkit-pty = { version = "0.1.3", path = "../rightkit-pty", optional = true }
 rightkit-crypto = {version = "0.1.0", path = "../rightkit-crypto", optional = true}
 async-trait = {version = "0.1", optional = true}
 serde = {version = "1", features = ["derive"], optional = true}
