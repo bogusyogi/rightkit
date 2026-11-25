@@ -661,7 +661,11 @@ function holdFor(holds, name) {
  *    (`tasks`), never permission to seal a stale pin; no exception is derived from right-update's hold list.
  *  - otherwise (doctor): the same rows are informational `newer` lines.
  */
-export function evaluateRightKitFreshness(snapshot, holds, { enforce = false } = {}) {
+export function evaluateRightKitFreshness(snapshot, holds, { enforce = false, declared = null } = {}) {
+  // `declared`: the RightKit names the app's own manifests declare (`${ecosystem}\0${name}`). A stale entry the app does not declare is a
+  // transitive lock entry: only the RightKit units that depend on it can move it, so it is reported, never refused (Pulse 0.6.80: rightkit-fs
+  // 0.4.19, required ^0.4 by the latest rightkit-http, -pdf and others). With no set given every entry is judged as before.
+  const isDirect = (entry) => !declared || declared.has(`${entry.ecosystem}\0${entry.name}`);
   const refusals = [];
   const newer = [];
   const tasks = [];
@@ -673,6 +677,10 @@ export function evaluateRightKitFreshness(snapshot, holds, { enforce = false } =
     const seen = newest.get(`${entry.ecosystem}\0${entry.name}`);
     if (!seen || compareVersions(entry.version, seen.latest) >= 0) continue;
     const age = seen.via === "cache" ? ` (latest from cached observation ${seen.observedAt}, ${formatAge(seen.ageMs)} old; last-observed, not current)` : "";
+    if (!isDirect(entry)) {
+      warnings.push(`${entry.name} ${entry.version} is in the lock only through other RightKit units (latest ${seen.latest}${age}); the app does not declare it, so it moves when those units republish on the new version`);
+      continue;
+    }
     const hold = holdFor(holds, entry.name);
     const line = `${entry.name} pinned ${entry.version} -> latest ${seen.latest}${age}: ${FIX}`;
     if (hold) tasks.push(`${entry.name} pinned ${entry.version}, latest ${seen.latest}: held by .rightkit/update.json (${hold}); migration lane task, not current and not permission to seal`);
@@ -721,7 +729,9 @@ export async function prepareRightKitResolution({ root, snapshotFile = null, bou
   // Freshness is an admission gate. A bound snapshot is frozen evidence: seal, resume and upload never re-check it,
   // so a publication after admission neither mutates nor restarts an admitted build.
   const enforce = admission && source === "resolved";
-  const freshness = evaluateRightKitFreshness(snapshot, readUpdateHolds(root), { enforce });
+  let declared = null;
+  try { declared = new Set(declaredRightKitDependencies(root, ownedRightKitNames(versions, ownership), options.extraLocks ?? []).map((d) => `${d.ecosystem}\0${d.name}`)); } catch { declared = null; }
+  const freshness = evaluateRightKitFreshness(snapshot, readUpdateHolds(root), { enforce, declared });
   if (freshness.refusals.length) {
     throw new RightKitRegistryError("stale-pin", `RightKit pins are behind the latest published version (build admission refused):\n${freshness.refusals.map((p) => `- ${p}`).join("\n")}`, { problems: freshness.refusals });
   }
