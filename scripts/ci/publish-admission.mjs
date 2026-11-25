@@ -211,7 +211,7 @@ export function readQualificationInput(text, { sha, registry, units }) {
     requireThat(exclusionsFor(q.unit.name).length > 0 || q.contentExcluded === undefined, `the qualification receipt claims excluded archive entries for ${q.unit.name}, which has none`);
     if (exclusionsFor(q.unit.name).length && q.executor === "direct") {
       // A Linux direct origin neither builds nor signs the swap helper; the hosted sign-swap job does. Its archive holds neither excluded entry.
-      requireThat(q.contentExcluded === undefined || (Array.isArray(q.contentExcluded) && q.contentExcluded.length === 0), `the direct-origin qualification for ${q.unit.name} claims excluded archive entries, but a direct origin holds neither ${exclusionsFor(q.unit.name).join(" nor ")}`);
+      requireThat(q.contentExcluded === undefined || (Array.isArray(q.contentExcluded) && q.contentExcluded.every((p) => p === SWAP_HELPER_ARCHIVE_BIN)), `the direct-origin qualification for ${q.unit.name} claims excluded archive entries, but a direct origin holds neither ${exclusionsFor(q.unit.name).join(" nor ")}`);
       content.contentExcluded = [];
     } else if (exclusionsFor(q.unit.name).length) {
       requireThat(Array.isArray(q.contentExcluded) && sameSet(q.contentExcluded, exclusionsFor(q.unit.name)), `the qualification receipt does not record that its ${q.unit.name} archive held ${exclusionsFor(q.unit.name).join(" and ")}`);
