@@ -1121,6 +1121,13 @@ pub struct Driver {
 }
 
 #[cfg(all(feature = "browser", any(target_os = "linux", target_os = "macos")))]
+impl Default for Driver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(all(feature = "browser", any(target_os = "linux", target_os = "macos")))]
 impl Driver {
     pub fn new() -> Driver {
         Driver {

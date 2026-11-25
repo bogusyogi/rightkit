@@ -6,7 +6,7 @@
 //! (`f_fstypename`) and source (`f_mntfromname`); smbfs, afpfs, nfs and webdav are network volumes
 //! and the source is the share ([`network_share_line`]). On Windows, `GetDriveTypeW` returning
 //! `DRIVE_REMOTE` marks a lettered network drive and `WNetGetConnectionW` gives its UNC name
-//! ([`share_of`]). Running `mount` or `df` is the caller's: this module parses their text.
+//! (`share_of`). Running `mount` or `df` is the caller's: this module parses their text.
 //!
 //! Time limit: every query about a volume that may be remote runs on a worker thread through
 //! [`answer_in_time`]. A late answer is dropped, so one dead share cannot hold the caller.

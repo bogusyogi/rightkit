@@ -6,11 +6,11 @@
 //! (`uninstall-<digits>`), a plan expires after `cleanup_scan::PLAN_EXPIRY_SECS`, and applying
 //! claims the plan (an exclusive rename to `<plan>.claimed-<run id>.json`) before any effect and
 //! keeps the claim record, with the outcome written into it. The effect itself is
-//! [`super::uninstall_planned`], restricted to the plan's paths whose recorded identity still
+//! `super::uninstall_planned`, restricted to the plan's paths whose recorded identity still
 //! matches the live system.
 //!
 //! The host owns the command line and its wording of what to run next; the commands named in the
-//! refusals are [`PlanWording`].
+//! refusals are `PlanWording`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
