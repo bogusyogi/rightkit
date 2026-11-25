@@ -64,7 +64,8 @@ test("after a proof the server names what changed; a later proof checks those fi
     // A commit file is edited: it is named, compared with the commit's blob, and the proven tree no longer stands.
     fs.writeFileSync(path.join(dir, "src", "a.txt"), "edited");
     const afterEdit = ask({ op: "check", dir, tree: "t1" });
-    assert.ok(afterEdit.base.changed.includes("src/a.txt"), JSON.stringify(afterEdit.base));
+    // Windows and Linux report an in-place write as a change; macOS FSEvents may report it as a rename. Either way it is named.
+    assert.ok([...afterEdit.base.changed, ...afterEdit.base.renamed].includes("src/a.txt"), JSON.stringify(afterEdit.base));
     assert.equal(treeProvenByChanges({ reply: afterEdit, dir, tree: "t1", entries, objectFormat: "sha1" }), false);
     // Restored to the commit's bytes, it stands again (the file is read and compared, not assumed).
     fs.writeFileSync(path.join(dir, "src", "a.txt"), "a");
