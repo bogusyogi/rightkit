@@ -2291,7 +2291,8 @@ export function defaultSpawn(command, args, options = {}) {
     const key = readMemoKey(command, args, options);
     if (READ_MEMO.has(key)) return { ...READ_MEMO.get(key) };
     const r = rawSpawn(command, args, options);
-    if (r && r.status === 0 && !r.error) READ_MEMO.set(key, { status: 0, signal: null, stdout: r.stdout, stderr: r.stderr });
+    // As the asynchronous path: a path missing from a commit named by its full id (status 128) is kept too (NN08, 0.6.74 local case 1).
+    if (r && !r.error && (r.status === 0 || (r.status === 128 && absentAtCommit(command, args ?? []) && /does not exist in|exists on disk, but not in/.test(String(r.stderr ?? ""))))) READ_MEMO.set(key, { status: r.status, signal: null, stdout: r.stdout, stderr: r.stderr });
     return r;
   }
   return rawSpawn(command, args, options);
@@ -3444,7 +3445,7 @@ export async function runScans(plan, options = {}) {
       // share it, so one gate process starts `pnpm --version` once for both (NN08, 0.6.73 case 1).
       const probeOnce = tool !== "pnpm" ? rawProbe : async (ms) => {
         let started = null;
-        const { version, kept } = await pnpmVersionAnswerAsync({ cwd, env: probeEnv, remember: deps.spawn === defaultSpawnAsync, run: async () => { started = await rawProbe(ms); return started && !started.error && started.status === 0 ? String(started.stdout ?? "").trim() : null; } });
+        const { version, kept } = await pnpmVersionAnswerAsync({ cwd, env: probeEnv, remember: startsRealPrograms(deps.spawn), run: async () => { started = await rawProbe(ms); return started && !started.error && started.status === 0 ? String(started.stdout ?? "").trim() : null; } });
         return kept ? { status: 0, signal: null, stdout: `${version}
 `, stderr: "" } : started;
       };
@@ -5092,5 +5093,11 @@ export function scanDeferrals(result) {
 
 /** `git show <full commit id>:<path>`: a missing path there is missing for ever (NN08). Same rule as probe-memo.mjs absentAtCommit. */
 function absentAtCommit(cmd, argv) {
-  return /(^|[\/])git(\.exe)?$/i.test(String(cmd)) && argv.length === 2 && argv[0] === "show" && /^[0-9a-f]{40}:[^:]+$/.test(String(argv[1]));
+  return /(^|[\\/])git(\.exe)?$/i.test(String(cmd)) && argv.length === 2 && argv[0] === "show" && /^[0-9a-f]{40}:[^:]+$/.test(String(argv[1]));
+}
+
+/** Whether `spawn` is the real asynchronous spawn, or a wrapper (snapshot-metadata.mjs directReadSpawn) whose `underlying` chain ends in it. Test fakes are neither. */
+export function startsRealPrograms(spawn) {
+  for (let s = spawn, n = 0; typeof s === "function" && n < 8; s = s.underlying, n += 1) if (s === defaultSpawnAsync) return true;
+  return false;
 }

@@ -117,3 +117,21 @@ test("NN06: the acceptance run does not start case 2 within 45 minutes of UTC mi
   assert.equal(minutesToUtcMidnight(new Date("2026-11-24T23:59:00Z")), 1);
   assert.equal(minutesToUtcMidnight(new Date("2026-11-25T00:03:00Z")), 1437);
 });
+
+test("NN08: the pnpm probe keeps its answer behind the snapshot's direct-read wrapper, never behind a test fake", async () => {
+  const { startsRealPrograms, defaultSpawnAsync } = await import("./deterministic-scans.mjs");
+  const { directReadSpawn } = await import("./snapshot-metadata.mjs");
+  const wrapped = directReadSpawn({ spawn: defaultSpawnAsync, cargoCommand: ["cargo"], snapshotRoot: process.cwd(), directPath: "", tmpRoot: process.cwd(), env: {}, isAsync: true });
+  assert.equal(startsRealPrograms(defaultSpawnAsync), true);
+  assert.equal(startsRealPrograms(wrapped), true);
+  assert.equal(startsRealPrograms(async () => ({ status: 0 })), false);
+  assert.equal(startsRealPrograms(directReadSpawn({ spawn: async () => ({}), cargoCommand: ["cargo"], snapshotRoot: process.cwd(), directPath: "", tmpRoot: process.cwd(), env: {}, isAsync: true })), false);
+});
+
+test("NN08: a missing path at a full commit id is recognised for git named by its full Windows path", async () => {
+  const sha = "9da554ea136a70b7a82fb466ca7e00e0fd85ce37";
+  const { absentAtCommit } = await import("./probe-memo.mjs");
+  assert.equal(absentAtCommit("C:\\Program Files\\Git\\mingw64\\bin\\git.exe", ["show", `${sha}:package.json`]), true);
+  assert.equal(absentAtCommit("/usr/bin/git", ["show", `${sha}:package.json`]), true);
+  assert.equal(absentAtCommit("C:\\tools\\notgit.exe", ["show", `${sha}:package.json`]), false);
+});

@@ -282,5 +282,5 @@ export function installProbeMemo({ storeDir = null } = {}) {
 }
 
 export function absentAtCommit(cmd, argv) {
-  return /(^|[\/])git(.exe)?$/i.test(String(cmd)) && argv.length === 2 && argv[0] === "show" && /^[0-9a-f]{40}:[^:]+$/.test(String(argv[1]));
+  return /(^|[\\/])git(\.exe)?$/i.test(String(cmd)) && argv.length === 2 && argv[0] === "show" && /^[0-9a-f]{40}:[^:]+$/.test(String(argv[1]));
 }

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.75
+
+- NN08: a missing path at a full commit id is recognised when git is named by its full Windows path (the pattern had lost its backslash), and the gate's synchronous read memory keeps that answer too, so `git show <sha>:package.json` is asked once.
+- NN08: the scan version probe shares the pnpm version answer behind the snapshot's direct-read wrapper (it only diverts cargo; `underlying` names the spawn it wraps), so `pnpm --version` is not started again by the probe.
+
 ## 0.6.74
 
 - NN08: the scan version probe shares the Class A digest's `pnpm --version` answer where no packageManager pin or manage-package-manager-versions applies (the probe-only variables are left out of the key there); a missing path at a full commit id (status 128) is kept on the asynchronous path too.
