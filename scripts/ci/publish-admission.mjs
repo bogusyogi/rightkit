@@ -108,13 +108,20 @@ function committedVersion(registry, unit, sha, git) {
 export function unitScopeDirs(registry, units) {
   return sorted(units.map((unit) => (registry === "npm" ? `packages/${String(unit).replace(/^@rightkit\//, "")}` : `crates/${unit}`)));
 }
-const gateCommand = (sha, scope = []) => `rightkit-gate check --commit ${sha} --rule-tier release${scope.map((dir) => ` --scope ${dir}`).join("")}`;
+// --full-a: the class A checks that execute the unit's code (tsc, tests, lint) run too. A plain `check` skips them and says PARTIAL, which admits
+// nothing (rightkit#1695: since 0.6.76 that plain check exits 0 for CI and the apps' check jobs, so admission reads the full pass line, never the exit alone).
+const gateCommand = (sha, scope = []) => `rightkit-gate check --commit ${sha} --full-a --rule-tier release${scope.map((dir) => ` --scope ${dir}`).join("")}`;
+/** The arguments after `check --repo <root>`, the same ones gateCommand names. */
+export const gateArgs = (sha, scope = []) => ["--commit", sha, "--full-a", "--rule-tier", "release", ...scope.flatMap((dir) => ["--scope", dir])];
 
 /** The gate's own verdict on the commit: exit 0, the app-check pass line for this commit and the class A pass line for this commit. */
 export function gateVerdict(result, sha, scope = []) {
   const out = String(result?.stdout ?? "");
-  const rules = new RegExp(`^check: ${sha.slice(0, 12)} passed (\\d+) rules \\(release tier\\) in \\d+(?:\\.\\d+)?s(?: \\(.*\\))?$`, "m").exec(out);
-  const classA = new RegExp(`^rightkit-gate: class A content pass: (\\d+) deterministic scan\\(s\\) over (\\d+) file\\(s\\) of ${sha}$`, "m").exec(out);
+  // A full run (--full-a) stamps every line with its UTC time (rightkit#1463), so each line may start with one.
+  const at = "(?:\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d(?:\\.\\d+)?Z )?";
+  const rules = new RegExp(`^${at}check: ${sha.slice(0, 12)} passed (\\d+) rules \\(release tier\\) in \\d+(?:\\.\\d+)?s(?: \\(.*\\))?$`, "m").exec(out);
+  const classA = new RegExp(`^${at}rightkit-gate: class A (?:scoped|full) pass: (\\d+) deterministic check\\(s\\), the ones that execute repository code included, over (\\d+) file\\(s\\) of ${sha}$`, "m").exec(out);
+  requireThat(!new RegExp(`^${at}rightkit-gate: PARTIAL: `, "m").test(out), `rightkit-gate check at ${sha.slice(0, 12)} skipped checks that execute the unit's code (PARTIAL); nothing is admitted`);
   requireThat(result?.status === 0 && rules && classA && Number(rules[1]) > 0 && Number(classA[1]) > 0, `rightkit-gate check did not pass at ${sha.slice(0, 12)} (exit ${result?.status}); nothing is admitted`);
   return { command: gateCommand(sha, scope), exit: 0, rules: Number(rules[1]), classAScans: Number(classA[1]), classAFiles: Number(classA[2]) };
 }
@@ -328,7 +335,7 @@ export function dispatchHosted({ unit, root, run = spawnSync, out = (line) => pr
   const main = text("gh", ["api", `repos/${REPOSITORY}/commits/main`, "--jq", ".sha"]);
   requireThat(head === main, `HEAD ${head.slice(0, 12)} is not origin main ${main.slice(0, 12)}`);
   const manifest = JSON.parse(text("git", ["show", `${head}:${packageDir(root, head, unit, text)}/package.json`]));
-  const gate = sh(process.execPath, [path.join(root, "packages", "release", "bin", "rightkit-gate.mjs"), "check", "--repo", root, "--commit", head, "--rule-tier", "release"], { stdio: ["ignore", "pipe", "inherit"] });
+  const gate = sh(process.execPath, [path.join(root, "packages", "release", "bin", "rightkit-gate.mjs"), "check", "--repo", root, ...gateArgs(head)], { stdio: ["ignore", "pipe", "inherit"] });
   out(String(gate.stdout ?? "").trimEnd());
   gateVerdict(gate, head); // the same verdict the run's admission requires; this one only saves a run that would be refused
 
@@ -365,7 +372,7 @@ if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(file
       requireThat(outDir && rest.length === 2, "usage: publish-admission.mjs admit --out <dir>");
       const git = (...args) => { const r = spawnSync("git", args, { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }); if (r.status !== 0) throw new Error(`git ${args[0]} failed`); return r.stdout; };
       const policy = await committedPolicy(root, (file) => git("show", `${process.env.GITHUB_SHA}:${file}`));
-      const runGate = (sha, scope) => spawnSync(process.execPath, [path.join(root, "packages", "release", "bin", "rightkit-gate.mjs"), "check", "--repo", root, "--commit", sha, "--rule-tier", "release", ...scope.flatMap((dir) => ["--scope", dir])], { cwd: root, encoding: "utf8", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "inherit"] });
+      const runGate = (sha, scope) => spawnSync(process.execPath, [path.join(root, "packages", "release", "bin", "rightkit-gate.mjs"), "check", "--repo", root, ...gateArgs(sha, scope)], { cwd: root, encoding: "utf8", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "inherit"] });
       const receipt = await admit({ env: process.env, git, runGate: (sha, scope) => { const r = runGate(sha, scope); process.stdout.write(r.stdout ?? ""); return r; }, policy });
       fs.mkdirSync(outDir, { recursive: true });
       fs.writeFileSync(path.join(outDir, ADMISSION_FILE), `${JSON.stringify(receipt, null, 2)}\n`, { flag: "wx" });

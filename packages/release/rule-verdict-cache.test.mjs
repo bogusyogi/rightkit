@@ -13,15 +13,19 @@ test("a stored passing rule verdict is read, and passing it again writes nothing
   const cache = ruleVerdictCache({ checkout: common, spawn });
   const key = cache.key({ rule: "app-check", tree: "t".repeat(40), args: [] });
   const file = path.join(common, "rightkit-gate-cache", "rule-verdicts", `${key}.json`);
-  assert.equal(cache.passed(key), false);
+  assert.equal(cache.passed(key), null);
   cache.pass(key);
-  assert.equal(cache.passed(key), true);
+  assert.equal(Boolean(cache.passed(key)), true);
   const long = new Date("2020-01-01T00:00:00Z"); fs.utimesSync(file, long, long); const before = fs.readFileSync(file, "utf8");
   cache.pass(key);
   assert.equal(fs.readFileSync(file, "utf8"), before, "the stored verdict is not rewritten");
   assert.equal(fs.statSync(file).mtimeMs, long.getTime(), "the file is not touched");
   assert.deepEqual(fs.readdirSync(path.dirname(file)), [`${key}.json`], "no temporary file is left");
   // a verdict that cannot be read as a pass is written
-  fs.writeFileSync(file, "{"); cache.pass(key); assert.equal(cache.passed(key), true);
+  fs.writeFileSync(file, "{"); cache.pass(key); assert.equal(Boolean(cache.passed(key)), true);
+  // rightkit#1695: the app rules' pass keeps its rule count; a pass stored without one is not reused where the count is needed, and is rewritten with it.
+  assert.equal(cache.passed(key, { needRules: true }), null);
+  cache.pass(key, 52); assert.equal(cache.passed(key, { needRules: true })?.rules, 52);
+  const kept = fs.readFileSync(file, "utf8"); cache.pass(key, 52); assert.equal(fs.readFileSync(file, "utf8"), kept, "a pass with its count is not rewritten");
   fs.rmSync(common, { recursive: true, force: true });
 });

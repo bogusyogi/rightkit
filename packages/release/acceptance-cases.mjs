@@ -24,7 +24,9 @@ const plain = (p) => dirKey(String(p ?? "").replace(/^\\\\\?\\/, ""));
 // The lines the evidence table holds every case to, whatever the case lists: every receipt names the commit (NN01), a run that reached the broker did so after
 // Class A (NN02), nothing repeats (NN08), the run is inside its limit (NN11) and ends clean (NN12).
 const ALWAYS = Object.freeze(["NN01", "NN02", "NN08", "NN11", "NN12"]);
-export const LINE_IDS = Object.freeze(["NN01", "NN02", "NN03", "NN04", "NN05", "NN06", "NN07", "NN08", "NN09", "NN10", "NN11", "NN12"]);
+export const LINE_IDS = Object.freeze(["NN01", "NN02", "NN03", "NN04", "NN05", "NN06", "NN07", "NN08", "NN09", "NN10", "NN11", "NN12", "NN13"]);
+// NN13 is decided once per run by acceptance-callers.mjs (every caller of `rightkit-gate check`), not by a fixture case (rightkit#1695).
+export const RUN_LINES = Object.freeze(["NN13"]);
 
 // ---- reading a run's facts ------------------------------------------------------------------------------------------------------------------------------
 /** A Class A row's own program: a tool the gate starts for a row, not a version probe. Rows that run inside the gate start none (limit 1). */
@@ -62,7 +64,7 @@ const firstSubmission = (run) => Math.min(...run.jobs.map((j) => j.submitted).fi
 /** A job the broker refused before it started (no signed start, not a success) built nothing: a run killed under it leaves one (case 7 on 0.6.67). Skipped in the kill case only: anywhere else an unstarted refusal may be a job sent before Class A, which NN02 must see. */
 export const neverRan = (j) => !Number.isFinite(j.started) && j.status !== "SUCCEEDED";
 export function receiptsNameTheCommit(run, { skipNeverRan = false } = {}) {
-  const fails = [];
+  const fails = (run.foreignJobs ?? []).filter((x) => !(skipNeverRan && neverRan(x))).map((j) => `${jobName(j)} ran for this repository during the run but not from its snapshot of the selected commit (cwd ${j.cwd})`);
   for (const j of run.jobs.filter((x) => !(skipNeverRan && neverRan(x)))) {
     if (!j.verified) { fails.push(`${jobName(j)}: its receipt does not verify (${(j.problems ?? []).join("; ") || "no reason given"})`); continue; }
     if (j.gate?.commit !== run.commit) fails.push(`${jobName(j)} is signed for commit ${String(j.gate?.commit).slice(0, 12)}, not the selected ${String(run.commit).slice(0, 12)}`);
@@ -167,6 +169,13 @@ export function endsClean(run, label) {
 }
 const exited = (run) => Number.isInteger(run.exit) && !run.killed;
 const failedRun = (run, label) => (exited(run) && run.exit !== 0 ? [] : [`${label} did not end with a failing exit (exit ${run.exit}${run.killed ? ", killed" : ""})`]);
+// A failing run counts only when the gate failed it for the case's own reason: any non-zero exit (a crash at start, a usage error) passed before
+// (review 2026-11-25 #3). The row must be in the gate's own verdict line, `verdict deterministic failed=<ids>`.
+const failedOn = (run, row, label) => {
+  const f = failedRun(run, label); if (f.length || !row) return f;
+  const m = /verdict deterministic failed=(\S+)/.exec(String(run.log ?? ""));
+  return m && m[1].split(",").includes(row) ? [] : [`${label} failed, but not on ${row}: the gate's verdict line ${m ? `names ${m[1]}` : "is missing"}`];
+};
 const passedRun = (run, label) => (exited(run) && run.exit === 0 ? [] : [`${label} did not pass (exit ${run.exit}${run.killed ? ", killed" : ""})`]);
 const noReceipt = (run, label) => (run.jobs.length ? [`${label} left ${run.jobs.length} broker receipt(s)`] : []);
 const noClassAProgram = (run, label) => { const a = run.starts.filter(isClassAProgram); return [...(a.length ? [`${label} started ${a.length} Class A program(s) (first: ${programName(a[0].program)})`] : []), ...(run.processGaps.length ? [`${label}: the process record is incomplete (${run.processGaps[0]})`] : [])]; };
@@ -178,12 +187,12 @@ const LINES = {
   NN01(c, cases) {
     const fails = c.runs.flatMap((r) => receiptsNameTheCommit(r, { skipNeverRan: c.id === 7 }));
     if (c.id === 1) fails.push(...passedRun(c.runs[0], "the run with an error planted in the checkout that the commit does not hold"));
-    if (c.id === 5) c.runs.forEach((r, i) => fails.push(...failedRun(r, `run ${i + 1} of the commit that holds the error, with a clean checkout`)));
+    if (c.id === 5) c.runs.forEach((r, i) => fails.push(...failedOn(r, c.expect?.outputNames?.[0], `run ${i + 1} of the commit that holds the error, with a clean checkout`)));
     return verdict(fails, c.id === 1 ? "an error in the checkout that is not in the commit did not fail the run, and every receipt names the selected commit and tree with the snapshot unchanged" : c.id === 5 ? "an error in the commit failed the run with a clean checkout" : `${c.runs.reduce((n, r) => n + r.jobs.length, 0)} receipt(s), each naming the selected commit and tree with the snapshot unchanged`);
   },
   // Class A finishes before anything goes to the broker. If it fails, nothing goes.
   NN02(c) {
-    if (c.id === 5) return verdict(c.runs.flatMap((r, i) => [...failedRun(r, `run ${i + 1}`), ...noReceipt(r, `run ${i + 1}`)]), "a failing Class A check ended the run with a failing exit and no broker receipt, twice");
+    if (c.id === 5) return verdict(c.runs.flatMap((r, i) => [...failedOn(r, c.expect?.outputNames?.[0], `run ${i + 1}`), ...noReceipt(r, `run ${i + 1}`)]), "a failing Class A check ended the run with a failing exit and no broker receipt, twice");
     return verdict(c.runs.filter((r) => r.jobs.length).flatMap((r) => classABeforeBroker(r, { skipNeverRan: c.id === 7 })), "the Class A verdict file is older than the first signed submission, and every Class A program had ended by then");
   },
   // Class A starts ready, independent work whenever an eligible lane is free.
@@ -224,9 +233,11 @@ const LINES = {
     if (c.id === 4) {
       const row = c.expect?.outputNames?.[0] ?? "license";
       const fails = [...failedRun(run, "the run with one cache file deleted"), ...noReceipt(run, "it"), ...noClassAProgram(run, "it")];
-      const lines = String(run.log ?? "").split(/\r?\n/).filter((l) => l.includes(row));
-      if (!lines.length) fails.push(`the gate's output does not name the row ${row}`);
-      else if (!lines.some((l) => /expected|forecast|missing|absent|lost|no longer|not in the store|deleted/i.test(l))) fails.push(`the gate's output names ${row} with no cause`);
+      // The gate's own stop record for the row, not any line that mentions it beside a likely word (review 2026-11-25 #3).
+      const stops = String(run.log ?? "").split(/\r?\n/).map((l) => /RK_CACHE_DIVERGENCE (\{.*\})/.exec(l)).filter(Boolean).map((m) => { try { return JSON.parse(m[1]); } catch { return null; } });
+      const stop = stops.find((d) => d?.id === row);
+      if (!stop) fails.push(`the gate did not stop with RK_CACHE_DIVERGENCE naming the row ${row}`);
+      else if (stop.expected !== "hit" || !stop.reason) fails.push(`the gate's stop for ${row} expected ${stop.expected} with reason ${stop.reason ?? "none"}`);
       return verdict(fails, `the run stopped with a failing exit, no receipt and no Class A program, and its output names ${row} and the cause`);
     }
     return verdict(workMatches(c, cases), "the broker commands and the scan store files written are exactly the rows the cases file expects");
@@ -284,7 +295,8 @@ const LINES = {
     const fails = [];
     if (c.id === 7) {
       const [first, second] = c.runs;
-      if (!first?.killed) fails.push("the first run was not killed midway");
+      if (!first?.killed) fails.push("the first run was not killed midway (it had ended before the kill, or no kill was sent)");
+      else if (first.exit === 0) fails.push("the first run is marked killed but ended with exit 0: it finished before the kill landed");
       if (!second) fails.push("no ordinary run followed the killed one");
       else fails.push(...passedRun(second, "the ordinary run after the kill"), ...endsClean(second, "the ordinary run after the kill"));
       return verdict(fails, "the run was killed midway; the next ordinary run started by itself, passed, and left no lock and no program");
@@ -358,8 +370,9 @@ export function decideRealBuild(run, cases) {
  * The counting rule: a line passes when every case that is judged on it passes it, and every line must be judged by at least one case. Twelve of twelve is all twelve
  * passing by that rule and the real build passing its lines. A case that was not run fails every line it lists.
  */
-export function decideAll({ cases, results, realBuild = null }) {
+export function decideAll({ cases, results, realBuild = null, callers = null }) {
   const lines = LINE_IDS.map((id) => {
+    if (RUN_LINES.includes(id)) return { id, verdict: callers?.verdict === PASS ? PASS : FAIL, why: callers?.why ?? "the callers of rightkit-gate check were not run", cases: [] };
     const from = [];
     for (const def of cases.cases) { if (!linesOf(def).includes(id)) continue; const r = results[def.id]?.[id]; from.push({ case: def.id, verdict: r?.verdict ?? FAIL, why: r?.why ?? "the case was not run" }); }
     const failed = from.filter((f) => f.verdict !== PASS);
@@ -386,7 +399,12 @@ export function factsOfRun(dir, { repo, receiptsDir, verify = null, killed = fal
   const logSnap = snapshotIn(log) ? plain(snapshotIn(log)) : null;
   const mine = inRun.filter((j) => j.gate?.commit === launch.commit || (logSnap !== null && (plain(j.gate?.snapshot) === logSnap || plain(j.cwd).startsWith(logSnap))));
   const snapshot = mine.map((j) => j.gate?.snapshot).find(Boolean) ?? snapshotIn(log);
+  // Jobs of THIS repository in the run's window that are not this run's: built from the working checkout, or in the snapshot under another commit. They
+  // were dropped before NN01 looked (review 2026-11-25 #7). Other repositories' jobs share the broker under normal load and are not counted (Gemini, 2026-11-25).
+  const repoKey = repo ? plain(repo) : null;
+  const foreignJobs = inRun.filter((j) => !mine.includes(j) && ((repoKey && plain(j.cwd).startsWith(repoKey)) || (logSnap !== null && (plain(j.gate?.snapshot) === logSnap || plain(j.cwd).startsWith(logSnap)))));
   return {
+    foreignJobs,
     dir, commit: launch.commit ?? null, tree: read.git?.tree ?? null, exit: launch.exit ?? null, signal: launch.signal ?? null, killed: killed || !!launch.signal,
     durationMs: Number.isFinite(start) && Number.isFinite(end) ? end - start : NaN, lanes: launch.lanes ?? null, log,
     jobs: mine, starts: f.starts, rootPid: f.root?.pid ?? null, processGaps: f.gaps, cacheWritten: json(path.join(dir, "cache-written.json")), verdicts, decisions,

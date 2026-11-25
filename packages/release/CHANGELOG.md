@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.77
+
+- rightkit#1695: a content-only `check` (no `--to`, no `--full-a`) exits 0 again and still says PARTIAL; RightKit CI, publish-app, every consumer app's check job and the templates read exit 0. Publish admission runs `check --full-a`, requires the full or scoped Class A pass line and refuses any PARTIAL line; its patterns accept the time stamp a full run puts on each line. A reused app-rule verdict prints the same `passed N rules` line as a fresh one (the count is stored with the pass).
+- Acceptance test: NN13, every caller of the gate (acceptance-callers.mjs): every file naming the gate is classified, each caller's call is still in its file, and each caller's command gets the answer its own rule needs. Review fixes: negative cases must fail on their own row, case 4 must stop with RK_CACHE_DIVERGENCE naming the row, a kill counts only on a running gate, stage receipts are set aside before every case but case 2, a job of the fixture built outside its snapshot fails NN01, and the headline names the real build and the cases file.
+
 ## 0.6.76
 
 - `right-release direct-release finalize` materializes the SLSA provenance and CycloneDX SBOM when an asset names none, and passes `allowLocalReleaseRoot` to the bootstrap validator.
