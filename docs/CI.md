@@ -59,7 +59,7 @@ What is implemented today:
   (an unknown option, exit 2); CI's `plan` job runs preflight first and `hygiene` runs the class A scans on every
   push. Native compile, clippy, rustdoc & package tests remain mandatory in publication qualification. The full gate
   `rightkit-gate [--base <ref>]` keeps full class A & B coverage; the local-build record
-  (`.rightkit-local-build.json`) grants local build & test only (RightKit publishes from git through CI). On the Mac and the Dell cargo runs only through the broker: `rustright cargo`, or
+  (`.rightkit-local-build.json`) grants local build & test, and RightKit publishes locally too (`right-release publish-local`, see Publishing below). On the Mac and the Dell cargo runs only through the broker: `rustright cargo`, or
   the managed `cargo` shim (`cargo-guard.mjs`); plain cargo is refused. A deferred scan fails the gate. Each crate is its own
   Cargo workspace with its own `crates/<x>/Cargo.lock`, `Cargo.toml`, `deny.toml` and `.cargo/audit.toml` (rightkit#1285): a change
   to one puts that crate and its path dependents in scope. A change to a root workspace file (toolchain, pnpm lock or workspace)
@@ -257,9 +257,12 @@ gate report names it under "Now green" for removal in next commit.
 ## Publishing
 
 **Current route (Adrian, 2026-11-03, rightkit#1471; either host since 2026-11-10, rightkit#1559): local, from the Mac or the Dell with that host's warm cache, no CI.** `right-release publish-local npm --package
-@rightkit/<name> --commit <sha>` publishes a pushed commit's package after the gate's Class A passes on that commit, with the Keychain
-token `npm-rightkit-publish` and npm provenance off (rightkit#1472). Crates publish locally too. Credentials, steps and who does what:
-`docs/PUBLISHING-CREDENTIALS.md`. The CI routes below are not in use.
+@rightkit/<name> --commit <sha>` publishes a pushed commit's package after the gate's Class A passes on that commit, with npm
+provenance off (rightkit#1472): on the Mac with the Keychain token `npm-rightkit-publish`, on the Dell (gate 0.6.80 or later,
+rightkit#1714) with the account's own npm sign-in. Crates publish locally with `publish-local cargo` on either host. CI publishes
+only for a Linux-container origin (Adrian, 2026-11-25). The gate package `@rightkit/release` is published as the exact archive its
+acceptance run admitted (`publish-local npm --archive`, GATE-CONTRACT NN31). Credentials, steps and who does what:
+`docs/PUBLISHING-CREDENTIALS.md`. The CI routes below serve a Linux origin only.
 
 Two routes, one uploader (`scripts/ci/upload.mjs`), and registry uploads exist only in Actions:
 
