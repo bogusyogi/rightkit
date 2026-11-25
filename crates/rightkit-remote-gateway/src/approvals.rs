@@ -244,7 +244,7 @@ fn is_engine() -> bool {
 }
 
 /// Whether this process is the resident engine (`mark_engine_process`).
-pub(super) fn is_engine_process() -> bool {
+pub fn is_engine_process() -> bool {
     is_engine()
 }
 

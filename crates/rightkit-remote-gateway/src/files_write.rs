@@ -70,7 +70,7 @@ fn need_text<'a>(args: &'a Value, key: &str) -> Result<&'a str> {
 }
 
 /// The approval step every change goes through: no approval id asks for one, an id uses it.
-pub(super) fn act_gate(
+pub fn act_gate(
     origin: Origin,
     tool: &str,
     bind: &str,

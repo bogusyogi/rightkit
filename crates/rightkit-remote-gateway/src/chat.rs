@@ -27,7 +27,7 @@ fn parse(chat: &str) -> Result<(Option<&str>, &str)> {
 
 /// Whether Settings selected this chat. `kind` is what is known of the chat's kind: the one
 /// named in the request, or the transcript's once it is found.
-pub(crate) fn selected(settings: &Settings, kind: Option<&str>, id: &str) -> bool {
+pub fn selected(settings: &Settings, kind: Option<&str>, id: &str) -> bool {
     settings.chat_read.iter().any(|entry| {
         let (entry_kind, entry_id) = match entry.split_once(':') {
             Some((k, i)) if CHAT_KINDS.contains(&k) => (Some(k), i),

@@ -266,7 +266,7 @@ pub fn host_allowed(host: &str, sites: &[String]) -> bool {
 }
 
 /// The host of an `http` or `https` URL, lower case; `None` for anything else.
-pub(crate) fn url_host(url: &str) -> Option<String> {
+pub fn url_host(url: &str) -> Option<String> {
     let lower = url.trim().to_ascii_lowercase();
     let rest = lower
         .strip_prefix("https://")
