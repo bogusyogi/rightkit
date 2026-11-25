@@ -24,7 +24,9 @@ import { verifyPublicationClaim } from "./receipt-signature.mjs";
 
 export const ACCEPTANCE_RESULT_SCHEMA = "rightkit.acceptance-result/1";
 /** The files the twelve-line judgement is made of, relative to the package. */
-export const JUDGE_FILES = Object.freeze(["acceptance-lines.mjs", "acceptance-lines.test.mjs", "acceptance-launch.mjs"]);
+// Step F, the lock (Adrian, 2026-11-25): every file the acceptance judge imports (acceptance-run.mjs and everything it reaches inside this package), the cases
+// file it judges against, and the old judge's test. A file the judge comes to import that is not listed here fails acceptance-admission.test.mjs.
+export const JUDGE_FILES = Object.freeze(["acceptance-callers.mjs","acceptance-cases.json","acceptance-cases.mjs","acceptance-launch.mjs","acceptance-lines.mjs","acceptance-lines.test.mjs","acceptance-rows.mjs","acceptance-run.mjs","atomic-write.mjs","background-process.mjs","broker-client.mjs","disk-policy.mjs","gate-seam.mjs","gate-serve.mjs","gate-stages.mjs","managed-root-guard.mjs","managed-roots.mjs","platform-dir.mjs","rustright-names.mjs","snapshot-changes.mjs","snapshot-git.mjs","snapshot-identity.mjs","snapshot-root-config.mjs","snapshot.mjs"]);
 const here = path.dirname(fileURLToPath(import.meta.url));
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const PLATFORM_OF = Object.freeze({ mac: "darwin", dell: "win32" });

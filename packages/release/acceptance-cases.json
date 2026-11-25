@@ -543,16 +543,16 @@
     ]
   },
   "limitsMs": {
-    "case1": 977000,
+    "case1": 126000,
     "case2": 34000,
-    "case3": 41000,
+    "case3": 60000,
     "case4": 31000,
-    "case5": 24000,
-    "case6": 41000,
-    "case7": 103000,
+    "case5": 38000,
+    "case6": 62000,
+    "case7": 60000,
     "realBuild": null
   },
-  "limitsRule": "first clean measured time x 1.25, at least the measured time + 15 s (Gemini for Adrian, 2026-11-25: the gate must pass under normal working load, so a short case keeps 15 s of headroom), filled once from the 0.6.75 run of 2026-11-25 (accept-0675b); one limit per case covers each of its unkilled runs; null means not yet measured, and NN11 fails while it is null",
+  "limitsRule": "NN11 limits the gate's own time: a run's wall time less the time its broker jobs were in flight (the broker is shared with every other build on the host; Adrian, 2026-11-25, option b). Each limit is the worst own time of three full runs on the installed pair (accept-0675b, accept-0675c, accept-0677, 2026-11-25) x 1.25, and at least that time + 15 s, so a run under normal working load passes. One limit per case covers each of its unkilled runs; null means not yet measured, and NN11 fails while it is null.",
   "corrections": {
     "approved": "Adrian, 2026-11-24: \"Approve, keep going\" (to: C1, C4, the sidecar-build half of C2, and C3 tightened to an exact command list). Reviewed first by Gemini, which rejected C3 as first worded (\"in one command or split by target\" lets a gate always split) and the rk-sidecar half of C2.",
     "previousSha256": "e41bba2b2331adc866ed602f3ab3ecda27adb615d296e981f9a2310479b06bdc",

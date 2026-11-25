@@ -150,10 +150,23 @@ export function testsBuiltByBrokerRunByGate(run) {
   return fails;
 }
 /** NN11, every run: it finished inside the limit pinned for it. */
+/**
+ * The time the broker held this run: the union of its jobs' [submitted, ended] spans inside the run. The broker is shared with every other build on the host,
+ * so how long a job waits or runs there is not the gate's time (Adrian, 2026-11-25, NN11 option b: the same work took 10.6 s and 81.4 s of compile).
+ */
+export function brokerHeldMs(run) {
+  const from = Number.isFinite(run.startMs) ? run.startMs : -Infinity; const to = Number.isFinite(run.startMs) && Number.isFinite(run.durationMs) ? run.startMs + run.durationMs : Infinity;
+  const spans = (run.jobs ?? []).filter((j) => Number.isFinite(j.submitted) && Number.isFinite(j.ended)).map((j) => [Math.max(j.submitted, from), Math.min(j.ended, to)]).filter(([a, b]) => b > a).sort((x, y) => x[0] - y[0]);
+  let total = 0; let cur = null;
+  for (const [a, b] of spans) { if (!cur || a > cur[1]) { if (cur) total += cur[1] - cur[0]; cur = [a, b]; } else cur[1] = Math.max(cur[1], b); }
+  return cur ? total + cur[1] - cur[0] : 0;
+}
+/** NN11 limits the gate's own time: the run's wall time less the time the broker held it. Both are printed. */
 export function insideLimit(run, limitMs, label) {
-  if (!Number.isFinite(limitMs)) return [`no time limit is pinned for ${label} (the first clean measured time x 1.25 goes into the cases file)`];
+  if (!Number.isFinite(limitMs)) return [`no time limit is pinned for ${label} (the gate's own time x 1.25, at least + 15 s, goes into the cases file)`];
   if (!Number.isFinite(run.durationMs)) return [`${label}: the launcher did not record when the run ended`];
-  return run.durationMs <= limitMs ? [] : [`${label} took ${Math.round(run.durationMs / 1000)} s; its limit is ${Math.round(limitMs / 1000)} s`];
+  const broker = brokerHeldMs(run); const own = run.durationMs - broker;
+  return own <= limitMs ? [] : [`${label} spent ${Math.round(own / 1000)} s of its own (wall ${Math.round(run.durationMs / 1000)} s, broker ${Math.round(broker / 1000)} s); its limit is ${Math.round(limitMs / 1000)} s`];
 }
 /** NN12, a run that was not killed: no lock of its snapshot and no program of it is left. */
 export function endsClean(run, label) {
@@ -405,7 +418,7 @@ export function factsOfRun(dir, { repo, receiptsDir, verify = null, killed = fal
   const foreignJobs = inRun.filter((j) => !mine.includes(j) && ((repoKey && plain(j.cwd).startsWith(repoKey)) || (logSnap !== null && (plain(j.gate?.snapshot) === logSnap || plain(j.cwd).startsWith(logSnap)))));
   return {
     foreignJobs,
-    dir, commit: launch.commit ?? null, tree: read.git?.tree ?? null, exit: launch.exit ?? null, signal: launch.signal ?? null, killed: killed || !!launch.signal,
+    dir, startMs: Number.isFinite(start) ? start : NaN, commit: launch.commit ?? null, tree: read.git?.tree ?? null, exit: launch.exit ?? null, signal: launch.signal ?? null, killed: killed || !!launch.signal,
     durationMs: Number.isFinite(start) && Number.isFinite(end) ? end - start : NaN, lanes: launch.lanes ?? null, log,
     jobs: mine, starts: f.starts, rootPid: f.root?.pid ?? null, processGaps: f.gaps, cacheWritten: json(path.join(dir, "cache-written.json")), verdicts, decisions,
     locksAfter: launch.afterRun?.locks ?? [], locksKnown: launch.afterRun?.locksKnown === true, rootAlive: launch.afterRun?.rootAlive === true, snapshot, imageNow,

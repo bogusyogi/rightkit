@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.78
+
+- NN11 limits the gate's own time: a run's wall time less the time its broker jobs were in flight (the broker is shared with every build on the host); both are printed. Limits are the worst own time of three full runs x 1.25, at least + 15 s.
+- Step F, the lock: every file the acceptance judge imports, the cases file and the old judge's test are the locked judge files (contract-nn.json runnerFiles, acceptance-admission JUDGE_FILES); a test fails when the judge imports an unlisted file, and each verdict records their hashes.
+
 ## 0.6.77
 
 - rightkit#1695: a content-only `check` (no `--to`, no `--full-a`) exits 0 again and still says PARTIAL; RightKit CI, publish-app, every consumer app's check job and the templates read exit 0. Publish admission runs `check --full-a`, requires the full or scoped Class A pass line and refuses any PARTIAL line; its patterns accept the time stamp a full run puts on each line. A reused app-rule verdict prints the same `passed N rules` line as a fresh one (the count is stored with the pass).

@@ -180,7 +180,12 @@ test("NN10: a broker that runs the tests, a gate that skips or repeats a signed 
   failsFor("NN10", 6, (r) => { r.exit = 0; }, /failing exit/);
 });
 test("NN11: a run over its limit, or a case with no pinned limit, fails", () => {
-  failsFor("NN11", 2, (r) => { r.durationMs = 700_000; }, /took 700 s; its limit is 600 s/);
+  failsFor("NN11", 2, (r) => { r.durationMs = 700_000; }, /spent 700 s of its own \(wall 700 s, broker 0 s\); its limit is 600 s/);
+  // Option b (Adrian, 2026-11-25): time the broker held the run is not the gate's. A run whose wall time is over the limit only because its jobs
+  // were in the broker passes; the same run with the broker time its own fails.
+  const slow = (r, gate) => { r.startMs = 0; r.durationMs = 900_000; r.jobs = [{ submitted: 100_000, ended: 100_000 + (900_000 - gate) }]; };
+  { const g = good(); slow(g[2][0], 500_000); assert.equal(decideCase({ ...def(2), runs: g[2] }, CASES).NN11.verdict, PASS); }
+  failsFor("NN11", 2, (r) => slow(r, 650_000), /spent 650 s of its own \(wall 900 s, broker 250 s\)/);
   const cases = { ...CASES, limitsMs: { ...CASES.limitsMs, case3: null } }; const g = good();
   assert.equal(decideCase({ ...def(3), runs: g[3] }, cases).NN11.verdict, FAIL);
 });

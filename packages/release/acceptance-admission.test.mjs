@@ -54,7 +54,8 @@ test("9.1 a gate release is admitted when the twelve-line result, the archive, t
   const r = admit(fixture());
   assert.deepEqual(r.problems, []); assert.equal(r.ok, true);
   assert.deepEqual(r.facts, { host: "dell", version: "0.6.62", sealedSha256: SEALED, archiveSha256: archive.sha256, jobsListed: 2, jobsVerified: 2, signedSteps: [], nnBasis: "twelve-line-judge" });
-  assert.deepEqual(JUDGE_FILES, ["acceptance-lines.mjs", "acceptance-lines.test.mjs", "acceptance-launch.mjs"]);
+  // Step F's lock (2026-11-25): the old judge's three files are still among the locked ones, with every file the current judge imports.
+  for (const f of ["acceptance-lines.mjs", "acceptance-lines.test.mjs", "acceptance-launch.mjs", "acceptance-run.mjs", "acceptance-cases.mjs", "acceptance-callers.mjs", "acceptance-cases.json"]) assert.ok(JUDGE_FILES.includes(f), f);
 });
 
 test("9.2 every row of the decision table refuses (table 1 to 9)", () => {
@@ -177,4 +178,15 @@ test("9.6 an old contract-test receipt is still read, against the retired runner
     // Each of these is compared with what contract-nn.json recorded of the retired runner.
     for (const re of [/the contract changed after the dell receipt was written/, /the runner changed after the dell receipt was written/, /judged against other budgets/, /runner files are not this runner's; not listed: background-process\.mjs/, /launch S12:crate cannot be served from a cache/]) assert.match(text, re);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("the lock covers the judge: every file acceptance-run.mjs reaches inside this package is a judge file, and so is the cases file", () => {
+  const seen = new Set(); const todo = ["acceptance-run.mjs"];
+  while (todo.length) {
+    const f = todo.pop(); if (seen.has(f)) continue; seen.add(f);
+    const t = fs.readFileSync(new URL(`./${f}`, import.meta.url), "utf8");
+    for (const m of t.matchAll(/(?:from |import\()\s*["'](\.\/[^"']+\.mjs)["']/g)) todo.push(m[1].slice(2));
+  }
+  for (const f of seen) assert.ok(JUDGE_FILES.includes(f), `${f} is imported by the judge and is not locked (JUDGE_FILES)`);
+  assert.ok(JUDGE_FILES.includes("acceptance-cases.json"));
 });

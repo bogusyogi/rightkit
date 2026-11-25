@@ -238,7 +238,7 @@ Adrian, 2026-11-03: "i wnat all dev completely gone. all debug too. completely g
 | `NN08` | No repeat calls: nothing is started twice in one run. |
 | `NN09` | Compatible compiles are combined per workspace and stage. Every split has a reason the check can verify. Independent groups run at the same time when there is capacity. |
 | `NN10` | Tests are compiled by the broker and run by the gate. |
-| `NN11` | The run finishes inside its time limit. |
+| `NN11` | The gate's own part of the run, its wall time less the time the shared broker holds its jobs, finishes inside its time limit. |
 | `NN12` | The run ends clean, even if killed: the next ordinary run starts safely by itself. |
 | `NN13` | Every caller of the gate takes its answer as written: each one, run against a clean commit, gets the answer it needs, and an admission refuses a run that skipped checks. |
 <!-- acceptance-lines:end -->
