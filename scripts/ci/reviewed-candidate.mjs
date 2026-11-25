@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { APPROVED_ARTIFACTS_FILE, REPOSITORY, gateAdmissionProblem, sha, linuxRequiredFor, loadSealed, checkReceipts, checkLocalReceipts, checkApprovedArtifacts, checkUploadPayloads, executeUpload, childEnv, authenticatedArchiveScanResolver, RUNTIME_PROOF_WORKLOADS, localRuntimeProofSha256 } from "./upload.mjs";
+import { APPROVED_ARTIFACTS_FILE, REPOSITORY, GATE_PACKAGE, TOKEN_VARS, gateAdmissionProblem, sha, linuxRequiredFor, loadSealed, checkReceipts, checkLocalReceipts, checkApprovedArtifacts, checkUploadPayloads, executeUpload, childEnv, authenticatedArchiveScanResolver, RUNTIME_PROOF_WORKLOADS, localRuntimeProofSha256 } from "./upload.mjs";
 import { validateSupplementPin, verifyArchiveSupplement } from "./supplemental-proof.mjs";
 
 const HEX = /^[0-9a-f]{64}$/;
@@ -726,7 +726,9 @@ const UNIT_NAME = /^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
 // The trusted checkout the scan receipt binds crate locks against: this repository root (publish-direct.yml checks out the root Cargo.toml
 // and Cargo.lock, crates/*/Cargo.toml and crates/*/Cargo.lock of the qualified commit). Tests pass their own `candidateDir`; no workflow or CLI does.
 const TRUSTED_CANDIDATE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-export async function prepareQualified({ env, fetchImpl = fetch, spawn = spawnSync, linuxFile, candidateDir = TRUSTED_CANDIDATE_DIR }) {
+// `gateAdmission: false` is for exportGateArchive alone, the credential-free step that fetches the archive the gate admission is run on (it cannot hold
+// the record it is about to make); every upload path leaves it true.
+export async function prepareQualified({ env, fetchImpl = fetch, spawn = spawnSync, linuxFile, candidateDir = TRUSTED_CANDIDATE_DIR, gateAdmission = true }) {
   requireThat(env.GITHUB_ACTIONS === "true" && env.GITHUB_REPOSITORY === REPOSITORY && env.GITHUB_REF === "refs/heads/main" && /^[0-9a-f]{40}$/.test(env.GITHUB_SHA ?? ""), "direct publication requires trusted main of the repository");
   requireThat(env.GITHUB_TOKEN && env.RUNNER_TEMP, "GitHub read token & runner temp are required");
   requireThat(env.GITHUB_WORKFLOW_REF === `${REPOSITORY}/.github/workflows/${QUALIFIED_WORKFLOW}@refs/heads/main`, "wrong direct publication workflow");
@@ -785,7 +787,7 @@ export async function prepareQualified({ env, fetchImpl = fetch, spawn = spawnSy
   const registry = plan.registry, units = plan.units.map((unit) => unit.name);
   // GATE-CONTRACT NN31 in the step that holds no registry credential: a qualified run that sealed the gate package goes no further without its
   // admission record, so the credentialed step never starts for it (the scheduled relay retries a refused upload; each retry now ends here).
-  for (const unit of plan.units) { const refusal = gateAdmissionProblem({ unit, commit: plan.commit, env }); requireThat(refusal === null, refusal ?? ""); }
+  if (gateAdmission) for (const unit of plan.units) { const refusal = gateAdmissionProblem({ unit, commit: plan.commit, env }); requireThat(refusal === null, refusal ?? ""); }
   // Runtime-proof owners (RUNTIME_PROOF_WORKLOADS) publish on CI green like every other unit. publish.yml carries no runtime
   // workload, so their resource budgets are not proven by this route; Adrian 2026-10-22 ("those can have exceptions"): the
   // budget measurement is a separate, non-blocking report (local-runtime or qualify-runtime.yml), not a publication gate.
@@ -822,6 +824,36 @@ export async function prepareQualified({ env, fetchImpl = fetch, spawn = spawnSy
   return { context, packDir, receiptsDir, approvedFile };
 }
 
+/**
+ * The sealed gate archive of a prepared pack, for the admission step: { name, version, file, sha256, commit } of the one unit named GATE_PACKAGE, or null
+ * when the run sealed no gate package. The bytes at `file` are re-hashed against the sealed manifest's own line before anything is returned.
+ */
+export function gateArchiveOfPack({ packDir }) {
+  const plan = JSON.parse(fs.readFileSync(path.join(packDir, "manifest.json"), "utf8"));
+  const units = (Array.isArray(plan.units) ? plan.units : []).filter((unit) => unit?.name === GATE_PACKAGE);
+  if (units.length === 0) return null;
+  requireThat(units.length === 1, `the sealed manifest lists ${GATE_PACKAGE} ${units.length} times`);
+  const [unit] = units;
+  requireThat(typeof unit.file === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(unit.file) && HEX.test(unit.sha256 ?? ""), `the sealed manifest's line for ${GATE_PACKAGE} is malformed`);
+  const file = path.join(packDir, unit.file);
+  requireThat(sha("sha256", fs.readFileSync(file)) === unit.sha256, `the sealed ${GATE_PACKAGE} archive differs from its manifest line`);
+  return { name: unit.name, version: unit.version, file, sha256: unit.sha256, commit: plan.commit };
+}
+
+/**
+ * GATE-CONTRACT NN31, first half, in a job that holds no credential: fetch the run's sealed packed artifact exactly as the uploader does (prepareQualified:
+ * same run, provenance and digest checks) and name the gate package's archive for gate-release-admission.mjs. Step outputs: `has_gate`, and for a gate
+ * run `archive` (path), `commit`, `version`. A run that sealed no gate package outputs has_gate=false and nothing else. It uploads nothing.
+ */
+export async function exportGateArchive({ env, fetchImpl = fetch, spawn = spawnSync, linuxFile, candidateDir }) {
+  for (const key of [...TOKEN_VARS, "NPM_TOKEN"]) requireThat(!env[key] && !process.env[key], `${key} is present in the credential-free gate admission`);
+  const prepared = await prepareQualified({ env, fetchImpl, spawn, linuxFile, gateAdmission: false, ...(candidateDir === undefined ? {} : { candidateDir }) });
+  const gate = gateArchiveOfPack({ packDir: prepared.packDir });
+  requireThat(gate === null || gate.commit === prepared.context.candidate.sourceSha, "the sealed gate archive is not bound to the qualified commit");
+  if (env.GITHUB_OUTPUT) fs.appendFileSync(env.GITHUB_OUTPUT, gate === null ? "has_gate=false\n" : `has_gate=true\narchive=${gate.file}\ncommit=${gate.commit}\nversion=${gate.version}\n`);
+  return gate;
+}
+
 export async function runQualified({ env, identify = false, fetchImpl = fetch, spawn = spawnSync, linuxFile, pause, log, candidateDir }) {
   if (identify) for (const key of ["NODE_AUTH_TOKEN", "NPM_TOKEN", "CARGO_REGISTRY_TOKEN"]) requireThat(!env[key] && !process.env[key], `${key} is present in secretless identification`);
   const prepared = await prepareQualified({ env, fetchImpl, spawn, linuxFile, ...(candidateDir === undefined ? {} : { candidateDir }) });
@@ -846,8 +878,9 @@ if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(file
     process.once("beforeExit", unfinished);
     const [command, ...flags] = process.argv.slice(2);
     try {
-      requireThat((command === "identify" && flags.length === 0) || (command === "run" && flags.length <= 1 && flags.every((flag) => ["--dry-run", "--verify-admission"].includes(flag))) || (command === "run-qualified" && flags.length <= 1 && flags.every((flag) => flag === "--identify")), "usage: reviewed-candidate.mjs identify | run [--dry-run|--verify-admission] | run-qualified [--identify]");
+      requireThat((command === "identify" && flags.length === 0) || (command === "run" && flags.length <= 1 && flags.every((flag) => ["--dry-run", "--verify-admission"].includes(flag))) || (command === "run-qualified" && flags.length <= 1 && flags.every((flag) => flag === "--identify")) || (command === "export-gate-archive" && flags.length === 0), "usage: reviewed-candidate.mjs identify | run [--dry-run|--verify-admission] | run-qualified [--identify] | export-gate-archive");
       if (command === "identify") await identifyCandidate({ env: process.env, candidateId: process.env.PUBLISH_CANDIDATE_ID });
+      else if (command === "export-gate-archive") await exportGateArchive({ env: process.env });
       else if (command === "run-qualified") await runQualified({ env: process.env, identify: flags.includes("--identify") });
       else await runReviewed({ env: process.env, dryRun: flags.includes("--dry-run"), verifyAdmission: flags.includes("--verify-admission") });
     } catch (error) { process.stderr.write(`${error.message}\n`); process.exitCode = 1; }
