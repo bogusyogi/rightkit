@@ -796,7 +796,7 @@ pub fn build_label(stamped: Option<&str>) -> Option<&str> {
 
 /// True when `child` is `dir` or lies under it, compared component by component and without
 /// regard to case, so `C:\Apps\AppEvil` is not inside `C:\Apps\App`.
-pub fn path_is_within(child: &Path, dir: &Path) -> bool {
+pub fn path_is_within_ignoring_case(child: &Path, dir: &Path) -> bool {
     let fold = |p: &Path| -> Vec<String> {
         p.components()
             .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
@@ -845,7 +845,7 @@ pub fn auto_replace_allowed(facts: &AutoReplaceFacts<'_>) -> bool {
     else {
         return false;
     };
-    location.parent().is_some() && !path_is_within(&ours, &location)
+    location.parent().is_some() && !path_is_within_ignoring_case(&ours, &location)
 }
 
 /// Normalize already-supplied feed data.  This function never performs a
