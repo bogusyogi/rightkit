@@ -21,10 +21,10 @@ pub mod command_outcome;
 pub mod engine_cache;
 pub mod file_transcribe;
 pub mod hotkey_gates;
+pub mod model_update_prompt_events;
 pub mod onboarding_gates;
 #[cfg(feature = "tauri")]
 pub mod renderer_events;
-pub mod model_update_prompt_events;
 pub mod settings_policy;
 pub mod vocabulary_commands;
 pub mod whisper_host;
