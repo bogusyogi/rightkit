@@ -3204,7 +3204,7 @@ async function committedCargoManifests({ o, git, root, commit, scopeDirs, extraW
   const npm = discoverNpmUnits({ root, tracked, readFile, exists });
   const closure = tools.closureOf({ scopeDirs, npmUnits: npm, rustUnits: inventory.units, readFile: readCommitted });
   // Workspaces the unit's own compile builds beside its closure (a crate's consumer rows under ci/consumers/): bound when the commit tracks their manifest.
-  const extra = extraWorkspaces.filter((dir) => fileSet.has(`${dir}/Cargo.toml`));
+  const extra = extraWorkspaces.filter((dir) => fileSet.has(dir === "." ? "Cargo.toml" : `${dir}/Cargo.toml`));
   const workspaces = [...new Set([...inventory.units.filter((u) => closure.rust.has(u.name)).map((u) => u.cargoDir), ...extra])].sort();
   o.out(`rightkit-gate: Cargo output scope ${scopeDirs.join(", ")}: ${workspaces.length} workspace(s) (${workspaces.join(", ") || "none"}); dependency directories ${closure.dependencyDirs.join(", ")}`);
   return { manifests: workspaces.map((dir) => path.posix.join(dir, "Cargo.toml")), hasCargo: allManifests.length > 0 };
@@ -3448,7 +3448,9 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
     }
     // The gate package's package stage on the Mac builds and signs its swap helper from crates/rightkit-fs (local-publish.mjs prepareSwapHelper), so that
     // Cargo workspace is bound beside the package's own (0.6.80 on the Mac: RK_CARGO_UNBOUND_WORKSPACE "resolved (none)" for the helper build).
-    if (selector === "npm:@rightkit/release" && o.platform === "darwin") consumerScope = [...new Set([...consumerScope, "crates/rightkit-fs"])];
+    // rightkit-fs is a member of the repository's one Cargo workspace (the root Cargo.toml), so the workspace bound is the root ".", not the crate's folder:
+    // binding "crates/rightkit-fs" left the root manifest out of the walk and bound the crate folder, which Cargo never resolves to (0.6.81 on the Mac).
+    if (selector === "npm:@rightkit/release" && o.platform === "darwin") consumerScope = [...new Set([...consumerScope, "."])];
     const bound = option("--to") === "check" || privateUnit.private ? { env: {}, cleanup() {} } : await bindUnitCargo({ o, git, root, ds, executor, which, scopeDirs: [path.posix.dirname(manifest)], extraWorkspaces: consumerScope, ...(toolRun ? { onlyWorkspaces: [path.posix.dirname(manifest)] } : {}) });
     if (bound.refusal) { o.err(`${tag} BLOCKED: RK_SNAPSHOT_OUTPUT_UNPINNED: ${bound.refusal}; nothing ran`); return 1; }
     if (bound.note) o.out(`${tag} ${bound.note}`);
