@@ -634,7 +634,7 @@
     "rightkit-device-link-core": "0.1.1",
     "rightkit-device-link-types": "0.1.2",
     "rightkit-dictation-app-runtime": "0.3.1",
-    "rightkit-dictation-command-host": "0.3.3",
+    "rightkit-dictation-command-host": "0.3.4",
     "rightkit-dictation-core": "0.3.7",
     "rightkit-dictation-engine": "0.2.1",
     "rightkit-dictation-ffi": "0.2.1",
@@ -642,7 +642,7 @@
     "rightkit-dictation-models": "0.3.3",
     "rightkit-dictation-pill": "0.1.2",
     "rightkit-dictation-runtime": "0.2.7",
-    "rightkit-dictation-tauri": "0.3.3",
+    "rightkit-dictation-tauri": "0.3.4",
     "rightkit-dictation-telemetry": "0.2.4",
     "rightkit-dictation-text-pipeline": "0.2.7",
     "rightkit-disk-cleanup": "0.2.2",
@@ -1153,7 +1153,8 @@
     ],
     "rightkit-dictation-command-host": [
       "0.3.0",
-      "0.3.1"
+      "0.3.1",
+      "0.3.3"
     ],
     "rightkit-dictation-core": [
       "0.3.1",
@@ -1179,7 +1180,8 @@
       "0.2.5"
     ],
     "rightkit-dictation-tauri": [
-      "0.3.1"
+      "0.3.1",
+      "0.3.3"
     ],
     "rightkit-dictation-telemetry": [
       "0.2.0",

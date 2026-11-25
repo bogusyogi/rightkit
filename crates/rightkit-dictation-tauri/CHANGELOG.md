@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.4
+
+- Add `vocabulary_commands` (`VocabularyCommandStore`, `add_vocabulary`, `accept_vocab_suggestion`, `remove_vocabulary`, `import_vocabulary`): validate, mutate the host's store, then sync the engine.
+- Add `sidecar::dictation_idle`: whether no dictation is recording, transcribing or pasting; a runtime that cannot be locked is not idle.
+- Add `model_update_prompt_events` (`ModelUpdatePromptEvents`, `emit_model_update_prompt`): the two renderer events of a model update prompt, with the host's event names, tab and delivery.
+- Add `whisper_host` (`WhisperServices`, `WhisperProgress`, `whisper_model_status_for`, `download_whisper_model_for`): a `WhisperHost` over the host's three services and a progress closure.
+- Additive only: no existing item changes.
+
 ## 0.3.3
 - Add `file_transcribe` (`preflight_media_file`, `host_read_check`, `files_settings_url`, `validate_export_path`, `write_text_export`, default extension lists): media-file preflight and guarded transcript export. Host passes extension lists & app name. Additive.
 - Add `asr_compat_report` (`run_sample_check`, `report_for`, `CompatReport`, `CompatLabels`, `SampleTranscript`): the serialisable compatibility result and the whole captured-sample check over `asr_compat`; host passes thresholds, profiles & message templates. Additive.

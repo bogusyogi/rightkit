@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.4
+
+- Add `app_launch::list_shortcuts`: the user's installed Shortcuts by name for a discovery list (macOS; always empty elsewhere). A probe that times out or exits unsuccessfully is an empty list.
+- Additive only: no existing item changes.
+
 ## 0.3.3
 
 - Spoken replies and interview answers (VO-3, VO-4). `HandoffIdentity::spoken_reply` submits the hand-off as `agent.request` with `reply: "speech"` (an answer written to be read aloud, answer-only whatever `agentActions` says); `submit_with` and `submit_installed(record, spoken_reply)` take it. `record_for` takes the pending interview question and sends it as `interview:<question id>` in `context_refs` (Pulse refuses any `context_refs` until its profile exists, so a hand-off that carries one is refused with `unsupported_context` today). `task_speech_text` gives the text to say aloud for a finished task: the answer `pulse task result` returns, whole for a reply written for speech and its first sentence for an acting run. Source-breaking for callers of `record_for`, `submit_installed` and a struct literal of `HandoffIdentity`; the only caller is `rightkit-dictation-runtime` 0.2.7.

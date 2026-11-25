@@ -76,6 +76,15 @@ fn busy_state(state: &AppState) -> bool {
     )
 }
 
+/// Whether no dictation is recording, transcribing or pasting. A runtime that cannot be locked
+/// is not idle: the caller keeps waiting rather than act under an unknown state.
+pub fn dictation_idle() -> bool {
+    match runtime_lock_for_commands() {
+        Ok(runtime) => !busy_state(&runtime.app_state()),
+        Err(_) => false,
+    }
+}
+
 /// Log-safe variant label. Deliberately not the `Debug` impl: `Pasting`, `Pasted` and
 /// `CopiedFallback` embed the dictated transcript, and the logs are a support-bundle target.
 fn state_label(state: &AppState) -> &'static str {
