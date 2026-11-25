@@ -119,6 +119,26 @@ const isPipe = (endpoint) => /^\\\\\.\\pipe\\/i.test(String(endpoint));
  * Where a control query to the broker goes and what identity it carries: the endpoint RustRight's discovery names (a user-owned socket, or a pipe) and the
  * runtime identity of the manifest beside the installed `client`. `{ ok, endpoint, identity }` or `{ ok: false, problem }`.
  */
+/**
+ * Why `endpoint` is not this user's broker socket, or null when it is. The managed root may name the socket through a link to the broker's control
+ * root (the Mac: <managed>/broker.sock -> ~/Library/Application Support/RightKit/build-control/broker.sock). The link is followed: the socket it reaches
+ * must be a socket and, like the link itself, this user's. Checking only the link refused it as "not a socket", so the reclaim judge never asked the
+ * broker and a dead run's lock was kept for good (Mac, 2026-11-25, snapshot 770a65dcafd91981). `o` may inject lstat, realpath and uid.
+ */
+export function socketProblem(endpoint, o = {}) {
+  try {
+    const lstat = o?.lstat ?? fs.lstatSync;
+    const uid = typeof (o?.uid ?? process.getuid?.()) === "number" ? (o?.uid ?? process.getuid()) : null;
+    const link = lstat(endpoint);
+    if (link.isSymbolicLink() && uid !== null && link.uid !== uid) return `${endpoint} is a link owned by another user (uid ${link.uid}), so it is not this user's broker`;
+    const target = link.isSymbolicLink() ? (o?.realpath ?? fs.realpathSync.native)(endpoint) : endpoint;
+    const stat = link.isSymbolicLink() ? lstat(target) : link;
+    if (!stat.isSocket()) return `${target === endpoint ? endpoint : `${endpoint} -> ${target}`} is not a socket, so it is not the broker's endpoint`;
+    if (uid !== null && stat.uid !== uid) return `${target} is owned by another user (uid ${stat.uid}), so it is not this user's broker`;
+    return null;
+  } catch (error) { return `cannot connect to the broker at ${endpoint} (${error?.code ?? error?.message ?? error})`; }
+}
+
 export function brokerControlTarget(o, { client = o?.client } = {}) {
   const platform = o?.platform ?? process.platform;
   const env = o?.env ?? process.env;
@@ -138,12 +158,8 @@ export function brokerControlTarget(o, { client = o?.client } = {}) {
   try { endpoint = (o?.discoverEndpoint ?? discoverBrokerSocket)(env, { platform, exists: fs.existsSync }); } catch (error) { return { ok: false, problem: `the broker endpoint cannot be discovered (${error.message})` }; }
   if (!endpoint) return { ok: false, problem: "no broker endpoint is configured (no explicit socket variable and no broker.sock under a managed control root)" };
   if (platform !== "win32" && !isPipe(endpoint)) {
-    try {
-      const stat = (o?.lstat ?? fs.lstatSync)(endpoint);
-      const uid = typeof (o?.uid ?? process.getuid?.()) === "number" ? (o?.uid ?? process.getuid()) : null;
-      if (!stat.isSocket()) return { ok: false, problem: `${endpoint} is not a socket, so it is not the broker's endpoint` };
-      if (uid !== null && stat.uid !== uid) return { ok: false, problem: `${endpoint} is owned by another user (uid ${stat.uid}), so it is not this user's broker` };
-    } catch (error) { return { ok: false, problem: `cannot connect to the broker at ${endpoint} (${error?.code ?? error?.message ?? error})` }; }
+    const problem = socketProblem(endpoint, o);
+    if (problem) return { ok: false, problem };
   }
   return { ok: true, endpoint, identity: identity.identity };
 }
@@ -164,12 +180,16 @@ export function snapshotReclaimJudge({ o, client, snapshotPath, query = snapshot
   if (typeof snapshotPath !== "string" || !path.isAbsolute(snapshotPath)) throw new TypeError("snapshotReclaimJudge: snapshotPath must be absolute");
   const bound = { o, client: typeof client === "string" && client ? client : null, snapshotPath };
   return (holder) => {
+    // Every "no proof" says why: the reason was swallowed, so a link the endpoint check refused looked like a broker that would not answer (Mac,
+    // 2026-11-25).
+    const why = (text) => { try { bound.o?.err?.(`rightkit-gate: note: no reclaim proof for ${bound.snapshotPath}: ${text}`); } catch { /* a note only */ } return false; };
     try {
-      if (!bound.client) return false;
+      if (!bound.client) return why("the RustRight client is not on PATH");
       const target = brokerControlTarget(bound.o, { client: bound.client });
-      if (!target.ok) return false;
+      if (!target.ok) return why(target.problem);
       const message = snapshotStatusMessage({ protocol: BUILD_CONTROL_PROTOCOL, runtime: target.identity, snapshot: bound.snapshotPath, owner: holder });
-      return snapshotStatusAllowsReclaim(query({ endpoint: target.endpoint, message, timeoutMs }), { snapshot: bound.snapshotPath, owner: holder });
-    } catch { return false; }
+      const reply = query({ endpoint: target.endpoint, message, timeoutMs });
+      return snapshotStatusAllowsReclaim(reply, { snapshot: bound.snapshotPath, owner: holder }) || why(reply ? `the broker answered ${JSON.stringify(reply).slice(0, 600)}` : `the broker gave no answer within ${Math.round(timeoutMs / 1000)} s`);
+    } catch (error) { return why(error?.message ?? String(error)); }
   };
 }
