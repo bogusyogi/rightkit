@@ -686,6 +686,126 @@
         "M3": "ViewRight has no supervised app engine or restart-surviving app jobs. Document work stays local, and rightkit-ocr owns its worker.",
         "M7": "ViewRight has no product local service. rightkit-daemon supplies roots under M6, the shell owns single-instance handoff, and opt-in control belongs to rightkit-qa."
       }
+    },
+    "pulse": {
+      "issue": "bogusyogi/pulse#643",
+      "source": "Pulse's .rightkit/ownership-exceptions.json entries that still apply after the RightKit port (bogusyogi/pulse#643), each tracked by its RightKit issue and approved by Adrian 2026-11-07",
+      "profile": "desktop",
+      "note": "Expiring ownership exceptions ratified for Pulse. Each expires 2026-11-30; the code moves into RightKit through the named issue or the entry is renewed with a fresh approval.",
+      "exceptions": [
+        {
+          "capability": "dependency-allowlist",
+          "package": "RightKit dependency allowlist",
+          "path": "engine/Cargo.toml",
+          "issue": "bogusyogi/rightkit#846",
+          "expires": "2026-11-30",
+          "approvedBy": "Adrian D'Souza, 2026-11-07: \"for now, you can test with ownership exception but eventually we do the whole port\""
+        },
+        {
+          "capability": "os-credential-store",
+          "package": "RightKitSwift",
+          "path": "ios/Sources/Approvals/ApprovalKey.swift",
+          "issue": "bogusyogi/rightkit#1038",
+          "expires": "2026-11-30",
+          "approvedBy": "Adrian D'Souza, 2026-11-07: \"for now, you can test with ownership exception but eventually we do the whole port\""
+        },
+        {
+          "capability": "os-credential-store",
+          "package": "RightKitSwift",
+          "path": "mac/Notch/Sources/Agent/ChatUnlockPanel.swift",
+          "issue": "bogusyogi/rightkit#1038",
+          "expires": "2026-11-30",
+          "approvedBy": "Adrian D'Souza, 2026-11-07: \"for now, you can test with ownership exception but eventually we do the whole port\""
+        },
+        {
+          "capability": "theme-ui",
+          "package": "@rightkit/theme",
+          "path": "mac/Notch/Sources/Launcher/ClipboardStripView.swift",
+          "issue": "bogusyogi/rightkit#847",
+          "expires": "2026-11-30",
+          "approvedBy": "Adrian D'Souza, 2026-11-07: \"for now, you can test with ownership exception but eventually we do the whole port\""
+        },
+        {
+          "capability": "dependency-allowlist",
+          "package": "RightKit dependency allowlist",
+          "path": "membrane/engine/crates/membrane-runtime/Cargo.toml",
+          "issue": "bogusyogi/rightkit#846",
+          "expires": "2026-11-30",
+          "approvedBy": "Adrian D'Souza, 2026-11-07: \"for now, you can test with ownership exception but eventually we do the whole port\""
+        },
+        {
+          "capability": "search",
+          "package": "rightkit-search",
+          "path": "membrane/engine/crates/membrane-runtime/src/ledger/query.rs",
+          "issue": "bogusyogi/rightkit#851",
+          "expires": "2026-11-30",
+          "approvedBy": "Adrian D'Souza, 2026-11-07: \"for now, you can test with ownership exception but eventually we do the whole port\""
+        },
+        {
+          "capability": "dependency-allowlist",
+          "package": "RightKit dependency allowlist",
+          "path": "membrane/engine/crates/membrane/Cargo.toml",
+          "issue": "bogusyogi/rightkit#846",
+          "expires": "2026-11-30",
+          "approvedBy": "Adrian D'Souza, 2026-11-07: \"for now, you can test with ownership exception but eventually we do the whole port\""
+        },
+        {
+          "capability": "dependency-allowlist",
+          "package": "RightKit dependency allowlist",
+          "path": "rightkit-mesh-ffi/Cargo.toml",
+          "issue": "bogusyogi/rightkit#849",
+          "expires": "2026-11-30",
+          "approvedBy": "Adrian D'Souza, 2026-11-07: \"for now, you can test with ownership exception but eventually we do the whole port\""
+        },
+        {
+          "capability": "dependency-allowlist",
+          "package": "RightKit dependency allowlist",
+          "path": "rightkit-mesh-ffi/ios-netwatch/Cargo.toml",
+          "issue": "bogusyogi/rightkit#849",
+          "expires": "2026-11-30",
+          "approvedBy": "Adrian D'Souza, 2026-11-07: \"for now, you can test with ownership exception but eventually we do the whole port\""
+        },
+        {
+          "capability": "qa-evidence",
+          "package": "@rightkit/qa",
+          "path": "scripts/qa/win-installed/link-uia.mjs",
+          "issue": "bogusyogi/rightkit#1046",
+          "expires": "2026-11-30",
+          "approvedBy": "Adrian D'Souza, 2026-11-07: \"for now, you can test with ownership exception but eventually we do the whole port\""
+        },
+        {
+          "capability": "local-services",
+          "package": "rightkit-daemon",
+          "path": "swift/RightKitHub/Sources/RightKitEngineClient/AttachedTransport.swift",
+          "issue": "bogusyogi/rightkit#852",
+          "expires": "2026-11-30",
+          "approvedBy": "Adrian D'Souza, 2026-11-07: \"for now, you can test with ownership exception but eventually we do the whole port\""
+        },
+        {
+          "capability": "windows-native-overlay-renderer",
+          "package": "rightkit-overlay-win",
+          "path": "windows/src/clip_strip.rs",
+          "issue": "bogusyogi/rightkit#914",
+          "expires": "2026-11-30",
+          "approvedBy": "Adrian D'Souza, 2026-11-07: \"for now, you can test with ownership exception but eventually we do the whole port\""
+        },
+        {
+          "capability": "theme-ui",
+          "package": "@rightkit/theme",
+          "path": "windows/src/clip_strip/draw.rs",
+          "issue": "bogusyogi/rightkit#847",
+          "expires": "2026-11-30",
+          "approvedBy": "Adrian D'Souza, 2026-11-07: \"for now, you can test with ownership exception but eventually we do the whole port\""
+        },
+        {
+          "capability": "windows-native-overlay-renderer",
+          "package": "rightkit-overlay-win",
+          "path": "windows/src/shot.rs",
+          "issue": "bogusyogi/rightkit#914",
+          "expires": "2026-11-30",
+          "approvedBy": "Adrian D'Souza, 2026-11-07: \"for now, you can test with ownership exception but eventually we do the whole port\""
+        }
+      ]
     }
   },
   "amendments": {
