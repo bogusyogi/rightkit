@@ -477,13 +477,38 @@ fn scan_shortcuts(timeout: std::time::Duration) -> Option<Vec<String>> {
     if output.timed_out || !output.status.success() || output.stdout.truncated {
         return None;
     }
-    Some(
-        String::from_utf8_lossy(&output.stdout.bytes)
-            .lines()
-            .map(|line| line.trim().to_string())
-            .filter(|line| !line.is_empty())
-            .collect(),
-    )
+    Some(parse_shortcut_lines(&output.stdout.bytes))
+}
+
+#[cfg(target_os = "macos")]
+fn parse_shortcut_lines(bytes: &[u8]) -> Vec<String> {
+    String::from_utf8_lossy(bytes)
+        .lines()
+        .map(|line| line.trim().to_string())
+        .filter(|line| !line.is_empty())
+        .collect()
+}
+
+/// The user's installed Shortcuts by name, one per line from `shortcuts list`, for a discovery
+/// list. Blocks for up to `timeout`: run it on a blocking thread. A probe that times out or exits
+/// unsuccessfully is an empty list; only a failure to start the command is an error. Always empty
+/// off macOS.
+#[cfg(target_os = "macos")]
+pub fn list_shortcuts(timeout: std::time::Duration) -> Result<Vec<String>, String> {
+    use rightkit_child_process::{run, RunOptions};
+
+    let out = run("shortcuts", ["list"], &RunOptions::new(timeout))
+        .map_err(|e| format!("shortcuts list: {e}"))?;
+    if out.timed_out || !out.status.success() {
+        return Ok(Vec::new());
+    }
+    Ok(parse_shortcut_lines(&out.stdout.bytes))
+}
+
+/// The user's installed Shortcuts by name. Always empty off macOS.
+#[cfg(not(target_os = "macos"))]
+pub fn list_shortcuts(_timeout: std::time::Duration) -> Result<Vec<String>, String> {
+    Ok(Vec::new())
 }
 
 #[cfg(not(target_os = "macos"))]

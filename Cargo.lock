@@ -11389,7 +11389,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-command-host"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "cc",
  "chrono",
@@ -11567,7 +11567,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-tauri"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "rightkit-audio",
  "rightkit-automation",
