@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.83
+
+- Class B history records each stored result as it is stored, so a run stopped part way no longer leaves cache entries the next forecast does not know; every later run of that repository stopped on RK_CACHE_DIVERGENCE (NN05) until they were moved aside (#1749; Legion and Pulse on the Dell).
+
 ## 0.6.82
 
 - Build admission: a declared RightKit name is direct only at a version the app's own requirement admits (Cargo bare = caret, npm bare = exact); other locked versions of that name are transitive and reported, not refused (#1745; Pulse and CodeRight were refused for rightkit-fs 0.4.x and @rightkit/release 0.6.4 they never pinned).
