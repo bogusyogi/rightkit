@@ -192,7 +192,7 @@ export function main(argv = process.argv.slice(2), { out = console.log } = {}) {
   const f = result.facts;
   // --record <file>: the record a credentialed upload step reads (scripts/ci/upload.mjs gateAdmissionProblem). Written only here, only when admitted.
   if (opt("--record")) fs.writeFileSync(opt("--record"), `${JSON.stringify({ schema: "rightkit.gate-release-admission/1", ok: true, unit: GATE_PACKAGE, version: f.version, archiveSha256: f.archiveSha256, commit: opt("--commit"), host: f.host, sealedSha256: f.sealedSha256, jobsVerified: f.jobsVerified, signedSteps: f.signedSteps, nnBasis: f.nnBasis }, null, 2)}\n`);
-  out(`gate-release-admission OK: host ${f.host}, sealed gate ${f.sealedSha256}, archive ${f.archiveSha256}; ${f.jobsVerified} of ${f.jobsListed} listed broker job(s) verified, in step(s) ${f.signedSteps.join(", ")}; sealed launch(es) proven from signed claims: ${f.launchesProven.join(", ")}`);
+  out(`gate-release-admission OK: host ${f.host}, sealed gate ${f.sealedSha256}, archive ${f.archiveSha256}; ${f.jobsVerified} of ${f.jobsListed} listed broker job(s) verified, in step(s) ${(f.signedSteps ?? []).join(", ") || "none named"}; sealed launch(es) proven from signed claims: ${(f.launchesProven ?? []).join(", ") || "none named (an acceptance result: its claims are the release commit's real build)"}`);
   out(`  every other assertion of the verdict rests on: ${f.nnBasis ?? "not stated"} (the signed claims prove those launches ran on that host's broker for this gate, with that command, result and commit; they do not re-derive the rest)`);
   return 0;
 }
