@@ -4349,7 +4349,14 @@ export async function runScans(plan, options = {}) {
               const proven = memberProofs.length > 0 && (groupCrates < 2 || memberProofs.some((proof) => proof.context.kind !== "targets")) && (groupTargets < 2 || memberProofs.some((proof) => proof.context.kind === "targets"));
               if (!admitted.invocationScan.coverageKey && !admitted.invocationScan.provesPublisher && member?.retainedSourceEligible && member.featureContext && member.key && signed && proven && usableStoredPass(stored, admitted.invocationScan, { cacheKey: key, viaSeam: row.seam === true })) source = { schema: "rightkit.retained-invocation/1", key, rowDigest: cacheEntryIdentity(stored.row), memberKey: member.key, memberCrate, featureContext: member.featureContext, scan: admitted.invocationScan, equivalence: memberProofs };
             }
-            decision.retained.push({ id, key: row.status === "fail" ? failureKey : key, status: row.status, ...(source ? { source } : {}) });
+            const entry = { id, key: row.status === "fail" ? failureKey : key, status: row.status, ...(source ? { source } : {}) };
+            decision.retained.push(entry);
+            // A result this run stored is recorded in the history at once, not only when the run completes: a run stopped after some rows passed
+            // left their cache entries with no history, and every later run forecast "run", found the entry, and stopped (NN05) for good
+            // (Legion and Pulse on the Dell, 2026-11-25). Best effort: the end-of-run record still runs.
+            if (decision === classBCacheDecision && admitted.stored && !row.cached) {
+              try { options.onClassBStored?.({ decision, entry }); } catch { /* the end-of-run record covers it */ }
+            }
           }
         }
         const out = { ...row, timing: { ...admitted.timing, elapsedMs: performance.now() - admitted.started } };

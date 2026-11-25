@@ -5763,6 +5763,9 @@ export async function main(argv, io = {}) {
             return forecast;
           };
         }
+        // Each Class B result this run stores is recorded in the history as it is stored, so a run stopped part way leaves no cache entry the
+        // next forecast does not know (NN05 then stops every later run; Legion and Pulse, 2026-11-25). The end-of-run record below still runs.
+        if (historyByClass.B) scanOptions.onClassBStored = ({ decision, entry }) => historyByClass.B.record({ fingerprints: decision.fingerprints, retained: [entry], mismatches: [] });
         scanResult = await runScans(plan, scanOptions);
         let blocked = false;
         for (const cls of activeHistories) {
