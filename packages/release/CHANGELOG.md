@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.82
+
+- Build admission: a declared RightKit name is direct only at a version the app's own requirement admits (Cargo bare = caret, npm bare = exact); other locked versions of that name are transitive and reported, not refused (#1745; Pulse and CodeRight were refused for rightkit-fs 0.4.x and @rightkit/release 0.6.4 they never pinned).
+- First gate packed on the Dell and released the local way: packed by the installed 0.6.81, accepted on the Dell from that archive, published with `publish-local npm --archive`.
+
 ## 0.6.81
 
 - The macOS swap helper (bin/darwin/rightkit-swap) is committed, signed, with its sha256: no host builds or signs it to pack the gate package, so the gate packs on the Dell too. A helper whose bytes match the committed digest is used as it is; install-app runs a private executable copy when the packed file lost its executable bit (packed on Windows).
