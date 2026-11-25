@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.3
+
+- The optional `models` bridge requires `rightkit-models` =0.7.3 (the release that uses `rightkit-roots` 0.3.0). No code change.
+
 ## 0.3.2 (unpublished candidate)
 
 - Optional `models` UniFFI bridge delegates authenticated pinned model delivery, bounded extraction, replacement and recovery to rightkit-models 0.7.2. Host supplies catalogue and pins.

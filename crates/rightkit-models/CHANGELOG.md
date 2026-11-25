@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.3
+
+- Release the `rightkit-roots` 0.3.0 requirement. The published 0.7.2 requires `rightkit-roots` 0.2, so a consumer of 0.7.2 beside `rightkit-daemon` 0.9.2 or later carried two versions of `rightkit-roots`. No code change.
+
 ## 0.7.2
 
 - Bounded extraction. `suite::archive::ExtractLimits { max_entries, max_entry_bytes, max_total_bytes }`, `install_tar_gz_limited` and `install_tar_gz_expecting_limited` fail the install, before the previous install is touched, on the first member past a count, a per-file size or a summed size limit. The decompressed stream is capped as well (the summed size plus 4096 bytes per permitted entry), so a member that lies about its size cannot expand past the bound. `install_tar_gz`, `install_tar_gz_expecting` and `archive::unpack_wrapped*` are bounded by `ExtractLimits::DEFAULT` (200 000 members, 64 GiB per file, 256 GiB in all), finite and far above anything the suite ships; before, they had no bound. The suite store's own archive install passes limits taken from the catalog's pinned file list (the pinned sizes plus 16 MiB, and the file count plus 4096 members) when every file pins a size.

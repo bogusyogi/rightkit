@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-android"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Android bridge for Right Suite apps: the UniFFI surface and JNI context capture (JavaVM, application Context, app-private paths), the Keystore bridge for rightkit-credentials, a debug logcat sink, and the Gradle library module that packages the native library and generated Kotlin bindings."
@@ -42,7 +42,7 @@ path = "src/bin/uniffi-bindgen.rs"
 required-features = ["bindgen"]
 
 [dependencies]
-rightkit-models = { version = "=0.7.2", path = "../rightkit-models", default-features = false, optional = true }
+rightkit-models = { version = "=0.7.3", path = "../rightkit-models", default-features = false, optional = true }
 url = { version = "2", optional = true }
 uniffi = "0.32"
 jni = "0.22.4"
