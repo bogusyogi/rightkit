@@ -115,6 +115,9 @@ async function main() {
     if (git(fixture, ["status", "--porcelain", "--untracked-files=no"])) throw new Error("the fixture's working checkout has changes to tracked files; the cases need it clean to start");
     const storeDir = cacheStoreDir(fixture); const args = ["--to", cases.fixture.stage];
     const wanted = (opt("--cases") ?? cases.order.join(",")).split(",").map(Number);
+    // The advisory rows key on the UTC day by design: a run that crosses UTC midnight sees them run again in case 2 and reads it as NN06 (0.6.73, 2026-11-25).
+    const late = minutesToUtcMidnight(new Date());
+    if (wanted.includes(2) && late < MIDNIGHT_MARGIN_MIN) throw new Error(`UTC midnight is ${late} min away; the advisory rows change key at midnight, so start the cases after 00:00 UTC (or with more than ${MIDNIGHT_MARGIN_MIN} min to go)`);
     try {
       for (const id of cases.order.filter((n) => wanted.includes(n))) {
         const def = cases.cases.find((c) => c.id === id); console.log(`case ${id}: ${def.name}`);
@@ -159,4 +162,6 @@ async function main() {
   for (const l of all.realBuild) console.log(`real build ${l.id} ${l.verdict}${l.verdict === "pass" ? "" : `: ${l.why}`}`.slice(0, 600));
   process.exit(all.pass ? 0 : 1);
 }
+export const MIDNIGHT_MARGIN_MIN = 45;
+export function minutesToUtcMidnight(now) { const next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1); return Math.floor((next - now.getTime()) / 60000); }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch((e) => { console.error(`acceptance-run: ${e.stack ?? e.message}`); process.exit(2); });

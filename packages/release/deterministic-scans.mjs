@@ -41,7 +41,7 @@ import { OutdatedUnavailableError, resolveOutdatedBin } from "./outdated-command
 import { SCAN_TOKEN_ENV, readLedger, scanTokenOf, unclaimedLedgers } from "./cargo-ledger.mjs";
 import { ADMISSION_POLL_MS, CARRIED_CANCEL_GRACE_MS, QUEUED_CEILING_FACTOR, createRunClock, createStatusPoller, watchBrokerAdmission } from "./broker-admission.mjs";
 import { CANCEL_WAIT_ENV, operationDeadlineEnv } from "./broker-admission.mjs";
-import { windowsPnpmIdentity } from "./snapshot-dependency-reuse.mjs";
+import { pnpmVersionAnswerAsync, windowsPnpmIdentity } from "./snapshot-dependency-reuse.mjs";
 import { compatibleTargetClasses, groupTargetDifference, meetPartitions, parseTreeFeatures, partitionByFeatures, partitionCacheKey, splitNote, stripSelectors, targetSplitNote, treeArgs, treeArgsForTargets, workspaceManifestDigest } from "./feature-partition.mjs";
 import { CLASS_A_ENV, NOT_EXECUTED_EXIT, RECEIPT_NONCE_ENV, contractJobTag, judgeSeamOutcome, normalizeWorkspace, recordContractJob, seamEnv, seamSettled, verdictForRun } from "./gate-seam.mjs";
 
@@ -2327,6 +2327,7 @@ export function isRememberedRead(command, args) {
   if (sub[0] === "ls-tree" && sub.length >= 2 && /^[0-9a-f]{40}$/.test(sub[sub.length - 1]) && sub.slice(1, -1).every((a) => /^-[a-z]$|^--name-only$|^--full-tree$/.test(a))) return true;
   return sub.length === 2 && sub[0] === "rev-parse" && sub[1] === "--show-toplevel";
 }
+export const PNPM_VERSION_ENV = /^(path|pnpm_home|corepack_.*|npm_config_.*|appdata|localappdata|userprofile|home|xdg_.*)$/i;
 const readMemoKey = (command, args, options = {}) => {
   const a = (args ?? []).map(String); let i = 0; while (i < a.length && (a[i] === "-c" || a[i] === "-C")) i += 2;
   const sub = a.slice(i);
@@ -2339,7 +2340,11 @@ const readMemoKey = (command, args, options = {}) => {
     let file = String(command); try { file = resolveInvocation(command, args, { env: options.env ?? process.env }).file ?? file; } catch { /* as given */ }
     return sha256(JSON.stringify(["version", String(file).toLowerCase(), a]));
   }
-  const env = options.env ? Object.keys(options.env).sort().map((k) => `${k}=${options.env[k]}`).join("\0") : "";
+  // pnpm --version: what decides the answer is the program, the folder and pnpm's own variables, never a per-run value such as a lease id (NN08: the
+  // lookup pass and the real pass handed different environments, so pnpm --version was asked again from the same folder, 0.6.73 case 1).
+  const versionOnly = tool === "pnpm" && a.length === 1 && a[0] === "--version";
+  const keep = versionOnly ? (k) => PNPM_VERSION_ENV.test(k) : () => true;
+  const env = options.env ? Object.keys(options.env).filter(keep).sort().map((k) => `${k}=${options.env[k]}`).join("\0") : "";
   return sha256(JSON.stringify([String(command), a, path.resolve(options.cwd ?? process.cwd()), env]));
 };
 export function rememberReads(spawn, { store = READ_MEMO } = {}) {
@@ -2413,7 +2418,8 @@ export function defaultSpawnAsync(command, args, options = {}) {
   if (isRememberedRead(command, args) && options.input === undefined && options.stdio === undefined && !options.stdoutFile && !options.onSpawn && !options.signal?.aborted) {
     const key = readMemoKey(command, args, options);
     if (READ_MEMO.has(key)) return Promise.resolve({ ...READ_MEMO.get(key) });
-    return rawSpawnAsync(command, args, options).then((r) => { if (r && r.status === 0 && !r.error) READ_MEMO.set(key, { status: 0, signal: null, stdout: r.stdout, stderr: r.stderr }); return r; });
+    // A path missing from a commit named by its full id (status 128) is kept too, as the process-wide memory keeps it (NN08, 0.6.73 case 1).
+    return rawSpawnAsync(command, args, options).then((r) => { if (r && !r.error && (r.status === 0 || (r.status === 128 && absentAtCommit(command, args ?? []) && /does not exist in|exists on disk, but not in/.test(String(r.stderr ?? ""))))) READ_MEMO.set(key, { status: r.status, signal: null, stdout: r.stdout, stderr: r.stderr }); return r; });
   }
   return rawSpawnAsync(command, args, options);
 }
@@ -3432,7 +3438,16 @@ export async function runScans(plan, options = {}) {
       // gate claims and checks like a scan's.
       const probeLedgerEnv = cargoLedger ? { [SCAN_TOKEN_ENV]: PROBE_LEDGER_TOKEN } : {};
       if (cargoLedger) claimedTokens.add(PROBE_LEDGER_TOKEN);
-      const probeOnce = (ms) => deps.spawn(command, PROBES[tool] ?? ["--version"], { cwd, env: { ...deps.env, ...PNPM_NO_HOOKS_ENV, COREPACK_ENABLE_AUTO_PIN: "0", ...probeLedgerEnv }, signal: signalFor(ms) });
+      const probeEnv = { ...deps.env, ...PNPM_NO_HOOKS_ENV, COREPACK_ENABLE_AUTO_PIN: "0", ...probeLedgerEnv };
+      const rawProbe = (ms) => deps.spawn(command, PROBES[tool] ?? ["--version"], { cwd, env: probeEnv, signal: signalFor(ms) });
+      // pnpm's version is the one answer the Class A digest asks too (bin/rightkit-gate.mjs, pnpmVersionAnswer): with no pin to switch to, both
+      // share it, so one gate process starts `pnpm --version` once for both (NN08, 0.6.73 case 1).
+      const probeOnce = tool !== "pnpm" ? rawProbe : async (ms) => {
+        let started = null;
+        const { version, kept } = await pnpmVersionAnswerAsync({ cwd, env: probeEnv, remember: deps.spawn === defaultSpawnAsync, run: async () => { started = await rawProbe(ms); return started && !started.error && started.status === 0 ? String(started.stdout ?? "").trim() : null; } });
+        return kept ? { status: 0, signal: null, stdout: `${version}
+`, stderr: "" } : started;
+      };
       // One retry, with three times the bound, when only the bound stopped it (the run itself was not aborted).
       let r = await probeOnce(probeMs);
       if (r?.cancelled && !signal?.aborted) r = await probeOnce(probeMs * 3);
@@ -5073,4 +5088,9 @@ export function scanFailures(result) {
 /** One line per deferred scan, by name. A gate prints these; they are never reported as passed. */
 export function scanDeferrals(result) {
   return result.scans.filter((r) => r.status === "deferred").map((r) => `${r.id}: deferred, not passed (${r.detail})`);
+}
+
+/** `git show <full commit id>:<path>`: a missing path there is missing for ever (NN08). Same rule as probe-memo.mjs absentAtCommit. */
+function absentAtCommit(cmd, argv) {
+  return /(^|[\/])git(\.exe)?$/i.test(String(cmd)) && argv.length === 2 && argv[0] === "show" && /^[0-9a-f]{40}:[^:]+$/.test(String(argv[1]));
 }

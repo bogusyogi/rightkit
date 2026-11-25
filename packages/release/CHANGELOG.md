@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.74
+
+- NN08: the scan version probe shares the Class A digest's `pnpm --version` answer where no packageManager pin or manage-package-manager-versions applies (the probe-only variables are left out of the key there); a missing path at a full commit id (status 128) is kept on the asynchronous path too.
+- Acceptance run: cases including case 2 do not start within 45 minutes of UTC midnight (the advisory rows change key at midnight).
+
 ## 0.6.73
 
 - NN08: a remembered read is answered even when the caller passes a cancel signal (Class A's version probe always does), so `pnpm --version` is not asked again in the real pass; a path missing from a commit named by its full id (`git show <sha>:<path>`, status 128) is remembered; the advisory database's HEAD question names its checkout with `-C`, so it is told apart from the fixture's.
