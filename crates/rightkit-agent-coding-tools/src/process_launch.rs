@@ -171,6 +171,8 @@ fn is_driver_gateway_name(name: &str) -> bool {
 /// vendor driver, background shell or LSP child cannot pick up a provider token, a daemon token
 /// or a licence locator. Names the launch sets explicitly are the caller's deliberate choice and
 /// stay. Empty unless the host turned on [`crate::shell::set_scrub_inherited_credentials`].
+// Windows forwards an allowlist and never inherits, so nothing calls this there.
+#[cfg_attr(windows, allow(dead_code))]
 pub(crate) fn inherited_scrubbed_env_names(
     explicit: &[(String, String)],
 ) -> Vec<std::ffi::OsString> {

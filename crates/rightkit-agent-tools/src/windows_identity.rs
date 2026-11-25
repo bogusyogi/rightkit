@@ -288,7 +288,6 @@ impl<'data> CliPe<'data> {
         approved_manifest: &[u8],
     ) -> Option<()> {
         use object::pe;
-        use object::LittleEndian as LE;
 
         const MAX_RESOURCE_DIRECTORY: u64 = 1024 * 1024;
         const MAX_LOAD_CONFIG: u64 = 4096;
@@ -335,7 +334,7 @@ impl<'data> CliPe<'data> {
         if alignment < 4096
             || alignment < self.file_alignment
             || !alignment.is_power_of_two()
-            || self.image_end % alignment != 0
+            || !self.image_end.is_multiple_of(alignment)
         {
             return None;
         }
@@ -386,7 +385,7 @@ fn process_manifest(resources: &[u8], resource_rva: u64) -> Option<&[u8]> {
 
     fn numeric_table_end(table: &ResourceDirectoryTable<'_>, offset: u32) -> Option<u64> {
         let ids = table.entries.iter().map(|entry| entry.name_or_id.get(LE));
-        if offset % 4 != 0
+        if !offset.is_multiple_of(4)
             || table.header.number_of_named_entries.get(LE) != 0
             || ids.clone().any(|id| id > u32::from(u16::MAX))
             || !ids
