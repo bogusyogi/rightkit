@@ -1,7 +1,7 @@
 //! The bookkeeping of a native-overlay visual journey: settle polling, stills with PNG checks, frame
 //! sequences with manifest and validity checks, a duplicate-capture check and the index file.
 //!
-//! It builds on [`crate::desktop_capture`] (window discovery, grabbing, PNG statistics) and records
+//! It builds on `crate::desktop_capture` (window discovery, grabbing, PNG statistics) and records
 //! problems instead of stopping at the first one, so a run reports every capture that failed. The
 //! journey (which states, which triggers, which sizes it expects) stays with the host; this module is
 //! the machinery.
@@ -64,7 +64,7 @@ pub struct CaptureJourney<'a> {
     pub sc: &'a Scenario,
     /// The evidence folder.
     pub root: PathBuf,
-    /// Windows: the fixed capture region and the app's scale ([`capture::fixed_region`]).
+    /// Windows: the fixed capture region and the app's scale (`capture::fixed_region`).
     pub fixed: Option<(Rect, f64)>,
     /// The overlay windows as last observed.
     pub obs: Vec<Obs>,

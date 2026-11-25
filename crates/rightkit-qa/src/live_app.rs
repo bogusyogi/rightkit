@@ -4,18 +4,18 @@
 //!
 //! Journeys drive the real installed app with the user's own settings, data and OS permissions.
 //! Everything a journey can change is snapshotted first and restored afterwards, pass or fail
-//! ([`crate::snapshot`], declared in `rightkit-qa.toml` `[snapshot]`). [`LiveApp::launch_seeded`]
-//! refuses to start unless a snapshot is armed ([`LiveSnapshot::take`]), and refuses a snapshot that
-//! does not cover the app data folder and every root in [`LiveAppConfig::extra_roots`].
+//! (`crate::snapshot`, declared in `rightkit-qa.toml` `[snapshot]`). `LiveApp::launch_seeded`
+//! refuses to start unless a snapshot is armed (`LiveSnapshot::take`), and refuses a snapshot that
+//! does not cover the app data folder and every root in `LiveAppConfig::extra_roots`.
 //!
-//! Ordering is the contract: [`live_harness`] arms (or reuses) the snapshot before anything runs;
-//! [`LiveApp::launch_seeded`] takes the proof, then seeds, then launches; dropping a [`LiveApp`] stops
+//! Ordering is the contract: `live_harness` arms (or reuses) the snapshot before anything runs;
+//! `LiveApp::launch_seeded` takes the proof, then seeds, then launches; dropping a `LiveApp` stops
 //! the app, then releases the snapshot guard, then disposes the QA workspace. The restore itself runs
 //! when the harness's last clone drops (or, for a runner-armed snapshot, in the runner).
 //!
-//! The host passes everything product-specific in [`LiveAppConfig`] (names, paths, settings, the JS that
+//! The host passes everything product-specific in `LiveAppConfig` (names, paths, settings, the JS that
 //! says the shell is ready); the typed commands the app registers on its control server are called by
-//! name through [`LiveApp::command`].
+//! name through `LiveApp::command`.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -43,7 +43,7 @@ pub struct StateSeed {
     pub set: Vec<(String, Value)>,
 }
 
-/// Everything a [`LiveApp`] session needs from the host app.
+/// Everything a `LiveApp` session needs from the host app.
 #[derive(Clone, Debug)]
 pub struct LiveAppConfig {
     /// The app's key: names the harness, the workspace and the snapshot marker's owner.
@@ -63,7 +63,7 @@ pub struct LiveAppConfig {
     pub data_app_name: &'static str,
     /// Path of the QA config holding `[snapshot]`, relative to `root`. Default `rightkit-qa.toml`.
     pub qa_config: PathBuf,
-    /// Settings file inside the app data folder that [`LiveApp::launch_seeded`] writes.
+    /// Settings file inside the app data folder that `LiveApp::launch_seeded` writes.
     pub settings_file: String,
     /// Extra folders the snapshot must name in `extra_paths` (as a directory entry) and must cover
     /// when armed, besides the app data folder (for example the shared model store).
@@ -304,13 +304,13 @@ fn assert_armed_data_roots(config: &LiveAppConfig) {
 /// build and before any test process starts, passes the restore marker to the test process
 /// (`RIGHTKIT_QA_SNAPSHOT_MARKER`) and restores and verifies the data itself when the run ends
 /// however it ends (a kill is restored at the next `rightkit-qa` start); a process that armed its own
-/// ([`live_harness`]) restores when its harness drops. A journey therefore never restores early.
+/// (`live_harness`) restores when its harness drops. A journey therefore never restores early.
 pub struct LiveSnapshot {
     _private: (),
 }
 
 impl LiveSnapshot {
-    /// Refuse unless a verified snapshot is armed ([`crate::snapshot::require_armed`]) and it covers
+    /// Refuse unless a verified snapshot is armed (`crate::snapshot::require_armed`) and it covers
     /// the config's roots. With none armed this panics, so a test run by hand can never touch live
     /// data.
     pub fn take(config: &LiveAppConfig) -> LiveSnapshot {
@@ -330,7 +330,7 @@ impl LiveSnapshot {
     pub fn restore(&self) {}
 }
 
-/// Force `seeds` into the JSON state files of `app_data` and read each back (see [`StateSeed`]).
+/// Force `seeds` into the JSON state files of `app_data` and read each back (see `StateSeed`).
 pub fn seed_state_files(app_data: &Path, seeds: &[StateSeed]) {
     for seed in seeds {
         let path = app_data.join(&seed.file);
@@ -467,7 +467,7 @@ impl LiveApp {
         &self.app_data
     }
 
-    /// The per-user suite root the installed app really uses ([`real_suite_root`]). This is the
+    /// The per-user suite root the installed app really uses (`real_suite_root`). This is the
     /// owner's real store: read it, never write to it outside a snapshot-protected run.
     pub fn suite_root(&self) -> PathBuf {
         real_suite_root()
@@ -475,12 +475,12 @@ impl LiveApp {
 
     /// Run a native command from the webview the way the UI does (`__TAURI_INTERNALS__.invoke`).
     /// `Ok` is the command's value, `Err` its refusal text; a command that never answers panics at
-    /// the UI wait through [`LiveApp::wait_js`].
+    /// the UI wait through `LiveApp::wait_js`.
     pub fn invoke(&self, command: &str, args: Value) -> Result<Value, String> {
         self.invoke_within(command, args, self.config.ui_wait)
     }
 
-    /// [`LiveApp::invoke`] with its own deadline, for a command that legitimately takes minutes
+    /// `LiveApp::invoke` with its own deadline, for a command that legitimately takes minutes
     /// (a model install, an engine start).
     pub fn invoke_within(
         &self,
@@ -506,8 +506,8 @@ impl LiveApp {
         }
     }
 
-    /// Wait until every finite animation has finished ([`SETTLED_JS`]), finishing frozen ones of a
-    /// hidden window first ([`LiveApp::wait_js_finishing`]).
+    /// Wait until every finite animation has finished (`SETTLED_JS`), finishing frozen ones of a
+    /// hidden window first (`LiveApp::wait_js_finishing`).
     pub fn wait_settled(&self, timeout: Duration) {
         self.wait_js_finishing(SETTLED_JS, timeout);
     }
@@ -554,7 +554,7 @@ impl LiveApp {
         self.ctl.command(name, &args).map_err(|e| e.to_string())
     }
 
-    /// [`LiveApp::try_command`], panicking with the command name when it fails.
+    /// `LiveApp::try_command`, panicking with the command name when it fails.
     pub fn command(&self, name: &str, args: Value) -> Value {
         self.try_command(name, args)
             .unwrap_or_else(|e| panic!("command {name} failed: {e}"))
@@ -571,7 +571,7 @@ impl LiveApp {
         self.wait_js_impl(body, timeout, false)
     }
 
-    /// [`LiveApp::wait_js`] that first finishes every FINITE running animation while the window is
+    /// `LiveApp::wait_js` that first finishes every FINITE running animation while the window is
     /// hidden (`Control::eval_with`, `finishHiddenAnimations`; infinite ones are left alone). A hidden
     /// web view produces no frames, so `document.timeline` stays at its first value and every finite
     /// CSS animation stays pending for ever; the end state is what the page settles to when it does

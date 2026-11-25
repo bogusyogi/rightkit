@@ -3,8 +3,8 @@
 //! switch through the command palette, and the settled screenshot and JSON log writers.
 //!
 //! Everything product-specific comes in as an argument: selectors, copy, the viewport, the palette
-//! labels. The probes are JavaScript bodies that `return` a value, run with [`crate::live_app::LiveApp::js`]
-//! or waited on with [`crate::live_app::LiveApp::wait_js`].
+//! labels. The probes are JavaScript bodies that `return` a value, run with `crate::live_app::LiveApp::js`
+//! or waited on with `crate::live_app::LiveApp::wait_js`.
 
 use std::time::Duration;
 
@@ -218,7 +218,7 @@ pub fn settings_with(base: &str, edit: impl FnOnce(&mut Value)) -> String {
 /// Layout measurement of every screen a journey captures, with one PNG per screen and one JSON
 /// report: `<os>-screen-audit-<part>.json` holding `{os, screens: [{case, file, measure}]}`.
 pub struct ScreenAudit {
-    /// Platform prefix of evidence names ([`os_name`]).
+    /// Platform prefix of evidence names (`os_name`).
     pub os: &'static str,
     /// One row per captured screen.
     pub rows: Vec<Value>,
@@ -233,7 +233,7 @@ impl ScreenAudit {
         }
     }
 
-    /// Wait until the page has settled, measure it ([`MEASURE_JS`]), save a full-window PNG under
+    /// Wait until the page has settled, measure it (`MEASURE_JS`), save a full-window PNG under
     /// `<os>-<name>.png` and keep it in the scenario evidence.
     pub fn capture(&mut self, sc: &Scenario, app: &LiveApp, name: &str) {
         app.wait_js_finishing(SETTLED_JS, Duration::from_secs(15));
@@ -269,7 +269,7 @@ impl Default for ScreenAudit {
 /// from `rows` (`[{tip, aria, rect}]`, one per footer button with a `data-tooltip`) and may read
 /// `status`. Returns `{state, rows, overflow, overlaps, outside, footer, viewport}`: truncated text,
 /// overlapping controls and controls outside the window are the lists a journey asserts empty
-/// ([`assert_footer_clean`]).
+/// (`assert_footer_clean`).
 pub fn footer_probe_js(status_selector: &str, state_js: &str) -> String {
     format!(
         r#"
@@ -354,7 +354,7 @@ return {{ label: b.textContent.trim().replace(/\s+/g, ' ').slice(0, 40), x: r.x 
     )
 }
 
-/// Panics unless `footer` (a [`footer_probe_js`] reading) is an object with no truncated text, no
+/// Panics unless `footer` (a `footer_probe_js` reading) is an object with no truncated text, no
 /// overlapping controls and nothing outside the window; `theme` names the state in the message.
 pub fn assert_footer_clean(footer: &Value, theme: &str) {
     assert!(
@@ -382,7 +382,7 @@ pub fn footer_slug(footer: &Value, keys: &[&str]) -> String {
     }
 }
 
-/// Panics unless a [`TOOLTIP_JS`] reading shows `tip` fully inside the window and untruncated.
+/// Panics unless a `TOOLTIP_JS` reading shows `tip` fully inside the window and untruncated.
 pub fn assert_tooltip_fits(tooltip: &Value, tip: &str, theme: &str) {
     assert_eq!(
         tooltip["text"].as_str(),
