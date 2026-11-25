@@ -63,6 +63,7 @@ import { validatePackedClosure, validateRecipeEntry } from "./ci/npm-recipe-cons
 import { npmRecipePolicy } from "./ci/rk-npm-preflight.mjs";
 import { consumerRecipePolicy } from "./ci/rk-preflight.mjs";
 import { versionPinProblems } from "./ci/release-version-pins.mjs";
+import { frozenManifestProblems } from "./ci/published-manifest.mjs";
 
 // What scripts that call preflight, and its tests, take from it (scripts/retire-rightkit-alias.mjs).
 export { RETIRED_ALIAS_EXEMPT, applyBaseline, baselineKnown, cargoTestTargets, isGeneratedFile, retireAliasText } from "../packages/release/app-check.mjs";
@@ -548,6 +549,44 @@ function feedLegacy({ root, files = [] }) {
   return out;
 }
 
+/** G29: a published crate's manifest is frozen at its version (scripts/ci/published-manifest.mjs). Compares the push's base (RK_PUSH_BEFORE, else the
+ * merge base with origin/main) with the checked commit: a crate whose RightKit requirements changed, directly or through the root's
+ * [workspace.dependencies], while it kept a version the feed records as published, is refused. */
+function publishedManifestFrozen({ repo = REPO, commit = "HEAD" }) {
+  const run = (args, input) => spawnSync("git", args, { cwd: repo, env: gitEnv(), input, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
+  const one = (args) => { const r = run(args); return r.status === 0 ? r.stdout.trim() : null; };
+  const head = one(["rev-parse", "--verify", `${commit}^{commit}`]);
+  if (!head) return [];
+  const named = String(process.env.RK_PUSH_BEFORE ?? "").trim();
+  const base = (/^[0-9a-f]{40,64}$/.test(named) && !/^0+$/.test(named) && one(["rev-parse", "--verify", `${named}^{commit}`])) || one(["merge-base", head, "origin/main"]);
+  if (!base || base === head) return [];
+  const changed = (one(["diff", "--name-only", base, head, "--", "Cargo.toml", "crates/*/Cargo.toml"]) ?? "").split("\n").filter(Boolean);
+  if (!changed.length) return [];
+  const rootChanged = changed.includes("Cargo.toml");
+  const dirsAt = (rev) => (one(["ls-tree", "-d", "--name-only", `${rev}:crates`]) ?? "").split("\n").filter(Boolean).map((d) => `crates/${d}`);
+  const dirs = rootChanged ? dirsAt(head) : changed.filter((f) => f !== "Cargo.toml").map((f) => f.slice(0, -"/Cargo.toml".length));
+  // One git process per revision: `cat-file --batch` answers every manifest in order.
+  const readAll = (rev, files) => {
+    const r = spawnSync("git", ["cat-file", "--batch"], { cwd: repo, env: gitEnv(), input: files.map((f) => `${rev}:${f}`).join("\n") + "\n", maxBuffer: 256 * 1024 * 1024 });
+    const bytes = r.stdout ?? Buffer.alloc(0); const out = new Map(); let at = 0;
+    for (const f of files) {
+      const nl = bytes.indexOf(0x0a, at); if (nl < 0) break;
+      const header = bytes.subarray(at, nl).toString("utf8"); at = nl + 1;
+      if (/ missing$/.test(header)) continue;
+      const size = Number(header.split(" ")[2]);
+      out.set(f, bytes.subarray(at, at + size).toString("utf8")); at += size + 1;
+    }
+    return out;
+  };
+  const files = ["Cargo.toml", ...dirs.map((d) => `${d}/Cargo.toml`)];
+  const before = readAll(base, files); const after = readAll(head, files);
+  const crates = (m) => new Map(dirs.filter((d) => m.has(`${d}/Cargo.toml`)).map((d) => [d, m.get(`${d}/Cargo.toml`)]));
+  let published = {};
+  try { published = JSON.parse(one(["show", `${head}:packages/release/rightkit-versions.json`]) ?? "{}").registry?.cargo ?? {}; } catch { published = {}; }
+  return frozenManifestProblems({ before: { root: before.get("Cargo.toml") ?? "", crates: crates(before) }, after: { root: after.get("Cargo.toml") ?? "", crates: crates(after) }, published })
+    .map((p) => ({ subject: p.crate, problem: `${p.dir}/Cargo.toml: ${p.crate} ${p.version} is published, and this push changes its RightKit requirements at that version (${p.changed.join("; ")}); crates.io keeps ${p.version}'s old manifest, so consumers would lock the old requirements`, fix: `raise ${p.crate}'s version (a patch is enough) in the same push, and stage it in packages/release/rightkit-versions.json stagedCargo` }));
+}
+
 const appRule = (id) => APP_RULES.find((rule) => rule.id === id) ?? (() => { throw new Error(`packages/release/app-check.mjs has no rule ${id}`); })();
 const APP_RULES_FIRST = ["eol-policy", "file-url", "retired-alias"];
 
@@ -559,6 +598,7 @@ export const RULES = Object.freeze([
   { id: "npm-surface", gap: "G02", run: npmSurface },
   { id: "version-pins", gap: "G03", run: versionPins },
   { id: "feed-legacy", gap: "G27", run: feedLegacy },
+  { id: "published-manifest-frozen", gap: "G29", run: publishedManifestFrozen },
   { id: "dispatch-pins", gap: "G05", run: dispatchPins },
   { id: "consumer-locks", gap: "G08", run: consumerLocks },
   appRule("file-url"),
