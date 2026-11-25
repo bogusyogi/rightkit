@@ -442,6 +442,8 @@ jobs:
   hygiene:
     needs: [plan]
     runs-on: ubuntu-24.04
+    # 90, not 45: a change to a shared build input (ci/rk-pipeline.json, ci/gate.config.json, packages/release) puts every Rust unit through
+    # the Cargo.lock and rustfmt step below, which took about 40 minutes on its own; 45 cancelled the job before the later steps ran.
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
