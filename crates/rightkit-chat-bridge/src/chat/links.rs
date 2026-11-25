@@ -169,6 +169,21 @@ impl LinkStatus {
     }
 }
 
+/// Test builds only (`test-overrides`): the program `RIGHTKIT_CHAT_SSH` names, run instead of
+/// ssh with the destination and the words as separate arguments, unquoted. Not compiled into a
+/// release build, so the variable cannot choose what a release build runs.
+#[cfg(feature = "test-overrides")]
+fn ssh_override() -> Option<String> {
+    std::env::var("RIGHTKIT_CHAT_SSH")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+}
+
+#[cfg(not(feature = "test-overrides"))]
+fn ssh_override() -> Option<String> {
+    None
+}
+
 /// The system ssh at its fixed location, never found through the search path.
 fn system_ssh() -> std::path::PathBuf {
     #[cfg(windows)]
@@ -269,27 +284,38 @@ fn run(link: &Link, args: &[&str], timeout: Duration) -> Result<String, String> 
 fn run_checked(link: &Link, args: &[&str], timeout: Duration) -> Result<String, RunFailure> {
     validate_ssh(&link.ssh).map_err(RunFailure::Other)?;
     validate_cli(&link.cli).map_err(RunFailure::Other)?;
-    let program: std::ffi::OsString = system_ssh().into();
+    let override_program = ssh_override();
+    let program: std::ffi::OsString = match &override_program {
+        Some(program) => program.into(),
+        None => system_ssh().into(),
+    };
     let mut command_args: Vec<std::ffi::OsString> = Vec::new();
-    command_args.extend(
-        [
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            "ConnectTimeout=10",
-            "-o",
-            "LogLevel=ERROR",
-            // Never a pty. The child runs with stdin on NUL; Windows ssh.exe takes NUL for a
-            // console, wants a tty, and then never exits after the remote command ends
-            // (#541: every poll from the CLI ran to the 60 s timeout).
-            "-o",
-            "RequestTTY=no",
-            "--",
-        ]
-        .map(std::ffi::OsString::from),
-    );
-    command_args.push((&link.ssh).into());
-    command_args.push(remote_command(link, args).into());
+    if override_program.is_none() {
+        command_args.extend(
+            [
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=10",
+                "-o",
+                "LogLevel=ERROR",
+                // Never a pty. The child runs with stdin on NUL; Windows ssh.exe takes NUL for a
+                // console, wants a tty, and then never exits after the remote command ends
+                // (#541: every poll from the CLI ran to the 60 s timeout).
+                "-o",
+                "RequestTTY=no",
+                "--",
+            ]
+            .map(std::ffi::OsString::from),
+        );
+        command_args.push((&link.ssh).into());
+        command_args.push(remote_command(link, args).into());
+    } else {
+        command_args.push((&link.ssh).into());
+        command_args.push((&link.cli).into());
+        command_args.push("chat".into());
+        command_args.extend(args.iter().map(|a| std::ffi::OsString::from(*a)));
+    }
     let options = RunOptions::new(timeout)
         .stdout_cap(OUTPUT_CAP)
         .stderr_cap(OUTPUT_CAP);

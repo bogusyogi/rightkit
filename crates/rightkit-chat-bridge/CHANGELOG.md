@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3
+
+- `test-overrides` feature: `RIGHTKIT_CHAT_SSH` names a program run instead of ssh, for end-to-end journeys (bogusyogi/pulse#643). Not compiled into a release build.
+
 ## 0.2.2
 
 - Logic moved from Pulse into this crate (bogusyogi/pulse#643): see the module docs for what each new module holds.
