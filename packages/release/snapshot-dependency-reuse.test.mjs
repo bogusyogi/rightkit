@@ -3,9 +3,11 @@ import os from "node:os";
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { dependencyDigest, canonicalConfigFingerprint, preparationInputComponents, pnpmVersionAnswer } from './snapshot-dependency-reuse.mjs';
+import { dependencyDigest, canonicalConfigFingerprint, preparationInputComponents, pnpmVersionAnswer, pnpmConfigDependencies } from './snapshot-dependency-reuse.mjs';
 
 test('pnpmVersionAnswer asks once for two pin-free directories, and again where a pin can switch the answer (NN07)', (t) => {
+  // The answer is kept only under a pnpm program the gate identifies; a host without one (GitHub's Windows runner, 0.6.80 publish.yml) keeps nothing.
+  if (!pnpmConfigDependencies({ dir: os.tmpdir(), env: process.env }).program) { t.skip('no pnpm program the gate identifies on this host'); return; }
   const scratch = ((root) => (fs.existsSync(root) ? root : os.tmpdir()))(process.platform === 'win32' ? 'D:\\scratch' : '/Volumes/D/scratch');
   const base = fs.mkdtempSync(path.join(scratch, 'rk-pnpm-answer-'));
   t.after(() => fs.rmSync(base, { recursive: true, force: true }));

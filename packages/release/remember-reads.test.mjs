@@ -93,10 +93,11 @@ test("NN08: pnpm --version keys on pnpm's own variables, not per-run ones", asyn
 });
 
 test("NN08: the probe shares the Class A digest's pnpm version where no pin exists (one start), and not where one does (two)", async () => {
-  const { pnpmVersionAnswer, pnpmVersionAnswerAsync } = await import("./snapshot-dependency-reuse.mjs");
+  const { pnpmVersionAnswer, pnpmVersionAnswerAsync, pnpmConfigDependencies } = await import("./snapshot-dependency-reuse.mjs");
   const os = await import("node:os"); const fs = await import("node:fs"); const path = await import("node:path");
-  const pnpmOnPath = (() => { for (const d of String(process.env.PATH ?? process.env.Path ?? "").split(path.delimiter)) for (const n of ["pnpm.cmd", "pnpm"]) if (d && fs.existsSync(path.join(d, n))) return true; return false; })();
-  if (!pnpmOnPath) return; // the key needs pnpm's program; without it nothing is remembered and the rule cannot be shown here
+  // The key needs pnpm's program as the gate identifies it; a pnpm file on PATH is not enough (GitHub's Windows runner has one the
+  // Windows identity does not recognise, 0.6.80 publish.yml). Without it nothing is remembered and the rule cannot be shown here.
+  if (!pnpmConfigDependencies({ dir: os.tmpdir(), env: process.env }).program) return;
   const probeOnly = { npm_config_ignore_pnpmfile: "true", npm_config_ignore_scripts: "true", COREPACK_ENABLE_AUTO_PIN: "0", RIGHTKIT_CARGO_SCAN: "probe" };
   const env = { ...process.env, RK_TEST_SALT: String(Math.random()) };
   // The gate's answer server, stood in by a map (resident-answers.mjs: answer-get / answer-put).
