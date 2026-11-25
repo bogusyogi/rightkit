@@ -256,7 +256,7 @@
       "host": "BOGUS-DELL",
       "keyId": "5feb907f576bf36569e336f025623f6710759ee3571da9bd30e6af8be370a0c6",
       "publicKey": "04404cf79f43f03b8d0d442360f3561d2119c3783eeb6eb09ae566a29da15373ff2a461a50fe9d5317142ccf1305a8072beddecd12a20ce1301a45503fc383cf2e",
-      "brokerDigest": "a8999efe0ed61b39a711a6858b76c78e25a69d1e184a13119a96f7bdc0188430",
+      "brokerDigest": "8169683f743069cacd5870a87592d23e56efe5afa869e8a078ffcd77d3c8e0f4",
       "note": "Enrollment of the Dell's installed broker for receipt verification, read from its control root and runtime manifest by RightBoss D (2026-10-28); host and broker taken verbatim from the broker-signed receipt c81f945d-2d07-4aa9-9244-e6e2efcd3853 (D:\\scratch\\rk-069-accept\\pin8-dell-verify\\attest-status.json).",
       "cargoSha256": "197c9f582da4994c585b13366abc12e810de2708ce14ddcf0873a8f377f3954e",
       "cargoPath": "C:\\Users\\adrds\\.rustup\\toolchains\\1.98.0-x86_64-pc-windows-msvc\\bin\\cargo.exe",
