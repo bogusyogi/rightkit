@@ -138,3 +138,4 @@ vendor/tauri-runtime-wry/** -text
 # The shared updater signature vectors and the crate's copy are held byte-identical by a test.
 /contracts/updater-signature-vectors.v1.json text eol=lf
 /crates/rightkit-license/test-vectors/updater-signature-vectors.v1.json text eol=lf
+packages/release/bin/darwin/rightkit-swap binary

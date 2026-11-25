@@ -1,3 +1,4 @@
-# Generated at local publish time (swap-helper-bundle.mjs); never committed.
-bin/darwin/rightkit-swap
+# bin/darwin/rightkit-swap and its rightkit-swap.sha256 are committed: the Developer-ID-signed helper is built and signed once on
+# the Mac and checked in, so every host packs the gate package from git with no Rust build or signing (swap-helper-bundle.mjs).
+# A signing receipt written by an older local publish is never committed.
 bin/darwin/rightkit-swap.sign.json

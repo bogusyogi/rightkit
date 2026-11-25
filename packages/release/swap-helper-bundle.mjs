@@ -31,6 +31,11 @@ export class SwapHelperError extends Error {
 const helperPath = (packageDir) => path.join(packageDir, ...SWAP_HELPER_BIN);
 const receiptPath = (packageDir) => path.join(packageDir, ...SWAP_HELPER_RECEIPT);
 const sha256 = (fs, file) => crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+/** The committed helper's sha256 (`bin/darwin/rightkit-swap.sha256`, `<hex>  rightkit-swap`), or null when the file is absent or unreadable. */
+export function committedSwapHelperDigest(packageDir, fs = nodeFs) {
+  try { const m = /^([0-9a-f]{64})\s+\*?rightkit-swap\s*$/m.exec(fs.readFileSync(path.join(packageDir, "bin", "darwin", "rightkit-swap.sha256"), "utf8")); return m ? m[1] : null; }
+  catch { return null; }
+}
 const tail = (text, lines = 30) => String(text ?? "").split(/\r?\n/).slice(-lines).join("\n");
 
 /** True when `codesign --verify --strict` accepts the file. Only meaningful on macOS. */
@@ -60,6 +65,9 @@ export function prepareSwapHelper({
 }) {
   const dest = helperPath(packageDir);
   if (platform !== "darwin") {
+    // Off the Mac codesign cannot run: the committed helper is taken when its bytes hash to the committed digest (it was verified when it was committed).
+    const committed = committedSwapHelperDigest(packageDir, fs);
+    if (committed && fs.existsSync(dest) && sha256(fs, dest) === committed) return { file: dest, signed: true, built: false, identity: null };
     let receipt = null;
     try { receipt = JSON.parse(fs.readFileSync(receiptPath(packageDir), "utf8")); } catch { /* refused below */ }
     if (!fs.existsSync(dest) || receipt?.schema !== 1 || receipt.sha256 !== sha256(fs, dest)) {
@@ -68,6 +76,14 @@ export function prepareSwapHelper({
     return { file: dest, signed: true, built: false, identity: receipt.identity ?? null };
   }
   const fail = (code, message) => { throw new SwapHelperError(code, message); };
+  // The committed helper: bin/darwin/rightkit-swap is checked in with its sha256 (bin/darwin/rightkit-swap.sha256), signed once. When its bytes
+  // hash to the committed digest and its code signature verifies, the pack uses it as it is: no Cargo build and no signing (0.6.81).
+  const committedDigest = committedSwapHelperDigest(packageDir, fs);
+  if (committedDigest && fs.existsSync(dest) && sha256(fs, dest) === committedDigest) {
+    if (!isSwapHelperSigned(dest)) fail("SWAP_HELPER_UNSIGNED", `the committed ${SWAP_HELPER_BIN.join("/")} matches its sha256 but its code signature does not verify`);
+    log(`[right-release] using the committed signed ${SWAP_HELPER_BIN.join("/")} (sha256 ${committedDigest})`);
+    return { file: dest, signed: true, built: false, identity: null };
+  }
   const built = run("cargo", SWAP_HELPER_CARGO_ARGS, { cwd: workspaceRoot, env });
   if (built.error || built.status !== 0) fail("SWAP_HELPER_BUILD_FAILED", `rustright cargo ${SWAP_HELPER_CARGO_ARGS.join(" ")} failed (${built.error?.message ?? `exit ${built.status}`})\n${tail(`${built.stdout ?? ""}\n${built.stderr ?? ""}`)}`);
   const meta = run("cargo", SWAP_HELPER_METADATA_ARGS, { cwd: workspaceRoot, env });

@@ -7,6 +7,7 @@ import { detachWithRetry } from "./hdiutil-detach.mjs";
 import { previousPathOf } from "./in-place-install.mjs";
 import { assertShippedSwapHelperSigned } from "./swap-helper-bundle.mjs";
 import { installAppWindows, InstallAppWindowsError } from "./install-app-windows.mjs";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -253,13 +254,31 @@ function coded(code, message) {
 // A helper that exists must be code-signed (#258): an unsigned one is a typed SWAP_HELPER_UNSIGNED error naming the fix,
 // never a silent downgrade. No helper at all keeps the documented journaled two-rename fallback, which is logged
 // (`swap-fallback`, then `replaced {swap}`).
+/**
+ * The committed helper reaches a Mac without its executable bit when the gate package was packed on Windows (no mode bits there; 0.6.81), and an
+ * installed gate's folder is read-only. Such a helper runs as a private copy with mode 0755 under the temporary folder, named by its sha256; the
+ * copy keeps the embedded code signature, which was checked on the shipped file. An executable helper, or any failure here, runs as it is.
+ */
+export function runnableHelper(helper, { fsImpl = fs, tmp = os.tmpdir() } = {}) {
+  try {
+    if (process.platform === "win32" || (fsImpl.statSync(helper).mode & 0o111) !== 0) return helper;
+    const bytes = fsImpl.readFileSync(helper);
+    const copy = path.join(tmp, `rightkit-swap-${createHash("sha256").update(bytes).digest("hex").slice(0, 16)}`);
+    let ready = false;
+    try { ready = fsImpl.readFileSync(copy).equals(bytes) && (fsImpl.statSync(copy).mode & 0o111) !== 0; } catch { ready = false; }
+    if (!ready) { fsImpl.writeFileSync(copy, bytes, { mode: 0o755 }); fsImpl.chmodSync(copy, 0o755); }
+    return copy;
+  } catch { return helper; }
+}
+
 export function createSwapPaths({ env = process.env, resolve = resolveSwapHelper, execFileSync = nodeExecFileSync, assertSigned = assertShippedSwapHelperSigned } = {}) {
   const checked = new Set();
   return (a, b) => {
     const helper = resolve({ env });
     if (!helper) throw coded("ENOHELPER", `${SWAP_HELPER_NAME} helper not found`);
     if (!checked.has(helper)) { assertSigned({ file: helper, execFileSync }); checked.add(helper); }
-    try { execFileSync(helper, [a, b], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); }
+    const program = runnableHelper(helper);
+    try { execFileSync(program, [a, b], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); }
     catch (error) {
       const text = `${error?.stderr || ""}`.trim();
       if (error?.code === "ENOENT" || error?.code === "EACCES") throw coded("ENOHELPER", `${helper} cannot run: ${error.code}`);
