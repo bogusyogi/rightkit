@@ -2367,7 +2367,18 @@ async function runStages(o, args, root, git, io) {
         else o.out(`${tag} [compile] release admission dry-run skipped here: no broker receipt names the Cargo target of ${uncovered.length ? uncovered.map((w) => path.relative(root, w).replaceAll("\\", "/") || ".").join(", ") : "the app"} yet; the package stage's build runs the same admission rows at its start`);
       }
       let compiledDirs = []; let compiledBins = null; let qualifyOwed = []; let limitedEvidence = [];
-      const reportOutputs = (dirs, bins = null) => { compiledDirs = [...dirs]; compiledBins = bins; };
+      const reportOutputs = (dirs, bins = null, byCargoDir = []) => {
+        compiledDirs = [...dirs]; compiledBins = bins;
+        // The compile's broker output folder of each Cargo workspace joins the door run's known outputs (keyed by checkout workspace, as the stage
+        // carriers file theirs): the package stage's map hands them to its first resolution (stage-seam.mjs carriedOutputDir knownOutputDirs).
+        // A folder a stage carrier already recorded for that workspace stays: it is the one the app's own build used.
+        if (!ds) return;
+        let checkoutReal = root; try { checkoutReal = fs.realpathSync.native(root); } catch { /* as given */ }
+        for (const [cargoDir, dir] of byCargoDir) {
+          const key = path.join(checkoutReal, ...(cargoDir === "." ? [] : cargoDir.split("/")));
+          if (!ds.carriedOutputs?.has(key)) (ds.carriedOutputs ??= new Map()).set(key, dir);
+        }
+      };
       if (ok) ok = (await (o.runCompile ?? (() => main(ds ? ["--all", "--commit", commit, "--snapshot", ds.path] : ["--all"], { ...io, cwd: root, readStdin: () => "", ...(ds ? { snapshotLock: ds.lock, classAEarlier: true, seamScope: appDir === "." ? null : [appDir], snapshotLedger: ds.ledger?.entries ?? [], onCompileLedger: (entries) => { ds.compileAdmitted = entries; }, onDirectReceipt: (r) => { directReceipt = r; }, onCompileOutputs: reportOutputs, onQualifyOwed: (list) => { qualifyOwed = list; }, onLimitedEvidence: (list) => { limitedEvidence = list; } } : {}) })))({ reportOutputs })) === 0;
       if (directReceipt) extra = { ...extra, direct: directReceipt };
       // What the plan left to the qualify stage is recorded with the compile, so qualification can prove it is not lost (rightkit#1332, #1333).
@@ -5881,7 +5892,10 @@ export async function main(argv, io = {}) {
         note: (text) => o.out(`${tag} built programs: ${text}`),
       });
       const outputWorkspaces = (snapshotBroker ? scanResult.scans.map((r) => r.snapshotEvidence?.outputDir) : Object.values(targetDirs ?? {})).filter(Boolean).map((dir) => [dir]);
-      o.onCompileOutputs?.(outputWorkspaces.map(([dir]) => dir), builtBins);
+      // Each broker row's output folder with its Cargo workspace (repository-relative), so a later stage of the same door run can resolve that workspace's
+      // target before its own first Cargo call (a multi-workspace app's package admission, CodeRight on the Mac 0.6.80: RK_SPLIT_TARGET_UNRESOLVED).
+      const outputsByCargoDir = snapshotBroker ? scanResult.scans.flatMap((r) => { const unit = unitByName.get(rustUnitOfScanId(r.id, known)); const dir = r.snapshotEvidence?.outputDir; return typeof unit?.cargoDir === "string" && typeof dir === "string" && dir ? [[unit.cargoDir, dir]] : []; }) : [];
+      o.onCompileOutputs?.(outputWorkspaces.map(([dir]) => dir), builtBins, outputsByCargoDir);
       o.out(`${tag} class B keying: ${ROW_DIGEST_STATS.misses} row digest(s) computed in ${(ROW_DIGEST_STATS.ms / 1000).toFixed(1)} s, ${ROW_DIGEST_STATS.hits} reused`);
       if (snapshotBroker) o.out(`${tag} broker compile: ${new Set(scanResult.scans.map((r) => r.snapshotEvidence?.requestId).filter(Boolean)).size} carried request(s) with verified signed receipts (${scanResult.scans.filter((r) => r.snapshotEvidence).length} scan row(s)); no direct receipt on a broker host`);
       else {
