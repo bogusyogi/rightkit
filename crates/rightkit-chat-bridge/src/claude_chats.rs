@@ -312,3 +312,64 @@ pub fn open_link(id: &str) -> bool {
         false
     }
 }
+
+/// Whether any reported path (relative to `claude-code-sessions`) is under `account`'s folder.
+/// Writes under any other account's folder are the mirror's own and do not count.
+pub fn touches_account(names: &[String], account: Option<&str>) -> bool {
+    let Some(account) = account else {
+        return false;
+    };
+    names.iter().any(|name| {
+        name.split(['\', '/'])
+            .next()
+            .is_some_and(|first| first.eq_ignore_ascii_case(account))
+    })
+}
+
+/// Tracks the signed-in Desktop account across observations of its config file.
+pub struct AccountWatch {
+    last: std::sync::Mutex<Option<String>>,
+}
+
+impl AccountWatch {
+    /// Starts with the account that is signed in now (`None` when Desktop has none).
+    pub fn new(current: Option<String>) -> Self {
+        Self {
+            last: std::sync::Mutex::new(current),
+        }
+    }
+
+    /// Records the account seen now and returns true when it differs from the one before. The
+    /// first account seen (Desktop was not running when watching began) is not a change:
+    /// opening Desktop again on the same account reopens nothing. No account now is no
+    /// observation.
+    pub fn observe(&self, now: Option<String>) -> bool {
+        let Some(now) = now else {
+            return false;
+        };
+        let mut last = self
+            .last
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let changed = last.as_deref().is_some_and(|old| old != now);
+        *last = Some(now);
+        changed
+    }
+}
+
+/// What to do after an account switch: after `settle` (Desktop finishes its own writes to the
+/// old folder) run one mirror pass whatever the per-change mirror setting says (#308; that
+/// setting governs only the per-change runs), then reopen the chats that were running when
+/// `remember_on` (the chat-remember setting).
+pub fn run_account_switch(
+    settle: Duration,
+    remember_on: impl FnOnce() -> bool,
+    mirror: impl FnOnce(),
+    reopen: impl FnOnce(),
+) {
+    std::thread::sleep(settle);
+    mirror();
+    if remember_on() {
+        reopen();
+    }
+}

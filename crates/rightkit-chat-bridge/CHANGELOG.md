@@ -2,7 +2,9 @@
 
 ## 0.2.1
 
-- Requires `rightkit-hooks` 0.3.0. No behaviour change.
+- Requires `rightkit-hooks` 0.3.0.
+- Fix (`deliver_claude::defuse_tags`): a closing tag was looked for only in the next few characters, so a long body let a forged closing tag through; the look-ahead is now 4096 characters and compares only the closing tag's length (bogusyogi/pulse#278).
+- `claude_chats`: `touches_account`, `AccountWatch` and `run_account_switch`, so a host follows a Claude account switch (moved from Pulse, bogusyogi/pulse#308).
 
 ## 0.2.0
 

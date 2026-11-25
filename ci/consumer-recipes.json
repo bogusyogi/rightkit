@@ -3097,7 +3097,7 @@
       "pkId": "PK78",
       "id": "ci/consumers/rightkit-app-manager/src/main.rs",
       "files": {
-        "Cargo.toml": "1ba1353c9de010471efe294dca9692509ab9da347c72d65b0d42a25587c64b50",
+        "Cargo.toml": "b8bf9642bcaf36e2afd8f056cef06c99d70d39a75a75012bc9c4fa931b5ecec2",
         "README.md": "f6ff78139a9a4aa99a71acfe62b3b50cca7c0c9d9abf3e51ed746d6ff0319a73",
         "src/main.rs": "0176ab600d699cc5db95e481e4958146ef2da81a38be569748b9971cda4b499e"
       }
@@ -3188,7 +3188,7 @@
       "pkId": "PK92",
       "id": "ci/consumers/rightkit-disk-cleanup/src/main.rs",
       "files": {
-        "Cargo.toml": "584c8a41c8b639afaaf477ab8ef00e7e1a71d3ecf8cb0be1f350c1f8d1fb770f",
+        "Cargo.toml": "27e0fc5d4ecb0e3db98063d5d903f78fb020f9b8c62d01a064694001c6918b04",
         "README.md": "e94e1a225da26cd1130a968bed896ca944b8262c21d9d2bfbb76055b88074922",
         "src/main.rs": "5390ebfe754fad27c388cf46ba21774cf72592521f0973af82c9c9bcf275de8c"
       }

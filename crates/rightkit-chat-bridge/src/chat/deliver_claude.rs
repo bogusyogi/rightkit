@@ -1254,12 +1254,16 @@ pub(super) fn sender_name(origin: &super::envelope::Origin) -> String {
 /// a closing tag itself and then drops the message for differing from what was sent.
 fn defuse_tags(text: &str) -> String {
     const CLOSING: &str = "/cross-session-message";
+    /// Characters after a `<` that are scanned for the tag name (was 96, which padding beat).
+    const LOOKAHEAD_CHARS: usize = 4096;
     let mut out = String::with_capacity(text.len());
     for (at, c) in text.char_indices() {
         if c == '<' {
+            // The window is raw characters, so padding before the tag name cannot push the
+            // name out of sight; only the first `CLOSING` length of kept letters is needed.
             let ahead: String = text[at + 1..]
                 .chars()
-                .take(96)
+                .take(LOOKAHEAD_CHARS)
                 .filter(|&c| c.is_ascii_alphanumeric() || c == '/' || c == '-' || c == '_')
                 .map(|c| {
                     if c == '_' {
@@ -1268,6 +1272,7 @@ fn defuse_tags(text: &str) -> String {
                         c.to_ascii_lowercase()
                     }
                 })
+                .take(CLOSING.len())
                 .collect();
             if ahead.starts_with(CLOSING) || ahead.starts_with(&CLOSING[1..]) {
                 out.push_str("&lt;");

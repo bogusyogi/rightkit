@@ -569,7 +569,7 @@
     "rightkit-app-host": "0.1.2",
     "rightkit-app-icon": "0.1.0",
     "rightkit-app-lock": "0.1.0",
-    "rightkit-app-manager": "0.2.3",
+    "rightkit-app-manager": "0.2.4",
     "rightkit-app-settings": "0.4.2",
     "rightkit-app-update": "0.2.0",
     "rightkit-apple-ops": "0.2.0",
@@ -635,7 +635,7 @@
     "rightkit-dictation-tauri": "0.3.2",
     "rightkit-dictation-telemetry": "0.2.3",
     "rightkit-dictation-text-pipeline": "0.2.7",
-    "rightkit-disk-cleanup": "0.2.0",
+    "rightkit-disk-cleanup": "0.2.1",
     "rightkit-docs": "0.1.6",
     "rightkit-doctor": "0.2.0",
     "rightkit-document-workspace": "0.2.0",
@@ -959,7 +959,8 @@
       "0.3.1"
     ],
     "rightkit-app-manager": [
-      "0.2.2"
+      "0.2.2",
+      "0.2.3"
     ],
     "rightkit-app-settings": [
       "0.2.0",
@@ -1672,6 +1673,9 @@
     ],
     "rightkit-approvals": [
       "0.2.1"
+    ],
+    "rightkit-disk-cleanup": [
+      "0.2.0"
     ]
   }
 }

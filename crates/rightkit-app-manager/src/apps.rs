@@ -733,6 +733,121 @@ pub fn compare_versions(current: &str, candidate: &str) -> VersionComparison {
     }
 }
 
+/// Numeric dotted version, e.g. `"1.2.3"` -> `[1, 2, 3]` (a leading `v` or `V` is allowed);
+/// `None` when any part is not a plain number.
+pub fn dotted_version_parts(text: &str) -> Option<Vec<u64>> {
+    let parts: Option<Vec<u64>> = text
+        .trim()
+        .trim_start_matches(['v', 'V'])
+        .split('.')
+        .map(|part| part.parse().ok())
+        .collect();
+    parts.filter(|parts| !parts.is_empty())
+}
+
+fn padded_pair(a: Vec<u64>, b: Vec<u64>) -> (Vec<u64>, Vec<u64>) {
+    let width = a.len().max(b.len());
+    let pad = |mut v: Vec<u64>| {
+        v.resize(width, 0);
+        v
+    };
+    (pad(a), pad(b))
+}
+
+/// True when both are readable dotted versions and equal once zero-padded (`1.2` equals `1.2.0`).
+pub fn dotted_versions_equal(a: &str, b: &str) -> bool {
+    match (dotted_version_parts(a), dotted_version_parts(b)) {
+        (Some(a), Some(b)) => {
+            let (a, b) = padded_pair(a, b);
+            a == b
+        }
+        _ => false,
+    }
+}
+
+/// True only when `candidate` is provably newer than `installed`: both readable and the
+/// zero-padded candidate is greater. Unreadable or equal versions are not newer.
+pub fn dotted_version_is_newer(candidate: &str, installed: &str) -> bool {
+    let (Some(new), Some(old)) = (
+        dotted_version_parts(candidate),
+        dotted_version_parts(installed),
+    ) else {
+        return false;
+    };
+    let (new, old) = padded_pair(new, old);
+    new > old
+}
+
+/// `major.minor.patch` as numbers (missing minor or patch is 0); a pre-release (`-rc1`), a
+/// fourth part or anything odd is not a version to offer.
+pub fn release_triple(text: &str) -> Option<(u32, u32, u32)> {
+    let mut parts = text.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next().unwrap_or("0").parse().ok()?;
+    let patch = parts.next().unwrap_or("0").parse().ok()?;
+    parts.next().is_none().then_some((major, minor, patch))
+}
+
+/// The build label a release lane stamps into the binary (the caller reads its own env var);
+/// `None` when the build carries none or an empty one.
+pub fn build_label(stamped: Option<&str>) -> Option<&str> {
+    stamped.filter(|build| !build.is_empty())
+}
+
+/// True when `child` is `dir` or lies under it, compared component by component and without
+/// regard to case, so `C:\Apps\AppEvil` is not inside `C:\Apps\App`.
+pub fn path_is_within(child: &Path, dir: &Path) -> bool {
+    let fold = |p: &Path| -> Vec<String> {
+        p.components()
+            .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
+            .collect()
+    };
+    let (child, dir) = (fold(child), fold(dir));
+    child.len() >= dir.len() && child[..dir.len()] == dir[..]
+}
+
+/// Facts the automatic-replace decision reads about a downloaded installer and the installed copy.
+pub struct AutoReplaceFacts<'a> {
+    pub download_version: &'a str,
+    pub installed_version: Option<&'a str>,
+    /// The identity of the download or the install could not be established.
+    pub uncertain: bool,
+    pub same_signer: bool,
+    /// The installed copy's folder.
+    pub location: Option<&'a str>,
+    /// The folder of the running host app, whose own install is never replaced.
+    pub host_dir: Option<&'a Path>,
+}
+
+/// An automatic replace needs a download provably newer than the installed copy (unreadable or
+/// equal versions ask instead), a certain identity from the same signer, and an install that is
+/// not the host app's own: quitting that would end the host in the middle of the job.
+pub fn auto_replace_allowed(facts: &AutoReplaceFacts<'_>) -> bool {
+    let Some(installed) = facts.installed_version else {
+        return false;
+    };
+    if !dotted_version_is_newer(facts.download_version, installed) {
+        return false;
+    }
+    if facts.uncertain || !facts.same_signer {
+        return false;
+    }
+    let Some(location) = facts.location.filter(|l| !l.trim().is_empty()) else {
+        return false;
+    };
+    // Both paths must resolve; the host's own folder inside the install is never replaced.
+    let Ok(location) = std::fs::canonicalize(location.trim()) else {
+        return false;
+    };
+    let Some(ours) = facts
+        .host_dir
+        .and_then(|dir| std::fs::canonicalize(dir).ok())
+    else {
+        return false;
+    };
+    location.parent().is_some() && !path_is_within(&ours, &location)
+}
+
 /// Normalize already-supplied feed data.  This function never performs a
 /// network request; absent candidate data remains `Unavailable`.
 pub fn normalize_update_feed(records: &[SuppliedUpdateRecord]) -> UpdateFeedReport {
