@@ -2358,8 +2358,13 @@ async function runStages(o, args, root, git, io) {
       if (ok && ds) ok = await stageSidecarsOnce({ o, ds, root, git, configs: sidecarConfigs, appDir, cli, commonDir, commit, tree, stage, executor });
       else for (const config of ok ? sidecarConfigs : []) if (!await rightRelease(stage, ["stage-sidecar", "--config", path.join(root, config)])) { ok = false; break; }
       if (ok && admissionAfterStaging) {
-        if (ds.carriedOutputs?.size) ok = await admissionDryRun("after the sidecars were staged, before the app compiles");
-        else o.out(`${tag} [compile] release admission dry-run skipped here: no broker receipt names the app's Cargo target yet; the package stage's build runs the same admission rows at its start`);
+        // Every Cargo workspace of the app must have a receipt naming its target: an app of several workspaces (CodeRight: engine, src-tauri, qa-e2e) whose
+        // sidecar staging compiled only one still has no target for the others, and the dry-run refused it with RK_SPLIT_TARGET_UNRESOLVED (Mac, 2026-11-26).
+        let appWorkspaces = [];
+        try { appWorkspaces = Object.entries(await snapshotCargoWorkspaces({ git, ds, root })).filter(([dir]) => appDir === "." || dir === appDir || dir.startsWith(`${appDir}/`)).map(([, checkout]) => checkout); } catch { appWorkspaces = []; }
+        const uncovered = appWorkspaces.filter((w) => !ds.carriedOutputs?.has(w));
+        if (ds.carriedOutputs?.size && uncovered.length === 0) ok = await admissionDryRun("after the sidecars were staged, before the app compiles");
+        else o.out(`${tag} [compile] release admission dry-run skipped here: no broker receipt names the Cargo target of ${uncovered.length ? uncovered.map((w) => path.relative(root, w).replaceAll("\\", "/") || ".").join(", ") : "the app"} yet; the package stage's build runs the same admission rows at its start`);
       }
       let compiledDirs = []; let compiledBins = null; let qualifyOwed = []; let limitedEvidence = [];
       const reportOutputs = (dirs, bins = null) => { compiledDirs = [...dirs]; compiledBins = bins; };
