@@ -87,7 +87,8 @@
     "!gate/*.test.mjs",
     "!standalone-clone-evidence.json",
     "!refusals.json",
-    "!provenance-real-receipt.fixture.json"
+    "!provenance-real-receipt.fixture.json",
+    "acceptance-lines.test.mjs"
   ],
   "sideEffects": false,
   "scripts": {

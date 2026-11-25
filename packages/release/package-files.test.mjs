@@ -20,10 +20,10 @@ function matcher(pattern) {
   const re = new RegExp(`^${body.split("*").map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join("[^/]*")}(?:/.*)?$`);
   return (file) => re.test(file);
 }
-const included = pkg.files.filter((f) => !f.startsWith("!")).map(matcher);
-const excluded = pkg.files.filter((f) => f.startsWith("!")).map(matcher);
-/** True when `files` publishes this package-relative path. package.json is always published. */
-export const published = (file) => file === "package.json" || (included.some((m) => m(file)) && !excluded.some((m) => m(file)));
+const rules = pkg.files.map((f) => ({ include: !f.startsWith("!"), test: matcher(f) }));
+/** True when `files` publishes this package-relative path. package.json is always published. npm reads the list in order: the last
+ * entry that matches decides, so an entry after a negation re-includes (acceptance-lines.test.mjs, a contract-test file promote requires). */
+export const published = (file) => file === "package.json" || rules.reduce((decided, rule) => (rule.test(file) ? rule.include : decided), false);
 
 /** Relative specifiers a module loads: `from "./x"`, `import "./x"` and `import("./x")` with a string literal. */
 function relativeImports(source) {
@@ -74,4 +74,10 @@ test("test files are not published", () => {
   assert.equal(published("gate/gate.test.mjs"), false);
   assert.equal(published("package-files.test.mjs"), false);
   assert.equal(published("gate/compile.mjs"), true);
+});
+
+test("every file of the gate's contract test is published: trusted-gate promote reads each one from the installed candidate", () => {
+  const contract = JSON.parse(fs.readFileSync(path.join(ROOT, "contract-nn.json"), "utf8"));
+  const missing = (contract.runnerFiles ?? []).filter((f) => !published(f));
+  assert.deepEqual(missing, [], "0.6.80: promote refused because acceptance-lines.test.mjs was not in the package");
 });
