@@ -223,7 +223,7 @@ fn signal_scope_stops_a_confined_child_signalling_the_launcher() {
         );
 
         let own = run_confined(
-            "kill -0 $ || exit 11; sleep 1 & c=$!; kill -0 $c || exit 12; wait $c; exit 0",
+            "kill -0 $$ || exit 11; sleep 1 & c=$!; kill -0 $c || exit 12; wait $c; exit 0",
             root,
             &policy,
         )
