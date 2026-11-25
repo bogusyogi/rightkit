@@ -28,6 +28,11 @@ on:
         description: Its head commit SHA
         type: string
         required: true
+      gate_acceptance:
+        description: "Only for a run that sealed @rightkit/release: base64 of a gzip tar of the acceptance folder (acceptance-result.json, job-claims/, gate-seal/) that packages/release/acceptance-result.mjs writes"
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -38,8 +43,99 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # GATE-CONTRACT NN31, first half. @rightkit/release is uploaded only against a record that a passing acceptance result admits this exact sealed
+  # archive (scripts/ci/upload.mjs gateAdmissionProblem). This job writes that record and holds nothing the upload job holds: no environment, no
+  # id-token, no secret, read-only repository and Actions scopes. It fetches the run's sealed archive through the uploader's own fetch and checks
+  # (reviewed-candidate.mjs export-gate-archive = prepareQualified), then runs packages/release/gate-release-admission.mjs on the maintainer's acceptance
+  # folder (inputs.gate_acceptance). It runs only for a dispatch that names an acceptance folder; for a run that sealed no gate package it does nothing.
+  gate-admission:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.gate_acceptance != '' && github.ref == 'refs/heads/main' && github.repository == 'bogusyogi/rightkit' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      record_artifact: ${{ steps.record.outputs.artifact }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.head_sha }}
+          persist-credentials: false
+          # The same sparse list as the upload job (everything reviewed-candidate.mjs reaches), with the whole of packages/release in place of its listed
+          # files: gate-release-admission.mjs reads contract-nn.json and the acceptance judge files from there, docs/GATE-CONTRACT.md and the committed
+          # ci/rk-pipeline.json (the host keys it trusts). Nothing here holds a credential, so the wider checkout opens nothing.
+          sparse-checkout: |
+            /Cargo.toml
+            /Cargo.lock
+            crates/*/Cargo.toml
+            crates/*/Cargo.lock
+            /package.json
+            /pnpm-workspace.yaml
+            /pnpm-lock.yaml
+            packages/*/package.json
+            scripts/ci/scan-receipt.mjs
+            scripts/ci/crate-scan-workspaces.mjs
+            scripts/ci/upload.mjs
+            scripts/ci/registry-spec.mjs
+            scripts/ci/reviewed-candidate.mjs
+            scripts/ci/publish-admission.mjs
+            scripts/ci/supplemental-proof.mjs
+            ci/linux-required.json
+            /packages/release/
+            docs/GATE-CONTRACT.md
+            ci/rk-pipeline.json
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "26.8.1"
+          package-manager-cache: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+        with:
+          version: 12.16.1
+          package_json_file: package.json
+          run_install: false
+      - name: Install the RightKit release closure without lifecycle scripts
+        run: pnpm install --filter rightkit-shared --filter @rightkit/release... --frozen-lockfile --ignore-scripts
+      - name: Fetch the sealed gate archive of the qualified run
+        id: archive
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PUBLISH_QUALIFIED_RUN_ID: ${{ inputs.run_id }}
+          PUBLISH_QUALIFIED_RUN_ATTEMPT: ${{ inputs.run_attempt }}
+          PUBLISH_QUALIFIED_SHA: ${{ inputs.head_sha }}
+        run: node scripts/ci/reviewed-candidate.mjs export-gate-archive
+      - name: Admit the archive against the acceptance result
+        id: record
+        if: ${{ steps.archive.outputs.has_gate == 'true' }}
+        env:
+          GATE_ACCEPTANCE: ${{ inputs.gate_acceptance }}
+          GATE_ARCHIVE: ${{ steps.archive.outputs.archive }}
+          GATE_COMMIT: ${{ steps.archive.outputs.commit }}
+        run: |
+          set -euo pipefail
+          dir="${RUNNER_TEMP}/gate-acceptance"; out="${RUNNER_TEMP}/gate-admission"
+          mkdir "$dir" "$out"
+          # The folder is the maintainer's input and is judged by the admission; here it is only unpacked: capped at 64 MiB, and a tar with any member
+          # that is not a plain file or directory (a link, a device) is refused before anything is extracted.
+          printf '%s' "$GATE_ACCEPTANCE" | base64 -d | gzip -dc | head -c 67108864 > "${RUNNER_TEMP}/gate-acceptance.tar"
+          if tar -tvf "${RUNNER_TEMP}/gate-acceptance.tar" | grep -qv '^[-d]'; then echo "the acceptance folder holds a member that is neither a file nor a directory" >&2; exit 1; fi
+          tar -xf "${RUNNER_TEMP}/gate-acceptance.tar" --no-same-owner --no-same-permissions -C "$dir"
+          node packages/release/gate-release-admission.mjs --receipt "$dir/acceptance-result.json" --archive "$GATE_ARCHIVE" --commit "$GATE_COMMIT" --pipeline ci/rk-pipeline.json --record "$out/gate-admission.json"
+          echo "artifact=gate-admission-record-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+      - name: Keep the admission record
+        if: ${{ steps.record.outputs.artifact != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.record.outputs.artifact }}
+          path: ${{ runner.temp }}/gate-admission/gate-admission.json
+          retention-days: 7
+          if-no-files-found: error
   upload:
-    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == 'bogusyogi/rightkit' && github.ref == 'refs/heads/main' && github.repository == 'bogusyogi/rightkit') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'bogusyogi/rightkit') }}
+    # The gate admission runs before the upload for a dispatch that carries an acceptance folder, and is skipped otherwise: a skipped gate-admission lets every
+    # other run through, and a failed one stops the upload.
+    needs: [gate-admission]
+    if: ${{ !cancelled() && (needs.gate-admission.result == 'success' || needs.gate-admission.result == 'skipped') && ((github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == 'bogusyogi/rightkit' && github.ref == 'refs/heads/main' && github.repository == 'bogusyogi/rightkit') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'bogusyogi/rightkit')) }}
     environment: release
     runs-on: ubuntu-24.04
     timeout-minutes: 120
@@ -199,9 +295,19 @@ jobs:
       # any step that holds a token, and it is the same frozen, script-free install publish-reviewed.yml runs.
       - name: Install the RightKit release closure without lifecycle scripts
         run: pnpm install --filter rightkit-shared --filter @rightkit/release... --frozen-lockfile --ignore-scripts
+      # GATE-CONTRACT NN31, second half: the record the gate-admission job wrote, when it wrote one. The path reaches only the two steps that check it
+      # (the identification, which refuses a gate run before any credential step, and the npm upload); a run without a record names no path, and
+      # upload.mjs refuses the gate package for want of one. The record is re-compared there with the sealed bytes this job fetched itself.
+      - name: Fetch the gate admission record
+        if: ${{ needs.gate-admission.outputs.record_artifact != '' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.gate-admission.outputs.record_artifact }}
+          path: ${{ runner.temp }}/gate-admission
       - name: Identify the green qualification run without registry credentials
         id: qualified
         env:
+          RK_GATE_ADMISSION_RECORD: ${{ needs.gate-admission.outputs.record_artifact != '' && format('{0}/gate-admission/gate-admission.json', runner.temp) || '' }}
           GITHUB_TOKEN: ${{ github.token }}
           PUBLISH_QUALIFIED_RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
           PUBLISH_QUALIFIED_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt || inputs.run_attempt }}
@@ -215,6 +321,7 @@ jobs:
           PUBLISH_QUALIFIED_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt || inputs.run_attempt }}
           PUBLISH_QUALIFIED_SHA: ${{ github.event.workflow_run.head_sha || inputs.head_sha }}
           PUBLISH_REGISTRY: npm
+          RK_GATE_ADMISSION_RECORD: ${{ needs.gate-admission.outputs.record_artifact != '' && format('{0}/gate-admission/gate-admission.json', runner.temp) || '' }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: node scripts/ci/reviewed-candidate.mjs run-qualified
       - name: Publish the sealed Cargo archives of the qualified run
