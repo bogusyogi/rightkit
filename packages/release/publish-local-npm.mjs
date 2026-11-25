@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 // `right-release publish-local npm --package @rightkit/<name> --commit <sha>`: the local npm route (Adrian, 2026-11-03, rightkit#1471:
 // "i want you to publish it from local. the npm and crates are both local. we will do a provenance skip fuck your ci. feel free to push
-// but no ci"). Mac only: the token is the granular @rightkit token with 2FA bypass in the Keychain item npm-rightkit-publish, read inside
-// this process, never printed, never on a command line, never left on disk.
+// but no ci"). On the Mac the token is the granular @rightkit token with 2FA bypass in the Keychain item npm-rightkit-publish, read inside
+// this process, never printed, never on a command line, never left on disk. On Windows (Adrian, 2026-11-25: npm is signed in on the Dell
+// too; publishing is local on the Mac and the Dell) npm publishes with the account's own npm sign-in, the .npmrc in the account's profile
+// folder (os.userInfo().homedir, not $HOME, which an agent profile can move); this process never reads it. Elsewhere it is refused.
+// `--archive <tgz>` publishes that exact packed file instead of packing the commit (it must be the commit's package and version): the
+// gate package is published as the archive its acceptance run admitted (GATE-CONTRACT NN31), with its Mac-signed helper inside.
 //
 // It publishes exactly the bytes of one commit, and only after:
 //   1. the commit is on origin/main (pushed; [skip ci] is fine);
@@ -55,9 +59,10 @@ export function checkoutStoreDir(repo, readFile = (f) => fs.readFileSync(f, "utf
 }
 
 export function parseArgs(argv) {
-  const out = { kind: argv[0], pkg: null, commit: null, repo: process.cwd() };
+  const out = { kind: argv[0], pkg: null, commit: null, repo: process.cwd(), archive: null };
   for (let i = 1; i < argv.length; i += 1) {
     if (argv[i] === "--package") out.pkg = argv[++i];
+    else if (argv[i] === "--archive") out.archive = path.resolve(argv[++i] ?? fail("--archive <packed .tgz> needs a file"));
     else if (argv[i] === "--commit") out.commit = argv[++i];
     else if (argv[i] === "--repo") out.repo = path.resolve(argv[++i]);
     else fail(`unknown option ${argv[i]}`);
@@ -68,9 +73,23 @@ export function parseArgs(argv) {
   return out;
 }
 
-export function publishLocalNpm(argv, { run = spawnSync, log = console.log, platform = process.platform, readToken = () => readKeychainToken(run), verifyTries = 20, verifyDelaySeconds = 15 } = {}) {
+/** The account's own npm config on Windows: <profile folder>/.npmrc, where `npm login` on that account writes its sign-in. */
+export const accountNpmrc = () => path.join(os.userInfo().homedir, ".npmrc");
+
+/** npm and pnpm are .cmd shims on Windows, which Node starts only through cmd.exe; elsewhere they run as they are. Arguments here are
+ * validated names, versions, hex shas and paths this process made, so cmd.exe sees no caller text. */
+export function toolCommand(command, args, platform = process.platform, comspec = process.env.ComSpec || "cmd.exe") {
+  if (platform === "win32" && (command === "npm" || command === "pnpm")) return [comspec, ["/d", "/s", "/c", command, ...args]];
+  return [command, args];
+}
+
+export function publishLocalNpm(argv, { run = spawnSync, log = console.log, platform = process.platform, readToken = () => readKeychainToken(run), npmrc = accountNpmrc, exists = fs.existsSync, verifyTries = 20, verifyDelaySeconds = 15 } = {}) {
   const o = parseArgs(argv);
-  if (platform !== "darwin") fail(`publish-local npm runs on the Mac (the token is the Keychain item ${NPM_KEYCHAIN_SERVICE}); this host is ${platform}`);
+  if (platform !== "darwin" && platform !== "win32") fail(`publish-local npm runs on the Mac (the token is the Keychain item ${NPM_KEYCHAIN_SERVICE}) or Windows (the account's own npm sign-in); this host is ${platform}`);
+  const userNpmrc = platform === "win32" ? npmrc() : null;
+  if (userNpmrc && !exists(userNpmrc)) fail(`publish-local npm on Windows publishes with this account's npm sign-in, and ${userNpmrc} does not exist: run npm login on this account once`);
+  const tool = (command, args, options) => { const [c, a] = toolCommand(command, args, platform); return run(c, a, options); };
+  const pause = (seconds) => (platform === "win32" ? Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, seconds * 1000) : run("sleep", [String(seconds)]));
   const git = (args) => {
     const r = run("git", args, { cwd: o.repo, encoding: "utf8", maxBuffer: 1 << 26 });
     if (r.status !== 0) fail(`git ${args.join(" ")} failed: ${String(r.stderr ?? "").trim()}`);
@@ -93,39 +112,60 @@ export function publishLocalNpm(argv, { run = spawnSync, log = console.log, plat
   if (classA.status !== 0) fail(`Class A failed for npm:${o.pkg} on ${commit} (exit ${classA.status}); nothing published`);
 
   // The agent volume, not the internal drive: the export holds a full install (workspace rule: run output under /Volumes/D/scratch).
-  const scratchRoot = fs.existsSync("/Volumes/D/scratch") ? "/Volumes/D/scratch" : os.tmpdir();
+  const scratchRoot = ["/Volumes/D/scratch", "D:\\scratch"].find((d) => fs.existsSync(d)) ?? os.tmpdir();
   const work = fs.mkdtempSync(path.join(scratchRoot, "rk-publish-local-"));
   try {
-    const tree = path.join(work, "tree");
-    fs.mkdirSync(tree);
-    const archive = run("git", ["archive", "--format=tar", commit], { cwd: o.repo, maxBuffer: 1 << 30 });
-    if (archive.status !== 0) fail(`git archive ${commit} failed`);
-    const tarIn = run("tar", ["-x", "-C", tree], { input: archive.stdout });
-    if (tarIn.status !== 0) fail("unpacking the commit's tree failed");
-    // The package and its workspace dependencies, from the commit's lockfile only, offline from the store; no dependency's install scripts run.
-    const install = run("pnpm", ["install", "--frozen-lockfile", "--offline", "--ignore-scripts", "--ignore-pnpmfile", "--store-dir", checkoutStoreDir(o.repo), "--filter", `${o.pkg}...`], { cwd: tree, encoding: "utf8", maxBuffer: 1 << 28 });
-    if (install.status !== 0) fail(`pnpm install (offline, frozen lockfile) for ${o.pkg} failed: ${String(install.stderr || install.stdout || "").trim().split(/\r?\n/).slice(-3).join(" | ")}`);
-    // Workspace dependencies resolve through their dist/ (gitignored, so not in the export): build them first, in dependency order.
-    const deps = run("pnpm", ["-r", "--filter", `${o.pkg}^...`, "run", "--if-present", "build"], { cwd: tree, encoding: "utf8", maxBuffer: 1 << 28 });
-    if (deps.status !== 0) fail(`building ${o.pkg}'s workspace dependencies failed: ${String(deps.stderr || deps.stdout || "").trim().split(/\r?\n/).slice(-3).join(" | ")}`);
-    const pkgDir = path.join(tree, dir);
-    const packed = run("pnpm", ["pack", "--pack-destination", work], { cwd: pkgDir, encoding: "utf8" });
-    if (packed.status !== 0) fail(`pnpm pack failed: ${String(packed.stderr ?? packed.stdout ?? "").trim().split(/\r?\n/).slice(-3).join(" | ")}`);
-    const tgz = fs.readdirSync(work).find((f) => f.endsWith(".tgz"));
-    if (!tgz) fail("pnpm pack wrote no tarball");
-    const bytes = fs.readFileSync(path.join(work, tgz));
+    let tgzFile;
+    if (o.archive) {
+      // The exact file given: it must be this commit's package at this version (its own package/package.json says so).
+      if (!fs.existsSync(o.archive)) fail(`--archive ${o.archive} does not exist`);
+      tgzFile = path.join(work, path.basename(o.archive));
+      fs.copyFileSync(o.archive, tgzFile, fs.constants.COPYFILE_EXCL);
+      const inner = run("tar", ["-xzOf", tgzFile, "package/package.json"], { encoding: "utf8", maxBuffer: 1 << 24 });
+      let packedManifest = null;
+      try { packedManifest = inner.status === 0 ? JSON.parse(String(inner.stdout ?? "")) : null; } catch { packedManifest = null; }
+      if (!packedManifest) fail(`--archive ${o.archive} has no readable package/package.json`);
+      if (packedManifest.name !== o.pkg || packedManifest.version !== version) fail(`--archive ${o.archive} is ${packedManifest.name}@${packedManifest.version}, not ${o.pkg}@${version} of ${commit.slice(0, 12)}`);
+    } else {
+      const tree = path.join(work, "tree");
+      fs.mkdirSync(tree);
+      const archive = run("git", ["archive", "--format=tar", commit], { cwd: o.repo, maxBuffer: 1 << 30 });
+      if (archive.status !== 0) fail(`git archive ${commit} failed`);
+      const tarIn = run("tar", ["-x", "-f", "-", "-C", tree], { input: archive.stdout });
+      if (tarIn.status !== 0) fail("unpacking the commit's tree failed");
+      // The package and its workspace dependencies, from the commit's lockfile only, offline from the store; no dependency's install scripts run.
+      const install = tool("pnpm", ["install", "--frozen-lockfile", "--offline", "--ignore-scripts", "--ignore-pnpmfile", "--store-dir", checkoutStoreDir(o.repo), "--filter", `${o.pkg}...`], { cwd: tree, encoding: "utf8", maxBuffer: 1 << 28 });
+      if (install.status !== 0) fail(`pnpm install (offline, frozen lockfile) for ${o.pkg} failed: ${String(install.stderr || install.stdout || "").trim().split(/\r?\n/).slice(-3).join(" | ")}`);
+      // Workspace dependencies resolve through their dist/ (gitignored, so not in the export): build them first, in dependency order.
+      const deps = tool("pnpm", ["-r", "--filter", `${o.pkg}^...`, "run", "--if-present", "build"], { cwd: tree, encoding: "utf8", maxBuffer: 1 << 28 });
+      if (deps.status !== 0) fail(`building ${o.pkg}'s workspace dependencies failed: ${String(deps.stderr || deps.stdout || "").trim().split(/\r?\n/).slice(-3).join(" | ")}`);
+      const pkgDir = path.join(tree, dir);
+      const packed = tool("pnpm", ["pack", "--pack-destination", work], { cwd: pkgDir, encoding: "utf8" });
+      if (packed.status !== 0) fail(`pnpm pack failed: ${String(packed.stderr ?? packed.stdout ?? "").trim().split(/\r?\n/).slice(-3).join(" | ")}`);
+      const tgz = fs.readdirSync(work).find((f) => f.endsWith(".tgz"));
+      if (!tgz) fail("pnpm pack wrote no tarball");
+      tgzFile = path.join(work, tgz);
+    }
+    const bytes = fs.readFileSync(tgzFile);
     const sha1 = crypto.createHash("sha1").update(bytes).digest("hex");
-    log(`publish-local: packed ${tgz} sha1 ${sha1}`);
+    log(`publish-local: ${o.archive ? "given" : "packed"} ${path.basename(tgzFile)} sha1 ${sha1}`);
 
-    // GATE-CONTRACT NN31: the gate package is published only with a passing contract-test receipt for this exact file. Before the token is read.
-    try { gateReleaseGuard({ name: o.pkg, archiveFile: path.join(work, tgz), commit }); } catch (error) { fail(error.message); }
-    const token = readToken();
-    const userconfig = path.join(work, "npmrc");
-    fs.writeFileSync(userconfig, "//registry.npmjs.org/:_authToken=${RIGHTKIT_NPM_TOKEN}\n", { mode: 0o600 });
-    const redact = (text) => String(text ?? "").split(token).join("<redacted>");
-    const pub = run("npm", ["publish", path.join(work, tgz), "--access", "public", "--provenance=false", "--registry", REGISTRY, "--userconfig", userconfig],
-      { encoding: "utf8", env: { ...process.env, RIGHTKIT_NPM_TOKEN: token } });
-    if (pub.status !== 0) fail(`npm publish failed:\n${redact(`${pub.stdout ?? ""}${pub.stderr ?? ""}`).trim()}`);
+    // GATE-CONTRACT NN31: the gate package is published only with a passing contract-test receipt for this exact file. Before any credential is used.
+    try { gateReleaseGuard({ name: o.pkg, archiveFile: tgzFile, commit }); } catch (error) { fail(error.message); }
+    const publishArgs = ["publish", tgzFile, "--access", "public", "--provenance=false", "--registry", REGISTRY];
+    let pub;
+    if (userNpmrc) {
+      // Windows: npm reads the account's own sign-in from that file itself; this process neither reads it nor passes a token.
+      pub = tool("npm", [...publishArgs, "--userconfig", userNpmrc], { encoding: "utf8" });
+      if (pub.status !== 0) fail(`npm publish failed:\n${`${pub.stdout ?? ""}${pub.stderr ?? ""}`.trim()}`);
+    } else {
+      const token = readToken();
+      const userconfig = path.join(work, "npmrc");
+      fs.writeFileSync(userconfig, "//registry.npmjs.org/:_authToken=${RIGHTKIT_NPM_TOKEN}\n", { mode: 0o600 });
+      const redact = (text) => String(text ?? "").split(token).join("<redacted>");
+      pub = tool("npm", [...publishArgs, "--userconfig", userconfig], { encoding: "utf8", env: { ...process.env, RIGHTKIT_NPM_TOKEN: token } });
+      if (pub.status !== 0) fail(`npm publish failed:\n${redact(`${pub.stdout ?? ""}${pub.stderr ?? ""}`).trim()}`);
+    }
 
     // The registry may take a moment to serve a new version. Every try asks the registry directly, logs its status when it has no answer, and the
     // command fails only after the whole wait (verifyTries x verifyDelaySeconds); a served version with another shasum fails at once.
@@ -137,7 +177,7 @@ export function publishLocalNpm(argv, { run = spawnSync, log = console.log, plat
       else {
         last = doc.error ?? `HTTP ${doc.status} without dist.shasum`;
         log(`publish-local: registry try ${i}/${verifyTries} for ${o.pkg}@${version}: ${last}${i < verifyTries ? `; retrying in ${verifyDelaySeconds}s` : ""}`);
-        if (i < verifyTries) run("sleep", [String(verifyDelaySeconds)]);
+        if (i < verifyTries) pause(verifyDelaySeconds);
       }
     }
     if (!shasum) fail(`registry never served ${o.pkg}@${version} after ${verifyTries} tries ${verifyDelaySeconds}s apart (last: ${last}); the publish itself succeeded, so check ${REGISTRY}${o.pkg.replace("/", "%2f")}/${version} before publishing again`);

@@ -207,8 +207,9 @@ test("the real command and the publication entries: refused by name without an a
   assert.doesNotMatch(upload, /from "\.\.\/\.\.\/packages\//); assert.doesNotMatch(upload, /import\("\.\.\/\.\.\/packages\//);
   assert.ok(guardAt < upload.indexOf('if (dryRun) { log(`dry run: would run npm'), "before the dry-run branch"); assert.ok(guardAt < upload.indexOf('const result = spawn("npm", args,'), "before npm is started");
   const local = src("./publish-local-npm.mjs");
-  const localAt = local.indexOf("gateReleaseGuard({ name: o.pkg, archiveFile: path.join(work, tgz), commit })");
-  assert.ok(localAt > 0 && localAt < local.indexOf("const token = readToken();") && localAt < local.indexOf('run("npm", ["publish", path.join(work, tgz)'), "publish-local-npm.mjs calls the guard on the packed file before the token and before npm");
+  const localAt = local.indexOf("gateReleaseGuard({ name: o.pkg, archiveFile: tgzFile, commit })");
+  const firstPublish = local.indexOf('tool("npm", [...publishArgs');
+  assert.ok(localAt > 0 && firstPublish > 0 && localAt < local.indexOf("const token = readToken();") && localAt < firstPublish, "publish-local-npm.mjs calls the guard on the file it publishes (packed or --archive) before the token and before npm, on the Mac and on Windows");
   // The hand-started owner workflow publishes the gate on the owner's decision (Adrian, 2026-11-24, rightkit#1514); it carries no refusal.
 });
 
