@@ -179,7 +179,7 @@ pub fn visible_window(
         .find(|w| w.visible && w.title.contains(title) && fits(w))
 }
 
-/// Wait up to `within` for [`visible_window`]; a timeout names every top-level window of `pid` it saw
+/// Wait up to `within` for `visible_window`; a timeout names every top-level window of `pid` it saw
 /// instead.
 pub fn wait_window(
     what: &str,

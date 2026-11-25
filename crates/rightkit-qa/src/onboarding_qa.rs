@@ -1,5 +1,5 @@
 //! Journey helpers for the RightKit onboarding frame on a live app: the DOM probes of a step and of the
-//! model step, the per-step comparer ([`assert_step`]), step and rail waits, parked-setup settings,
+//! model step, the per-step comparer (`assert_step`), step and rail waits, parked-setup settings,
 //! resume-at-step rewriting, a model-install guard, a confined local model copy and an engine
 //! readiness check.
 //!
@@ -92,7 +92,7 @@ pub struct StepWant<'a> {
     pub back_disabled: bool,
 }
 
-/// What every step must satisfy, as the host's copy and sources. [`StepRules::new`] gives neutral
+/// What every step must satisfy, as the host's copy and sources. `StepRules::new` gives neutral
 /// defaults (no progress label, no eyebrow or forbidden-text checks, empty sources).
 pub struct StepRules<'a> {
     /// The progress description a step n shows (for example `Step 3 of 8`); `None` skips the check.
@@ -153,8 +153,8 @@ impl Default for StepRules<'_> {
 /// Read the step the frame shows and compare it with `want` under `rules`: id, progress label, eyebrow,
 /// forbidden strings, heading, body strings, the footer's buttons (exactly Back and the primary), the
 /// primary class, Back's and the primary's enabled state, and the blocked-Continue hint (present
-/// exactly while the primary is disabled). Every held assertion is a [`Proof`] note. Returns the probe
-/// reading ([`STEP_PROBE`]).
+/// exactly while the primary is disabled). Every held assertion is a `Proof` note. Returns the probe
+/// reading (`STEP_PROBE`).
 pub fn assert_step(
     p: &mut Proof,
     app: &LiveApp,

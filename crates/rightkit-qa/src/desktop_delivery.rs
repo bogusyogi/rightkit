@@ -10,7 +10,7 @@
 //! app registers on its control server and returns the delivery receipt.
 //!
 //! The matrix, the sentinel and fixture names, the placeholder strings and the options come from the
-//! host ([`DeliveryConfig`], [`TargetCase`], [`DeliveryOptions`]).
+//! host (`DeliveryConfig`, `TargetCase`, `DeliveryOptions`).
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -38,17 +38,17 @@ pub struct TargetCase {
     pub expected_host: Option<&'static str>,
     /// The case is a chat composer the AX API alone cannot focus: click where it sits, and refuse to
     /// seed over a non-empty operator draft. A case with a `surface` behaves the same. Default false;
-    /// [`target_case`] sets it for the reserved ids `chatgpt` and `claude`.
+    /// `target_case` sets it for the reserved ids `chatgpt` and `claude`.
     pub composer_click: bool,
     /// After a paste-only run, undo the observed paste (single Cmd+Z) so the sentinel is not left in
     /// the operator's real composer. A case with a `surface` behaves the same. Default false;
-    /// [`target_case`] sets it for the reserved ids `chatgpt` and `claude`.
+    /// `target_case` sets it for the reserved ids `chatgpt` and `claude`.
     pub undo_paste_on_cleanup: bool,
     /// After a paste-only run, interrupt (Ctrl+C) the line left in a terminal. Default false;
-    /// [`target_case`] sets it for the reserved id `terminal`.
+    /// `target_case` sets it for the reserved id `terminal`.
     pub interrupt_on_cleanup: bool,
     /// After a sent run, press Escape in the same app to halt generation and prove it stopped.
-    /// Default false; [`target_case`] sets it for the reserved ids `chatgpt` and `claude`.
+    /// Default false; `target_case` sets it for the reserved ids `chatgpt` and `claude`.
     pub escape_after_send: bool,
 }
 
@@ -67,7 +67,7 @@ const fn same_id(a: &str, b: &str) -> bool {
     true
 }
 
-/// A [`TargetCase`] in one expression (usable in a `const` matrix). The cleanup flags default to
+/// A `TargetCase` in one expression (usable in a `const` matrix). The cleanup flags default to
 /// false, except for the reserved ids `chatgpt`, `claude` and `terminal`, which keep their documented
 /// cleanup; the `with_*` setters change any flag for a differently named case.
 pub const fn target_case(
@@ -96,22 +96,22 @@ pub const fn target_case(
 }
 
 impl TargetCase {
-    /// Set [`TargetCase::composer_click`].
+    /// Set `TargetCase::composer_click`.
     pub const fn with_composer_click(mut self, on: bool) -> Self {
         self.composer_click = on;
         self
     }
-    /// Set [`TargetCase::undo_paste_on_cleanup`].
+    /// Set `TargetCase::undo_paste_on_cleanup`.
     pub const fn with_undo_paste_on_cleanup(mut self, on: bool) -> Self {
         self.undo_paste_on_cleanup = on;
         self
     }
-    /// Set [`TargetCase::interrupt_on_cleanup`].
+    /// Set `TargetCase::interrupt_on_cleanup`.
     pub const fn with_interrupt_on_cleanup(mut self, on: bool) -> Self {
         self.interrupt_on_cleanup = on;
         self
     }
-    /// Set [`TargetCase::escape_after_send`].
+    /// Set `TargetCase::escape_after_send`.
     pub const fn with_escape_after_send(mut self, on: bool) -> Self {
         self.escape_after_send = on;
         self
@@ -746,7 +746,7 @@ pub fn run_case_body(
 }
 
 /// Restores the operator's clipboard and undoes the sentinel left in a real composer, from `Drop`
-/// when the case body or the host closure panics, or through [`CleanupGuard::finish`] otherwise.
+/// when the case body or the host closure panics, or through `CleanupGuard::finish` otherwise.
 #[cfg(target_os = "macos")]
 struct CleanupGuard {
     entry: &'static TargetCase,
@@ -791,7 +791,7 @@ impl Drop for CleanupGuard {
     }
 }
 
-/// Run one case: remember the clipboard, run [`run_case_body`], undo exactly the paste a paste-only run
+/// Run one case: remember the clipboard, run `run_case_body`, undo exactly the paste a paste-only run
 /// left in a real composer with a single Cmd+Z (and only after the paste was observed; never
 /// select-all-delete, never quit or close the app, never after a sent case), then put the clipboard
 /// back and fail the case when it cannot be restored. The ordering is part of the contract: the

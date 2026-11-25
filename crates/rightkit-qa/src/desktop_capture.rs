@@ -13,8 +13,8 @@
 //!    returning a wallpaper picture, so a refusal is loud.
 //!
 //! Windows (overlays are layered native windows the app reports itself):
-//!  - [`parse_overlay_rects`] turns the app's own report into [`Obs`]; a still or a sequence is a fixed
-//!    screen region ([`fixed_region`]) captured with `Graphics.CopyFromScreen` in a hidden PowerShell.
+//!  - `parse_overlay_rects` turns the app's own report into `Obs`; a still or a sequence is a fixed
+//!    screen region (`fixed_region`) captured with `Graphics.CopyFromScreen` in a hidden PowerShell.
 //!    The region includes whatever is behind the overlay, so a journey proves the overlay is in it by
 //!    requiring the captures of different states to differ.
 //!
@@ -22,8 +22,8 @@
 //! schedule, so each frame is stamped with its spawn and exit time; the state at capture lies between
 //! the two. Windows runs one PowerShell loop that stamps each frame in epoch milliseconds.
 //!
-//! Nothing here changes the app or its data. The pure parts (geometry, [`summarise`], [`analyse_png`],
-//! [`parse_overlay_rects`], [`fixed_region`]) build on every platform; discovery, stills, sequences and
+//! Nothing here changes the app or its data. The pure parts (geometry, `summarise`, `analyse_png`,
+//! `parse_overlay_rects`, `fixed_region`) build on every platform; discovery, stills, sequences and
 //! the pointer need macOS or Windows and return an error elsewhere.
 
 use std::collections::HashSet;
@@ -79,7 +79,7 @@ pub struct Obs {
 /// What a window looks like for "has it changed": label and size rounded to whole points.
 pub type Sig = Vec<(String, i64, i64)>;
 
-/// The [`Sig`] of `obs`, sorted.
+/// The `Sig` of `obs`, sorted.
 pub fn sig(obs: &[Obs]) -> Sig {
     let mut out: Sig = obs
         .iter()
@@ -209,7 +209,7 @@ pub fn observe_windows(pid: u32, filter: &WindowFilter) -> Result<Vec<Obs>, Stri
     parse_window_list(&String::from_utf8_lossy(&output.stdout), filter)
 }
 
-/// Where an app's own overlay report keeps its windows ([`parse_overlay_rects`]).
+/// Where an app's own overlay report keeps its windows (`parse_overlay_rects`).
 #[derive(Clone, Debug)]
 pub struct OverlayRectsSpec {
     /// Key of the primary overlay's window record (`{visible, x, y, scale}`).
@@ -221,7 +221,7 @@ pub struct OverlayRectsSpec {
     pub secondary_keys: Vec<String>,
 }
 
-/// Turn an app's overlay report into [`Obs`] (Windows route; pure, so it builds everywhere). The
+/// Turn an app's overlay report into `Obs` (Windows route; pure, so it builds everywhere). The
 /// primary overlay is reported only when visible and, with a hit-box key, when the hit box is an
 /// object; its rect is the window origin plus the hit box. Secondary overlays are reported when they
 /// are objects and visible. The label is the report key.
@@ -314,7 +314,7 @@ pub fn fixed_region(
 // Pointer
 // ---------------------------------------------------------------------------------------------
 
-/// The pointer in the same coordinates as [`Rect`] (macOS points, origin top-left of the primary display).
+/// The pointer in the same coordinates as `Rect` (macOS points, origin top-left of the primary display).
 #[cfg(target_os = "macos")]
 pub fn pointer_position() -> Option<(f64, f64)> {
     let script = "ObjC.import('AppKit'); const l = $.NSEvent.mouseLocation; const h = $.NSScreen.screens.objectAtIndex(0).frame.size.height; JSON.stringify([l.x, h - l.y]);";
@@ -419,7 +419,7 @@ pub struct Grabber {
 }
 
 impl Grabber {
-    /// macOS: every window of `obs`. Windows: `fixed` (region and scale from [`fixed_region`]).
+    /// macOS: every window of `obs`. Windows: `fixed` (region and scale from `fixed_region`).
     pub fn new(obs: &[Obs], fixed: Option<(Rect, f64)>) -> Grabber {
         let (region, scale) = fixed.unwrap_or_else(|| {
             let first = obs.first().map(|o| o.rect).unwrap_or(Rect {
@@ -888,7 +888,7 @@ pub struct SeqSummary {
     pub files: Vec<PathBuf>,
     /// Frames that decoded and are not blank.
     pub valid_frames: usize,
-    /// Frames that decoded but are blank ([`PngStats::is_blank`] with 2 colours).
+    /// Frames that decoded but are blank (`PngStats::is_blank` with 2 colours).
     pub blank_frames: usize,
     /// Number of distinct frame file hashes.
     pub distinct_frames: usize,
@@ -1021,7 +1021,7 @@ impl PngStats {
     }
 }
 
-/// Decode a PNG (through [`crate::media::decode_png_bytes`]: any bit depth or colour type the `png`
+/// Decode a PNG (through `crate::media::decode_png_bytes`: any bit depth or colour type the `png`
 /// crate reads, 16-bit reduced to 8) and measure it. A PNG that does not decode is an error, never a pass.
 pub fn analyse_png(bytes: &[u8]) -> Result<PngStats, String> {
     let (width, height, rgba) = crate::media::decode_png_bytes(bytes).map_err(|e| e.0)?;

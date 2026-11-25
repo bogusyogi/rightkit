@@ -9,7 +9,7 @@
 use crate::harness::Scenario;
 use crate::live_app::norm;
 
-/// An assertion log bound to one [`Scenario`]'s evidence notes.
+/// An assertion log bound to one `Scenario`'s evidence notes.
 pub struct Proof<'a> {
     sc: &'a Scenario,
     checks: usize,
