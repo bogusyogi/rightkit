@@ -149,7 +149,11 @@ export function generateCargoNotices({ appRoot, config, flags = {}, check = fals
     if (entry.manifestPath !== undefined && !exists(path.resolve(appRoot, entry.manifestPath))) fail(`legal.cargoNotices.manifestPath ${entry.manifestPath}${where} does not exist`);
   }
   const outputs = options.manifests.map((entry) => {
-    const result = run(cargoAboutArgs(options, entry), { cwd: appRoot, env, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
+    // Absolute paths: the managed runner hands the command to the broker, which runs it with no working directory of the app's (rightkit#1718),
+    // so an app-relative --config or template would be read from wherever cargo happens to start.
+    const absolute = { ...options, template: path.resolve(appRoot, options.template) };
+    const absoluteEntry = { ...entry, ...(entry.config !== undefined ? { config: path.resolve(appRoot, entry.config) } : {}), ...(entry.manifestPath !== undefined ? { manifestPath: path.resolve(appRoot, entry.manifestPath) } : {}) };
+    const result = run(cargoAboutArgs(absolute, absoluteEntry), { cwd: appRoot, env, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
     const where = entry.label ? ` for ${entry.label}` : "";
     if (result?.error) fail(`cargo about could not start${where} (${result.error.message}); install cargo-about on the build host`);
     if (result?.status !== 0) fail(`cargo about${where} exited ${result?.status ?? "without status"}${result?.stderr ? `:\n${String(result.stderr).trim()}` : ""}`);
