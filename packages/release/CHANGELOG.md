@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.80
+
+- Broker seam: the reclaim judge follows a symlinked broker socket (the Mac's) and checks the socket type and the owner of both link and target; when it has no proof it says why (#1702).
+- Gate release: `acceptance-result.mjs --acceptance` builds the admission record from the acceptance run that accepts a gate, taking only the real build's signed claims (#1709).
+- Secret scan in `publish-cargo`: a PEM private key is its header followed by key data, not the header alone (#1700).
+
 ## 0.6.79
 
 - Acceptance test, as accepted on 2026-11-25 (gate 0.6.78, broker rustright-8e30eee: 13 of 13 and the real build): NN11 limits are the worst gate-own time of four full runs x 1.5, at least + 30 s, and the real build has its own (421 s); a process the kernel makes with no image file (vmmemWSL) no longer voids the Windows process record; in the kill case a job the kill cancelled before its post-checks (signed CANCELLED, post-checks not run, reaped) is not held to the unchanged-snapshot proof.
