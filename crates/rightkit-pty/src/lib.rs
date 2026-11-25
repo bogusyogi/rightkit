@@ -62,6 +62,11 @@ use std::{
 };
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
 
+/// How long `cancel` leaves a killed child's unread output for a reader that is still reading,
+/// after the grace, before it starts discarding it (see `cancel`).
+#[cfg(unix)]
+const STALLED_READER_WAIT: std::time::Duration = std::time::Duration::from_millis(250);
+
 #[cfg(unix)]
 #[path = "unix.rs"]
 mod imp;
@@ -357,8 +362,30 @@ impl PtyChild {
             .take()
             .expect("the child is present outside an in-flight cancel");
         let pid = child.id();
+        // A reader that has stopped reading must not keep the killed child from exiting (macOS
+        // drains the terminal before an exit completes). Once the grace and a short wait for a
+        // live reader have passed, unread output is discarded until the leader is reaped.
+        #[cfg(unix)]
+        let reaped = {
+            let discard = self.terminal.unread_output_discarder();
+            let reaped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let flag = std::sync::Arc::clone(&reaped);
+            let patience = options.grace + STALLED_READER_WAIT;
+            std::thread::spawn(move || {
+                let started = std::time::Instant::now();
+                while !flag.load(std::sync::atomic::Ordering::Relaxed) {
+                    if started.elapsed() >= patience {
+                        discard();
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+            });
+            reaped
+        };
         let (child, result) = tokio::task::spawn_blocking(move || {
             let result = child.terminate_tree_with_options(options);
+            #[cfg(unix)]
+            reaped.store(true, std::sync::atomic::Ordering::Relaxed);
             (child, result)
         })
         .await

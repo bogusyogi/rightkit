@@ -127,6 +127,30 @@ impl Terminal {
         })
     }
 
+    /// A function that throws away the output the child wrote and nobody has read: a flush of
+    /// both queues, then non-blocking reads until the terminal is empty. For `cancel` only.
+    ///
+    /// macOS finishes a process's exit only after its terminal's pending output is drained, so
+    /// a killed child whose output sits unread stays unreapable for as long as the reader is
+    /// stalled. Discarding that output lets the exit complete.
+    pub(crate) fn unread_output_discarder(&self) -> impl Fn() + Send + 'static {
+        let master = Arc::clone(&self.master);
+        move || {
+            let fd = master.get_ref().as_raw_fd();
+            // SAFETY: `fd` is the open master this Arc keeps alive; tcflush takes no pointer.
+            unsafe { libc::tcflush(fd, libc::TCIOFLUSH) };
+            let mut scratch = [0u8; 4096];
+            loop {
+                // SAFETY: `scratch` is a writable buffer of the length given; the descriptor is
+                // non-blocking, so an empty terminal returns at once.
+                let read = unsafe { libc::read(fd, scratch.as_mut_ptr().cast(), scratch.len()) };
+                if read <= 0 {
+                    break;
+                }
+            }
+        }
+    }
+
     pub(crate) fn eof_sequence(&self) -> Vec<u8> {
         vec![self.eof]
     }
