@@ -38,7 +38,7 @@ fn supervise(role: &str) {
     shell
         .args(["-c", &format!("sleep 300.{tag}1 & sleep 300.{tag}2")])
         .process_group(0);
-    let child = shell.spawn().expect("shell starts");
+    let mut child = shell.spawn().expect("shell starts");
     if role == "tied" {
         rightkit_child_process::tie_group_to_parent(child.id()).expect("tie");
     }
