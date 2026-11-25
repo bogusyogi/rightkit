@@ -571,7 +571,7 @@
     "rightkit-app-settings": "0.4.2",
     "rightkit-app-update": "0.2.0",
     "rightkit-apple-ops": "0.2.0",
-    "rightkit-approvals": "0.2.1",
+    "rightkit-approvals": "0.2.2",
     "rightkit-asr": "0.5.2",
     "rightkit-assist": "0.1.1",
     "rightkit-audio": "0.4.2",
@@ -1667,6 +1667,9 @@
     ],
     "rightkit-engine-host": [
       "0.2.0"
+    ],
+    "rightkit-approvals": [
+      "0.2.1"
     ]
   }
 }

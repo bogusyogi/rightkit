@@ -56,7 +56,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | appkit-autorelease-pool | `rightkit-ownership` | none | declaration-only | 0 | rightkit-ownership: published 0.4.2 (crates.io) |
 | apple-ops | `rightkit-apple-ops` | none | declaration-only | 0 | rightkit-apple-ops: staged 0.2.0, not published |
 | application-icon-extraction | `rightkit-app-icon` | none | declaration-only | 0 | rightkit-app-icon: published 0.1.0 (crates.io) |
-| approvals | `rightkit-approvals` | none | declaration-only | 0 | rightkit-approvals: staged 0.2.1, not published |
+| approvals | `rightkit-approvals` | none | declaration-only | 0 | rightkit-approvals: staged 0.2.2, not published |
 | article-extraction | `rightkit-web-extract` | none | declaration-only | 0 | rightkit-web-extract: staged 0.1.2, not published |
 | audio | `rightkit-audio` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-audio: published 0.4.1 (crates.io) |
 | benchmark-harness | `rightkit-bench` | none | declaration-only | 0 | rightkit-bench: staged 0.2.1, not published |
