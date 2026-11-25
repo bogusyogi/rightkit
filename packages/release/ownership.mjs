@@ -238,7 +238,7 @@ function fileInventory(appRoot, trust, pathPrefix = "", repositoryRoot = appRoot
   const inventory = gitListedInventory(appRoot, {
     repositoryRoot,
     protectedPaths: [...protectedPaths],
-    relevant: (rel) => ["Cargo.toml", "package.json", "Package.swift", "Package.resolved", "pnpm-workspace.yaml", ...OWNERSHIP_LOCKFILES].includes(path.posix.basename(rel)) || CODE_EXT.has(path.posix.extname(rel).toLowerCase()),
+    relevant: (rel) => ["Cargo.toml", "package.json", "Package.swift", "Package.resolved", "pnpm-workspace.yaml", "fixture-files.json", ...OWNERSHIP_LOCKFILES].includes(path.posix.basename(rel)) || CODE_EXT.has(path.posix.extname(rel).toLowerCase()),
     maxFileBytes: (rel) => CODE_EXT.has(path.posix.extname(rel).toLowerCase()) || protectedPaths.has(rel) ? 2 * 1024 * 1024 : 64 * 1024 * 1024,
   });
   for (const item of inventory.coverage) if (item.reason === "file-over-size-limit") item.reason = protectedPaths.has(item.path) ? "protected-provenance-file-over-2MiB" : CODE_EXT.has(path.posix.extname(item.path).toLowerCase()) ? "source-file-over-2MiB" : "manifest-file-over-64MiB";
@@ -284,7 +284,7 @@ function committedFileInventory(appRoot, trust, pathPrefix, committed, scope = n
     if (entry.mode === "120000") { coverage.push({ path: rel, status: "unscanned", reason: "committed-symlink" }); continue; }
     if (entry.mode === "160000" || entry.type === "commit") { coverage.push({ path: rel, status: "unscanned", reason: "committed-gitlink" }); continue; }
     if (entry.type !== "blob") { coverage.push({ path: rel, status: "unscanned", reason: "committed-unsupported-entry" }); continue; }
-    const relevant = protectedPaths.has(entry.rel) || ["Cargo.toml", "package.json", "Package.swift", "Package.resolved", "ownership-exceptions.json", "pnpm-workspace.yaml", ...OWNERSHIP_LOCKFILES].includes(path.posix.basename(rel)) || CODE_EXT.has(path.posix.extname(rel).toLowerCase());
+    const relevant = protectedPaths.has(entry.rel) || ["Cargo.toml", "package.json", "Package.swift", "Package.resolved", "ownership-exceptions.json", "pnpm-workspace.yaml", "fixture-files.json", ...OWNERSHIP_LOCKFILES].includes(path.posix.basename(rel)) || CODE_EXT.has(path.posix.extname(rel).toLowerCase());
     const bytes = relevant ? entry.bytes : undefined;
     if (relevant && !bytes) coverage.push({ path: rel, status: "unscanned", reason: "committed-blob-unavailable" });
     const isExceptionFile = path.posix.basename(rel) === "ownership-exceptions.json";
@@ -440,11 +440,31 @@ function resolveDependencyVersions(appRoot, inventory, deps, coverage, contentDi
   }
 }
 
+/** Declared fixture files and their sha256 from every `.rightkit/fixture-files.json` in the inventory, keyed by app-relative path (each file's
+ * paths are relative to the folder holding its `.rightkit`). An unreadable declaration declares nothing. */
+export function declaredFixtureDigests(inventory) {
+  const out = new Map();
+  for (const x of inventory.files ?? []) {
+    if (!x.bytes || !(x.rel === ".rightkit/fixture-files.json" || x.rel.endsWith("/.rightkit/fixture-files.json"))) continue;
+    const base = path.posix.dirname(path.posix.dirname(x.rel));
+    let declared;
+    try { declared = JSON.parse(x.bytes.toString("utf8")).files; } catch { continue; }
+    for (const [file, entry] of Object.entries(declared ?? {})) {
+      if (typeof entry?.sha256 === "string" && /^[0-9a-f]{64}$/.test(entry.sha256)) out.set(base === "." ? file : path.posix.join(base, file), entry.sha256);
+    }
+  }
+  return out;
+}
+
 function dependenciesFromInventory(appRoot, inventory) {
   const deps = [], coverage = [], contentDigests = [], covered = [];
   // Workspace inheritance is loaded before member manifests.
   const manifestNames = new Set(["Cargo.toml", "package.json", "Package.swift"]);
-  const manifests = inventory.files.filter((x) => manifestNames.has(path.posix.basename(x.rel)));
+  // A manifest the repository declares as a test fixture (`.rightkit/fixture-files.json`, rightkit#1291: { files: { "<path>": { sha256, note } } },
+  // the declaration the Class A scans honour) is a known-answer input, not one of the app's dependencies, while its bytes are still the declared
+  // ones. Legion's Audit fixtures (upstream cargo-geiger, node-outdated package.json files) were refused as 68 un-allowlisted dependencies.
+  const fixtures = declaredFixtureDigests(inventory);
+  const manifests = inventory.files.filter((x) => manifestNames.has(path.posix.basename(x.rel)) && !(x.bytes && fixtures.get(x.rel) === byteDigest(x.bytes)));
   const primaryFiles = manifests.filter((x) => !x.inNodeModules);
   // Follow only explicitly declared local package roots into installed layouts. Their own
   // manifests are first-party inputs; unrelated installed transitive manifests stay opaque.
