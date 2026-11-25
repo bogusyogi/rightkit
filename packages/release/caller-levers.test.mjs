@@ -41,9 +41,13 @@ test("F2: exception records are read from the protected branch, never from the s
   assert.doesNotMatch(gate, /git\("show", `\$\{pinned\.commit\}:\$\{(ALL_UNITS_EXCEPTIONS_FILE|BROKER_EXCEPTIONS_FILE)\}`\)/);
   assert.match(gate, /\$\{PROTECTED_RECORD_REF\}:\$\{BROKER_EXCEPTIONS_FILE\}/); assert.match(gate, /\$\{PROTECTED_RECORD_REF\}:\$\{ALL_UNITS_EXCEPTIONS_FILE\}/);
 });
-test("F4: a check that skipped executing scans exits 3, never 0", () => {
+test("F4: a check that skipped executing scans says PARTIAL and never prints a full pass line; it exits 0 for its callers (rightkit#1695)", () => {
   const gate = fs.readFileSync(path.join(here, "bin", "rightkit-gate.mjs"), "utf8");
-  assert.match(gate, /if \(notRun\.length\) \{ o\.out\(.*PARTIAL.*return 3; \}/);
+  assert.match(gate, /if \(notRun\.length\) o\.out\(.*PARTIAL: .*executing check\(s\) did not run/);
+  assert.doesNotMatch(gate, /PARTIAL: \$\{notRun\.length\}[^\n]*return 3;/);
+  // The content-only branch prints "class A content pass", never the full/scoped pass line publish admission requires.
+  const branch = gate.slice(gate.indexOf("if (classAOnly) {\n      // `check` judged the content only"), gate.indexOf("if (!recordHistory()) return 1;\n    o.out(`${tag} pass ("));
+  assert.ok(branch.length > 0); assert.doesNotMatch(branch, /class A \$\{plan\.scopeDigest \? "scoped" : "full"\} pass/);
 });
 test("a run from the command line has every default file function (0.6.68 lost readFile, writeFile, mkdir, chmod and readdir to a comment)", async () => {
   const fs2 = await import("node:fs"); const os2 = await import("node:os"); const path2 = await import("node:path");

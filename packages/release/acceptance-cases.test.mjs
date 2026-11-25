@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { FAIL, LINE_IDS, PASS, decideAll, decideCase, decideRealBuild, groupOf, isClassAProgram, linesOf } from "./acceptance-cases.mjs";
+import { FAIL, LINE_IDS, RUN_LINES, PASS, decideAll, decideCase, decideRealBuild, groupOf, isClassAProgram, linesOf } from "./acceptance-cases.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CASES = JSON.parse(fs.readFileSync(path.join(here, "acceptance-cases.json"), "utf8"));
@@ -51,27 +51,28 @@ function good() {
   return {
     1: [fullRun()],
     2: [quiet()],
-    4: [quiet({ exit: 1, log: "rightkit-gate: BLOCKED: license was expected to be reused and its stored result is missing; nothing ran\n", decisions: [{ commit: COMMIT, forecast: [{ id: "license", expected: "hit" }, { id: "rustfmt:2021", expected: "hit" }] }] })],
+    4: [quiet({ exit: 1, log: "rightkit-gate: RK_CACHE_DIVERGENCE {\"id\":\"license\",\"expected\":\"hit\",\"actual\":\"run\",\"reason\":\"expected entry absent; removal cause unknown\"}\nrightkit-gate: BLOCKED: license was expected to be reused and its stored result is missing; nothing ran\n", decisions: [{ commit: COMMIT, forecast: [{ id: "license", expected: "hit" }, { id: "rustfmt:2021", expected: "hit" }] }] })],
     3: [quiet({ jobs: leaf, starts: [prog("C:\\tools\\rustfmt.exe", ["--check", "--edition", "2021", "lib.rs"], T0 + 1000, T0 + 1500)], verdicts: { [VERDICT]: sub - 1000 }, cacheWritten: [...rows3.filter((id) => !id.startsWith("clippy:")).map((id, i) => ({ name: `r${i}.json`, row: id, crates: null })), { name: "b.json", row: "clippy:batch:d4d63083", crates: ["rk-leaf"] }, { name: "p.json", row: "feature-partition-targets", crates: ["rk-leaf"] }, { name: "rule-verdicts/abc.json", row: null, crates: null }, { name: indexName("secret-scan"), row: null, crates: null }] })],
-    5: [quiet({ exit: 1, log: "json-parse failed: ci/acceptance-broken.json\n", cacheWritten: [{ name: "f.json", row: "json-parse" }] }), quiet({ exit: 1, log: "json-parse failed (stored)\n" })],
+    5: [quiet({ exit: 1, log: "json-parse failed: ci/acceptance-broken.json\nrightkit-gate: verdict deterministic failed=json-parse env=e\n", cacheWritten: [{ name: "f.json", row: "json-parse" }] }), quiet({ exit: 1, log: "json-parse failed (stored)\nrightkit-gate: verdict deterministic failed=json-parse env=e\n" })],
     6: [quiet({ exit: 1, log: "test fails_on_purpose ... FAILED\n" })],
     7: [quiet({ exit: null, signal: "SIGKILL", killed: true, locksAfter: [`${SNAP}.lock`] }), quiet()],
   };
 }
-const judge = (runsByCase) => { const results = {}; for (const c of CASES.cases) results[c.id] = decideCase({ ...c, runs: runsByCase[c.id] }, CASES); return decideAll({ cases: CASES, results, realBuild: decideRealBuild(runsByCase[1][0], CASES) }); };
+const CALLERS_PASS = { verdict: PASS, why: "every caller takes the answer as written" };
+const judge = (runsByCase) => { const results = {}; for (const c of CASES.cases) results[c.id] = decideCase({ ...c, runs: runsByCase[c.id] }, CASES); return decideAll({ cases: CASES, results, callers: CALLERS_PASS, realBuild: decideRealBuild(runsByCase[1][0], CASES) }); };
 const lineOf = (out, id) => out.lines.find((l) => l.id === id);
 /** Breaks one case's run and returns the verdict of one line. */
 const broken = (id, caseId, mutate, runIndex = 0) => { const g = good(); mutate(g[caseId][runIndex], g[caseId]); return lineOf(judge(g), id); };
 const failsFor = (id, caseId, mutate, re, runIndex = 0) => { const l = broken(id, caseId, mutate, runIndex); assert.equal(l.verdict, FAIL, `${id} must fail: ${l.why}`); assert.match(l.why, re); };
 
-test("the clean runs pass twelve of twelve, and the real build passes its six lines", () => {
+test("the clean runs pass thirteen of thirteen, and the real build passes its six lines", () => {
   const out = judge(good());
   for (const l of out.lines) assert.equal(l.verdict, PASS, `${l.id}: ${l.why}`);
   for (const l of out.realBuild) assert.equal(l.verdict, PASS, `real build ${l.id}: ${l.why}`);
-  assert.equal(out.passed, 12); assert.equal(out.pass, true);
+  assert.equal(out.passed, 13); assert.equal(out.pass, true);
 });
 test("every line is decided by at least one case, and no verdict is ever 'not measured'", () => {
-  for (const id of LINE_IDS) assert.ok(CASES.cases.some((c) => linesOf(c).includes(id)), `${id} has no case`);
+  for (const id of LINE_IDS.filter((x) => !RUN_LINES.includes(x))) assert.ok(CASES.cases.some((c) => linesOf(c).includes(id)), `${id} has no case`);
   const out = judge(good()); for (const l of out.lines) for (const c of l.cases) assert.ok([PASS, FAIL].includes(c.verdict));
 });
 test("a case that was not run fails every line it decides; a missing real build fails the whole", () => {
@@ -111,8 +112,12 @@ test("NN04: a forecast that expects the deleted row to run came from the cache; 
 test("NN05: a gate that carries on after the surprise leaves a receipt, a program or an unnamed row; work beyond the expected rows fails case 3", () => {
   failsFor("NN05", 4, (r) => { r.jobs.push(job("rk", "clippy", bc.hostTarget, "", T0 + 100)); }, /broker receipt/);
   failsFor("NN05", 4, (r) => { r.starts.push(prog("C:\\tools\\rustfmt.exe", ["--check", "a.rs"], T0 + 10, T0 + 20)); }, /Class A program/);
-  failsFor("NN05", 4, (r) => { r.log = "BLOCKED: a row disagreed\n"; }, /does not name the row license/);
-  failsFor("NN05", 4, (r) => { r.log = "license\n"; }, /no cause/);
+  failsFor("NN05", 4, (r) => { r.log = "BLOCKED: a row disagreed\n"; }, /did not stop with RK_CACHE_DIVERGENCE naming the row license/);
+  failsFor("NN05", 4, (r) => { r.log = "license was expected and is missing\n"; }, /did not stop with RK_CACHE_DIVERGENCE/);
+  failsFor("NN05", 4, (r) => { r.log = "rightkit-gate: RK_CACHE_DIVERGENCE {\"id\":\"license\",\"expected\":\"run\"}\n"; }, /expected run with reason none/);
+  // review 2026-11-25 #3: case 5 counts only a failure on its own row, never a crash at start.
+  failsFor("NN01", 5, (r) => { r.log = "rightkit-gate: usage error\n"; }, /failed, but not on json-parse: the gate's verdict line is missing/);
+  failsFor("NN02", 5, (r) => { r.log = "rightkit-gate: verdict deterministic failed=license env=e\n"; }, /failed, but not on json-parse: the gate's verdict line names license/);
   failsFor("NN05", 3, (r) => { r.cacheWritten.push({ name: "z.json", row: "clippy:rk:rk-core" }); }, /a row the edit does not touch/);
   failsFor("NN05", 3, (r) => { r.cacheWritten.find((x) => x.row === "clippy:batch:d4d63083").crates = ["rk-leaf", "rk-core"]; }, /names rk-core, which the edit does not touch/);
   failsFor("NN05", 3, (r) => { r.cacheWritten = r.cacheWritten.filter((x) => x.row !== "clippy:batch:d4d63083"); }, /no result was written for clippy:rk:rk-leaf/);
@@ -184,6 +189,7 @@ test("NN12: a lock or a program left behind fails; a kill that the next ordinary
   failsFor("NN12", 3, (r) => { r.starts[0].end = null; }, /no recorded exit/);
   failsFor("NN12", 7, (r) => { r.exit = 1; }, /did not pass/, 1);
   failsFor("NN12", 7, (r) => { r.killed = false; r.exit = 0; }, /was not killed midway/);
+  failsFor("NN12", 7, (r) => { r.killed = true; r.exit = 0; }, /ended with exit 0: it finished before the kill landed/);
   failsFor("NN12", 7, (r) => { r.locksAfter = [`${SNAP}.lock`]; }, /lock was left behind/, 1);
   // another repository's lock in the same folder is not this run's
   assert.equal(broken("NN12", 2, (r) => { r.locksAfter = ["D:\\data\\snapshots\\other.lock"]; }).verdict, PASS);
@@ -211,4 +217,16 @@ test("an unstarted refusal is skipped in the kill case only: anywhere else it ma
   const refused = (j) => ({ ...j, started: NaN, status: "FAILED", gate: { ...j.gate, snapshotUnchanged: false } });
   failsFor("NN01", 3, (r) => { r.jobs.push(refused(job("rk", "clippy", bc.targets, "", T0 + 100, { crates: ["rk-leaf"] }))); }, /snapshot was unchanged/);
   failsFor("NN02", 1, (r) => { r.jobs.unshift(refused(job("rk", "clippy", bc.targets, "", T0 + 100))); }, /usable start time|before the Class A verdict/);
+});
+
+test("NN13: a missing or failing callers verdict fails NN13 and the whole", () => {
+  const results = {}; const g = good(); for (const c of CASES.cases) results[c.id] = decideCase({ ...c, runs: g[c.id] }, CASES);
+  const none = decideAll({ cases: CASES, results, realBuild: null, callers: null });
+  assert.equal(lineOf(none, "NN13").verdict, FAIL); assert.match(lineOf(none, "NN13").why, /not run/);
+  const bad = decideAll({ cases: CASES, results, realBuild: null, callers: { verdict: FAIL, why: "caller ci needs exit 0" } });
+  assert.equal(lineOf(bad, "NN13").verdict, FAIL); assert.equal(bad.pass, false);
+});
+
+test("NN01: a broker job of this repository built from its working checkout during the run fails, even though it is not one of the run's own jobs", () => {
+  failsFor("NN01", 3, (r) => { r.foreignJobs = [{ ...job("rk", "check", bc.hostTarget, "", T0 + 50), cwd: "D:\Claude\rk-witness-fixture\rk" }]; }, /ran for this repository during the run but not from its snapshot/);
 });

@@ -174,9 +174,11 @@ export function ruleVerdictCache({ checkout, spawn }) {
     const file = (k) => path.join(dir, `${k}.json`);
     return {
       key: (parts) => createHash("sha256").update(canonicalJson({ schema: RULE_VERDICT_SCHEMA, node: process.version, platform: `${process.platform}-${process.arch}`, ...parts })).digest("hex"),
-      passed: (k) => { try { return JSON.parse(fs.readFileSync(file(k), "utf8"))?.status === "pass"; } catch { return false; } },
+      // A stored pass names how many rules passed, so a reused verdict prints the same `passed N rules` line a fresh one does (publish admission reads it,
+      // rightkit#1695); a pass stored without the count is not reused, so it runs once more and is stored with it.
+      passed: (k, { needRules = false } = {}) => { try { const r = JSON.parse(fs.readFileSync(file(k), "utf8")); return r?.status === "pass" && (!needRules || (Number.isInteger(r.rules) && r.rules > 0)) ? r : null; } catch { return null; } },
       // A pass that is already stored is not written back (GC-A27 NN06: nothing is written for a row whose inputs did not change).
-      pass: (k) => { try { if (JSON.parse(fs.readFileSync(file(k), "utf8"))?.status === "pass") return; } catch { /* not stored yet */ } try { fs.mkdirSync(dir, { recursive: true }); const tmp = `${file(k)}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify({ schema: RULE_VERDICT_SCHEMA, status: "pass", at: new Date().toISOString() })); fs.renameSync(tmp, file(k)); } catch { /* a cache */ } },
+      pass: (k, rules = null) => { try { const r = JSON.parse(fs.readFileSync(file(k), "utf8")); if (r?.status === "pass" && (Number.isInteger(r.rules) || !Number.isInteger(rules))) return; } catch { /* not stored yet */ } try { fs.mkdirSync(dir, { recursive: true }); const tmp = `${file(k)}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify({ schema: RULE_VERDICT_SCHEMA, status: "pass", ...(Number.isInteger(rules) ? { rules } : {}), at: new Date().toISOString() })); fs.renameSync(tmp, file(k)); } catch { /* a cache */ } },
     };
   } catch { return null; }
 }
@@ -4477,10 +4479,14 @@ export async function main(argv, io = {}) {
     }
     const ruleCache = snapshotDir && snapshotCommit && !args.includes("--worktree") && !o.appCheck ? ruleVerdictCache({ checkout: snapshotCheckout, spawn: o.spawn }) : null;
     const appKey = ruleCache ? ruleCache.key({ rule: "app-check", tree: snapshotCommit.tree, args: appArgs, gate: gatePackageIdentity(o.gatePackage) }) : null;
-    const appCached = Boolean(appKey && ruleCache.passed(appKey));
+    const appStored = appKey ? ruleCache.passed(appKey, { needRules: true }) : null; const appCached = Boolean(appStored);
+    // A reused verdict prints the same pass line a fresh run prints, with the stored rule count, so a caller that reads it (publish admission's
+    // gateVerdict) takes a cached pass and a fresh one alike (rightkit#1695). The fresh run's count is read from its own pass line and stored with the pass.
+    let appRules = null;
+    const appOut = (m) => { const hit = /^(?:\S+Z )?check: [0-9a-f]{12} passed (\d+) rules \(/m.exec(String(m)); if (hit) appRules = Number(hit[1]); return o.out(m); };
     let appCheck = appCached
-      ? (o.out(`check: ${snapshotCommit.commit.slice(0, 12)} app rules: cached pass (tree ${snapshotCommit.tree.slice(0, 12)})`), 0)
-      : await (o.appCheck ?? (await import("../app-check.mjs")).main)(appArgs, { out: o.out, err: o.err, label: "check", cwd: o.cwd, ...(snapshotDir && !args.includes("--worktree") ? { snapshot: snapshotDir } : {}) });
+      ? (o.out(`check: ${snapshotCommit.commit.slice(0, 12)} passed ${appStored.rules} rules (${option("--rule-tier") ?? "compile"} tier) in 0s (cached pass, tree ${snapshotCommit.tree.slice(0, 12)})`), 0)
+      : await (o.appCheck ?? (await import("../app-check.mjs")).main)(appArgs, { out: appOut, err: o.err, label: "check", cwd: o.cwd, ...(snapshotDir && !args.includes("--worktree") ? { snapshot: snapshotDir } : {}) });
     // GC-A15 ("An app carries no Cargo profile table but [profile.release]"; Adrian 2026-11-03: "hard block"). The rule lived only in the release
     // tool (release.mjs cargo-profile-contract), so a commit that adds [profile.dev] to an app passed check and compile (contract test N15, failed
     // on sealed 0.6.58 and on the Dell copy 2026-11-19). It is judged here with the app rules, by the release tool's own scan (same workspace
@@ -4494,7 +4500,7 @@ export async function main(argv, io = {}) {
         if (lines.length) { for (const line of lines) o.err(`check: ${line}`); appCheck = 1; }
       } catch (error) { o.err(`rightkit-gate: BLOCKED: the Cargo profile rule (GC-A15) could not be judged: ${error.message}`); return 1; }
     }
-    if (appKey && appCheck === 0) ruleCache.pass(appKey);
+    if (appKey && appCheck === 0) ruleCache.pass(appKey, appRules);
     if (args.includes("--list") || args.includes("--print-baseline") || args.includes("--only") || o.classA === false) {
       // A view of the app rules, never a class A verdict: say so, so no caller can take its exit 0 for a full check.
       // A green partial view exits PARTIAL_EXIT (3), never 0, so a caller that admits only exit 0 rejects it by status alone.
@@ -5953,8 +5959,11 @@ export async function main(argv, io = {}) {
       if (notRun.length) o.out(`${tag} class A partial: ${notRun.length} check(s) that execute repository code (tests, typecheck, lint, generated docs) run in the full gate, not in check: ${notRun.slice(0, 8).join(", ")}${notRun.length > 8 ? ", …" : ""}`);
       if (!recordHistory()) return 1;
       o.out(`${tag} class A content pass: ${scanResult.scans.length} deterministic scan(s) over ${changed.length} file(s) of ${base}`);
-      // F4 (step F, 2026-11-24): a check that skipped the scans that execute repository code is not a pass. Exit 3, as --only's partial run does.
-      if (notRun.length) { o.out(`${tag} PARTIAL: ${notRun.length} executing check(s) did not run; run it with --full-a, or run the stage with --to`); return 3; }
+      // F4 (step F, 2026-11-24): a check that skipped the scans that execute repository code is not a full pass, and says so. It exits 0: CI,
+      // publish-app, every consumer app's check job and the templates call `check` and need 0 for a clean commit (exit 3 broke them all,
+      // rightkit#1695). What admits something reads the full pass line instead: publish admission runs `check --full-a` and requires
+      // "class A scoped pass" / "class A full pass", which this content-only run never prints.
+      if (notRun.length) o.out(`${tag} PARTIAL: ${notRun.length} executing check(s) did not run; run it with --full-a, or run the stage with --to`);
       return 0;
     }
     if (!recordHistory()) return 1;

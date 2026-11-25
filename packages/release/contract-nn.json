@@ -1,6 +1,6 @@
 {
   "schema": "rightkit.contract-nn/1",
-  "contractSha256": "591d4ba2c8f6ec5d82daac6074f7a81b606b3c574e0d40e0ba146336f7fe109a",
+  "contractSha256": "08344cbc66ffb802c7e069760317a31424135925d3af3c3ce703a6a6a0e6fbf8",
   "runnerFiles": [
     "acceptance-launch.mjs",
     "acceptance-lines.mjs",
@@ -18,7 +18,8 @@
     "NN09",
     "NN10",
     "NN11",
-    "NN12"
+    "NN12",
+    "NN13"
   ],
   "retiredRunner": {
     "retiredIn": "rightkit#1514 step 9",

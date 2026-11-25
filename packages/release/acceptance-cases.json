@@ -543,16 +543,16 @@
     ]
   },
   "limitsMs": {
-    "case1": null,
-    "case2": null,
-    "case3": null,
-    "case4": null,
-    "case5": null,
-    "case6": null,
-    "case7": null,
+    "case1": 977000,
+    "case2": 34000,
+    "case3": 41000,
+    "case4": 31000,
+    "case5": 24000,
+    "case6": 41000,
+    "case7": 103000,
     "realBuild": null
   },
-  "limitsRule": "first clean measured time x 1.25, filled once; null means not yet measured, and NN11 fails while it is null",
+  "limitsRule": "first clean measured time x 1.25, at least the measured time + 15 s (Gemini for Adrian, 2026-11-25: the gate must pass under normal working load, so a short case keeps 15 s of headroom), filled once from the 0.6.75 run of 2026-11-25 (accept-0675b); one limit per case covers each of its unkilled runs; null means not yet measured, and NN11 fails while it is null",
   "corrections": {
     "approved": "Adrian, 2026-11-24: \"Approve, keep going\" (to: C1, C4, the sidecar-build half of C2, and C3 tightened to an exact command list). Reviewed first by Gemini, which rejected C3 as first worded (\"in one command or split by target\" lets a gate always split) and the rk-sidecar half of C2.",
     "previousSha256": "e41bba2b2331adc866ed602f3ab3ecda27adb615d296e981f9a2310479b06bdc",
@@ -562,5 +562,139 @@
       "C3: the broker commands are an exact list. A workspace whose crates resolve alike for every target is one clippy command naming all three targets; the Tauri shell, whose dependency graph differs by target, is one command per target.",
       "C4: case 3's edit puts the new function above the test module (clippy rejects an item after a test module)."
     ]
-  }
+  },
+  "callers": [
+    {
+      "id": "ci",
+      "file": ".github/workflows/ci.yml",
+      "kind": "exit0",
+      "marker": "pnpm exec rightkit-gate check --repo . --commit \"${{ github.sha }}\" --rule-tier release",
+      "args": [
+        "check",
+        "--repo",
+        ".",
+        "--commit",
+        "{sha}"
+      ],
+      "why": "a bash step under set -euo pipefail: anything but 0 fails CI and skips every native shard",
+      "repo": "fixture",
+      "note": "Run on the fixture without --rule-tier release: the exit contract of a content-only check is what this caller depends on. On RightKit itself at release tier it needs CI's own install steps first (the import check reads installed dependencies), so the CI run after each push is the proof there."
+    },
+    {
+      "id": "publish-app",
+      "file": ".github/workflows/publish-app.yml",
+      "kind": "exit0",
+      "marker": "run: pnpm exec rightkit-gate check --commit HEAD",
+      "args": [
+        "check",
+        "--commit",
+        "{sha}"
+      ],
+      "why": "a workflow step: anything but 0 stops the app publish",
+      "repo": "fixture"
+    },
+    {
+      "id": "consumer-check-job",
+      "file": "packages/ci/manifest.mjs",
+      "kind": "exit0",
+      "marker": "`      - run: ${gate} check --commit HEAD`",
+      "args": [
+        "check",
+        "--commit",
+        "{sha}"
+      ],
+      "why": "the check job rendered into every consumer app's ci, qualification, package-smoke, release-candidate, swift-check and publish-npm lanes",
+      "repo": "fixture"
+    },
+    {
+      "id": "desktop-app-template",
+      "file": "desktop-app-template/package.json",
+      "kind": "exit0",
+      "marker": "\"check\": \"rightkit-gate check\"",
+      "args": [
+        "check"
+      ],
+      "why": "the template's npm check script",
+      "repo": "fixture"
+    },
+    {
+      "id": "e2e-app",
+      "file": "e2e-app/package.json",
+      "kind": "exit0",
+      "marker": "\"check\": \"rightkit-gate check\"",
+      "args": [
+        "check"
+      ],
+      "why": "the e2e app's npm check script",
+      "repo": "fixture"
+    },
+    {
+      "id": "publish-admission",
+      "file": "scripts/ci/publish-admission.mjs",
+      "kind": "admission",
+      "marker": "rightkit-gate check --commit ${sha} --full-a --rule-tier release",
+      "verdictExport": "gateVerdict",
+      "args": [
+        "check",
+        "--repo",
+        ".",
+        "--commit",
+        "{sha}",
+        "--full-a",
+        "--rule-tier",
+        "release",
+        "--scope",
+        "packages/theme"
+      ],
+      "refuseArgs": [
+        "check",
+        "--repo",
+        ".",
+        "--commit",
+        "{sha}",
+        "--rule-tier",
+        "release",
+        "--scope",
+        "packages/theme"
+      ],
+      "why": "admits an npm or crate publish: it must accept the full run and refuse a run that skipped the checks that execute code",
+      "repo": "rightkit",
+      "scope": [
+        "packages/theme"
+      ]
+    }
+  ],
+  "namesOnly": {
+    ".gitattributes": "attributes only",
+    "INDEX.md": "the index names the package",
+    "decisions.md": "a record",
+    "ci/consumer-recipes.json": "consumer recipe data",
+    "ci/consumers/npm/ci/consumer.mjs": "asserts the rendered --to compile door text; the rendered check job is the consumer-check-job caller",
+    "ci/consumers/npm/outdated/consumer.mjs": "a stand-in gate script in a test of @rightkit/outdated",
+    "ci/consumers/npm/release/consumer.mjs": "asserts the package's bin names",
+    "desktop-app-template/deny.toml": "a comment",
+    "e2e-app/deny.toml": "a comment",
+    "packages/build-control-policy/src/host-gate.mjs": "locates the gate entry for the host hook; calls nothing",
+    "packages/build-control-policy/src/index.mjs": "recognises a gate command line in the host hook; calls nothing",
+    "packages/ci/sync.mjs": "the version floor of the rendered check job (consumer-check-job)",
+    "packages/outdated/src/gate.ts": "runs the gate commands an app configures (exit 0 needed); the same plain check the exit0 callers prove",
+    "packages/outdated/update.schema.json": "schema text",
+    ".github/workflows/publish.yml": "reads the gate's qualification receipt and the admission receipt; publish-admission is the caller",
+    ".github/workflows/qualify-direct.yml": "runs --to release --unit and keeps its exit with `|| true` (not a check caller; open review item: its exit is swallowed)",
+    "scripts/ci/crate-scan-workspaces.mjs": "a comment",
+    "scripts/ci/gate.mjs": "a coverage note",
+    "scripts/ci/publish.mjs": "a comment",
+    "scripts/ci/rightkit-dispatch.mjs": "reads the qualification receipt the gate writes",
+    "scripts/ci/rk-pipeline.mjs": "reads the qualification receipt the gate writes",
+    "scripts/ci/rk-release-canary-leg.mjs": "asks --route and --help (open review item: the route probe is not in the acceptance run)",
+    "scripts/ci/rk-release-canary.mjs": "judges --route answers",
+    "scripts/ci/run-deterministic-scans.mjs": "imports externalInputs from the gate",
+    "scripts/ci/workflow-contract.mjs": "workflow text checks",
+    "scripts/ci/workflow-yaml.mjs": "a comment",
+    "scripts/linux-cloud-setup.sh": "a usage comment",
+    "scripts/preflight.mjs": "comments",
+    "scripts/sim/door-lifecycle.mjs": "a simulation importing main",
+    "scripts/sim/door-policy.mjs": "hook policy simulation"
+  },
+  "callersRule": "NN13 (rightkit#1695, Adrian 2026-11-25: 'fix the acceptance test'): every file outside packages/release naming rightkit-gate is listed here as a caller or in namesOnly; each caller's recorded call is still in its file; each caller's command, run against the pinned fixture commit with the installed gate, gets the answer its own rule needs. A caller runs where it really runs: RightKit's own CI and publish admission on RightKit at origin/main (the fixture is not a release-ready app, so release-tier rules refuse it on any gate); the apps' check jobs and scripts on the fixture's pinned commit. GITHUB_ACTIONS is not set: the gate refuses the hosted route off a GitHub runner, so CI's own run is the proof of that route."
 }

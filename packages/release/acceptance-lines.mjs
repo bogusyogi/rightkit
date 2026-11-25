@@ -1027,7 +1027,10 @@ function nn09(ctx) {
 }
 
 
-const JUDGES = Object.freeze({ NN01: nn01, NN02: nn02, NN03: nn03, NN04: nn04, NN05: nn05, NN06: nn06, NN07: nn07, NN08: nn08, NN09: nn09, NN10: nn10, NN11: nn11, NN12: nn12 });
+// NN13 is about the gate's callers, not about one run: acceptance-run.mjs decides it once per acceptance run (acceptance-callers.mjs, rightkit#1695).
+// One run folder cannot show it, so here it is never a pass.
+function nn13() { return result(NOT_MEASURED, "decided once per acceptance run by acceptance-callers.mjs (every caller of rightkit-gate check), not by one run's record"); }
+const JUDGES = Object.freeze({ NN01: nn01, NN02: nn02, NN03: nn03, NN04: nn04, NN05: nn05, NN06: nn06, NN07: nn07, NN08: nn08, NN09: nn09, NN10: nn10, NN11: nn11, NN12: nn12, NN13: nn13 });
 export const CHECK_IDS = Object.freeze(Object.keys(JUDGES));
 
 /**

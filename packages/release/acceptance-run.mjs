@@ -92,7 +92,10 @@ async function main() {
     let killed = false; let timer = null;
     const onStart = kill ? ({ child, out: runDir }) => {
       // Killed midway: once the gate says Class A's verdict is written the compile is under way; a little later the whole tree is ended.
-      timer = setInterval(() => { let log = ""; try { log = fs.readFileSync(path.join(runDir, "gate.log"), "utf8"); } catch { log = ""; } if (/class A verdict written/i.test(log)) { clearInterval(timer); setTimeout(() => { killed = true; killTree(child.pid); }, 8000); } }, 500);
+      timer = setInterval(() => { let log = ""; try { log = fs.readFileSync(path.join(runDir, "gate.log"), "utf8"); } catch { log = ""; } if (/class A verdict written/i.test(log)) { clearInterval(timer); setTimeout(() => {
+        // Killed only if it was still running: a gate that had already ended was not killed midway (review 2026-11-25 #4).
+        if (child.exitCode === null && child.signalCode === null) { killed = true; killTree(child.pid); }
+      }, 8000); } }, 500);
     } : null;
     const code = await launch({ out: dir, commit, receiptsDir, repo, gate, gateArgs: args, onStart, lock: path.join(out, "acceptance-launch.lock") });
     if (timer) clearInterval(timer);
@@ -124,6 +127,15 @@ async function main() {
         const commit = def.commit === "fixture" ? pinned : caseCommit(fixture, pinned, def.commit.edits, String(id), out);
         if (def.commit !== "fixture") refs.push(`refs/witness/acceptance-${id}`);
         const runs = [];
+        // The gate's stage receipts for this case's commit (every app's) are set aside before every case but case 2, the one whose point is reuse: a passed
+        // compile recorded by an earlier run on the same gate stands, so case 1 skipped its compile and case 3 did it instead (0.6.75 run, 2026-11-25), and the
+        // case commits are the same every run (fixed identity and date), so cases 3, 5, 6 and 7 can short-circuit the same way (review 2026-11-25 #6).
+        if (id !== 2) {
+          const { gateStateDir } = await import("./gate-stages.mjs");
+          const receipts = path.join(gateStateDir(path.resolve(fixture, git(fixture, ["rev-parse", "--git-common-dir"]))), "receipts");
+          const asideReceipts = path.join(out, "set-aside", `case${id}-${new Date().toISOString().replace(/[:.]/g, "-")}`, "stage-receipts");
+          for (const f of fs.existsSync(receipts) ? fs.readdirSync(receipts) : []) if (f === `${commit}.json` || f.startsWith(`${commit}--`)) moveAside(path.join(receipts, f), path.join(asideReceipts, f));
+        }
         if (id === 1) {
           const aside = path.join(out, "set-aside", new Date().toISOString().replace(/[:.]/g, "-"));
           moveAside(storeDir, path.join(aside, "rightkit-gate-cache")); moveAside(historyFileOf(managed, storeDir), path.join(aside, "history.json"));
@@ -148,6 +160,18 @@ async function main() {
       }
     } finally { for (const r of refs) { try { git(fixture, ["update-ref", "-d", r]); } catch { /* reported by its absence */ } } }
   }
+  // NN13: every caller of `rightkit-gate check` in RightKit, run as written against the pinned fixture commit with the installed gate (acceptance-callers.mjs).
+  let callers = null;
+  if (fixture && (opt("--cases") === null || argv.includes("--callers"))) {
+    console.log("the callers of rightkit-gate check (NN13)");
+    const { judgeCallers, runGateFor } = await import("./acceptance-callers.mjs");
+    const rightkit = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+    // A caller runs where it really runs: RightKit's own callers on RightKit at origin/main, the apps' callers on the fixture's pinned commit.
+    const rightkitSha = git(rightkit, ["rev-parse", "origin/main"]);
+    const where = (c) => (c.repo === "rightkit" ? { dir: rightkit, sha: rightkitSha } : { dir: fixture, sha: cases.fixture.commit });
+    callers = await judgeCallers(cases, rightkit, { run: (c, args) => { const w = where(c); return runGateFor(gate, w.dir, args, w.sha); } });
+    record.callers = callers; console.log(`    NN13 ${callers.verdict}: ${callers.why}`.slice(0, 1500));
+  }
   let realLines = null;
   if (real) {
     console.log("the real build");
@@ -155,9 +179,11 @@ async function main() {
     realLines = decideRealBuild(facts, cases); record.realBuild = { repository: real, commit, run: lite(facts), lines: realLines };
     for (const [line, r] of Object.entries(realLines)) console.log(`    ${line} ${r.verdict}: ${r.why}`);
   }
-  const all = decideAll({ cases, results, realBuild: realLines }); record.endedAt = new Date().toISOString(); record.verdict = all;
+  const all = decideAll({ cases, results, realBuild: realLines, callers }); record.endedAt = new Date().toISOString(); record.verdict = all;
   fs.writeFileSync(path.join(out, "verdict.json"), `${JSON.stringify(record, null, 2)}\n`);
-  console.log(`\n${all.passed} of ${all.of} lines pass${all.pass ? "; the real build passes its lines: ACCEPTED" : ""}`);
+  // The headline names the real build and the cases file it judged against, so "N of 13" is never read as acceptance without them (review 2026-11-25 #5, #11).
+  const realState = !all.realBuild.length ? "the real build: not part of this cases file" : !realLines ? "the real build: NOT RUN" : all.realBuild.every((l) => l.verdict === "pass") ? "the real build: passes its lines" : "the real build: FAILS";
+  console.log(`\n${all.passed} of ${all.of} lines pass; ${realState}; cases file sha256 ${record.casesSha256}${all.pass ? ": ACCEPTED" : ": NOT ACCEPTED"}`);
   for (const l of all.lines) console.log(`${l.id} ${l.verdict}${l.verdict === "pass" ? "" : `: ${l.why}`}`.slice(0, 1200));
   for (const l of all.realBuild) console.log(`real build ${l.id} ${l.verdict}${l.verdict === "pass" ? "" : `: ${l.why}`}`.slice(0, 600));
   process.exit(all.pass ? 0 : 1);

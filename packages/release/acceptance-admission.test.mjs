@@ -140,13 +140,13 @@ test("9.3 the effect: a refused result throws before the publish entry starts np
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("9.5 contract-nn.json is the list of the twelve-line test and keeps the hashes of the retired contract test", () => {
+test("9.5 contract-nn.json is the list of the thirteen-line test and keeps the hashes of the retired contract test", () => {
   const listed = JSON.parse(fs.readFileSync(new URL("./contract-nn.json", import.meta.url), "utf8"));
   assert.deepEqual(Object.keys(listed), ["schema", "contractSha256", "runnerFiles", "ids", "retiredRunner"]);
   assert.equal(listed.schema, "rightkit.contract-nn/1");
   assert.equal(listed.contractSha256, sha(fs.readFileSync(CONTRACT_FILE)), "docs/GATE-CONTRACT.md changed: write its sha256 into packages/release/contract-nn.json (contractSha256)");
   assert.deepEqual(listed.ids, LINES.map((l) => l.id), "the ids are the twelve lines of GC-A27, in order");
-  assert.deepEqual(listed.ids, Array.from({ length: 12 }, (_, i) => `NN${String(i + 1).padStart(2, "0")}`));
+  assert.deepEqual(listed.ids, Array.from({ length: 13 }, (_, i) => `NN${String(i + 1).padStart(2, "0")}`)); // NN13 added 2026-11-25 (rightkit#1695)
   assert.deepEqual(listed.runnerFiles, [...JUDGE_FILES].sort(), "the sealed list names the judge, its test and its launcher");
   for (const name of listed.runnerFiles) assert.ok(fs.existsSync(new URL(`./${name}`, import.meta.url)), `${name} is in the package`);
   const files = JSON.parse(fs.readFileSync(new URL("./package.json", import.meta.url), "utf8")).files;

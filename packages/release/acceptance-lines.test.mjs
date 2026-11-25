@@ -18,9 +18,9 @@ const LINES = readAcceptanceLines(CONTRACT);
 const twelve = Array.from({ length: 12 }, (_, i) => `NN${String(i + 1).padStart(2, "0")}`);
 const withoutRow = (id) => CONTRACT.split(/\r?\n/).filter((l) => !l.startsWith(`| \`${id}\` |`)).join("\n");
 
-test("the contract's GC-A27 table is the test's only list of lines: twelve, NN01 to NN12, each with a check and no check without a line", () => {
-  assert.deepEqual(LINES.map((l) => l.id), twelve);
-  assert.deepEqual([...CHECK_IDS], twelve);
+test("the contract's GC-A27 table is the test's only list of lines: thirteen, NN01 to NN13 (NN13 added 2026-11-25, rightkit#1695), each with a check and no check without a line", () => {
+  assert.deepEqual(LINES.map((l) => l.id), [...twelve, "NN13"]);
+  assert.deepEqual([...CHECK_IDS], [...twelve, "NN13"]);
   assert.deepEqual(linkProblems(LINES), []);
   for (const l of LINES) assert.ok(l.text.length > 0 && l.text.endsWith("."), `${l.id} is a whole sentence: ${l.text}`);
   assert.equal(LINES.find((l) => l.id === "NN01").text, CONTRACT.match(/^\| `NN01` \| (.+) \|$/m)[1], "the sentence is the contract's, character for character");
@@ -36,9 +36,9 @@ test("a line removed from the contract's table is refused: its check then has no
 });
 
 test("a line added to the contract with no check is refused, and so is a check with no line", () => {
-  const added = CONTRACT.replace("<!-- acceptance-lines:end -->", "| `NN13` | A new line nobody wrote a check for. |\n<!-- acceptance-lines:end -->");
-  assert.throws(() => readAcceptanceLines(added), (e) => e.problems.includes("NN13 is a line in the contract and has no check"));
-  assert.deepEqual(linkProblems(LINES, [...CHECK_IDS, "NN13"]), ["NN13 has a check and is not a line in the contract"]);
+  const added = CONTRACT.replace("<!-- acceptance-lines:end -->", "| `NN14` | A new line nobody wrote a check for. |\n<!-- acceptance-lines:end -->");
+  assert.throws(() => readAcceptanceLines(added), (e) => e.problems.includes("NN14 is a line in the contract and has no check"));
+  assert.deepEqual(linkProblems(LINES, [...CHECK_IDS, "NN14"]), ["NN14 has a check and is not a line in the contract"]);
 });
 
 test("anything but one clean table is refused: no markers, a repeated id, a row of another shape, an empty sentence, no lines given", () => {
