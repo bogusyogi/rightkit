@@ -3435,6 +3435,9 @@ async function runUnitSnapshot(o, args, root, git, io, option) {
       try { consumerScope = [...new Set((JSON.parse(fs.readFileSync(path.join(ds.path, "ci", "gate.config.json"), "utf8")).rust?.[match[2]]?.consumerRows ?? []).map((row) => path.posix.dirname(String(row.manifestPath))))]; }
       catch { consumerScope = []; }
     }
+    // The gate package's package stage on the Mac builds and signs its swap helper from crates/rightkit-fs (local-publish.mjs prepareSwapHelper), so that
+    // Cargo workspace is bound beside the package's own (0.6.80 on the Mac: RK_CARGO_UNBOUND_WORKSPACE "resolved (none)" for the helper build).
+    if (selector === "npm:@rightkit/release" && o.platform === "darwin") consumerScope = [...new Set([...consumerScope, "crates/rightkit-fs"])];
     const bound = option("--to") === "check" || privateUnit.private ? { env: {}, cleanup() {} } : await bindUnitCargo({ o, git, root, ds, executor, which, scopeDirs: [path.posix.dirname(manifest)], extraWorkspaces: consumerScope, ...(toolRun ? { onlyWorkspaces: [path.posix.dirname(manifest)] } : {}) });
     if (bound.refusal) { o.err(`${tag} BLOCKED: RK_SNAPSHOT_OUTPUT_UNPINNED: ${bound.refusal}; nothing ran`); return 1; }
     if (bound.note) o.out(`${tag} ${bound.note}`);
