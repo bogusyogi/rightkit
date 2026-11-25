@@ -1350,6 +1350,14 @@
       "sha256": "6924c8f848df1d2c0354b9a57f098aa5bf9bed95c632c8889a66b3e9d67419f9",
       "reviewer": "Independent Oracle and owner exact archive review",
       "reviewRef": "agent-review:/root/shell_087_resealed_archive_oracle/a10c1334893a25c2a209ffd9f1b3cba0621d7e7d/6924c8f848df1d2c0354b9a57f098aa5bf9bed95c632c8889a66b3e9d67419f9"
+    },
+    {
+      "registry": "swift",
+      "name": "RightKitSwift",
+      "version": "0.9.6",
+      "sha256": "07310dace7ae876f43b5e8828c209d46584fe94383b80f06e311b46ae5752364",
+      "reviewer": "Independent Oracle source review",
+      "reviewRef": "agent-review:coderight-mac/swift_096_oracle/e30380e3da33b07e6ba85faa55faa1acb082ec97/07310dace7ae876f43b5e8828c209d46584fe94383b80f06e311b46ae5752364; verdict APPROVE, six non-blocking findings in bogusyogi/rightkit#1705"
     }
   ]
 }
