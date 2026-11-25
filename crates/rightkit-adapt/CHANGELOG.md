@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Released with the `rightkit-fs` 0.5 dependency already on main (the published previous version still required `rightkit-fs` ^0.4, so consumers carried two `rightkit-fs` versions; bogusyogi/pulse#643).
+
 ## 0.2.0
 
 - The name now holds Pulse's governed behavioural learning (taste and insights), the code of `rightkit-adapt-taste` 0.1.2 unchanged (moved with `git mv`); library `rightkit_adapt`. Replace `rightkit_adapt_taste::` with `rightkit_adapt::`; `rightkit-adapt-taste` 0.1.2 re-exports this crate for one release.

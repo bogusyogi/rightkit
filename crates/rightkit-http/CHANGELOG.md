@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1
+
+- Released with the `rightkit-fs` 0.5 dependency already on main (the published previous version still required `rightkit-fs` ^0.4, so consumers carried two `rightkit-fs` versions; bogusyogi/pulse#643).
+
 ## 0.4.0
 
 - `ClientConfig::single_deadline(timeout)` and `Client::try_new_or_direct(config)`: one overall deadline per call (phase limits cleared, `request_timeout` and `stream_timeout` set), and a client that falls back to a direct connection when the proxy settings cannot be used, as `ureq` did. Replace the per-app `parity_client` wrappers in HeardRight's telemetry and text-pipeline crates (#1572).

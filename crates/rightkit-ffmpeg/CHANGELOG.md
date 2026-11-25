@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.3
+
+- Released with the `rightkit-fs` 0.5 dependency already on main (the published previous version still required `rightkit-fs` ^0.4, so consumers carried two `rightkit-fs` versions; bogusyogi/pulse#643).
+
 ## 0.3.2
 
 - Requires `rightkit-agent-policy` 0.2.0 (dependency requirement raised; no API change here).

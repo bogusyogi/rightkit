@@ -2094,7 +2094,7 @@
       "pkId": "PK06",
       "id": "ci/consumers/rightkit-job-queue/src/main.rs",
       "files": {
-        "Cargo.toml": "0b6ede94cac0719841f805e9240e27eb37f68875c3f7c473bf9ca5a8c5615369",
+        "Cargo.toml": "d5b01147c96d353c41ddcb18ad53f60967f16d580f34e3a7df9c21eb3f7b4a33",
         "src/main.rs": "c55a5816820a8018a0f32724321c67f26c0dcfcf0f2cf3aad7d33cf26c61fe80"
       }
     },
@@ -2176,7 +2176,7 @@
       "gateEvidence": "no assets needed; temp directory only, removed on exit; no ffmpeg or PDFKit run off macOS (open answers Unsupported). The host feature compiles on every platform (objc2 deps are macOS-only target deps). Consider a PK17-4 gate row for feature host on macOS before it is claimed",
       "consumes": "PK08-6 names ViewRight pdf_adapter.rs:106 and mac_pdf_view.rs:103 as the PdfHost consumers (per the plan, not re-read here); rightkit-pdf public items used: write::Document (src/write.rs:238,283,357,363), inspect::page_graph_from_bytes (src/inspect.rs:335), compose::compose_candidate (src/compose.rs:146), save::stage_prepared_save (src/save.rs:290), save::PdfSaveTokenStore (src/save.rs:143), commit::commit_pdf_save (src/commit.rs:468), model::document_sha256 (src/model.rs:938), host::PdfHost::new (src/host/mod.rs:720), host::OpenRequest, NativeParent::detached (src/host/mod.rs:452)",
       "files": {
-        "Cargo.toml": "e0ad7c19bd069dea50d4c14c93146a9ee39533155d3154c9e5f9101478ad7459",
+        "Cargo.toml": "8d429c48afbe7a2473a682c47eb5c960291c02616a023fee24bd7f5140d4d172",
         "README.md": "d62d1c7d2b029ffff2c676606b83395943f3c5f3af1bacc761a00a5450b186fb",
         "src/main.rs": "7f22b58ebe0a16f84a218d3b76f80d7c8a9cbffb3aa20f80d5ec37571b7d5fc1"
       },
@@ -2204,7 +2204,7 @@
       "gateEvidence": "ffmpeg is never resolved, verified or run; no assets needed; the embedded catalog is parsed only. Default feature native stays on (no extra gate row needed for pure items)",
       "consumes": "motion dependency (PK19 proposal; rightkit-motion encode feature uses rightkit-ffmpeg =0.2.9 per PROPOSAL.txt:157); rightkit-ffmpeg public items used: lib.rs pcm_s16le_16khz_mono_args (src/lib.rs ~1136), command::extract_args and command::transcode_audio_command (src/command.rs:220,276), encoders::EncoderInventory::parse and pick_h264 (src/encoders.rs:115,203), ArtifactCatalog::embedded and parse (src/lib.rs:237-245), MediaError (src/lib.rs:628)",
       "files": {
-        "Cargo.toml": "585ed5604cc85a26e52b376800a8199558fc2f197c46e069799a3f32274d9192",
+        "Cargo.toml": "1bb5af12a04536d13cae46b0c36387715fab4b4035294146bc1c242e6b477690",
         "README.md": "bf9a3d9a6f9bc80b9a7dd8e99b797c3d1257471064fc207b34ca665fc312696a",
         "src/main.rs": "fcd2cf237f28083e92e235c0682df4a8cabe260a57df6320c65e707c2da38820"
       },
@@ -2250,7 +2250,7 @@
       "pkId": "PK12",
       "id": "ci/consumers/rightkit-http/src/main.rs",
       "files": {
-        "Cargo.toml": "0b9805b6ebdd27b881f3d2c22102f47c26cc1150d71971b0990cde37f5cab8eb",
+        "Cargo.toml": "6cb267a95241772157307b48b764070e6c269c8d140f57628fb8cd7fe6fc07ed",
         "README.md": "acc7418ea97ef234347c2def02056d097c38a65d1b62b63619b1280d4e822fa7",
         "src/main.rs": "75d84361f4e8fbc2a326f2a97c88805233e7104e74b5cc5b8c8721055b426a25"
       }
@@ -2474,7 +2474,7 @@
       "gateEvidence": "model-free public API only: no model directory, tokenizer or ONNX Runtime library is read or loaded; Embedder::load is exercised only through its typed refusals (missing directory, invalid dimension) before any model access; VectorStore is not used; default features stay on; one empty temp directory removed at the end",
       "consumes": "PK12 local-inference consumers (PK12 proposal; reviewed recipe, named product consumers not re-read here); rightkit-embed public items used: reciprocal_rank_fusion and RRF_K (src/fusion.rs), cosine_similarity (src/vector.rs), truncate_and_normalize, installed_model_dir, bundle_files, EmbedderConfig builders, ExecutionProvider, EmbedError and Embedder::load refusals (src/embedder.rs)",
       "files": {
-        "Cargo.toml": "dff4a79ffe4e8b5d7613176b6cb7132447f81a468961b7b733a4df1cfe26837a",
+        "Cargo.toml": "77298a6f90d2e2c987820e989a7e918156d42f430f0dc4539fef065e99dec5ba",
         "README.md": "97e149fbad4f4ddc9c3d29dd24dfe95f8cf89090cc97a8b6ae3987100b8f7642",
         "src/main.rs": "97d8d97b94159594a18ec1545642c43a34381d091e8f5eb3961530d8d9180420"
       },
@@ -2708,7 +2708,7 @@
       "pkId": "PK36",
       "id": "ci/consumers/rightkit-identity/src/main.rs",
       "files": {
-        "Cargo.toml": "92a58cf54430189a23fe20ea195a24dca341c36160e96e29c699a785d10597c9",
+        "Cargo.toml": "ffc7e96c12599336ff4e207145c89583f9630b679f6a5c1cdd55622b793304de",
         "README.md": "702a574eec8c823db2b077aafa5bf09a7da3e5a9f9a1c148d7bfec2db783c9e7",
         "src/main.rs": "9e336a7967ca7d397ddcaecd792de3778dbcc69c9f6569818d268ad0c4f024f3"
       }
@@ -2953,7 +2953,7 @@
       "pkId": "PK62",
       "id": "ci/consumers/rightkit-adapt/src/main.rs",
       "files": {
-        "Cargo.toml": "5a89a0641320114bbd566ad882b1c8e6844f2810e051fc49f45f52be650ab83a",
+        "Cargo.toml": "2913e6962c5a006d53e6c5472506e351145909bb73041fb3795f78c3806d251c",
         "README.md": "c33acc6def8304864aac820e76a47b0023b08a9fc909ab3efa2f36913c3711f1",
         "src/main.rs": "aa611ac8fe03dcbe97bcac3edff3f66db22c70672eab19d71ffac6ede2a24d64"
       }
@@ -3088,7 +3088,7 @@
       "pkId": "PK77",
       "id": "ci/consumers/rightkit-agent-transcript/src/main.rs",
       "files": {
-        "Cargo.toml": "8c52c77c77a616b446008dd80d5dbee4752bda192341952e199ffb6ddc080be5",
+        "Cargo.toml": "12d7a3aafb3174ca3b26d048deaf0a431699d21a9af540d49a3fe4e6661cd333",
         "README.md": "142902fc8a809c53a76ef95c14eaa00a72b8d93482869ea2d72aa2184dfcb56b",
         "src/main.rs": "8331761fb4f6cc49aa0a5d1cc7fee18490059d6f444515a91f3b20b9baee504f"
       }
@@ -3160,7 +3160,7 @@
       "pkId": "PK87",
       "id": "ci/consumers/rightkit-context-protocol/src/main.rs",
       "files": {
-        "Cargo.toml": "e03d33cad9b636cbc29a407324884e8fd57eeca04599507526f9783f662b1d6d",
+        "Cargo.toml": "9c6980c422739b8a74c2b77e91b1c9103d837fbe96427bcc43c0af4f5906e90e",
         "README.md": "e0b6bce100d7f1d2abec83875edc7bd081a740f27880783bd822b9aede1455c1",
         "src/main.rs": "0ba8de4bff50ea6c409af38f741a297a68d7434719012795b753d7c2d0ebc2c1"
       }
@@ -3333,7 +3333,7 @@
       "pkId": "PK108",
       "id": "ci/consumers/rightkit-memory-core/src/main.rs",
       "files": {
-        "Cargo.toml": "130bbdccd2a3641c1afe35764beb35b26dbc2de14b01c4cbbda9da044814ac9a",
+        "Cargo.toml": "b09a3578ff6c44fed772583b0179d0d409f9a5d3bf1643f1769ced684c47ddd6",
         "README.md": "dc626871423e93d7cd0138ae95f7e3b86fae8a56feaf551ce0c9b6cb26155cc2",
         "src/main.rs": "2d9c30f2b549e76b93215f0aaf7d9cb251099761b87d7a8cf2b7eb38b5160082"
       }
@@ -3387,7 +3387,7 @@
       "pkId": "PK114",
       "id": "ci/consumers/rightkit-repo-graph/src/main.rs",
       "files": {
-        "Cargo.toml": "652cfb6798457580b88185b92747b95016e74965d1cd2f61f12e2c50bb3ce0e8",
+        "Cargo.toml": "a6e445cfbd5de1d350f21cc9e098af36498e51b7dab2e0abebbcd5a53814aa8c",
         "README.md": "321eaf58cb9fa06a9aee4fdf1221e2b6cf3c5265da0d5ac1faab77e24fa9f8fd",
         "src/main.rs": "0c90af4d8b554a5d9bb7a3497620241f021889bae3a4389cca7b0b89928fef4c"
       }
@@ -3904,7 +3904,7 @@
       "pkId": "PK174",
       "id": "ci/consumers/rightkit-app-lock/src/main.rs",
       "files": {
-        "Cargo.toml": "a3fa2ab4bbe859c88a80fb651bbd8fed5ba7b5c8df9594686762a0e85a3b5739",
+        "Cargo.toml": "b3dff5fd0d72459a4aba0d2809ed291214cf532b25cbba8a591154dc05516629",
         "README.md": "9cc7447052084fa1b4ab65aeb387567522dc9ebe32d50cefeda41da8fe1359be",
         "src/main.rs": "af73074f48e8e908b593a4b22d291d1dafc0fc0a1ce5ffccc1621c58383abd59"
       }

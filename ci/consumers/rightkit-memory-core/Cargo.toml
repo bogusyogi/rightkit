@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-memory-core = { version = "=0.2.0", features = ["embed"] }
+rightkit-memory-core = { version = "=0.2.1", features = ["embed"] }
 

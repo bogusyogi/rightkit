@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+- Released with the `rightkit-fs` 0.5 dependency already on main (the published previous version still required `rightkit-fs` ^0.4, so consumers carried two `rightkit-fs` versions; bogusyogi/pulse#643).
+
 ## 0.1.2
 
 - Manifest only: dependency requirements and workspace metadata changed since 0.1.1 was published; no source change.
