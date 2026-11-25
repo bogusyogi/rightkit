@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.81
+
+- Package admission resolves each Cargo workspace's target from the compile stage's broker receipts, so a multi-workspace app (CodeRight) packages on a broker host (#1736).
+- The package ships every file of its contract test (`acceptance-lines.test.mjs`), so `rustright-install trusted-gate promote` can check an installed candidate (#1733).
+- NN07/NN08 pnpm answer tests run only where the gate identifies a pnpm program (#1726).
+- First gate released the local way: packed on the Mac, accepted on the Dell from that archive, published with `publish-local npm --archive`.
+
 ## 0.6.80
 
 - Broker seam: the reclaim judge follows a symlinked broker socket (the Mac's) and checks the socket type and the owner of both link and target; when it has no proof it says why (#1702).
