@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.2
+
+- Add `session_policy::schedule_reveal_after_splash` (`RevealAfterSplash`): the reveal retry after the splash, over the host's poll, hide and reveal closures.
+- Add `session_host`: the guardian batch (`FullscreenSample`, `GuardianBatch`, `apply_guardian_batch`) and the install and shutdown order of guardian, hints and native pill (`SessionHost`, `start_guardian`, `stop_guardian`, `install`, `shutdown`).
+- Add `hint_session` (`HintSet`, `HintHost`, `NoticeLabels`) and `clip_flow` (`show_overlay`, `dismiss_overlay`, `release_holds`, `PanelWire`, `panel_payload`, `show_panel`): the composed hint, screenshot-notice and clipboard flows. Kinds, words, delays and wire names stay with the host.
+- Add `fullscreen_win` (Windows): `Probe`, `frontmost_is_fullscreen`.
+- Additive only: no existing item changes.
+
 ## 0.1.1 candidate
 
 - Require `rightkit-overlay` 0.2.4 (titled message-only window), matching the workspace path crate.

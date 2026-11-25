@@ -489,3 +489,29 @@ export function createNativeBootProbation(transport: NativeUpdateTransport): Nat
     },
   };
 }
+
+/** The shell command that restarts the app PID-ordered after an update (`rightkit_tauri_shell::relaunch::rightkit_relaunch_for_update`). */
+export const RELAUNCH_FOR_UPDATE_COMMAND = 'rightkit_relaunch_for_update';
+
+export interface RelaunchForUpdateOptions {
+  /**
+   * Runs, awaited, when the command is not registered or rejects, with the rejection (for example a plugin `relaunch()`;
+   * the caller logs here). Without it the rejection is rethrown.
+   */
+  fallback?: (error: unknown) => Promise<void> | void;
+}
+
+/**
+ * Restart the app after an update installed, for hosts that install through their own updater (for example `plugin-updater`)
+ * and so have no native update host: the shell's detached helper waits for this process to exit, then launches the
+ * replacement. A plugin `relaunch()` spawns first, which the single-instance guard answers by killing the newcomer.
+ * `NativeUpdateClient.relaunch` is the variant for the native update host and refuses unless that host completed an install.
+ */
+export async function relaunchForUpdate(transport: Pick<NativeUpdateTransport, 'invoke'>, options: RelaunchForUpdateOptions = {}): Promise<void> {
+  try {
+    await transport.invoke<void>(RELAUNCH_FOR_UPDATE_COMMAND);
+  } catch (error) {
+    if (!options.fallback) throw error;
+    await options.fallback(error);
+  }
+}

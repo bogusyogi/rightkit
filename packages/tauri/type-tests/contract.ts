@@ -9,6 +9,8 @@ import {
 import type { RightKitTauriAppConfig } from '../src/index.js';
 import type { AskOptions, DialogPickers, PickOptions, SaveOptions } from '../src/dialog-types.js';
 import { ask, pickSavePath } from '../src/dialog.js';
+import { useHotkeyConflict, useRefreshedValue } from '../src/react.js';
+import type { TauriSubscribe } from '../src/events.js';
 
 type Device = { id: string };
 type LogBundle = { events: unknown[] };
@@ -120,3 +122,26 @@ void confirmed;
 void askOptions;
 void savedList;
 void badSave;
+
+// Hooks of the ./react entry. The conflict type follows the event payload; the value type follows `initial`.
+type ConflictSpec = { registration: { shortcuts: string[] } | null; other: number };
+declare const subscribeConflict: TauriSubscribe<ConflictSpec>;
+const hotkeyState = useHotkeyConflict({
+  read: async () => null as { shortcuts: string[] } | null,
+  retry: async () => undefined,
+  subscribe: subscribeConflict,
+  event: 'registration',
+});
+const shownShortcuts: string[] | undefined = hotkeyState.conflict?.shortcuts;
+// @ts-expect-error The read must resolve the payload type of the named event.
+useHotkeyConflict({ read: async () => 3, retry: async () => undefined, subscribe: subscribeConflict, event: 'registration' });
+// @ts-expect-error The event must be one of the spec's events.
+useHotkeyConflict({ read: async () => null, retry: async () => undefined, subscribe: subscribeConflict, event: 'missing' });
+
+const refreshed = useRefreshedValue({ read: async () => true, initial: null as boolean | null, events: ['changed'], fallback: { value: false } });
+const refreshedValue: boolean | null = refreshed.value;
+// @ts-expect-error The fallback is a value of the same type as the read.
+useRefreshedValue({ read: async () => true, initial: false, fallback: { value: 'no' } });
+
+void shownShortcuts;
+void refreshedValue;

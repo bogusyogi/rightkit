@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.4
+
+- Add `setup::calibration_result`: turns a calibration `Outcome` into the result a renderer shows. `settle` maps each outcome to status, failure code, route and WER with the host's own codes (`SetupCodes`); `SetupStarted`, `SetupProgress` and `SetupResult` are the wire shapes for started, progress and result; `CalibrationSummary` reads what the mapping needs from a host's result type; `start_error_message`, `cancel_accepted` and `resident_failure_text` cover the start, cancel and resident-failure paths. All wording stays with the host.
+- Additive only: no existing item changes.
+
 ## 0.4.3
 - Add `setup::mic_devices`: `MicDeviceView` (serialisable input device), `list_input_device_views` (blocking list), and `resolve_saved_device` with `SavedDeviceChoice` (saved-microphone fallback refusal around a host resolver). Additive.
 

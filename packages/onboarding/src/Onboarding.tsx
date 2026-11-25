@@ -3,7 +3,7 @@ import { LegalGate } from "@rightkit/legal-ui";
 import { Button } from "@rightkit/react-shell/react";
 import { cx } from "./ui.js";
 import { licenseStep, modelsStep, permissionsStep, signInStep } from "./steps.js";
-import type { EligibilityBasis, LegalAcceptanceRecord, LegalGateDocument, LegalStepConfig, OnboardingLabels, OnboardingProps, OnboardingResult, OnboardingStep, OnboardingStepContext, PersistedOnboardingState, SettingsBackend, SettingsValues } from "./types.js";
+import type { EligibilityBasis, LegalAcceptanceRecord, LegalGateDocument, LegalStepConfig, OnboardingLabels, OnboardingProps, OnboardingResult, OnboardingStep, OnboardingStepContext, PersistedOnboardingState, SettingsBackend, SettingsRevision, SettingsValues } from "./types.js";
 
 const KEY = "onboarding.state";
 const INITIAL: PersistedOnboardingState = { version: 1, currentStep: 0, completed: [], skipped: false, legalAccepted: false };
@@ -118,7 +118,7 @@ export async function restartOnboardingSetup({
   existingProgress,
   alongside = {},
 }: {
-  settings: SettingsBackend;
+  settings: SettingsBackend<SettingsRevision>;
   existingProgress?: { firstStep: number; resetStepProgress: boolean };
   alongside?: SettingsValues;
 }): Promise<void> {

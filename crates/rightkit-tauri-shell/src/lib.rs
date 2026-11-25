@@ -1658,6 +1658,9 @@ fn setup(
 /// refuses a caller the installed `host::HostCallerPolicy` does not trust (the shell-wide app
 /// caller gate when no host services are installed, for the log commands), and answers
 /// `permission_denied` or `unsupported` until the app installs the service it needs.
+///
+/// `relaunch::rightkit_relaunch_for_update` (the PID-ordered restart after an update) is always listed and
+/// answers `unsupported` until the app calls `relaunch::install`.
 #[macro_export]
 macro_rules! handler {
     ($($app_cmd:path),* $(,)?) => {
@@ -1712,7 +1715,8 @@ macro_rules! handler {
             $crate::open_paths::rk_shell_open_paths_ready,
             $crate::associations::rk_shell_associations_status,
             $crate::associations::rk_shell_associations_set,
-            $crate::associations::rk_shell_open_default_apps
+            $crate::associations::rk_shell_open_default_apps,
+            $crate::relaunch::rightkit_relaunch_for_update
             $(, $app_cmd)*
         ]
     };

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.10
+
+- Add `relaunch::install`, `RelaunchService` and the command `rightkit_relaunch_for_update`: a JS-callable PID-ordered relaunch after an update, over the existing `relaunch_self`. The command answers `unsupported` until the host calls `install`; with `ShellState` managed it applies the app-caller gate.
+- Additive only: no existing item changes.
+
 ## 0.8.9
 - Add generic app-shell building blocks lifted from a host app; all additive, no existing item changes. `platform_init::{native_platform_name, script, plugin}` (the platform global init script, usable by a builder that does not install the shell); `external_link::{AllowlistOpener, open_allowed}` (an `ExternalOpener` that applies the host's destination predicate before the hand-off); `key_slot::{ensure, ensure_blocking}` (check-only or create-or-read of a local key slot over the host's credential operations); `self_test::{scan_args, has_flag, write_report, run}` (flag scan and atomic JSON report for a release self-test); `entitlement_backend::{BackendRestartTracker, needs_restart, spawn_check}` (restart decision when an entitlement change alters the engine backend); `shortcut_routing::{IntentHost, route_intent, dispatch_on_main, remove_legacy_files}` (verified menu-action and Shortcuts-intent routing, onboarding gate, legacy queue cleanup); `patch_keys::{summary, touches, touches_any}`; `tray_state::{TrayAlertSignal, TrayAlert::apply}`; `close_policy::{CloseHandlers, handle_close_requested}`; feature `crash`: `crash_hang::{MainThreadHang, install_main_thread}`; feature `license`: `host::license_runtime::{LicenseRuntime, EntitlementSpec, LegacyImportSpec}` (client, account, legacy import, observed entitlements and release queue assembled once, with `require_pro` retrying a pending legacy import first, and `license_service`).
 

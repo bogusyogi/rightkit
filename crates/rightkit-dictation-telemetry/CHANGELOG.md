@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.4
+
+- Add `feedback::submit_feedback_with_diagnostics`: sends the note first, then the diagnostics archive the host builds, under one submission id. A diagnostics failure goes to the host's callback and the report id is still returned.
+- Additive only: no existing item changes.
+
 ## 0.2.3 (unpublished)
 
 - Added `feedback::upload_diagnostics_archive` for user-triggered diagnostics uploads: bounded archive read, best-effort deletion after reading, existing metadata headers, 202 status requirement & report ID response. Hosts supply upload URL, byte limit & app version. Requires `rightkit-crash` 0.4.2.

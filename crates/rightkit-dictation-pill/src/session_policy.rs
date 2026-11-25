@@ -12,12 +12,14 @@
 //! Moved from HeardRight `pill/state.rs` (`enforce_visibility_invariant`,
 //! `update_fullscreen_suppression`, `set_pill_active`, `dispatch_event`) and `pill/commands.rs`
 //! (`webview_show_event`, `reveal_pill`, `reveal_pill_with_intro`, `reveal_pill_preserving_active`
-//! on both platforms). Event names and detail text are unchanged.
+//! on both platforms, `schedule_pill_reveal_after_splash`). Event names and detail text are
+//! unchanged.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::host_glue::Sink;
+use crate::reveal_retry::RevealRetry;
 use crate::visibility::Visibility;
 use crate::visibility_policy::{
     event_for_visibility, event_name, is_active_event, overlay_invariant, panel_invariant,
@@ -120,6 +122,72 @@ impl Policy {
     /// The event the pill shows for `event` under the resting-pill setting.
     pub fn event_for_visibility(&self, event: PillEvent) -> PillEvent {
         event_for_visibility(event, self.always())
+    }
+}
+
+/// What [`schedule_reveal_after_splash`] needs besides the policy: the single-flight latch (the
+/// host declares it as a `static`), the thread name and poll period, what is hidden while the
+/// splash is still in front and the two reveals.
+#[derive(Clone, Copy)]
+pub struct RevealAfterSplash {
+    /// The single-flight latch of the retry thread.
+    pub retry: &'static RevealRetry,
+    /// Name of the waiting thread.
+    pub thread_name: &'static str,
+    /// How often the waiting thread looks for the splash.
+    pub poll: Duration,
+    /// Runs on the waiting thread each time the splash is still in front (keep the pill hidden).
+    pub while_splash: fn(),
+    /// The reveal that plays the launch bloom (used when the retry was scheduled `with_intro`).
+    pub reveal_with_intro: fn(),
+    /// The plain reveal that keeps an active pill up.
+    pub reveal_preserving_active: fn(),
+}
+
+/// Reveal the pill again once the splash is gone: the body of the host's
+/// [`Policy::schedule_reveal_after_splash`]. Does nothing while the host has no app handle
+/// (`Facts::app_ready`). Otherwise starts the single waiting thread of `RevealAfterSplash::retry`
+/// (a second call while one waits does nothing); the thread polls `Facts::splash_present` every
+/// `poll`, runs `while_splash` while the splash is up and, once it is gone, logs
+/// `pill_reveal_retry` (`reason=<reason>`) and runs the intro or the plain reveal. A refused
+/// thread is logged as `pill_reveal_retry_error` (`reason=<reason> error=<io error>`).
+pub fn schedule_reveal_after_splash(
+    policy: &Policy,
+    reveal: &RevealAfterSplash,
+    reason: &'static str,
+    with_intro: bool,
+) {
+    if !(policy.facts.app_ready)() {
+        return;
+    }
+    let log = policy.log;
+    let RevealAfterSplash {
+        retry,
+        thread_name,
+        poll,
+        while_splash,
+        reveal_with_intro,
+        reveal_preserving_active,
+    } = *reveal;
+    let spawned = retry.schedule(
+        thread_name,
+        poll,
+        policy.facts.splash_present,
+        while_splash,
+        move || {
+            log("pill_reveal_retry", &format!("reason={reason}"));
+            if with_intro {
+                reveal_with_intro();
+            } else {
+                reveal_preserving_active();
+            }
+        },
+    );
+    if let Err(error) = spawned {
+        log(
+            "pill_reveal_retry_error",
+            &format!("reason={reason} error={error}"),
+        );
     }
 }
 

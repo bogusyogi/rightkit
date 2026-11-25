@@ -2,7 +2,7 @@
 // and a close guard. The app owns the draft (its context writes the draft and reports `dirty`); this component is the chrome.
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { Button, ModalShell } from "@rightkit/react-shell/react";
-import type { SettingsBackend, SettingsSection, SettingsSnapshot } from "./types.js";
+import type { SettingsBackend, SettingsRevision, SettingsSection, SettingsSnapshot } from "./types.js";
 import { SettingsPanel } from "./SettingsPanel.js";
 
 export interface SettingsModalConfirmLabels {
@@ -16,7 +16,7 @@ export interface SettingsModalConfirmLabels {
   keep?: string;
 }
 
-export interface SettingsModalProps {
+export interface SettingsModalProps<R extends SettingsRevision = number> {
   open: boolean;
   /** Called when the dialog closes (after a confirmed discard, or a close that the guard allowed). */
   onClose: () => void;
@@ -25,9 +25,9 @@ export interface SettingsModalProps {
   /** Sections as for `SettingsPanel` (the standard set merged with the app's own). */
   sections: readonly SettingsSection[];
   /** Persistence port for the panel; without it the panel keeps an in-memory store, as `SettingsPanel` does. */
-  backend?: SettingsBackend;
+  backend?: SettingsBackend<R>;
   /** A snapshot already known to the caller, so the first render shows the sections. */
-  initial?: SettingsSnapshot;
+  initial?: SettingsSnapshot<R>;
   /** Controlled active section id. */
   activeSection?: string;
   onActiveSectionChange?: (id: string) => void;
@@ -88,7 +88,7 @@ function writeHash(id: string): void {
  * (search, Cmd/Ctrl-F). While `dirty`, a close attempt (Escape, backdrop, the close button) asks before discarding; while
  * `pending`, the dialog cannot be closed.
  */
-export function SettingsModal({
+export function SettingsModal<R extends SettingsRevision = number>({
   open,
   onClose,
   title = "Settings",
@@ -108,7 +108,7 @@ export function SettingsModal({
   confirmDiscard,
   deepLinkHash = false,
   width = 880,
-}: SettingsModalProps) {
+}: SettingsModalProps<R>) {
   const titleId = useId();
   const confirmId = useId();
   const [inner, setInner] = useState<string | undefined>(undefined);
@@ -172,7 +172,7 @@ export function SettingsModal({
         </div>
       ) : null}
       <div className="rk-settings-modal__body">
-        <SettingsPanel
+        <SettingsPanel<R>
           sections={sections}
           backend={backend}
           initial={initial}

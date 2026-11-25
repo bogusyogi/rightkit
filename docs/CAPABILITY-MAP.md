@@ -135,7 +135,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | issues-tracker | `@rightkit/issues-tracker` | none | declaration-only | 0 | @rightkit/issues-tracker: published 0.1.0 (npm) |
 | legal-assent | `@rightkit/legal` | none | declaration-only | 0 | @rightkit/legal: published 0.6.3 (npm) |
 | legal-ui | `@rightkit/legal-ui` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/legal-ui: published 0.4.2 (npm) |
-| library-ui | `@rightkit/library-ui` | none | declaration-only | 0 | @rightkit/library-ui: staged 0.2.5, not published |
+| library-ui | `@rightkit/library-ui` | none | declaration-only | 0 | @rightkit/library-ui: staged 0.2.6, not published |
 | licensing | `@rightkit/license`, `rightkit-license` | advise | fingerprinted | 6 (0 block, 6 advise) | @rightkit/license: published 0.3.3 (npm); rightkit-license: published 0.3.4 (crates.io) |
 | lifecycle-hooks | `@rightkit/hooks`, `rightkit-hooks` | none | declaration-only | 0 | @rightkit/hooks: published 0.1.2 (npm); rightkit-hooks: published 0.2.0 (crates.io) |
 | llm-providers | `rightkit-llm` | advise | fingerprinted | 6 (0 block, 6 advise) | rightkit-llm: published 0.3.1 (crates.io) |

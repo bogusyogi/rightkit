@@ -6,5 +6,15 @@
 //   const source = tauriLibrarySource();
 //   <LibraryScreen source={source} variants={LIBRARY_SORT_VARIANTS} ... />
 //
-// Dictation hosts supply their own LibrarySource over the transcript store.
+// Dictation hosts take `deliveryLibrarySource`, the source over their delivery history, with their own command
+// names, row mapping and wording.
 export { LIBRARY_SORT_VARIANTS, tauriLibrarySource, type TauriLibraryCommands, type TauriLibraryOptions } from "./tauriLibrarySource.js";
+export {
+  deliveryLibrarySource,
+  type DeliveryHistoryPage,
+  type DeliveryHistoryQuery,
+  type DeliveryLibraryCommands,
+  type DeliveryLibrarySourceOptions,
+  type DeliveryRecoveryStatus,
+  type SaveFileFilter,
+} from "./deliveryLibrarySource.js";
