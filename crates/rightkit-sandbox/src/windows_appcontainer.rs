@@ -45,7 +45,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use windows::core::{PCWSTR, PWSTR};
-use windows::Win32::Foundation::HANDLE;
+use windows::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE};
 use windows::Win32::System::Threading::{
     CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess,
     InitializeProcThreadAttributeList, ResumeThread, TerminateProcess, UpdateProcThreadAttribute,
@@ -3675,11 +3675,18 @@ fn create_suspended(
         let mut startup = STARTUPINFOEXW::default();
         startup.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
         startup.lpAttributeList = list;
+        startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
         if pseudoconsole.is_none() {
-            startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
             startup.StartupInfo.hStdInput = stdio_handles[0];
             startup.StartupInfo.hStdOutput = stdio_handles[1];
             startup.StartupInfo.hStdError = stdio_handles[2];
+        } else {
+            // Without explicit handles a console child takes this process's standard handles when
+            // they are redirected (a test harness, CI, a service) and writes there instead of to the
+            // pseudoconsole. Invalid handles make the pseudoconsole its only console.
+            startup.StartupInfo.hStdInput = INVALID_HANDLE_VALUE;
+            startup.StartupInfo.hStdOutput = INVALID_HANDLE_VALUE;
+            startup.StartupInfo.hStdError = INVALID_HANDLE_VALUE;
         }
         // The pseudoconsole is the console: no CREATE_NO_WINDOW, no inherited handles.
         let creation_flags = if pseudoconsole.is_some() {

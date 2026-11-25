@@ -320,7 +320,7 @@ pub fn touches_account(names: &[String], account: Option<&str>) -> bool {
         return false;
     };
     names.iter().any(|name| {
-        name.split(['\', '/'])
+        name.split(['\\', '/'])
             .next()
             .is_some_and(|first| first.eq_ignore_ascii_case(account))
     })
