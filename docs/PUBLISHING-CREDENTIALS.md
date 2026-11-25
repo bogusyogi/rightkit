@@ -5,16 +5,32 @@
 Adrian, 2026-11-03 (rightkit#1471): "i want you to publish it from local. the npm and crates are both local. we will do a provenance skip
 fuck your ci. feel free to push but no ci". RightKit's npm packages and crates publish from a local host, the Mac or the Dell, so the publish uses that host's warm cache (Adrian,
 2026-11-10, rightkit#1559: "there's no rule for MAC only. it can also be publsihed from the dell. thje point is to have local warm cache and use
-it"). Pushes to `main` carry `[skip ci]`.
+it"). Adrian, 2026-11-25: local on the Mac and the Dell with the warm cache, crates and npm; CI publishes only when the origin is a Linux
+container. Pushes to `main` carry `[skip ci]`.
 npm provenance is off for owned packages (rightkit#1472). This replaces the CI-only route described further down and in `docs/CI.md`.
 
 | Registry | Credential | Where it lives | Created by | Used by |
 |---|---|---|---|---|
 | npm (`@rightkit/*`) | Granular access token, `@rightkit` scope, publish rights, 2FA bypass | macOS Keychain, generic password `npm-rightkit-publish` (login keychain, account `adrdsouza`) | Adrian | `right-release publish-local npm` |
+| npm (`@rightkit/*`), Dell | The account's own npm sign-in (`npm login`; `npm whoami` answers `adrdsouza`) | `C:\Users\adrds\.npmrc` (the account's profile folder, found with `os.userInfo()`, not `$HOME`) | Adrian | `right-release publish-local npm` on Windows (gate 0.6.80 or later, rightkit#1714) |
 | crates.io | Registry token | macOS Keychain, through cargo's credential provider (`~/.cargo/config.toml`: `global-credential-providers = ["cargo:macos-keychain"]`; service `cargo-registry:https://github.com/rust-lang/crates.io-index`) | Adrian (`cargo login`) | `cargo publish` on the Mac |
 
-Neither token is ever printed, passed on a command line or written to a file. The publisher reads the npm token inside its own process
-and hands it to npm through a private temporary config; cargo reads its token from the Keychain itself.
+Neither token is ever printed, passed on a command line or written to a file. On the Mac the publisher reads the npm token inside its own
+process and hands it to npm through a private temporary config; cargo reads its token from the Keychain itself. On the Dell the publisher
+never reads a token: npm reads the account's own sign-in file, passed as `--userconfig`. If that sign-in is a login session rather than
+a token with 2FA bypass, npm asks for a one-time code and the publish stops there; then store the granular `@rightkit` publish token in
+that file once (`npm config set //registry.npmjs.org/:_authToken <token> --location user`, typed by Adrian).
+
+### The gate package
+
+`@rightkit/release` is published only as the archive its acceptance run admitted (GATE-CONTRACT NN31), so its route is:
+1. Mac: `rightkit-host-gate --to package --unit npm:@rightkit/release` packs it with its Developer-ID-signed `bin/darwin/rightkit-swap`.
+2. Dell: `rustright-install trusted-gate --version <v> --from-archive <tgz> ...` stages that file as a candidate; the acceptance run
+   (`acceptance-run.mjs`, then `acceptance-result.mjs --acceptance`) tests it.
+3. Mac: `right-release publish-local npm --package @rightkit/release --commit <sha> --archive <tgz>` with `RK_GATE_CONTRACT_RECEIPT`
+   naming the acceptance result; the guard refuses any other file before a credential is used.
+`--from-archive` is RustRight's (branch `gate/trusted-gate-from-archive`, landing with the next RustRight release); until it lands the
+Dell stages from a CI run (`--from-run`).
 
 ### Who does what
 
