@@ -2,6 +2,7 @@
 
 ## 0.6.81
 
+- The macOS swap helper (bin/darwin/rightkit-swap) is committed, signed, with its sha256: no host builds or signs it to pack the gate package, so the gate packs on the Dell too. A helper whose bytes match the committed digest is used as it is; install-app runs a private executable copy when the packed file lost its executable bit (packed on Windows).
 - Package admission resolves each Cargo workspace's target from the compile stage's broker receipts, so a multi-workspace app (CodeRight) packages on a broker host (#1736).
 - The package ships every file of its contract test (`acceptance-lines.test.mjs`), so `rustright-install trusted-gate promote` can check an installed candidate (#1733).
 - NN07/NN08 pnpm answer tests run only where the gate identifies a pnpm program (#1726).
