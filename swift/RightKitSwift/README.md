@@ -294,7 +294,7 @@ recorded in the `swift` section of `packages/release/rightkit-versions.json`.
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/bogusyogi/rightkit", exact: "0.9.5"),
+    .package(url: "https://github.com/bogusyogi/rightkit", exact: "0.9.6"),
 ],
 targets: [
     .target(name: "YourApp", dependencies: [
@@ -309,7 +309,7 @@ In an XcodeGen `project.yml`:
 packages:
   RightKitSwift:
     url: https://github.com/bogusyogi/rightkit
-    exactVersion: "0.9.5"
+    exactVersion: "0.9.6"
 ```
 
 The URL is the public repository `bogusyogi/rightkit`; its root `Package.swift` exposes the same products as

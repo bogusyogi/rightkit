@@ -1355,9 +1355,9 @@
       "registry": "swift",
       "name": "RightKitSwift",
       "version": "0.9.6",
-      "sha256": "07310dace7ae876f43b5e8828c209d46584fe94383b80f06e311b46ae5752364",
+      "sha256": "574b191dcc7624d8d760d606f507e304089f3099571aeb45cb7d6a8009d17c33",
       "reviewer": "Independent Oracle source review",
-      "reviewRef": "agent-review:coderight-mac/swift_096_oracle/e30380e3da33b07e6ba85faa55faa1acb082ec97/07310dace7ae876f43b5e8828c209d46584fe94383b80f06e311b46ae5752364; verdict APPROVE, six non-blocking findings in bogusyogi/rightkit#1705"
+      "reviewRef": "agent-review:coderight-mac/swift_096_oracle/e30380e3da33b07e6ba85faa55faa1acb082ec97/574b191dcc7624d8d760d606f507e304089f3099571aeb45cb7d6a8009d17c33; verdict APPROVE, six non-blocking findings in bogusyogi/rightkit#1705; README consumption example moved to exact 0.9.6 after the review (the only change to the reviewed tree e30380e3d/07310dace7ae)"
     }
   ]
 }
