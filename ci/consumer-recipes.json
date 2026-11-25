@@ -690,7 +690,7 @@
       },
       "files": {
         "ci/consumers/npm/react-shell/README.md": "f3f2c936ccdb11d97794c94b96369a3874ee82794ae6cc7fdbc7e7fd6b74fd18",
-        "ci/consumers/npm/react-shell/consumer.mjs": "82369c8d889df2967cadbba6058a20ee091c8e96bb9137233f005ea90d5a267d",
+        "ci/consumers/npm/react-shell/consumer.mjs": "8098d37284ad9dc5cf82923e22d050d449344616241e69a71fc85fa811356d71",
         "ci/consumers/npm/react-shell/package.json": "7316f3eadb4c9d39d41c790089429d4a215dabb70e26eac121a99b0e36581e25",
         "ci/consumers/npm/react-shell/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "a0e235cbb1540000a57f1af3b603e5f81c6c14322ad481bf189c497d8358e98f"
