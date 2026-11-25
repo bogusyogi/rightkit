@@ -675,11 +675,11 @@ function assertLocalHost(deps, workspaceRoot, kind, { qualifyOnly = false, unit 
   const platform = deps.platform ?? process.platform;
   if (!(deps.localBuildGranted ?? localBuildGranted)(workspaceRoot)) refuse(`--local needs the local-build grant: a committed ${LOCAL_BUILD_FILE} (allow "build-test-publish") naming this repository at ${workspaceRoot}`);
   if (!Object.hasOwn(LOCAL_HOST_POLICIES, platform)) refuse(`--local runs on the Mac (host policy: darwin-only), Windows (host policy: win32-only) or a Linux direct origin (linux-direct); this host is ${platform}`);
-  // The npm upload reads the registry token from the macOS Keychain: Mac only.
-  // A Linux direct origin only qualifies (no token; the upload is publish.yml, GB-29), so it may qualify every npm package, @rightkit/release
-  // included: its Developer-ID-signed helper is built and signed hosted (publish.yml build-swap/sign-swap), never on the origin.
-  const linuxNpmQualify = platform === "linux" && qualifyOnly;
-  if (kind === "npm" && platform !== "darwin" && !linuxNpmQualify) refuse(`publish npm --local needs the macOS Keychain npm token and runs on the Mac only; Windows publishes crates (publish cargo --local); this host is ${platform}`);
+  // A qualification reads no registry token (the upload is publish.yml), so the Mac, Windows and a Linux direct origin all qualify every npm
+  // package, @rightkit/release included: off the Mac its Developer-ID-signed helper is built and signed hosted (publish.yml build-swap/sign-swap)
+  // and is left out of the content digest (pack-digest exclusionsFor). Host uploads are retired (host-upload-refusal.mjs), so --local without
+  // --qualify-only stays refused off the Mac as before; the direct npm upload is `right-release publish-local npm` (publish-local-npm.mjs).
+  if (kind === "npm" && platform !== "darwin" && !qualifyOnly) refuse(`publish npm --local uploads only through publish-local npm; on ${platform} it qualifies (--qualify-only, the gate's unit stages)`);
   return platform;
 }
 
@@ -973,8 +973,9 @@ async function* publishUnitStages(parsed, deps, batch) {
   const cleanup = () => fs.rmSync(scratch, { recursive: true, force: true });
   try {
     let artifactFile; const packCommands = [];
-    if (kind === "npm" && unit === SWAP_HELPER_PACKAGE && platform !== "linux") {
-      // A Linux direct origin skips this: it packs without the helper and the hosted sign-swap job binds the sealed one.
+    if (kind === "npm" && unit === SWAP_HELPER_PACKAGE && platform === "darwin") {
+      // Windows and a Linux direct origin skip this (only the Mac can Developer-ID sign): they pack without the helper and the hosted
+      // sign-swap job binds the sealed one.
       // #258: the package ships a Developer-ID-signed bin/darwin/rightkit-swap; build, sign and verify it before packing (fails closed). The
       // helper and its signing receipt are written into the unit's own directory of the snapshot (packages/release/bin/darwin, both ignored by
       // packages/release/.gitignore): declared stage outputs of this stage, recorded by the gate's stage-output ledger (stage-ledger.mjs) like
