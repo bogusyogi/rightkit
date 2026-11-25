@@ -267,7 +267,12 @@ const defaultReadJson = (file) => { try { return JSON.parse(fs.readFileSync(file
 
 async function defaultRegistryHas({ kind, name, version }) {
   if (kind === "npm") {
-    const view = spawnSync("npm", ["view", `${name}@${version}`, "version", "--prefer-online", "--registry", "https://registry.npmjs.org/"], { encoding: "utf8", windowsHide: true });
+    // npm is a .cmd shim on Windows, which Node starts only through cmd.exe: started directly it never ran and the error was empty (0.6.81 on the
+    // Dell, the first npm unit packaged there). The arguments are a validated package name, a version and a fixed URL.
+    const args = ["view", `${name}@${version}`, "version", "--prefer-online", "--registry", "https://registry.npmjs.org/"];
+    const view = process.platform === "win32"
+      ? spawnSync(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", "npm", ...args], { encoding: "utf8", windowsHide: true })
+      : spawnSync("npm", args, { encoding: "utf8", windowsHide: true });
     const out = `${view.stdout ?? ""}${view.stderr ?? ""}`;
     if (!view.error && view.status === 0) return (view.stdout ?? "").trim() === version;
     if (/E404|404 Not Found/i.test(out)) return false;
