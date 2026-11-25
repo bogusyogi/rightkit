@@ -114,7 +114,11 @@ export function exportWindowsProcesses(from, to, { run = execFileSync } = {}) {
     : { id: 4689, time: e.time, pid: hex(e.data.ProcessId), exe: e.data.ProcessName, exit: hex(e.data.Status) });
   const bad = events.filter((e) => !Number.isInteger(e.pid) || !Number.isFinite(Date.parse(e.time)) || (e.id === 4688 && !Number.isInteger(e.ppid)));
   if (bad.length) problems.push(`${bad.length} event(s) have no usable process id, parent or time`);
-  if (events.some((e) => e.id === 4688 && (e.commandLine === null || e.commandLine === undefined))) problems.push("start events carry no command line (ProcessCreationIncludeCmdLine_Enabled is off)");
+  // A program started from a file always carries its command line when ProcessCreationIncludeCmdLine_Enabled is on. A process the kernel makes with no image
+  // file (vmmemWSL, vmmem, Registry, MemCompression: an image name with no path) never carries one, whoever started it: one such start on the host
+  // (WSL's memory process, started by another session) made the 0.6.78 real build's whole record "incomplete" (2026-11-25).
+  const noLine = events.filter((e) => e.id === 4688 && (e.commandLine === null || e.commandLine === undefined) && /[\\/]/.test(String(e.exe ?? "")));
+  if (noLine.length) problems.push(`${noLine.length} start event(s) of programs carry no command line (ProcessCreationIncludeCmdLine_Enabled is off?; first: ${noLine[0].exe})`);
   return { kind: "windows-security", from, to, newest: raw?.newest ?? null, continuous: raw?.continuous === true, events, problems };
 }
 

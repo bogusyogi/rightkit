@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.79
+
+- Acceptance test, as accepted on 2026-11-25 (gate 0.6.78, broker rustright-8e30eee: 13 of 13 and the real build): NN11 limits are the worst gate-own time of four full runs x 1.5, at least + 30 s, and the real build has its own (421 s); a process the kernel makes with no image file (vmmemWSL) no longer voids the Windows process record; in the kill case a job the kill cancelled before its post-checks (signed CANCELLED, post-checks not run, reaped) is not held to the unchanged-snapshot proof.
+
 ## 0.6.78
 
 - NN11 limits the gate's own time: a run's wall time less the time its broker jobs were in flight (the broker is shared with every build on the host); both are printed. Limits are the worst own time of three full runs x 1.25, at least + 15 s.

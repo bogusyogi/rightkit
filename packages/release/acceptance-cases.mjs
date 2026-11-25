@@ -69,7 +69,10 @@ export function receiptsNameTheCommit(run, { skipNeverRan = false } = {}) {
     if (!j.verified) { fails.push(`${jobName(j)}: its receipt does not verify (${(j.problems ?? []).join("; ") || "no reason given"})`); continue; }
     if (j.gate?.commit !== run.commit) fails.push(`${jobName(j)} is signed for commit ${String(j.gate?.commit).slice(0, 12)}, not the selected ${String(run.commit).slice(0, 12)}`);
     if (!run.tree || j.gate?.tree !== run.tree) fails.push(`${jobName(j)} is signed for tree ${String(j.gate?.tree).slice(0, 12)}, not the selected commit's ${String(run.tree).slice(0, 12)}`);
-    if (j.gate?.snapshotUnchanged !== true) fails.push(`${jobName(j)}: the broker did not sign that the snapshot was unchanged`);
+    // In the kill case a job the kill cancelled (owner lost) never reached its post-checks, so the broker cannot sign the snapshot unchanged; its commit and
+    // tree are still held above, and its outputs are never admitted. Seen when the kill landed after submission (final run, 2026-11-25).
+    const killedUnder = skipNeverRan && j.status === "CANCELLED" && j.postChecksRan === false && j.reaped === true;
+    if (j.gate?.snapshotUnchanged !== true && !killedUnder) fails.push(`${jobName(j)}: the broker did not sign that the snapshot was unchanged`);
   }
   return fails;
 }

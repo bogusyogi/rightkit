@@ -235,3 +235,13 @@ test("NN13: a missing or failing callers verdict fails NN13 and the whole", () =
 test("NN01: a broker job of this repository built from its working checkout during the run fails, even though it is not one of the run's own jobs", () => {
   failsFor("NN01", 3, (r) => { r.foreignJobs = [{ ...job("rk", "check", bc.hostTarget, "", T0 + 50), cwd: "D:\Claude\rk-witness-fixture\rk" }]; }, /ran for this repository during the run but not from its snapshot/);
 });
+
+
+test("NN01 case 7: a job the kill cancelled before its post-checks (signed CANCELLED, post-checks not run, reaped) is not held to the unchanged-snapshot proof; anywhere else it is", () => {
+  const killed = (j) => Object.assign(j, { status: "CANCELLED", postChecksRan: false, reaped: true, gate: { ...j.gate, snapshotUnchanged: undefined } });
+  // A job of case 1's run, signed for case 7's own commit and tree, put in the killed run of case 7.
+  const jobFor7 = (g) => { const j = killed(structuredClone(g[1][0].jobs[0])); j.gate = { ...j.gate, commit: g[7][0].commit, tree: g[7][0].tree }; return j; };
+  { const g = good(); g[7][0].jobs = [jobFor7(g)]; assert.equal(decideCase({ ...def(7), runs: g[7] }, CASES).NN01.verdict, PASS, JSON.stringify(decideCase({ ...def(7), runs: g[7] }, CASES).NN01)); }
+  failsFor("NN01", 1, (r) => { killed(r.jobs[0]); }, /did not sign that the snapshot was unchanged/);
+  { const g = good(); const j = jobFor7(g); j.reaped = false; g[7][0].jobs = [j]; assert.equal(decideCase({ ...def(7), runs: g[7] }, CASES).NN01.verdict, FAIL); }
+});

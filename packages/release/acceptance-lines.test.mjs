@@ -401,6 +401,11 @@ test("the Security log export: its events become the process record, and a log t
   assert.match(exportWindowsProcesses(at(-1), at(2), { run: fake({ ...raw, oldest: at(1) }) }).problems[0], /oldest event/);
   assert.match(exportWindowsProcesses(at(-1), at(2), { run: fake({ ...raw, newest: at(-50) }) }).problems.join(), /newest event/);
   assert.match(exportWindowsProcesses(at(-1), at(2), { run: () => { throw Object.assign(new Error("x"), { stderr: "Access is denied." }); } }).problems[0], /Access is denied/);
+  // 2026-11-25: a process the kernel makes with no image file (vmmemWSL) never carries a command line; it is not a sign the setting is off. A program
+  // started from a file with no command line is.
+  const start = (pid, name, line) => ({ id: 4688, time: at(0), data: { NewProcessId: pid, ProcessId: "0x32", NewProcessName: name, ...(line ? { CommandLine: line } : {}) } });
+  assert.deepEqual(exportWindowsProcesses(at(-1), at(2), { run: fake({ ...raw, events: [...raw.events, start("0x99", "vmmemWSL", null)] }) }).problems, []);
+  assert.match(exportWindowsProcesses(at(-1), at(2), { run: fake({ ...raw, events: [...raw.events, start("0x98", "C:\\Windows\\System32\\cmd.exe", null)] }) }).problems.join(), /1 start event\(s\) of programs carry no command line .*cmd\.exe/);
 });
 test("NN10: a verified compile-only test build whose program the gate ran, as the broker built it, passes", () => {
   const ok = (r) => { testJob(r, EXE, { testExecutables: [{ path: EXE, sha256: "h1" }] }); r.digests[EXE] = { sha256: "h1", mtimeMs: ms(8.2) }; };
