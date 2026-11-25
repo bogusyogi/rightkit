@@ -2359,7 +2359,7 @@
       "gateEvidence": "existing consumer runs the child as itself for process cases; bundle resolver case uses a synthetic temporary .app tree, never launches a child, and refuses an escaping relative path; no network or real user data",
       "consumes": "PK02 plan (01-packages.md:116-129): ScrapeRight and CodeRight runners; public items exercised: run (crates/rightkit-child-process/src/run.rs:192), run_with_stdin (src/run.rs:173), run_command (src/run.rs:249), run_command_capture (src/run.rs:271), RunOptions (src/run.rs:64), CaptureOptions (src/run.rs:105), OwnedCommand::new and command_mut (src/owned.rs:167,216); 0.5.5 descriptor policy surface: OwnedCommand::inherit_all_descriptors and inherit_fd (src/owned.rs:255,273); 0.5.14 bundled_app::resolve_app_in_bundle resolves nested app placement and refuses escaping relative paths without child launch",
       "files": {
-        "Cargo.toml": "b050ec9d1423e6165edd16a57d21f363719ed682a18ace9a16f17eacb996d30b",
+        "Cargo.toml": "2b38b062b3c4e252f5a8597fec89f6903cd55e0bb56939324500c70be2b4b06e",
         "README.md": "852edbc451881d88c9f3b3064200faaf1e973b5e09f11aef2e7e2c5d58509a71",
         "src/main.rs": "41e97e7d733d7be1465825efa6a5126e993d90eb9a339424295f309fe70ee487"
       },
