@@ -56,7 +56,7 @@ pub use deny_globs::{
     shell_withholds_read_in, state_dir_name, DenyGlobError, DenyGlobSet, DEFAULT_READ_DENY,
     DEFAULT_STATE_DIR_NAME, DEFAULT_WRITE_DENY,
 };
-pub use destructive::catastrophic_reason;
+pub use destructive::{catastrophic_reason, exec_reason};
 pub use engine::{is_test_file, PermissionEngine};
 pub use hard_to_undo::{
     classify_step, refuse_if_never, HardToUndo, NeverClass, OwnerLimits, PurchaseFacts, StepClass,

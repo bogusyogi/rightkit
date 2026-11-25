@@ -108,7 +108,7 @@ pub use error::{
 };
 pub use fail_limit::FailLimiter;
 pub use host_identity::{HostExpectation, HostIdentityError, HostIdentityReason, HostProcess};
-pub use incumbent::{stop_incumbent, IncumbentError, IncumbentStop};
+pub use incumbent::{stop_identity, stop_incumbent, IncumbentError, IncumbentStop, StopOptions};
 pub use lifecycle::{
     DaemonLifecycle, LifecycleError, Provenance, ERROR_NOT_OWNED, ERROR_RESTART_EXHAUSTED,
     ERROR_SESSION_RELEASED, ERROR_STALE_GENERATION,

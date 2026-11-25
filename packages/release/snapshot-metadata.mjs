@@ -274,7 +274,9 @@ export const carriedReadOnlyScan = (words, options) => carriedScanRefusal(words,
 export function directReadSpawn({ spawn, cargoCommand, snapshotRoot, directPath, pathKey = "PATH", tmpRoot, env, err = () => {}, memo = null, isAsync = false, served = null }) {
   const prefix = cargoCommand.slice(1);
   const refused = (code, message) => { err(`rightkit-gate: ${code}: ${message}`); return { status: CARGO_REFUSAL_STATUS, signal: null, error: null, stdout: "", stderr: `rightkit-gate: ${code}: ${message}\n` }; };
-  return (cmd, args, opts = {}) => {
+  // Anything but cargo in the snapshot goes to `spawn` untouched; `underlying` names it, so a caller can tell this wrapper still starts real programs
+  // (NN08: the scan's pnpm version probe kept no answer behind this wrapper, 0.6.74 case 1).
+  const wrapped = (cmd, args, opts = {}) => {
     const cargo = cmd === cargoCommand[0] && prefix.every((w, i) => args[i] === w);
     if (!cargo || typeof opts.cwd !== "string" || !within(real(opts.cwd), real(snapshotRoot))) return spawn(cmd, args, opts);
     // A seam request (reset plan section 3: RUSTRIGHT_GATE_COMMIT set) is a class B compile the broker admits; it runs in the snapshot by design and is never a
@@ -302,4 +304,6 @@ export function directReadSpawn({ spawn, cargoCommand, snapshotRoot, directPath,
     cleanup();
     return remember(r);
   };
+  wrapped.underlying = spawn;
+  return wrapped;
 }

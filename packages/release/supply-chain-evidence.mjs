@@ -24,7 +24,7 @@ function stableSha256(value) {
   return createHash("sha256").update(JSON.stringify(canonical(value))).digest("hex");
 }
 
-function assertIdentity({ product, version, target, sourceCommit }) {
+export function assertIdentity({ product, version, target, sourceCommit }) {
   if (!/^[a-z][a-z0-9-]+$/.test(product ?? "")) throw new Error("supply-chain product is invalid");
   if (!VERSION.test(version ?? "")) throw new Error("supply-chain version must be stable SemVer");
   if (!/^(?:windows|macos)-(?:x86_64|arm64)$/.test(target ?? "")) throw new Error("supply-chain target is invalid");

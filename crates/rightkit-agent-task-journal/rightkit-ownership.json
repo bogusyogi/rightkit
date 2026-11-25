@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-agent-task-journal",
+  "capabilities": [
+    {
+      "capability": "agent-task-journal",
+      "summary": "Durable agent task journal over the job store: owner epoch fencing, restart recovery, event outbox, device-link request replay and lane workers; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

@@ -1025,7 +1025,10 @@ impl OpenAiCompatClient {
         if crate::agent_providers::http::base_url_host(&base_url)
             .is_some_and(|host| host.eq_ignore_ascii_case("chatgpt.com"))
         {
-            public_headers.insert("originator".into(), "pi".into());
+            public_headers.insert(
+                "originator".into(),
+                crate::agent_providers::host::codex_originator().to_string(),
+            );
             if let Some(account_id) = openai_account_id_from_token(&api_key) {
                 public_headers.insert("chatgpt-account-id".into(), account_id);
             }
@@ -1079,7 +1082,10 @@ impl OpenAiCompatClient {
         if crate::agent_providers::http::base_url_host(&base_url)
             .is_some_and(|host| host.eq_ignore_ascii_case("chatgpt.com"))
         {
-            public_headers.insert("originator".into(), "pi".into());
+            public_headers.insert(
+                "originator".into(),
+                crate::agent_providers::host::codex_originator().to_string(),
+            );
             if let Some((name, value)) = &auth_header {
                 if name.eq_ignore_ascii_case("authorization") {
                     if let Some(token) = value.strip_prefix("Bearer ") {
@@ -1579,5 +1585,20 @@ fn fill_null_assistant_content(messages: &mut [serde_json::Value]) {
                 message["content"] = serde_json::Value::String(String::new());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod codex_originator_tests {
+    use super::*;
+
+    #[test]
+    fn chatgpt_originator_header_is_pi_without_a_setter_call() {
+        let client =
+            OpenAiCompatClient::new("key", "gpt-5", "https://chatgpt.com/backend-api/codex");
+        assert_eq!(
+            client.public_headers.get("originator").map(String::as_str),
+            Some("pi")
+        );
     }
 }

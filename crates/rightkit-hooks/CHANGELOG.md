@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0
+
+- Removed the deprecated substring `DestructiveGuard` and `DestructiveGuardDecision` (and the public `guard` module); use `rightkit_agent_policy::catastrophic_reason` (rightkit#1687).
+
 ## 0.2.13
 
 - Deprecated `agent_hooks::DestructiveGuard` and `DestructiveGuardDecision` (rightkit#1687). `rightkit-agent-policy` is RightKit's destructive-command guard: it parses the command (groups, `sh -c` bodies, substitutions, wrappers), while this guard only matches substrings, so it misses `(cd / && rm -rf -- *)` and flags `echo "rm -rf"`. Nothing in RightKit decides with it. Behaviour is unchanged; the types are removed in the next minor release. Use `rightkit_agent_policy::catastrophic_reason` and the host's permission engine.

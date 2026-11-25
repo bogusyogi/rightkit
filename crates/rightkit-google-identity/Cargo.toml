@@ -4,20 +4,28 @@ version = "0.3.0"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
-description = "Deprecated, unpublished: re-exports the Google sign-in of rightkit-oauth (feature `google`). Use rightkit-oauth."
+description = "Google sign-in and Google account storage for Right Suite apps: rightkit-oauth's Google sign-in (feature `google`), the Google APIs client with its sealed token store, and the process-wide runtime that runs its calls."
 readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["google", "oauth", "pkce", "identity"]
-# Deprecated and unpublished from 0.3.0 (shape matrix decision 9): its PKCE and ID-token verification duplicated
-# rightkit-oauth (feature `google`), which rightkit-google-apis uses. No dependant; 0.1.0 stays on crates.io.
-publish = false
 include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [dependencies]
 rightkit-oauth = { version = "0.11.0", path = "../rightkit-oauth", default-features = false, features = ["google"] }
+rightkit-google-apis = { version = "0.2.3", path = "../rightkit-google-apis", features = ["sealed-store"] }
+rightkit-credentials = { version = "0.5.0", path = "../rightkit-credentials" }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
 
 [package.metadata.rightkit]
-continuous = false
-continuous_reason = "re-export only; the runtime behaviour is that of rightkit-oauth, whose own continuous_reason applies"
+continuous = "held-resource"
+
+[[package.metadata.rightkit.resources]]
+api = "runtime"
+file = "src/home.rs"
+holds = ["thread", "memory"]
+scale = "one process-wide tokio multi-thread runtime with one worker thread, built on first use; it keeps the HTTP client's pooled connections alive for the life of the process"
+release = "process exit"
+static_note = "RUNTIME holds one runtime, built once in a OnceLock; it is not a collection and cannot grow"
 
 # One Cargo workspace and lock per crate (rightkit#1285).

@@ -2,6 +2,7 @@
 
 ## 0.1.1 (unreleased; `publish = false` until the name is approved)
 
+- `publish = false` removed (owner approval to publish the crates Pulse needs). Requires `rightkit-agent-engine-attention` 0.2.1; `rightkit-fs` now enables `fs` as well as `digest` (`file_store` writes private files). Not compiled.
 - Calendar signals (AG-2; additive). A calendar event is structured, so code settles it with no model call.
   - `calendar`: `InboundEvent` (the fields of `rightkit-google-apis`'s `CalEvent` plus `cancelled` and `organizer_is_self`), `new_signal` (source `calendar`, message id `<calendar id>/<event id>`, trust `Owner` when the owner organizes the event, else `Outside`), `extract` (a typed `CalendarEntry`; an all-day end is Google's exclusive date turned back one day; a cancelled event gives none; title and location are cleaned and capped).
   - `facts`: `CalendarEntry` and `FactBody::Event`; `Fact::event()`; `instruction::FactKind::Event`. A new enum variant: an exhaustive match over `FactBody` or `FactKind` in a host needs an arm.

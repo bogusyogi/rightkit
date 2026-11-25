@@ -49,7 +49,7 @@ use super::wire::{Enc, random, unhex};
 use super::{
     CLOCK_SKEW_MS, DEVICE_LINK_SCHEMA_VERSION, LinkError, PAIRING_CODE_DIGITS, PAIRING_TTL_MS,
 };
-use rightkit_crypto::{ct_eq, sha256};
+use rightkit_crypto::{ct_eq, hmac_sha256, sha256};
 use rightkit_device_link_types::{DevicePlatform, DeviceRef};
 use rightkit_fs::digest::hex;
 
@@ -317,11 +317,7 @@ fn join_proof_input(transcript_hash: &[u8; 32]) -> Vec<u8> {
 }
 
 fn join_proof(verifier: &[u8; 32], transcript_hash: &[u8; 32]) -> [u8; 32] {
-    let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, verifier);
-    let tag = ring::hmac::sign(&key, &join_proof_input(transcript_hash));
-    let mut out = [0u8; 32];
-    out.copy_from_slice(tag.as_ref());
-    out
+    hmac_sha256(verifier, &join_proof_input(transcript_hash))
 }
 
 impl PendingApproval {
@@ -330,8 +326,10 @@ impl PendingApproval {
     /// id, both identity keys and both fresh nonces, so a proof made for another session, or by
     /// a device that does not know the token secret, fails.
     pub fn join_proof_ok(&self, verifier: &[u8; 32], proof: &[u8; 32]) -> bool {
-        let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, verifier);
-        ring::hmac::verify(&key, &join_proof_input(&self.transcript_hash), proof).is_ok()
+        ct_eq(
+            &hmac_sha256(verifier, &join_proof_input(&self.transcript_hash)),
+            proof,
+        )
     }
 }
 

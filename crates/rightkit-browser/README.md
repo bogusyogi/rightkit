@@ -126,7 +126,7 @@ The `install` cargo feature adds `install::ensure_chrome_for_testing(&ManagedRoo
 
 ## Shutdown
 
-`shutdown_report()` and `cancel_report()` return a `StopReport` (process stopped, profile released, with errors); `close()` is `shutdown()` that fails on either. `shutdown()` closes gracefully: CDP `Browser.close`, then SIGTERM to the process group, then SIGKILL, each step bounded at 5 s. `Drop` sends SIGTERM, waits up to 5 s, then sends SIGKILL. A temporary profile is removed once Chrome has exited.
+`shutdown_report()` and `cancel_report()` return a `StopReport` (process stopped, profile released, with errors); `close()` is `shutdown()` that fails on either. `shutdown()` closes gracefully: CDP `Browser.close`, then SIGTERM to the process group, then SIGKILL, each step bounded at 5 s. `Drop` sends SIGTERM, waits up to 5 s, then sends SIGKILL. A temporary profile is removed once Chrome has exited. On macOS and Linux Chrome is also tied to the host process: if the host dies without running Drop (a crash or SIGKILL), Chrome's whole process group receives SIGTERM and then SIGKILL two seconds later (rightkit-child-process kill_on_parent_exit, tied for the life of the process by a dedicated launcher thread); on Windows the job object does the same.
 
 ## Platform support
 

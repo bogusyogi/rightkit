@@ -35,7 +35,7 @@
 
 use std::collections::HashMap;
 use std::ffi::OsString;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -265,7 +265,7 @@ enum Request {
 
 struct Shared {
     kind: Kind,
-    stdin: Mutex<Option<std::process::ChildStdin>>,
+    stdin: Mutex<Option<Box<dyn Write + Send>>>,
     pending: Mutex<HashMap<String, Pending>>,
     session_id: Mutex<Option<String>>,
     turn: Mutex<Option<String>>,
@@ -446,10 +446,64 @@ impl Shared {
     }
 }
 
+/// How the session ends: the leader exited inside the grace period, or the tree was killed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionWait {
+    /// The leader exited on its own within the grace period.
+    Exited(ExitStatus),
+    /// The grace period ran out and the whole tree was killed and reaped.
+    Terminated(ExitStatus),
+}
+
+/// A started CLI child as the session needs it. [`OwnedChild`] implements it; a host that
+/// confines the CLI through its own sandbox launcher implements it for its child type.
+///
+/// `wait_then_kill` waits up to `grace` for the leader, then must kill the WHOLE tree
+/// (descendants included) and reap. Dropping the value must also tear the tree down. stdin,
+/// stdout and stderr are piped, and each `take_*` is called once.
+pub trait SessionChild: Send {
+    /// The leader's process id.
+    fn id(&self) -> u32;
+    /// The piped stdin, once.
+    fn take_stdin(&mut self) -> Option<Box<dyn Write + Send>>;
+    /// The piped stdout, once.
+    fn take_stdout(&mut self) -> Option<Box<dyn Read + Send>>;
+    /// The piped stderr, once.
+    fn take_stderr(&mut self) -> Option<Box<dyn Read + Send>>;
+    /// Exit status if the leader already exited, without waiting.
+    fn try_wait(&mut self) -> std::io::Result<Option<ExitStatus>>;
+    /// Wait up to `grace` for the leader, then kill the whole tree and reap.
+    fn wait_then_kill(&mut self, grace: Duration) -> std::io::Result<SessionWait>;
+}
+
+impl SessionChild for OwnedChild {
+    fn id(&self) -> u32 {
+        OwnedChild::id(self)
+    }
+    fn take_stdin(&mut self) -> Option<Box<dyn Write + Send>> {
+        OwnedChild::take_stdin(self).map(|s| Box::new(s) as Box<dyn Write + Send>)
+    }
+    fn take_stdout(&mut self) -> Option<Box<dyn Read + Send>> {
+        OwnedChild::take_stdout(self).map(|s| Box::new(s) as Box<dyn Read + Send>)
+    }
+    fn take_stderr(&mut self) -> Option<Box<dyn Read + Send>> {
+        OwnedChild::take_stderr(self).map(|s| Box::new(s) as Box<dyn Read + Send>)
+    }
+    fn try_wait(&mut self) -> std::io::Result<Option<ExitStatus>> {
+        OwnedChild::try_wait(self)
+    }
+    fn wait_then_kill(&mut self, grace: Duration) -> std::io::Result<SessionWait> {
+        Ok(match OwnedChild::wait_then_kill(self, grace)? {
+            WaitOutcome::Exited(s) => SessionWait::Exited(s),
+            WaitOutcome::Terminated(s) => SessionWait::Terminated(s),
+        })
+    }
+}
+
 /// A running vendor agent session. Methods take `&self` and are safe to call from any
 /// thread; only [`Session::shutdown`] and [`Session::exit_status`] need ownership or `&mut`.
 pub struct Session {
-    child: OwnedChild,
+    child: Box<dyn SessionChild>,
     shared: Arc<Shared>,
     events: Receiver<SessionEvent>,
     teardown_grace: Duration,
@@ -475,6 +529,23 @@ impl Session {
     pub fn spawn_with<F>(config: SessionConfig, launcher: F) -> Result<Session, SessionError>
     where
         F: FnOnce(Command) -> std::io::Result<OwnedChild>,
+    {
+        Session::spawn_with_child(config, |command| {
+            launcher(command).map(|child| Box::new(child) as Box<dyn SessionChild>)
+        })
+    }
+
+    /// [`Session::spawn_with`] over any [`SessionChild`], not only an `OwnedChild`. The
+    /// launcher receives the fully prepared command and returns the started child.
+    ///
+    /// A host that confines the CLI through its own launcher (for example
+    /// `rightkit_sandbox::SandboxedChild` behind a small adapter) implements [`SessionChild`]
+    /// and keeps this crate's protocol handling. The session is thread and channel based: an
+    /// async host bridges its streams to blocking `Read` and `Write`
+    /// (`tokio_util::io::SyncIoBridge`) inside its [`SessionChild`].
+    pub fn spawn_with_child<F>(config: SessionConfig, launcher: F) -> Result<Session, SessionError>
+    where
+        F: FnOnce(Command) -> std::io::Result<Box<dyn SessionChild>>,
     {
         let (kind, program, args, thread_params) = resolve(&config)?;
         let mut command = Command::new(&program);
@@ -805,11 +876,11 @@ impl Session {
         drop(lock(&self.shared.stdin).take());
         let grace = grace.unwrap_or(self.teardown_grace);
         Ok(match self.child.wait_then_kill(grace)? {
-            WaitOutcome::Exited(status) => ExitInfo {
+            SessionWait::Exited(status) => ExitInfo {
                 status,
                 forced: false,
             },
-            WaitOutcome::Terminated(status) => ExitInfo {
+            SessionWait::Terminated(status) => ExitInfo {
                 status,
                 forced: true,
             },
@@ -865,7 +936,7 @@ fn pick(
 
 fn codex_reader(
     shared: Arc<Shared>,
-    stdout: std::process::ChildStdout,
+    stdout: Box<dyn Read + Send>,
     thread_params: Value,
     resume: bool,
     ready: Sender<Result<(), String>>,

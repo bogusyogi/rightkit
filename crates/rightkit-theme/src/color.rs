@@ -56,6 +56,65 @@ pub fn contrast_ratio(a: Rgb, b: Rgb) -> f64 {
     (l1.max(l2) + 0.05) / (l1.min(l2) + 0.05)
 }
 
+/// CIE 1976 L*a*b* under D65, L in 0..=100.
+///
+/// Native-only helper with no TypeScript counterpart in `@rightkit/theme` (terminal palette matching
+/// needs it, web CSS does not).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Lab {
+    pub l: f64,
+    pub a: f64,
+    pub b: f64,
+}
+
+fn linear_srgb(v: f64) -> f64 {
+    let s = v / 255.0;
+    if s <= 0.04045 {
+        s / 12.92
+    } else {
+        ((s + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// sRGB to CIE 1976 L*a*b* under D65. Each channel is clamped to 0.0..=255.0; a NaN channel gives a
+/// NaN result (no panic, no `Result`).
+///
+/// Native-only helper with no TypeScript counterpart in `@rightkit/theme` (terminal palette matching
+/// needs it, web CSS does not).
+pub fn srgb_to_lab(c: Rgb) -> Lab {
+    let r = linear_srgb(c.r.clamp(0.0, 255.0));
+    let g = linear_srgb(c.g.clamp(0.0, 255.0));
+    let b = linear_srgb(c.b.clamp(0.0, 255.0));
+    let x = (0.4124564 * r + 0.3575761 * g + 0.1804375 * b) / 0.95047;
+    let y = (0.2126729 * r + 0.7151522 * g + 0.0721750 * b) / 1.0;
+    let z = (0.0193339 * r + 0.1191920 * g + 0.9503041 * b) / 1.08883;
+    let f = |t: f64| {
+        if t > 216.0 / 24389.0 {
+            t.cbrt()
+        } else {
+            (24389.0 / 27.0 * t + 16.0) / 116.0
+        }
+    };
+    let (fx, fy, fz) = (f(x), f(y), f(z));
+    Lab {
+        l: 116.0 * fy - 16.0,
+        a: 500.0 * (fx - fy),
+        b: 200.0 * (fy - fz),
+    }
+}
+
+/// CIE76 delta E: the Euclidean distance between the L*a*b* values of two sRGB colours. Symmetric,
+/// exactly 0.0 for equal colours, never negative, NaN only for NaN input. Alpha is ignored, as for
+/// [`contrast_ratio`].
+///
+/// Native-only helper with no TypeScript counterpart in `@rightkit/theme` (terminal palette matching
+/// needs it, web CSS does not).
+pub fn delta_e76(a: Rgb, b: Rgb) -> f64 {
+    let (p, q) = (srgb_to_lab(a), srgb_to_lab(b));
+    let (dl, da, db) = (p.l - q.l, p.a - q.a, p.b - q.b);
+    (dl * dl + da * da + db * db).sqrt()
+}
+
 /// sRGB-space mix of two colours; `t` is the share of `b`.
 pub fn mix(a: Rgb, b: Rgb, t: f64) -> Rgb {
     Rgb {

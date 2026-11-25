@@ -12,6 +12,7 @@ Product-neutral search query language for Right Suite apps. It owns the tokenize
 |---|---|---|---|
 | `sqlite` | on | `rusqlite` | The `rusqlite::ToSql` impl for `Param` (`src/sql.rs:17-25`); the SQL predicate compiler itself (`src/sql.rs`, `src/lib.rs:13`) is not gated. |
 | `filename-index` | off | none | In-memory filename index (`src/filename.rs`). |
+| `workspace-grep` | off | `ignore`, `regex`, `sha2` | Workspace regex search: `grep::grep_page` (whole-file, line-start cursor) and `grep_stream::stream_page` (byte streaming, per-file `authorize_read` hook, multiline, separate before/after context, mid-file byte cursor, 256 KiB line and 8 MiB per-file page caps; cursor bound by SHA-256 to roots, pattern and options; live workspace, best-effort resume). |
 
 Disable `sqlite` (`default-features = false`) to use the parser and data model without `rusqlite`.
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+- Additive: the `phone_challenge` module (public from this change). Version bump for the Pulse pins and for the dependants that now require 0.1.3 (`rightkit-remote-gateway` 0.1.4, `rightkit-web-session` 0.1.2, `rightkit-device-link-core`). Not compiled.
+
 ## Unreleased
 
 - Additive (RK-5): the owner-key side of the `rightkit-approvals` execution re-check. `approval_sig::DecisionEvidence` keeps a signed approval decision (`of`, `to_value`, `from_value`) and `approval_sig::OwnerKeyAuthority { evidence, domain }` implements `rightkit_approvals::authority::Authority`: it re-verifies the kept signature against the approver keys enrolled now, without spending a nonce, and refuses a revoked, development or unproven key and a record whose display digest is not the one signed. No version bump; the wire format is unchanged. The paired-device half (owner-paired, never guest) is the host's `Authority`, from the pairing registry.

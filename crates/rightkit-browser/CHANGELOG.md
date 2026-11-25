@@ -2,6 +2,7 @@
 
 ## 0.3.12
 
+- Fixed: on macOS and Linux Chrome is tied to the host (`kill_on_parent_exit`, spawned from a dedicated launcher thread), so a crashed or SIGKILLed host no longer leaves Chrome running (CodeRight #470).
 - **Added (feature `secret-fill`): `BrowserPage::fill_secret(&Target, &rightkit_crypto::Secret, claimed_origin, clear)`** (AG-14, typed fill on Linux and every other platform the crate runs on). Nothing is typed unless the claimed origin equals the origin of the page's own address and the target is one `<input>` of type password or with an `autocomplete` of `current-password`, `new-password` or `cc-*`; refusals are `Denied` or `Invalid` and carry no value. The audit record holds the character count only. The secret is wiped on drop; the per-key event descriptors are not (a limit). Written, not compiled.
 
 Additive (AG-10 / RK-12, blueprint 2026-11-24). Written, not compiled. No unit tests, per the 2026-11-03 rule.

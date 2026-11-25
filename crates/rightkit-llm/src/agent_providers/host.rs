@@ -9,6 +9,10 @@
 //! Environment-variable names that this layer reads come from
 //! `rightkit_agent_config::set_env_prefix`, and the state folder from
 //! `rightkit_agent_config::set_state_dir_name` / `set_app_name`; this module holds what is left.
+//!
+//! Two more once-per-process settings: [`set_codex_originator`] (the `originator` the ChatGPT
+//! routes send; default `pi`) and [`set_input_transformation_logger`] (receives the
+//! `input_transformations` array an Anthropic response reports). Call each once at start-up.
 
 use std::sync::OnceLock;
 
@@ -21,6 +25,8 @@ static KEYCHAIN_SERVICE: OnceLock<String> = OnceLock::new();
 static OPENROUTER_ATTRIBUTION: OnceLock<(String, String)> = OnceLock::new();
 static OPTIONS: OnceLock<ProviderHostOptions> = OnceLock::new();
 static CONTEXT_WINDOW: OnceLock<fn(&str) -> Option<u64>> = OnceLock::new();
+static CODEX_ORIGINATOR: OnceLock<String> = OnceLock::new();
+static INPUT_TRANSFORMATION_LOGGER: OnceLock<fn(&str, &serde_json::Value)> = OnceLock::new();
 
 /// Sets the product name this layer puts in its `User-Agent` (`<label>/0.1`), in the OpenRouter
 /// `X-Title` header and in the messages it shows (for example `CodeRight`). Without a call the
@@ -259,4 +265,54 @@ pub fn set_context_window_resolver(resolver: fn(&str) -> Option<u64>) -> bool {
 /// The configured context window of `model`, when the host supplied a resolver and it knows one.
 pub(crate) fn context_window_for(model: &str) -> Option<u64> {
     CONTEXT_WINDOW.get().and_then(|resolver| resolver(model))
+}
+
+/// Sets the value sent as the `originator` header on every chatgpt.com request and as the
+/// `originator` parameter of the ChatGPT sign-in URL; a host should set its own product label.
+/// Without a call the value is `pi`. An empty or whitespace-only value is ignored and returns
+/// `false`. Call once at start-up; returns `false` when one was already set.
+pub fn set_codex_originator(originator: &str) -> bool {
+    let originator = originator.trim();
+    if originator.is_empty() {
+        return false;
+    }
+    CODEX_ORIGINATOR.set(originator.to_string()).is_ok()
+}
+
+/// The `originator` in force: the one from [`set_codex_originator`], else `pi`.
+pub fn codex_originator() -> &'static str {
+    CODEX_ORIGINATOR.get().map(String::as_str).unwrap_or("pi")
+}
+
+/// Sets the logger that receives the `input_transformations` array an Anthropic response reports
+/// in its `message_start` event: the first argument is the model id, the second the JSON array.
+/// Without a call nothing is logged. Call once at start-up; returns `false` when one was already
+/// set.
+pub fn set_input_transformation_logger(logger: fn(&str, &serde_json::Value)) -> bool {
+    INPUT_TRANSFORMATION_LOGGER.set(logger).is_ok()
+}
+
+/// Calls the host's logger with `model` and the `input_transformations` array; does nothing when
+/// no logger was set.
+pub(crate) fn log_input_transformations(model: &str, transformations: &serde_json::Value) {
+    if let Some(logger) = INPUT_TRANSFORMATION_LOGGER.get() {
+        logger(model, transformations);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn codex_originator_defaults_to_pi_and_refuses_empty() {
+        assert!(!set_codex_originator(""));
+        assert!(!set_codex_originator("   "));
+        assert_eq!(codex_originator(), "pi");
+    }
+
+    #[test]
+    fn unset_input_transformation_logger_does_not_panic() {
+        log_input_transformations("claude-sonnet-5-5", &serde_json::json!([{"kind": "drop"}]));
+    }
 }

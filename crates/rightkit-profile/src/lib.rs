@@ -17,9 +17,12 @@ pub mod area;
 pub mod card;
 mod digest;
 pub mod entry;
+pub mod flow;
 pub mod interview;
 pub mod neutral;
 pub mod profile;
+pub mod store;
+pub mod sync_row;
 
 pub use area::Area;
 pub use card::{Card, CardEntry, Switches};

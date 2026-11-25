@@ -10,9 +10,9 @@
 //!
 //! ```text
 //! pulse.approval.v1
-//! kind:<approve | unlock | enroll | revoke | recover>
-//! request:<engine request id | "enroll" | "revoke" | recovery challenge>
-//! action:<request digest hex (approvals::request_digest) | sha256 of the public key | key id | unlock::recovery_action>
+//! kind:<approve | unlock | enroll | revoke | recover | device | settings>
+//! request:<engine request id | "enroll" | "revoke" | recovery challenge | device or settings challenge>
+//! action:<request digest hex (approvals::request_digest) | sha256 of the public key | key id | unlock::recovery_action | unlock::device_action | owner_settings::settings_action>
 //! client:<engine's client key, e.g. chat:<id>; empty for enroll and revoke; engine:<instance> for recover>
 //! device:<registered device id>
 //! key:<key id: first 32 hex of SHA-256 of the public key>
@@ -30,7 +30,10 @@
 //! its own record of the waiting request, never from the caller, so a signature for one request
 //! cannot answer another, another chat or another kind. A `recover` signature answers one
 //! single-use challenge of `remote.security.recover.challenge`, for the exact repair and new PIN
-//! it names, on the engine process that issued it (`unlock::authorise_recovery`).
+//! it names, on the engine process that issued it (`unlock::authorise_recovery`). A `settings`
+//! signature answers one single-use challenge of `remote.settings.challenge` for the exact key and
+//! checked value it names (`unlock::authorise_settings`) and is kept with the loosened value it
+//! authorised.
 //!
 //! **Platforms.** The Mac owner app signs with a P-256 key. Windows Hello (`KeyCredentialManager`)
 //! keys are RSA-2048 (RSASSA-PKCS1-v1_5, SHA-256): the key is the 270 byte PKCS#1 `RSAPublicKey`
@@ -306,10 +309,17 @@ fn proven_keys() -> Result<Vec<Approver>> {
     if registry.state == "unproven" {
         return Err(Refusal::new(
             "approver_registry_unproven",
-            format!(
-                "the owner's approver keys cannot be proven yet; enter your {p} PIN once after {p} starts, or enroll the key again",
-                p = product()
-            ),
+            if matches!(crate::hooks().pin_is_set(), Ok(false)) {
+                format!(
+                    "the owner's approver keys cannot be proven: no {} PIN is set, so the key registry is not sealed",
+                    product()
+                )
+            } else {
+                format!(
+                    "the owner's approver keys cannot be proven yet; enter your {p} PIN once after {p} starts, or enroll the key again",
+                    p = product()
+                )
+            },
         ));
     }
     Ok(registry.keys)
@@ -673,10 +683,21 @@ fn authorise(keys: &[Approver], params: &Value, kind: &str, action: &str) -> Res
         return crate::hooks().confirm_pin(pin);
     }
     let needs = || {
+        // Never ask for a PIN that was never set (#608): name what is wrong. A PIN state that
+        // cannot be read counts as set (the PIN is then the only honest answer).
+        if matches!(crate::hooks().pin_is_set(), Ok(false)) {
+            return Refusal::new(
+                "owner_key_unrecoverable",
+                format!(
+                    "the owner's approver key cannot be changed: no {p} PIN is set and no enrolled key signed this change; the key file is not in a state that {p} may repair without one",
+                    p = product()
+                ),
+            );
+        }
         Refusal::new(
             "unlock_needs_auth",
             format!(
-                "changing the owner's approver keys needs the {p} PIN (or a signature from an enrolled key); set a PIN first if none is set",
+                "changing the owner's approver keys needs the {p} PIN (or a signature from an enrolled key)",
                 p = product()
             ),
         )
@@ -837,6 +858,20 @@ fn create_check_secret() -> Result<Vec<u8>> {
     crate::protected_guard::check_item(CHECK_SECRET_SERVICE, CHECK_SECRET_ACCOUNT)
         .map_err(unavailable)?;
     Ok(raw.to_vec())
+}
+
+/// Atomic replace through `rightkit-fs`: mode 0600 on Unix, the inherited access on Windows (the
+/// elevated service reads these files there, so no owner-only DACL is applied).
+fn write_owner_only_unix(path: &std::path::Path, bytes: &[u8]) -> rightkit_fs::Result<()> {
+    use std::io::Write;
+    rightkit_fs::atomic_write_with_options(
+        path,
+        rightkit_fs::AtomicWriteOptions {
+            privacy: rightkit_fs::Privacy::OwnerOnlyUnixInheritWindows,
+            ..Default::default()
+        },
+        |file| file.write_all(bytes),
+    )
 }
 
 /// One key line of the file, before it is trusted.
@@ -1010,10 +1045,19 @@ fn read_owner_check() -> Result<OwnerCheck> {
 fn read_owner_check_keys() -> Result<Vec<Approver>> {
     let check = read_owner_check()?;
     if check.state == "unproven" {
-        return Err(unavailable(format!(
-            "the owner-check key file is damaged, changed or unsealed; enrol the key again with the {p} PIN",
-            p = product()
-        )));
+        return Err(unavailable(
+            if matches!(crate::hooks().pin_is_set(), Ok(false)) {
+                format!(
+                    "the owner-check key file is damaged, changed or unsealed, and no {p} PIN is set to repair it; {p} cannot trust the enrolled key",
+                    p = product()
+                )
+            } else {
+                format!(
+                    "the owner-check key file is damaged, changed or unsealed; enrol the key again with the {p} PIN",
+                    p = product()
+                )
+            },
+        ));
     }
     Ok(check.keys)
 }
@@ -1105,22 +1149,8 @@ fn write_owner_check_keys(keys: &[Approver]) -> Result<()> {
         })
         .collect();
     let bytes = json!({"keys": list, "mac": mac}).to_string().into_bytes();
-    let temp = path.with_extension("json.tmp");
-    let write = || -> std::io::Result<()> {
-        use std::io::Write;
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options.open(&temp)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        std::fs::rename(&temp, &path)
-    };
-    write().map_err(|e| unavailable(format!("the owner-check key file was not written: {e}")))
+    write_owner_only_unix(&path, &bytes)
+        .map_err(|e| unavailable(format!("the owner-check key file was not written: {e}")))
 }
 
 /// `remote.owner.key.enrol.local` with `publicKey` (hex), `device` and `proof` (a signature of the
@@ -1184,7 +1214,14 @@ pub fn enrol_owner_check_key(
         return Ok(json!({"keyId": key_id, "device": device, "enrolled": false}));
     }
     let open_to_first = state.state == "fresh" || (state.state == "ok" && state.keys.is_empty());
-    if !open_to_first {
+    // No PIN was ever set (`pin_is_set` is false: not set and not lost) means the owner has no
+    // PIN to give, so a key that cannot be changed by a signature (its secret is gone, its file is
+    // damaged, or its hardware key was replaced) is replaced on the possession proof above, which
+    // this computer's owner app or companion made with the new key's own Touch ID or Windows Hello.
+    // A PIN that is set, or was set and lost, or whose state cannot be read, still needs the PIN or
+    // an enrolled key's signature (#608). The replacement is recorded and voids every unlock.
+    let pin_free = !open_to_first && matches!(crate::hooks().pin_is_set(), Ok(false));
+    if !open_to_first && !pin_free {
         // `authorise` takes the PIN, or a signature by one of the keys already enrolled (none
         // when the file is `deleted` or `unproven`, so only the PIN then).
         authorise(&state.keys, params, "enroll", &action)?;
@@ -1199,6 +1236,13 @@ pub fn enrol_owner_check_key(
     });
     write_owner_check_keys(&keys)?;
     store_binding_param(params, device, &public)?;
+    if pin_free {
+        crate::audit::record_security(
+            "owner_key.replaced_no_pin",
+            json!({ "device": device, "state": state.state }),
+        );
+        void_unlocks()?;
+    }
     Ok(json!({"keyId": key_id, "device": device, "enrolled": true}))
 }
 
@@ -1286,6 +1330,14 @@ pub fn endorse_action(lines: &[String]) -> String {
 /// proof's own envelope. The window and nonce were checked by the engine that took the signature
 /// live; they are not checked again here, so this proves who signed what, not when it was fresh.
 pub fn check_owner_proof(proof: &OwnerCheckProof, action: &str) -> Result<()> {
+    check_owner_proof_kind("device", proof, action)
+}
+
+/// [`check_owner_proof`] for a signature of `kind` (`device` for the circle's endorsements,
+/// `settings` for a stored protected setting; the kind is part of the signed bytes, so a signature
+/// of one kind never answers another). It does not say the key is still enrolled:
+/// [`stored_owner_proofs_valid`] does.
+pub fn check_owner_proof_kind(kind: &str, proof: &OwnerCheckProof, action: &str) -> Result<()> {
     let public = unhex(&proof.public_key).ok_or_else(invalid)?;
     let shape_ok = match proof.device.as_str() {
         OWNER_DEVICE => is_p256(&public),
@@ -1294,9 +1346,14 @@ pub fn check_owner_proof(proof: &OwnerCheckProof, action: &str) -> Result<()> {
     };
     let nonce_ok = (32..=64).contains(&proof.nonce.len())
         && proof.nonce.chars().all(|c| c.is_ascii_hexdigit());
-    let field_ok = ![proof.challenge.as_str(), action, proof.client.as_str()]
-        .iter()
-        .any(|f| f.contains('\n'));
+    let field_ok = ![
+        kind,
+        proof.challenge.as_str(),
+        action,
+        proof.client.as_str(),
+    ]
+    .iter()
+    .any(|f| f.contains('\n'));
     let signature = unhex(&proof.signature).ok_or_else(invalid)?;
     if !shape_ok
         || !nonce_ok
@@ -1308,7 +1365,7 @@ pub fn check_owner_proof(proof: &OwnerCheckProof, action: &str) -> Result<()> {
         return Err(invalid());
     }
     let msg = message(
-        "device",
+        kind,
         &proof.challenge,
         action,
         &proof.client,
@@ -1323,6 +1380,48 @@ pub fn check_owner_proof(proof: &OwnerCheckProof, action: &str) -> Result<()> {
     } else {
         Err(invalid())
     }
+}
+
+/// Whether each stored owner-check proof still holds, in the order given: `(proof, action)` pairs of
+/// `kind`. `None` means they could not be judged now, which is not a verdict: the key store cannot
+/// be read or is not proven (`ok`), or the policy below refuses every proof. The caller keeps such
+/// proofs untouched and never trusts them. With `Some`, a proof holds when a key of the proof's
+/// device with its key id and public key is enrolled now, and [`check_owner_proof_kind`] accepts the
+/// signature over the `action` the caller recomputed from what the proof must commit to; a proof
+/// whose key was revoked or replaced is `false` for good. The key store is read once (with the
+/// elevated Windows service that is one call). No nonce is used up and the proof's window is not
+/// looked at, so a proof stays good until its key is revoked or replaced.
+///
+/// **Policy (lead's decision, 2026-11-24).** Where the owner-check keys are only in the engine's own
+/// sealed file (`owner_check_protection` is `file`: Windows without the elevated service), whose
+/// seal secret any process of the same user can read, a same-user process could enrol a key of its
+/// own and sign a proof itself. So when a PIN is set there (`protected_guard::pin_bound`) no stored
+/// proof is accepted at all and the PIN rule stays the only way a loosened value survives; with no
+/// PIN set the install is already in the documented weaker model and proofs are accepted. Never
+/// asks the PIN item: the caller may hold the settings lock.
+pub fn stored_owner_proofs_valid(
+    kind: &str,
+    proofs: &[(&OwnerCheckProof, &str)],
+) -> Option<Vec<bool>> {
+    if owner_check_protection() == "file" && crate::protected_guard::pin_bound() {
+        return None;
+    }
+    let check = read_owner_check().ok()?;
+    if check.state != "ok" {
+        return None;
+    }
+    Some(
+        proofs
+            .iter()
+            .map(|(proof, action)| {
+                check.keys.iter().any(|k| {
+                    k.key_id == proof.key_id
+                        && k.device == proof.device
+                        && hex(&k.public) == proof.public_key
+                }) && check_owner_proof_kind(kind, proof, action).is_ok()
+            })
+            .collect(),
+    )
 }
 
 /// This computer's own owner-check public key for the circle: `(device, public key hex, binding)`,
@@ -1361,7 +1460,7 @@ const BIND_DOMAIN: &str = "pulse-check-bind-v1";
 const BINDINGS_FILE: &str = "owner-check-bindings.json";
 
 /// Reads `{deviceId, deviceKey, nonce, issued, expires, signature}` from `value`.
-fn key_binding_from_value(value: &Value) -> Result<KeyBinding> {
+pub fn key_binding_from_value(value: &Value) -> Result<KeyBinding> {
     let bad = || Refusal::new("invalid_request", "the key binding is malformed");
     let text = |k: &str| value[k].as_str().map(str::to_string).ok_or_else(bad);
     let number = |k: &str| value[k].as_u64().ok_or_else(bad);
@@ -1526,22 +1625,8 @@ fn write_binding(device: &str, public_key: &str, binding: &KeyBinding) -> Result
         binding: binding.clone(),
     });
     let bytes = serde_json::to_vec(&all).map_err(|e| unavailable(e.to_string()))?;
-    let temp = path.with_extension("json.tmp");
-    let write = || -> std::io::Result<()> {
-        use std::io::Write;
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options.open(&temp)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        std::fs::rename(&temp, &path)
-    };
-    write().map_err(|e| unavailable(format!("the owner-check binding was not written: {e}")))
+    write_owner_only_unix(&path, &bytes)
+        .map_err(|e| unavailable(format!("the owner-check binding was not written: {e}")))
 }
 
 /// Keeps the `binding` that came with an enrolment or a bind call, once it verifies for `device`
@@ -1599,6 +1684,19 @@ pub fn verify_owner_check_proof(
     client: &str,
     signed: &Signed,
 ) -> Result<OwnerCheckProof> {
+    verify_owner_check_proof_kind("device", request, action, client, signed)
+}
+
+/// [`verify_owner_check_proof`] for a signature of `kind` (the kind is part of the signed bytes, so
+/// a signature of one kind never answers another): `device` for the device link, `settings` for an
+/// owner-only setting change.
+pub fn verify_owner_check_proof_kind(
+    kind: &str,
+    request: &str,
+    action: &str,
+    client: &str,
+    signed: &Signed,
+) -> Result<OwnerCheckProof> {
     let keys = read_owner_check_keys()?;
     let Some(key) = keys.iter().find(|k| k.key_id == signed.key_id) else {
         return Err(Refusal::new(
@@ -1609,7 +1707,7 @@ pub fn verify_owner_check_proof(
     verify_with(
         &key.public,
         &key.device,
-        "device",
+        kind,
         request,
         action,
         client,

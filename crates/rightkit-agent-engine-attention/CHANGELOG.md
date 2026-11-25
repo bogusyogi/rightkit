@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Adds dependency `rightkit-crypto` 0.1.4 (`sha256` and `hex_encode`, for the safe alert id and the act digest). Additive: the modules `phone_ask`, `phone_relay`, `act_plan` and `duty` are public from this change. `rightkit-assist` now requires 0.2.1. Not compiled.
+
 ## 0.2.0
 
 - Breaking, so a minor release: the axum routes are no longer in the default build, and published `rightkit-agent-server` 0.1.1 requires `^0.1.0` without `server`, so a patch release would have broken its fresh builds. `rightkit-time` requirement raised to 0.1.5 (`zones::offset_at`, used by the `/attention` route and `zone_offset_secs`). `rightkit-agent-server` and `rightkit-assist` now require 0.2.0.

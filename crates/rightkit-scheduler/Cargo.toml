@@ -25,3 +25,4 @@ serde_json = "1"
 jiff = { version = "0.2", default-features = false, features = ["std", "tzdb-bundle-always"], optional = true }
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 rightkit-db = { version = "0.5.3", features = ["bundled", "statement-cache"], path = "../rightkit-db" }
+rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["digest"] }

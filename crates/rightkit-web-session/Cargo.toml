@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-web-session"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 rust-version = "1.98.0"
 description = "Agent browser logins: one owner-approved Chromium session at a time on the login profile, with a network policy limited to the approved sites, a live view for the owner and signed approvals."
@@ -17,21 +17,19 @@ path = "src/lib.rs"
 default = []
 # Chromium sessions through rightkit-browser, on a Mac or a Linux computer. Without it every build answers `unsupported`
 # and keeps no tokio or CDP stack.
-browser = ["dep:rightkit-browser", "dep:chromiumoxide", "dep:tokio"]
+browser = ["dep:rightkit-browser", "dep:tokio"]
 
 [dependencies]
 serde_json = { version = "1" }
 ring = "0.17"
 rightkit-app-host = { version = "0.1.0", path = "../rightkit-app-host" }
-rightkit-owner-approvals = { version = "0.1.0", path = "../rightkit-owner-approvals" }
-rightkit-remote-gateway = { version = "0.1.0", path = "../rightkit-remote-gateway" }
+rightkit-owner-approvals = { version = "0.1.3", path = "../rightkit-owner-approvals" }
+rightkit-remote-gateway = { version = "0.1.4", path = "../rightkit-remote-gateway" }
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
 
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
-# chromiumoxide is the crate's own CDP dependency, named here only for the JPEG screenshot parameters of the live view
-# (its `raw()` page), at the version rightkit-browser requires; tokio runs the crate's futures on a runtime that exists
-# only while a session does.
-rightkit-browser = { version = "0.3.7", path = "../rightkit-browser", optional = true }
-chromiumoxide = { version = "0.9", default-features = false, optional = true }
+# The typed secret fill (`BrowserPage::fill_secret`) of rightkit-browser is always on for this crate's sessions.
+# tokio runs the crate's futures on a runtime that exists only while a session does.
+rightkit-browser = { version = "0.3.12", path = "../rightkit-browser", optional = true, features = ["secret-fill"] }
 tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-thread", "sync", "time"], optional = true }
 libc = "0.2"

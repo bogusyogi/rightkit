@@ -75,7 +75,14 @@
 //!   the webview; the agent's own words about the amount and the merchant are shown to the owner
 //!   as the agent's claim, and the host app does not verify them against the page. the host app enforces only
 //!   the card's own limits here, over the amounts the agent claims; a limit the card issuer sets on
-//!   the virtual card is outside the host app, which neither checks nor relies on it.
+//!   the virtual card is outside the app, which neither checks nor relies on it.
+//!
+//! * **Linux.** The page is the agent browser's own (`browser/`), whose address the app reads from
+//!   it, and the call names the field by `ref`, the browser's ref for it. The typing is
+//!   `BrowserPage::fill_secret` of `rightkit-browser`: nothing is typed unless the page's own
+//!   origin equals the verified one and the element is a password or card field, so only the
+//!   password of a login is filled (username, email and totp fields are not password fields),
+//!   and a field that was typed into cannot be cleared afterwards. No password manager chord.
 //!
 //! Unproven: the typing itself (`inject`) goes through the Accessibility value of the verified
 //! field and fails closed (`needs_user`) where a page does not take it; that a browser's field
@@ -126,9 +133,8 @@ fn now_secs() -> u64 {
 }
 
 fn new_id() -> String {
-    use ring::rand::{SecureRandom, SystemRandom};
     let mut bytes = [0u8; 8];
-    if SystemRandom::new().fill(&mut bytes).is_err() {
+    if rightkit_crypto::random_fill(&mut bytes).is_err() {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos() as u64)
@@ -334,28 +340,17 @@ fn parse_totp(value: &Value) -> Result<Value> {
 
 /// The code of `cfg` (the stored form) at Unix time `unix`, and the seconds it stays valid.
 fn totp_at(cfg: &Value, unix: u64) -> Option<(String, u64)> {
-    use ring::hmac;
+    use rightkit_crypto::HmacAlgorithm;
     let key = base32_decode(cfg["secret"].as_str()?)?;
     let digits = cfg["digits"].as_u64().filter(|d| (6..=8).contains(d))? as u32;
     let period = cfg["period"].as_u64().filter(|p| (15..=120).contains(p))?;
     let algorithm = match cfg["algorithm"].as_str()? {
-        "SHA1" => hmac::HMAC_SHA1_FOR_LEGACY_USE_ONLY,
-        "SHA256" => hmac::HMAC_SHA256,
-        "SHA512" => hmac::HMAC_SHA512,
+        "SHA1" => HmacAlgorithm::Sha1,
+        "SHA256" => HmacAlgorithm::Sha256,
+        "SHA512" => HmacAlgorithm::Sha512,
         _ => return None,
     };
-    let tag = hmac::sign(
-        &hmac::Key::new(algorithm, &key),
-        &(unix / period).to_be_bytes(),
-    );
-    let bytes = tag.as_ref();
-    let at = (bytes.last()? & 0x0f) as usize;
-    let word = u32::from_be_bytes(bytes.get(at..at + 4)?.try_into().ok()?) & 0x7fff_ffff;
-    let code = word % 10u32.pow(digits);
-    Some((
-        format!("{code:0width$}", width = digits as usize),
-        period - unix % period,
-    ))
+    rightkit_crypto::totp(&key, algorithm, digits, period, unix).ok()
 }
 
 /// The current code. A code with under 5 seconds left is waited out, so the next one is typed and
@@ -426,9 +421,148 @@ struct Page {
     /// The page's whole address as the browser gave it; a later read must give the same.
     url: String,
     host: String,
+    /// Set when the call names a page of the agent's own browser session (AG-14): the value is
+    /// typed through that session, not into the front window. `None` for the front window.
+    via: Option<Via>,
     /// Windows: the one top-level document whose Value was `url`; the field must be inside it.
     #[cfg(windows)]
     doc: super::browser_address::El,
+    /// Linux: the agent browser's ref (from its `observe`) of the field to fill, which the caller
+    /// names (`ref`); `None` until it does.
+    #[cfg(not(any(target_os = "macos", windows)))]
+    field_ref: Option<String>,
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+impl Page {
+    fn named(mut self, field_ref: Option<&str>) -> Page {
+        self.field_ref = field_ref.map(str::to_string);
+        self
+    }
+}
+
+/// Why a secret was not typed into the agent browser's page (`AgentBrowser::fill_secret`). Nothing
+/// here carries the value.
+pub enum AgentBrowserFillError {
+    /// The page's own origin is not the origin the caller verified.
+    OriginMismatch,
+    /// The element is not a password or card field, the only kind a secret is typed into.
+    NotCredentialField,
+    /// Refused before anything was typed: a stale or missing ref, an ambiguous or covered element,
+    /// or an argument the browser rejected. Nothing reached the page.
+    Untyped { code: String, message: String },
+    /// Anything else (no session, a timeout, a browser failure): the value may or may not have been
+    /// typed.
+    Other { message: String },
+}
+
+/// The agent's own browser, as the host app runs it. The host registers it once
+/// (`set_agent_browser`); the typed fill into a browser session goes through it.
+pub trait AgentBrowser: Send + Sync {
+    /// The address of the page of session `id`, or the refusal's message (`session` calls).
+    fn address(&self, id: &str) -> std::result::Result<String, String>;
+    /// The address of the page while a session is open, `None` when there is none (Linux).
+    fn page_url(&self) -> Option<String>;
+    /// Types `value` into the field `target` (the browser's ref for it); refuses unless the page's
+    /// own origin is `origin` and the field is a password or card field.
+    fn fill_secret(
+        &self,
+        target: &str,
+        value: &str,
+        origin: &str,
+        clear: bool,
+    ) -> std::result::Result<(), AgentBrowserFillError>;
+}
+
+static AGENT_BROWSER: std::sync::OnceLock<&'static dyn AgentBrowser> = std::sync::OnceLock::new();
+
+/// Registers the host's agent browser. The first call wins.
+pub fn set_agent_browser(browser: &'static dyn AgentBrowser) {
+    let _ = AGENT_BROWSER.set(browser);
+}
+
+fn agent_browser_opt() -> Option<&'static dyn AgentBrowser> {
+    AGENT_BROWSER.get().copied()
+}
+
+fn agent_browser(missing: &Refusal) -> Result<&'static dyn AgentBrowser> {
+    agent_browser_opt().ok_or_else(|| Refusal::new(missing.code, missing.message.clone()))
+}
+
+/// A page of the agent's own browser session and the field the value goes in.
+#[derive(Clone)]
+struct Via {
+    // Read by the Mac and Linux session path only.
+    #[cfg_attr(windows, allow(dead_code))]
+    session: String,
+    /// The browser's ref (from `browser_look`) of the field to fill.
+    field_ref: String,
+}
+
+/// The page a login or payment call types into: the agent's own browser session when the call
+/// names one (`session` with the field's `ref`), else the front window's (a Mac or Windows
+/// computer) or, on Linux, the one open agent browser session (`ref`).
+fn page_for(args: &Value) -> Result<Page> {
+    if let Some(page) = session_page(args)? {
+        return Ok(page);
+    }
+    let page = read_page()?;
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let page = page.named(args["ref"].as_str());
+    Ok(page)
+}
+
+/// A page of the agent's own browser session, named by `session` and the field's `ref`; `None`
+/// when the call names no session. The page's address is read from the session, never from the
+/// agent's claim, and has the same rules as a front page (`host_of`). The browser runs on a Mac or
+/// a Linux computer. A point is not accepted: the crate checks the kind of field behind a ref, and a
+/// point has none to check.
+fn session_page(args: &Value) -> Result<Option<Page>> {
+    let Some(session) = args["session"].as_str() else {
+        return Ok(None);
+    };
+    let field_ref = args["ref"]
+        .as_str()
+        .filter(|r| !r.is_empty())
+        .ok_or_else(|| {
+            invalid("with a session, name the field with ref, its ref from browser_look")
+        })?;
+    session_page_of(Via {
+        session: session.to_string(),
+        field_ref: field_ref.to_string(),
+    })
+    .map(Some)
+}
+
+#[cfg(not(windows))]
+fn session_page_of(via: Via) -> Result<Page> {
+    let unreadable = |why: &str| Refusal::new("origin_unreadable", why.to_string());
+    let url = agent_browser(&Refusal::new(
+        "no_browser",
+        "there is no agent browser on this computer",
+    ))?
+    .address(&via.session)
+    .map_err(|message| Refusal::new("not_approved", message))?;
+    let host = host_of(&url).ok_or_else(|| {
+        unreadable("the page is not an https address the app will type into (https, default port, no user-info)")
+    })?;
+    Ok(Page {
+        pid: 0,
+        window: None,
+        url,
+        host,
+        via: Some(via),
+        #[cfg(not(any(target_os = "macos", windows)))]
+        field_ref: None,
+    })
+}
+
+#[cfg(windows)]
+fn session_page_of(_via: Via) -> Result<Page> {
+    Err(Refusal::new(
+        "unsupported_platform",
+        "the agent's browser runs on a Mac or a Linux computer",
+    ))
 }
 
 #[cfg(target_os = "macos")]
@@ -494,6 +628,7 @@ fn read_page() -> Result<Page> {
         window: None,
         url,
         host,
+        via: None,
     })
 }
 
@@ -519,16 +654,35 @@ fn read_page() -> Result<Page> {
         window: front.window_id,
         url,
         host,
+        via: None,
         doc: address.doc,
     })
 }
 
+/// Linux: the page of the agent browser (`browser/`), which the app itself runs and so can ask for
+/// its address; there is no front-window browser to read. The same https and host rules apply.
 #[cfg(not(any(target_os = "macos", windows)))]
 fn read_page() -> Result<Page> {
-    Err(Refusal::new(
-        "origin_unreadable",
-        "The app reads the page address on a Mac or on Windows only; on this computer it cannot check the site, so it types nothing",
-    ))
+    let url = agent_browser_opt().and_then(|b| b.page_url()).ok_or_else(|| {
+        Refusal::new(
+            "no_browser",
+            "there is no open agent browser session; on this computer the app reads the page address from it, and types nothing otherwise",
+        )
+    })?;
+    let host = host_of(&url).ok_or_else(|| {
+        Refusal::new(
+            "origin_unreadable",
+            "the page is not an https address the app will type into (https, default port, no user-info)",
+        )
+    })?;
+    Ok(Page {
+        pid: 0,
+        window: None,
+        url,
+        host,
+        via: None,
+        field_ref: None,
+    })
 }
 
 // ---- typing -----------------------------------------------------------------------------------
@@ -740,27 +894,50 @@ mod inject {
 mod inject {
     use super::*;
 
-    fn unsupported() -> Refusal {
-        Refusal::new(
-            "unsupported_platform",
-            "saved logins and cards are typed on macOS and Windows only",
-        )
+    /// The one field named for the agent browser: its ref, the page address the app verified, which
+    /// the crate checks against the page's own origin before it types, and whether the value is a
+    /// password (`agent_browser_fill` refuses anything but a password or card field).
+    pub struct Field {
+        target: String,
+        origin: String,
+        secure: Option<bool>,
     }
 
-    pub struct Field;
-
-    pub fn target(_: &Page, _: Option<bool>) -> Result<Field> {
-        Err(unsupported())
+    /// The ref the caller named.
+    pub fn target(page: &Page, secure: Option<bool>) -> Result<Field> {
+        let target = page
+            .field_ref
+            .clone()
+            .filter(|r| !r.is_empty())
+            .ok_or_else(|| {
+                Refusal::new(
+                    "no_field",
+                    "name the field to fill with ref, the agent browser's ref for it from its observe",
+                )
+            })?;
+        Ok(Field {
+            target,
+            origin: page.url.clone(),
+            secure,
+        })
     }
 
-    pub fn set_field(_: &Field, _: &str) -> std::result::Result<Landed, Failed> {
-        Err(Failed::untyped(unsupported()))
+    /// Types `secret` into the named field through the agent browser (the field is cleared first).
+    /// The crate does not read the value back, so the answer never says it is confirmed.
+    pub fn set_field(field: &Field, secret: &str) -> std::result::Result<Landed, Failed> {
+        super::agent_browser_fill(&field.target, &field.origin, secret, field.secure)
     }
 
+    /// Nothing: the crate offers no clear of a field that has been typed into.
     pub fn clear_field(_: &Field) {}
 
+    /// A password manager's autofill chord goes to the browser in front of a Mac or Windows
+    /// computer; the agent browser has none.
     pub fn send_chord(_: i32, _: &str) -> Result<()> {
-        Err(unsupported())
+        Err(Refusal::new(
+            "unsupported_platform",
+            "a password manager's autofill chord is sent on macOS and Windows only",
+        ))
     }
 }
 
@@ -987,10 +1164,42 @@ struct Purchase {
     busy: bool,
     /// The host app may already have written into the page for this purchase.
     typed: bool,
+    /// The gate let it through with no question (at most the card's no-question limit).
+    auto_ok: bool,
     until: Instant,
 }
 
 static PURCHASES: Mutex<Vec<Purchase>> = Mutex::new(Vec::new());
+
+/// How long after a purchase that asked no question its one press of the pay control stays cleared.
+const PAY_CLICK_WINDOW: Duration = Duration::from_secs(10 * 60);
+
+/// A site where a purchase went through with no question and its pay control is not yet pressed.
+struct Cleared {
+    host: String,
+    until: Instant,
+}
+
+static CLEARED: Mutex<Vec<Cleared>> = Mutex::new(Vec::new());
+
+/// Whether the press of a pay control on `host` is cleared, and uses the clearance up (AG-14, #346
+/// decision 8: "Press anything that submits, pays or publishes, except a purchase under your limit
+/// from a listed merchant"). It is cleared only by a purchase that typed every field of its set with
+/// no question: at most the card's no-question limit, with a card the owner listed for this host,
+/// and no earlier payment on the site of unknown outcome. A purchase over the limit, or one the owner
+/// approved, clears nothing: its pay control asks, with the exact control and address in the card.
+/// One press per purchase, for ten minutes.
+pub fn pay_click_cleared(host: &str) -> bool {
+    let mut cleared = CLEARED.lock().unwrap_or_else(|e| e.into_inner());
+    cleared.retain(|c| c.until > Instant::now());
+    match cleared.iter().position(|c| c.host == host) {
+        Some(at) => {
+            cleared.remove(at);
+            true
+        }
+        None => false,
+    }
+}
 
 /// Ends purchase `p`: books, releases or marks its hold, and records the end in Activity. A ledger
 /// that cannot be written keeps the hold as it was, still counted (fail closed); the answer says
@@ -1301,6 +1510,10 @@ pub fn put(params: &Value) -> Result<Value> {
         let _ = store.delete(&item_account(&id));
         return Err(e);
     }
+    audit::record_security(
+        "secure.saved",
+        json!({ "kind": kind, "replaced": params["id"].is_string() }),
+    );
     Ok(meta)
 }
 
@@ -1322,6 +1535,7 @@ fn add_totp(id: &str, totp: &Value) -> Result<Value> {
     items.retain(|v| v["id"].as_str() != Some(id));
     items.push(meta.clone());
     write_index(&store, &items)?;
+    audit::record_security("secure.totp_saved", json!({}));
     Ok(meta)
 }
 
@@ -1366,10 +1580,12 @@ pub fn remove(id: &str) -> Result<Value> {
     let before = items.len();
     items.retain(|v| v["id"].as_str() != Some(id));
     if items.len() == before {
+        audit::record_security("secure.removed", json!({ "removed": false }));
         return Ok(json!({ "removed": false }));
     }
     write_index(&store, &items)?;
     store.delete(&item_account(id)).map_err(unavailable)?;
+    audit::record_security("secure.removed", json!({ "removed": true }));
     Ok(json!({ "removed": true }))
 }
 
@@ -1503,7 +1719,10 @@ fn same_document(_: &Page, _: &Page) -> bool {
 /// The page, read again, must be the same page (the whole address, and on Windows the same
 /// document) in the same front app and window.
 fn same_page(before: &Page) -> Result<()> {
-    let now = read_page()?;
+    let now = match &before.via {
+        Some(via) => session_page_of(via.clone())?,
+        None => read_page()?,
+    };
     if now.pid == before.pid
         && now.window == before.window
         && now.host == before.host
@@ -1528,6 +1747,9 @@ fn type_verified(
     secret: &str,
     secure: Option<bool>,
 ) -> std::result::Result<Landed, Failed> {
+    if let Some(via) = &page.via {
+        return type_in_session(page, via, secret, secure);
+    }
     let field = inject::target(page, secure).map_err(Failed::untyped)?;
     same_page(page).map_err(Failed::untyped)?;
     let landed = inject::set_field(&field, secret)?;
@@ -1541,6 +1763,81 @@ fn type_verified(
     Ok(landed)
 }
 
+/// Types `secret` into the field of the agent's own browser session that `via` names (AG-14): the
+/// page's address is read from the session before and after (`same_page`), a ref must belong to the
+/// page as it is now and, for a password or a username, be the kind of field the value goes in
+/// (`secure`), and the value goes through the browser's typed input with no key chord and no
+/// clipboard. A point is not checked for the field's kind: a card field inside a frame has no ref.
+/// Nothing reads the value back, so the answer is never `confirmed`.
+fn type_in_session(
+    page: &Page,
+    via: &Via,
+    secret: &str,
+    secure: Option<bool>,
+) -> std::result::Result<Landed, Failed> {
+    same_page(page).map_err(Failed::untyped)?;
+    let landed = agent_browser_fill(&via.field_ref, &page.url, secret, secure)?;
+    if let Err(changed) = same_page(page) {
+        return Err(Failed {
+            refusal: changed,
+            maybe_typed: true,
+        });
+    }
+    Ok(landed)
+}
+
+/// The one typed fill into the agent's own browser, on every platform where the session is the
+/// target: `rightkit-browser`'s `fill_secret` takes the value as a `rightkit_crypto::Secret` (zeroed
+/// on drop, never in an audit line but as a count), and types only when the page's own origin is
+/// `origin` (the address the app verified) and the element is a password or card field. The crate
+/// types only into such fields, so a field asked for as "not a password" (a username or email) is
+/// refused `unsupported_field`: the login flow fills the password only (a decision for the owner).
+/// Nothing is read back, so the answer is never `confirmed`.
+fn agent_browser_fill(
+    target: &str,
+    origin: &str,
+    secret: &str,
+    secure: Option<bool>,
+) -> std::result::Result<Landed, Failed> {
+    use AgentBrowserFillError as SecretFillError;
+    if secure == Some(false) {
+        return Err(Failed::untyped(Refusal::new(
+            "unsupported_field",
+            "The app types only password and card fields into the agent browser; type the username or email with the browser's own typing",
+        )));
+    }
+    let browser = agent_browser(&Refusal::new(
+        "no_browser",
+        "there is no agent browser on this computer, so the app typed nothing",
+    ))
+    .map_err(Failed::untyped)?;
+    match browser.fill_secret(target, secret, origin, true) {
+        Ok(()) => Ok(Landed { confirmed: false }),
+        Err(SecretFillError::OriginMismatch) => Err(Failed::untyped(Refusal::new(
+            "origin_changed",
+            "the browser page is not the site the app checked, so it typed nothing",
+        ))),
+        Err(SecretFillError::NotCredentialField) => Err(Failed::untyped(Refusal::new(
+            "field_mismatch",
+            "the named element is not a password or card field, so the app typed nothing",
+        ))),
+        Err(SecretFillError::Untyped { code, message }) => {
+            let code = match code.as_str() {
+                "stale_ref" => "stale_ref",
+                "no_element" => "no_element",
+                "ambiguous_target" => "ambiguous_target",
+                "not_interactable" => "not_interactable",
+                _ => "invalid_request",
+            };
+            Err(Failed::untyped(Refusal::new(code, message)))
+        }
+        Err(SecretFillError::Other { message }) => Err(Failed {
+            refusal: Refusal::new("injection_failed", message),
+            maybe_typed: true,
+        }),
+    }
+}
+
 fn done(field: &str, host: &str, landed: &Landed) -> Value {
     json!({ "state": "filled", "field": field, "host": host, "confirmed": landed.confirmed })
 }
@@ -1549,7 +1846,8 @@ fn done(field: &str, host: &str, landed: &Landed) -> Value {
 /// `remoteFormFillLoginManagers`), `account` (the label of the saved login, when the site has
 /// more than one), `approval` (the id the owner approved). Types into the focused field of the
 /// browser in front, after checking the page's address; answers `filled` or a refusal, never the
-/// value.
+/// value. On Linux the page is the agent browser's and `ref` (its ref for the field, from its
+/// `observe`) names the field; only the password (and a card field) is typed, never a username.
 pub fn login_fill(settings: &Settings, origin: Origin, args: &Value) -> Result<Value> {
     // Nothing types, launches or takes focus while the user holds the screen (spot takeover, #355).
     super::screen::user_in_control()?;
@@ -1567,9 +1865,17 @@ pub fn login_fill(settings: &Settings, origin: Origin, args: &Value) -> Result<V
     }
     let account = claim(args, "account", MAX_LABEL);
     let approval = args["approval"].as_str();
-    let page = read_page()?;
+    let page = page_for(args)?;
     let client = approvals::current_client();
     let result = if let Some(name) = manager {
+        // A password manager's autofill is a key chord to the front window; the agent's own
+        // browser takes none.
+        if page.via.is_some() {
+            return Err(Refusal::new(
+                "manager_off",
+                "a password manager's autofill is not used in the agent's own browser session; use field",
+            ));
+        }
         let chord = settings
             .login_managers
             .iter()
@@ -1744,7 +2050,7 @@ pub fn payment_fill(settings: &Settings, origin: Origin, args: &Value) -> Result
     let merchant = claim(args, "merchant", 80).unwrap_or_else(|| "(no name given)".to_string());
     let card_label = claim(args, "card", MAX_LABEL);
     let approval = args["approval"].as_str();
-    let page = read_page()?;
+    let page = page_for(args)?;
     let client = approvals::current_client();
     let store = open()?;
     let item = resolve(
@@ -1826,6 +2132,7 @@ pub fn payment_fill(settings: &Settings, origin: Origin, args: &Value) -> Result
                         Gate::Auto if unknown => Gate::Ask,
                         gate => gate,
                     };
+                    let auto_ok = matches!(gate, Gate::Auto);
                     match gate {
                         Gate::Refuse(code, why) => {
                             return Err(Refusal::new(
@@ -1909,6 +2216,7 @@ pub fn payment_fill(settings: &Settings, origin: Origin, args: &Value) -> Result
                         left: fields.clone(),
                         busy: false,
                         typed: false,
+                        auto_ok,
                         until: Instant::now() + PAYMENT_GRANT,
                     });
                     purchases.len() - 1
@@ -1949,6 +2257,15 @@ pub fn payment_fill(settings: &Settings, origin: Origin, args: &Value) -> Result
                     let p = purchases.remove(at);
                     let booked = end_purchase(&store, &p, End::Commit);
                     answer["purchase"] = Value::from(if booked { "committed" } else { "held" });
+                    if p.auto_ok {
+                        let mut cleared = CLEARED.lock().unwrap_or_else(|e| e.into_inner());
+                        cleared.retain(|c| c.until > Instant::now());
+                        cleared.push(Cleared {
+                            host: p.host.clone(),
+                            until: Instant::now() + PAY_CLICK_WINDOW,
+                        });
+                        answer["payControlCleared"] = Value::from(true);
+                    }
                 } else {
                     answer["purchase"] = Value::from("open");
                     answer["fieldsLeft"] = json!(purchases[at].left);

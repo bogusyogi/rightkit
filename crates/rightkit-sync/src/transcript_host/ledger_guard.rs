@@ -243,6 +243,7 @@ impl LedgerGuard {
     }
 
     /// Whether the engine's view is stale: an earlier write was refused or failed.
+    #[allow(dead_code)]
     pub(super) fn is_diverged(&self) -> bool {
         self.state.lock().map_or(true, |state| state.diverged)
     }

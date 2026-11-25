@@ -557,12 +557,23 @@ impl Nonces {
         phone_id: &str,
         now: u64,
     ) -> Result<(String, u64), PhoneError> {
+        self.issue_for(request_id, phone_id, now, CHALLENGE_TTL_MS)
+    }
+
+    /// [`Nonces::issue`] with a lifetime of `ttl_ms` (a relayed request waits for a sleeping computer: [`RELAY_TTL_MS`]).
+    pub fn issue_for(
+        &self,
+        request_id: &str,
+        phone_id: &str,
+        now: u64,
+        ttl_ms: u64,
+    ) -> Result<(String, u64), PhoneError> {
         let _g = self.guard.lock().unwrap_or_else(|e| e.into_inner());
         let mut raw = [0u8; 32];
         ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut raw)
             .map_err(|_| PhoneError::new("rng_failed", "no random bytes for a challenge"))?;
         let nonce = hex(&raw);
-        let expires = now + CHALLENGE_TTL_MS;
+        let expires = now + ttl_ms;
         let mut file = self.load();
         Self::prune(&mut file, now);
         file.outstanding.insert(
@@ -575,6 +586,46 @@ impl Nonces {
         );
         self.store(&file)?;
         Ok((nonce, expires))
+    }
+
+    /// Records a challenge ANOTHER computer issued (the one the phone talks to) as outstanding here, so a relayed request can be
+    /// answered once at this one. Accepted only when `nonce` is 64 hex characters, `expires_ms` is after `now` and at most
+    /// [`RELAY_TTL_MS`] ahead, and the nonce was never spent here; it is then spent by [`Nonces::take`] like any other. A nonce
+    /// that was spent is refused for as long as spent nonces are kept, so a captured request cannot be replayed after a restart.
+    pub fn accept_foreign(
+        &self,
+        request_id: &str,
+        phone_id: &str,
+        nonce: &str,
+        expires_ms: u64,
+        now: u64,
+    ) -> Result<(), PhoneError> {
+        let _g = self.guard.lock().unwrap_or_else(|e| e.into_inner());
+        let valid = nonce.len() == 64 && nonce.bytes().all(|b| b.is_ascii_hexdigit());
+        if !valid || expires_ms <= now || expires_ms > now.saturating_add(RELAY_TTL_MS) {
+            return Err(PhoneError::new(
+                "challenge_expired",
+                "the relayed request's challenge is malformed or has expired; ask for a new one",
+            ));
+        }
+        let nonce = nonce.to_ascii_lowercase();
+        let mut file = self.load();
+        Self::prune(&mut file, now);
+        if file.used.contains_key(&nonce) {
+            return Err(PhoneError::new(
+                "nonce_used",
+                "that challenge was already used",
+            ));
+        }
+        file.outstanding.insert(
+            request_id.to_string(),
+            Outstanding {
+                nonce,
+                phone_id: phone_id.to_string(),
+                expires_ms,
+            },
+        );
+        self.store(&file)
     }
 
     /// Spend the outstanding challenge for `request_id`: it must be this phone's, equal to
@@ -964,10 +1015,56 @@ pub fn confirm_message(
     nonce: &str,
     expires_ms: u64,
 ) -> Vec<u8> {
+    signed_message(
+        CONFIRM_TAG,
+        computer_id,
+        phone_id,
+        request_id,
+        payload_hash,
+        nonce,
+        expires_ms,
+    )
+}
+
+/// The first field of a signed inbox action's bytes (AG-4, `inbox.act` from the phone). Its own domain, like the
+/// tags above.
+pub const INBOX_ACT_TAG: &str = "pulse-inbox-act-1";
+
+/// The bytes the phone signs to start the acting task of one Inbox item: [`INBOX_ACT_TAG`] and then the same fields,
+/// in the same framing, as [`confirm_message`]. `request_id` is the engine's name for this act and `payload_hash`
+/// its digest (`inbox::act_digest`); the engine builds both from its own record.
+pub fn inbox_act_message(
+    computer_id: &str,
+    phone_id: &str,
+    request_id: &str,
+    payload_hash: &str,
+    nonce: &str,
+    expires_ms: u64,
+) -> Vec<u8> {
+    signed_message(
+        INBOX_ACT_TAG,
+        computer_id,
+        phone_id,
+        request_id,
+        payload_hash,
+        nonce,
+        expires_ms,
+    )
+}
+
+fn signed_message(
+    tag: &str,
+    computer_id: &str,
+    phone_id: &str,
+    request_id: &str,
+    payload_hash: &str,
+    nonce: &str,
+    expires_ms: u64,
+) -> Vec<u8> {
     let expires = expires_ms.to_string();
     let mut out = Vec::new();
     for part in [
-        CONFIRM_TAG,
+        tag,
         computer_id,
         phone_id,
         request_id,
@@ -987,6 +1084,177 @@ pub fn confirm_message(
 /// service to verify (it holds the keys); with no service installed the confirmation is refused.
 #[allow(clippy::too_many_arguments)]
 pub fn check_confirm(
+    root: &Path,
+    nonces: &Nonces,
+    phone_id: &str,
+    computer_id: &str,
+    request_id: &str,
+    payload_hash: &str,
+    params: &Value,
+    now: u64,
+) -> Result<String, PhoneError> {
+    check_tagged(
+        CONFIRM_TAG,
+        root,
+        nonces,
+        phone_id,
+        computer_id,
+        request_id,
+        payload_hash,
+        params,
+        now,
+    )
+}
+
+/// The domains of the phone's other owner checks (AG-4), each its own, like [`INBOX_ACT_TAG`]: a signature for one can never answer another.
+/// A held approval (a Gmail send, `approvals::request_digest` of what the phone shows), a schedule's confirmation, a standing
+/// instruction's approval, and a request typed in the phone's thread to start an acting run.
+pub const HELD_APPROVE_TAG: &str = "pulse-held-approve-1";
+pub const SCHEDULE_CONFIRM_TAG: &str = "pulse-schedule-confirm-1";
+pub const RULE_APPROVE_TAG: &str = "pulse-rule-approve-1";
+pub const PHONE_ACT_TAG: &str = "pulse-phone-act-1";
+/// The owner's signed request that runs on ANOTHER computer than the one the phone talks to (AG-8, `task.relay`). Its own domain, so
+/// a signature for the same text on this computer ([`PHONE_ACT_TAG`]) cannot start it elsewhere, and the other way round.
+pub const RELAY_ACT_TAG: &str = "pulse-phone-relay-act-1";
+/// How long a relayed request's challenge lives: the computer it is for may be asleep and is waited for this long.
+pub const RELAY_TTL_MS: u64 = 10 * 60 * 1000;
+
+/// The digest the phone signs for a relayed request: the TARGET computer's device id, the client's message id and the exact trimmed
+/// text, so the signature names where it runs and what it says. The signed bytes are [`signed_message_for`] with [`RELAY_ACT_TAG`],
+/// `computer_id` the computer the phone talks to, `phone_id`, `request_id` `phone-relay:<clientMsgId>`, this digest, the challenge's
+/// nonce and its `expiresMs`.
+pub fn relay_digest(target_device_id: &str, client_id: &str, request: &str) -> String {
+    hex(ring::digest::digest(
+        &ring::digest::SHA256,
+        format!(
+            "pulse.phone-relay-act.v1\ntarget:{target_device_id}\nclient:{client_id}\nrequest:{request}"
+        )
+        .as_bytes(),
+    )
+    .as_ref())
+}
+
+/// Verifies a relayed request AT THE TARGET: the challenge was issued by `computer_id` (the paired server that forwarded it), so its
+/// nonce and expiry come from `params` (`nonce`, `expiresMs`) and are recorded here ([`Nonces::accept_foreign`]) before the usual
+/// order: this phone's key is enrolled here and live, the nonce is spent, the signature over the bytes built from this computer's
+/// own view (`payload_hash` is [`relay_digest`] of its own device id). Returns the key id that signed.
+#[allow(clippy::too_many_arguments)]
+pub fn check_relay(
+    root: &Path,
+    nonces: &Nonces,
+    phone_id: &str,
+    computer_id: &str,
+    request_id: &str,
+    payload_hash: &str,
+    params: &Value,
+    now: u64,
+) -> Result<String, PhoneError> {
+    let nonce = params.get("nonce").and_then(Value::as_str).unwrap_or("");
+    let expires = params.get("expiresMs").and_then(Value::as_u64).unwrap_or(0);
+    nonces.accept_foreign(request_id, phone_id, nonce, expires, now)?;
+    check_tagged(
+        RELAY_ACT_TAG,
+        root,
+        nonces,
+        phone_id,
+        computer_id,
+        request_id,
+        payload_hash,
+        params,
+        now,
+    )
+}
+
+/// [`check_confirm`] for any one of the phone owner-check domains above or [`INBOX_ACT_TAG`] (the same order and refusals; the
+/// signed bytes are [`signed_message_for`] with that tag). Any other `tag` is refused `unsupported`.
+#[allow(clippy::too_many_arguments)]
+pub fn check_signed(
+    tag: &str,
+    root: &Path,
+    nonces: &Nonces,
+    phone_id: &str,
+    computer_id: &str,
+    request_id: &str,
+    payload_hash: &str,
+    params: &Value,
+    now: u64,
+) -> Result<String, PhoneError> {
+    const KNOWN: [&str; 6] = [
+        INBOX_ACT_TAG,
+        HELD_APPROVE_TAG,
+        SCHEDULE_CONFIRM_TAG,
+        RULE_APPROVE_TAG,
+        PHONE_ACT_TAG,
+        RELAY_ACT_TAG,
+    ];
+    if !KNOWN.contains(&tag) {
+        return Err(PhoneError::new(
+            "unsupported",
+            "that is not a phone owner check",
+        ));
+    }
+    check_tagged(
+        tag,
+        root,
+        nonces,
+        phone_id,
+        computer_id,
+        request_id,
+        payload_hash,
+        params,
+        now,
+    )
+}
+
+/// The bytes the phone signs for the owner checks above: `tag`, then the same fields in the same framing as [`confirm_message`].
+pub fn signed_message_for(
+    tag: &str,
+    computer_id: &str,
+    phone_id: &str,
+    request_id: &str,
+    payload_hash: &str,
+    nonce: &str,
+    expires_ms: u64,
+) -> Vec<u8> {
+    signed_message(
+        tag,
+        computer_id,
+        phone_id,
+        request_id,
+        payload_hash,
+        nonce,
+        expires_ms,
+    )
+}
+
+/// [`check_confirm`] for an Inbox action ([`inbox_act_message`]): the same order and the same refusals.
+#[allow(clippy::too_many_arguments)]
+pub fn check_inbox_act(
+    root: &Path,
+    nonces: &Nonces,
+    phone_id: &str,
+    computer_id: &str,
+    request_id: &str,
+    payload_hash: &str,
+    params: &Value,
+    now: u64,
+) -> Result<String, PhoneError> {
+    check_tagged(
+        INBOX_ACT_TAG,
+        root,
+        nonces,
+        phone_id,
+        computer_id,
+        request_id,
+        payload_hash,
+        params,
+        now,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn check_tagged(
+    tag: &str,
     root: &Path,
     nonces: &Nonces,
     phone_id: &str,
@@ -1027,7 +1295,8 @@ pub fn check_confirm(
             )
         })?;
         let expires = nonces.take(request_id, phone_id, &nonce, now)?;
-        let message = confirm_message(
+        let message = signed_message(
+            tag,
             computer_id,
             phone_id,
             request_id,
@@ -1059,7 +1328,8 @@ pub fn check_confirm(
             ));
         }
         let expires = nonces.take(request_id, phone_id, &nonce, now)?;
-        let message = confirm_message(
+        let message = signed_message(
+            tag,
             computer_id,
             phone_id,
             request_id,
@@ -1073,6 +1343,7 @@ pub fn check_confirm(
     #[cfg(not(any(unix, windows)))]
     {
         let _ = (
+            tag,
             nonces,
             computer_id,
             request_id,

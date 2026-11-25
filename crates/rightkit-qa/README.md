@@ -372,7 +372,7 @@ Unmatched commands reach the real engine. Rules live in the page, so a reload or
 
 - The harness drives webview windows only. Pulse observed that native-drawn surfaces are outside its reach: the Windows notch draws its panels on the desktop rather than in a webview, so the control server cannot drive them.
 - Pressed-state checks on Windows are advisory. Pulse's `tests/ui.rs` reports a control with no pressed state as advisory, because whether a hidden WebView2 produces `:active` is unmeasured.
-- Installed-package lane: no harness path yet launches the installed Windows app and binds its executable identity into evidence. Today's runs are real-app evidence from a debug build and must be labelled that way. Gap ledger row 56 (`docs/audits/2026-10-10-rightkit-gap-ledger.md`) is open; its decision is an installed-package lane in rightkit-qa 0.3.0 (launch into the interactive session, identity binding in evidence).
+- Installed-package lane: shipped and proven on macOS only; the Windows installed run (sealed NSIS installer) is not proven in this dispatch and is tracked in #424. `right-release qa --stage installed` mounts the sealed DMG or runs the sealed NSIS installer into throwaway folders and runs `rightkit-qa journeys run` against it (`packages/release/release-qa-installed.mjs`, installed-QA mode `RIGHT_RELEASE_QA_STAGE=installed`, `installed.rs`); `journeys run` drives the installed dev copy at its fixed path under a mandatory snapshot and restore (GATE-CONTRACT GC-A10; `run-tests --credential-owner <installed executable>` binds the owner identity into the restore marker). Gap ledger row 56 is closed.
 
 ## Mocks and validators
 

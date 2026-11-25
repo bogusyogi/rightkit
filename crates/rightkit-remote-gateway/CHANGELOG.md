@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4
+
+- Dependencies added: `rightkit-google-apis` 0.2.3, `rightkit-google-identity` 0.3.0 (for the `google` and `google_write` modules), `rightkit-time` 0.1.5. `rightkit-owner-approvals` requirement 0.1.3. `ring` removed (no source used it). Not added: `rightkit-web-session`, which the `web_read` module needs for `clean_site`; it would close a cycle, because `rightkit-web-session` already depends on this crate. Not compiled.
+
 ## 0.1.3 (unpublished)
 
 - Runs on the gateway core `rightkit-agent-gateway` 0.3.0 (without its `sql` feature). Taken on the recommended option of the 2026-11-11 shape review, pending the owner's confirmation; design note: docs/audits/2026-11-11-shape-matrix/reports/agent-platform-redraw.md. `Origin` is the core's (re-exported, same variants and words); `redact` is the core's (re-exported; it moved there from `rightkit-owner-approvals`, unchanged); the read-only door check is the core's `gate::allow_door` (code `read_only_tool` unchanged); the activity row goes through the core's `audit::AuditSink` (`audit::ActivityFile`, same JSON line) and `gate::conclude(Logging::BestEffort)`; the unverified-sender stamp is the core's `content::stamped` (same text). `audit::record` and `audit::record_args` return the sink's `Result` (always `Ok`: best effort). Deleted as duplicates: the local `Origin` enum and the hand-built activity line.

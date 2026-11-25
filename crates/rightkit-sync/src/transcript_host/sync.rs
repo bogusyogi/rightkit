@@ -2129,7 +2129,7 @@ impl TranscriptSync {
             .not_before
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        if slot.map_or(true, |held| target > held) {
+        if slot.is_none_or(|held| target > held) {
             *slot = Some(target);
         }
     }
@@ -2745,16 +2745,17 @@ impl TranscriptSync {
     ///    none), and make sure the engine's cached ledger still equals the file (else rebuild the
     ///    engine from the file).
     /// 3. Read the durable ledger's account through the guard (same locks as a write).
-    /// 4a. Whatever the ledger already queues (`pending_tombstones`) must have hand-over evidence
-    ///    for the ledger's account and the current durable epoch (`Outbox::handed_at`); every
-    ///    other id is kept in the unverified partition and withdrawn from the ledger (queue; the
-    ///    local tombstone too only when the hand-over record proves the hand-over created it; one
-    ///    guarded write; crate patch 0007) before the engine runs. A
-    ///    withdrawal that cannot be written ends the pass.
-    /// 4b. Only if the ledger is bound to the live account in the cache AND on disk: record the
-    ///    hand-over (outbox save), then hand over the deletions of that account in the current
-    ///    epoch (one ledger write). Otherwise hand over nothing: the engine's
-    ///    own pass binds (or resets) the ledger to the live account, the next pass hands over.
+    /// 4. Hand over deletions:
+    ///    - (a) Whatever the ledger already queues (`pending_tombstones`) must have hand-over evidence
+    ///      for the ledger's account and the current durable epoch (`Outbox::handed_at`); every
+    ///      other id is kept in the unverified partition and withdrawn from the ledger (queue; the
+    ///      local tombstone too only when the hand-over record proves the hand-over created it; one
+    ///      guarded write; crate patch 0007) before the engine runs. A
+    ///      withdrawal that cannot be written ends the pass.
+    ///    - (b) Only if the ledger is bound to the live account in the cache AND on disk: record the
+    ///      hand-over (outbox save), then hand over the deletions of that account in the current
+    ///      epoch (one ledger write). Otherwise hand over nothing: the engine's
+    ///      own pass binds (or resets) the ledger to the live account, the next pass hands over.
     /// 5. Engine pass; every ledger write goes through the guard.
     /// 6. Settle the outbox (remove acknowledged ids; unverified deletions are not promoted), and ask for another pass when
     ///    work was left over.
@@ -3442,9 +3443,7 @@ impl TranscriptSync {
         // stop is seen through `disable_requests`).
         let _guard = self.consent.transition_guard()?;
         self.refuse_if_disable_requested(started)?;
-        if let Err(error) = self.consent.load() {
-            return Err(error);
-        }
+        self.consent.load()?;
         // Turning sync on first refuses an outbox that cannot be read, before the account is
         // observed. The authoritative read is the one under the locks.
         Outbox::peek_high_water(&self.consent.outbox_file)?;

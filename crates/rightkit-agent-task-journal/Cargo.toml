@@ -1,0 +1,24 @@
+[package]
+name = "rightkit-agent-task-journal"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.0"
+description = "The durable agent task journal over the job store: owner epoch fencing, restart recovery, event outbox, device-link request replay and the lane workers, with the product behind host traits."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/bogusyogi/rightkit"
+keywords = ["agent", "task", "journal", "sqlite"]
+include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[lib]
+name = "rightkit_agent_task_journal"
+path = "src/lib.rs"
+
+[dependencies]
+rightkit-agent-task-contract = { version = "0.1.2", path = "../rightkit-agent-task-contract" }
+rightkit-job-queue = { version = "0.6.0", path = "../rightkit-job-queue", default-features = false, features = ["store"] }
+# The journal's schema migrations and version check (`schema.rs`); the same crate and features the job store links, so one SQLite.
+rightkit-db = { version = "0.5.3", path = "../rightkit-db", features = ["bundled", "statement-cache"] }
+# `digest::hex` / `digest::unhex` for the stored request hash (`link.rs`).
+rightkit-fs = { version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["digest"] }
+serde_json = "1.0.154"

@@ -29,6 +29,7 @@ pub mod caller;
 pub mod cli;
 pub mod data_folder;
 pub mod env;
+pub mod events;
 pub mod registry;
 pub mod sidecar;
 pub mod wire;

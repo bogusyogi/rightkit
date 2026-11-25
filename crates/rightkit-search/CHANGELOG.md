@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.6
+
+- **Added (feature `workspace-grep`):** `grep_stream::stream_page`, a byte-streaming resumable workspace search with a per-file `authorize_read` hook, multiline mode, separate before/after context, a mid-file byte cursor and bounded oversized-line handling (#580).
+
 ## 0.4.5 (unpublished)
 
 - **Test build: bundled SQLite as a dev-dependency (#1560).** `rusqlite` with `bundled` is a dev-dependency again, so the crate's test build links on a host with no system SQLite (Windows: `LNK1181 sqlite3.lib`). The library's features are unchanged; the application still picks the SQLite backend.

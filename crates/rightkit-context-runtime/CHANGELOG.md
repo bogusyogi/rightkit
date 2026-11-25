@@ -2,6 +2,7 @@
 
 ## 0.1.5
 
+- Requires `rightkit-hooks` 0.3.0. No behaviour change.
 - `RecoveryStore::with_observer(RecoveryObserver)` (PL-37, additive): a per-store sink for restore observations. A verified restore hands its `RecoveryObservation { verb, before_bytes, after_bytes, metadata, opportunity }` to the store's own observer, once, after the selected bytes were verified and before the final reference is read, instead of the process-wide telemetry sink. Without an observer the store records through the process-wide telemetry as before. Lets Pulse keep its own counters and sink and its `opportunityDigest` (a hash of the verified source digest, which a byte-count callback cannot reproduce). Written, not compiled.
 - Accept host-resolved alternate paths after migration & report unreadable candidates. Expose budgeted grant reads, controlled publication recording & installation-scoped pending lookup.
 - Controlled publication refreshes the cancellation check and SQLite's busy timeout before begin, insert and commit, and restores the normal timeout afterwards; once commit starts, its result controls the receipt. SQLite's timeout is not a wall-clock guarantee (documented on the budget).

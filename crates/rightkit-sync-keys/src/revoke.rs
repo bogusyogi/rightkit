@@ -24,9 +24,10 @@
 //!
 //! * A device that is switched off, offline, stolen, or never started again is not reached, so
 //!   it keeps its readable local copy. No design can force an erase on a machine that is not
-//!   running. Y3 holds for a device that is reachable at revoke time or reconnects. (A "deadman"
-//!   that wipes after N days without contact would narrow this; it changes behaviour for a laptop
-//!   left closed, so it is not built until the owner asks for it.)
+//!   running. Y3 holds for a device that is reachable at revoke time or reconnects. (The
+//!   [`crate::deadman`] wipe after N days without contact narrows this for a running device cut
+//!   off from the account; it changes behaviour for a laptop left closed, so a host offers it as
+//!   the owner's switch.)
 //! * Registering every copy is the host's job: Cortex, Nucleus, Inbox, facts, schedules, and the
 //!   sync ledger files (a ledger holds not-yet-applied downloads in plaintext). Whatever is not
 //!   registered survives. [`LocalCopy::erase`] must be idempotent (it runs again after a crash)
@@ -142,6 +143,110 @@ pub fn issue_revoke_notice(
     out.extend_from_slice(&nonce);
     out.extend_from_slice(&ct);
     Ok(out)
+}
+
+/// What [`revoke_device`] did besides rotating the key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RevokeReport {
+    /// The notice was published for a device that is off (the host's `publish` said so).
+    pub published: bool,
+    /// The notice was carried over the live channel (the host's `notify` said so).
+    pub notified: bool,
+}
+
+/// Revokes `target_device_id`: issues the wipe notice under the current key, hands it to the host twice (`publish`, for a record a
+/// device that is off reads the next time it starts, and `notify`, over the live authenticated channel; each returns whether it
+/// arrived), then rotates the key. The rotation follows whether or not either arrived, because a device that is off must not keep
+/// reading new data either. Every remaining device must be approved again for the new key.
+pub fn revoke_device(
+    manager: &KeyManager,
+    issuer_device_id: &str,
+    target_device_id: &str,
+    issued_at: i64,
+    publish: impl FnOnce(&[u8]) -> bool,
+    notify: impl FnOnce(&[u8]) -> bool,
+) -> Result<RevokeReport> {
+    let notice = issue_revoke_notice(manager, issuer_device_id, target_device_id, issued_at)?;
+    let published = publish(&notice);
+    let notified = notify(&notice);
+    manager.rotate()?;
+    Ok(RevokeReport {
+        published,
+        notified,
+    })
+}
+
+/// The zone of the revocation records: one per revoked device, sealed with the key in force when the owner revoked it, so the
+/// revoked device (which still holds that key) can read its own and nobody else can write one.
+#[cfg(feature = "sync")]
+pub const REVOKED_ZONE: &str = "rk-revoked";
+
+#[cfg(feature = "sync")]
+fn revocation_name(device_id: &str) -> String {
+    rightkit_sync::families::item_id(&["revoked", device_id])
+}
+
+/// Writes the revocation record for `device_id` into `backend` (the revocation zone, sealed under the current, about to be rotated,
+/// key): the sealed wipe `notice`, so a device that is off reads it the next time it starts.
+#[cfg(feature = "sync")]
+pub fn publish_revocation(
+    backend: &dyn rightkit_sync::Backend,
+    device_id: &str,
+    notice: &[u8],
+) -> std::result::Result<(), String> {
+    use rightkit_sync::{field, FieldValue, RawRecord, SavePolicy};
+    backend.prepare().map_err(|e| e.to_string())?;
+    let name = revocation_name(device_id);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+    let mut record = RawRecord {
+        record_type: "RkRevoked".to_string(),
+        record_name: name.clone(),
+        fields: Default::default(),
+        modified_ms: None,
+        created_ms: None,
+        change_tag: None,
+    };
+    record.set(field::ID, FieldValue::Text(name));
+    record.set(field::CREATED_AT, FieldValue::Date(now));
+    record.set(field::UPDATED_AT, FieldValue::Date(now));
+    record.set("target", FieldValue::Text(device_id.to_string()));
+    record.set("notice", FieldValue::Bytes(notice.to_vec()));
+    let outcomes = backend
+        .save_records(&[record], SavePolicy::Overwrite)
+        .map_err(|e| e.to_string())?;
+    match outcomes.into_iter().next().map(|o| o.result) {
+        Some(Ok(())) => Ok(()),
+        Some(Err(e)) => Err(e.to_string()),
+        None => Err("the store answered nothing".to_string()),
+    }
+}
+
+/// Whether the revocation zone holds a record for `device_id`, and if so whether it is a wipe notice the device's key accepts (it is
+/// sealed with the key the owner revoked under, which only a device that held it can open). `wipe` builds the device's
+/// [`RevokeWipe`] and is asked for only once a record is found. `true` when the wipe ran.
+#[cfg(feature = "sync")]
+pub fn learned_of_revocation(
+    backend: &dyn rightkit_sync::Backend,
+    device_id: &str,
+    wipe: impl FnOnce() -> Option<RevokeWipe>,
+) -> bool {
+    use rightkit_sync::FieldValue;
+    if backend.prepare().is_err() {
+        return false;
+    }
+    let Ok(Some(record)) = backend.fetch_record(&revocation_name(device_id)) else {
+        return false;
+    };
+    let Some(FieldValue::Bytes(notice)) = record.get("notice") else {
+        return false;
+    };
+    let Some(wipe) = wipe() else {
+        return false;
+    };
+    matches!(wipe.handle_notice(notice), Ok(NoticeOutcome::Wiped))
 }
 
 /// The wipe handler of one device. Build it at start with every local copy registered.

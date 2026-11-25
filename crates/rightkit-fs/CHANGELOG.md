@@ -1,7 +1,11 @@
 # Changelog
 
-## 0.5.1
+## 0.5.2
 - Add `app_dirs::roaming_app_data`: the account's Roaming AppData known folder (Windows, from the OS and never `%APPDATA%`; `None` elsewhere). Additive.
+
+## 0.5.1
+
+- Documentation only: README and the move_to_trash doc comment now describe the Windows and Linux trash and copy_tree_confined, and why no workspace-local trash with receipts is offered.
 
 ## 0.5.0 (unpublished)
 

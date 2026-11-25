@@ -391,10 +391,7 @@ struct Frame {
 }
 
 fn last_segment(url: &str) -> String {
-    url.rsplit(|c: char| c == '/' || c == '#' || c == ':')
-        .next()
-        .unwrap_or("")
-        .to_string()
+    url.rsplit(['/', '#', ':']).next().unwrap_or("").to_string()
 }
 
 fn prop_names(raw: &str) -> Vec<String> {

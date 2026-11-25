@@ -27,7 +27,7 @@
       "rationale": "glib arrives only through tauri's Linux/BSD-gated GTK dependency; RightKit release targets are Windows and macOS only. Invalidated the moment any GTK (Linux or BSD) target ships.",
       "evidence": "deny.toml [advisories].ignore reason; Cargo.lock reverse dependencies of glib",
       "reviewBy": "2026-12-04",
-      "approvedBy": "Astra 2026-10-22, D:/scratch/rk-888/astra-advisories-answer.md (RightKit ci/advisory-exceptions.json, same advisory); renewed 10 days to 2026-12-04 by Adrian 2026-11-24 (dependents re-checked against Cargo.lock, unchanged)"
+      "approvedBy": "Astra 2026-10-22, D:/scratch/rk-888/astra-advisories-answer.md (RightKit ci/advisory-exceptions.json, same advisory); renewed 10 days to 2026-12-04 by Adrian 2026-11-24 (dependents re-checked against Cargo.lock, unchanged) Also renewed 2026-11-24 with the root .rightkit/advisory-exceptions.json entry for the same advisory id (re-checked there the same day against Cargo.lock and the crate source); this consumer adds no use of its own, per Adrian decision D1 of 2026-11-24 (cloud chat session_01YJCBvRKVyiM3dRdhYNfY3M)."
     }
   ]
 }

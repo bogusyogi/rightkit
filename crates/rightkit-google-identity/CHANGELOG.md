@@ -2,6 +2,8 @@
 
 ## 0.3.0 (unpublished, `publish = false`)
 
+- `publish = false` removed, and the "deprecated" description replaced: the crate now holds Pulse's Google account home. Depends on `rightkit-google-apis` (`sealed-store`), `rightkit-credentials` 0.5.0, `serde_json` and `tokio` (`rt-multi-thread`, `time`). `package.metadata.rightkit` declares the process-wide runtime (`home.rs`). Not compiled.
+
 Taken on the recommended option of the shape review (decision 9), pending the owner's confirmation.
 
 - BREAKING, deprecated: the duplicate PKCE (`Pkce`, `AuthRequest`, `parse_redirect`), token bodies and `TokenResponse`, base64url codec, in-crate RSA verifier (`rsa.rs`), ID-token verification (`verify_id_token`, `verify_jws_rs256`, `JwkSet`, `validate_claims`, claim types), `RefreshTokenStore` and the unimplemented `IdTokenProvider` seam are deleted in favour of `rightkit-oauth` (feature `google`): `OAuthClient` with `OAuthConfig::google`, `GoogleIdVerifier`, `verify_with_jwks`, `GoogleSession`. Nothing Google-specific remained that `rightkit-oauth` lacks, so the crate only re-exports `rightkit_oauth::google`.

@@ -108,6 +108,13 @@ pub enum ChatError {
     NotFound(String),
     #[error("{0}")]
     Invalid(String),
+    /// A name matches more than one chat. `candidates` is JSON rows: chat, id, machine,
+    /// harness, liveness, lastActivityMs, lastActivity.
+    #[error("{detail}")]
+    Ambiguous {
+        detail: String,
+        candidates: Vec<serde_json::Value>,
+    },
     #[error("{0}")]
     Io(String),
     #[error("{0}")]

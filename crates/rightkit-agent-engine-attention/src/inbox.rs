@@ -814,3 +814,191 @@ impl<S: InboxStore> Inbox<S> {
         })
     }
 }
+
+// ─── Host helpers: reads, list views and the alert pass ──────
+
+/// The longest id (item, action, evidence, fact) an act or a reply accepts.
+pub const MAX_ID_LEN: usize = 128;
+
+/// An item older than this that was never alerted is not alerted now: a phone that registers late
+/// must not get a flood of old items. A snoozed item that wakes is the exception (its delivery
+/// history is cleared on purpose).
+pub const ALERT_MAX_AGE_SECS: i64 = 24 * 3600;
+
+/// The item's state as of `now`: a snoozed item whose time has passed is open, an unresolved item
+/// past its expiry is expired. Read only; [`tick`] is what writes that change back.
+pub fn state_at(item: &InboxItem, now: i64) -> InboxState {
+    if item.state.is_terminal() {
+        return item.state;
+    }
+    if item.expires_at.is_some_and(|at| at <= now) {
+        return InboxState::Expired;
+    }
+    if item.state == InboxState::Snoozed && item.snooze_until.is_none_or(|at| at <= now) {
+        return InboxState::Open;
+    }
+    item.state
+}
+
+/// The state's word as a reply carries it.
+pub fn state_word(state: InboxState) -> &'static str {
+    match state {
+        InboxState::Open => "open",
+        InboxState::Snoozed => "snoozed",
+        InboxState::Dismissed => "dismissed",
+        InboxState::Handled => "handled",
+        InboxState::Expired => "expired",
+    }
+}
+
+/// An id (item, action, evidence, fact) is a plain token: 1 to [`MAX_ID_LEN`] bytes of
+/// `A-Z a-z 0-9 . _ : @ # = -`.
+pub fn plain_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= MAX_ID_LEN
+        && id.chars().all(|c| {
+            c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '@' | '#' | '=' | '-')
+        })
+}
+
+/// One item as a list reply shows it (camelCase): no evidence ids, only their count.
+pub fn summary(item: &InboxItem, now: i64) -> serde_json::Value {
+    serde_json::json!({
+        "id": item.id,
+        "finding": item.finding,
+        "rule": item.rule,
+        "state": state_word(state_at(item, now)),
+        "urgent": item.urgent,
+        "confidence": item.confidence,
+        "createdAt": item.created_at,
+        "snoozeUntil": item.snooze_until,
+        "expiresAt": item.expires_at,
+        "evidenceCount": item.evidence_ids.len(),
+        "actions": item.proposed_actions.iter().map(|a| serde_json::json!({
+            "id": a.id,
+            "label": a.label,
+            "approval": a.approval,
+            "done": a.done,
+        })).collect::<Vec<_>>(),
+    })
+}
+
+/// The states a list may ask for.
+pub fn is_list_state(word: &str) -> bool {
+    matches!(
+        word,
+        "active" | "all" | "open" | "snoozed" | "dismissed" | "handled" | "expired"
+    )
+}
+
+/// The list view: keeps the items whose state as of `now` matches `which` (`active` is open and
+/// snoozed, `all` is every one, otherwise one state's word), sorts urgent first then newest first
+/// then by id, and cuts to `limit`. Returns the kept items and whether more were cut.
+pub fn list_view(
+    mut items: Vec<InboxItem>,
+    which: &str,
+    limit: usize,
+    now: i64,
+) -> (Vec<InboxItem>, bool) {
+    items.retain(|item| {
+        let state = state_at(item, now);
+        match which {
+            "all" => true,
+            "active" => matches!(state, InboxState::Open | InboxState::Snoozed),
+            other => state_word(state) == other,
+        }
+    });
+    items.sort_by(|a, b| {
+        b.urgent
+            .cmp(&a.urgent)
+            .then(b.created_at.cmp(&a.created_at))
+            .then(a.id.cmp(&b.id))
+    });
+    let truncated = items.len() > limit;
+    items.truncate(limit);
+    (items, truncated)
+}
+
+/// The item with `id`, if the store holds one.
+pub fn find_item<S: InboxStore>(store: &S, id: &str) -> Result<Option<InboxItem>, String> {
+    store.update(|items| items.iter().find(|i| i.id == id).cloned())
+}
+
+/// The longest item id an alert can name (`PhoneAlert`): 128 bytes.
+const ALERT_ID_MAX: usize = 128;
+
+/// An item id inside the set a phone alert can name, `A-Z a-z 0-9 . _ : -` and at most 128 bytes,
+/// so no item is ever left without an alert for its id. An id already inside the set is returned
+/// as it is. Any other is mapped: each character outside the set becomes `-`, the text is cut to
+/// leave room, and the first 8 hex digits of the SHA-256 of the original are appended, so two
+/// different raw ids cannot meet. The same raw id always maps to the same id.
+pub fn alert_safe_id(raw: &str) -> String {
+    let inside = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-');
+    if !raw.is_empty() && raw.len() <= ALERT_ID_MAX && raw.chars().all(inside) {
+        return raw.to_string();
+    }
+    let digest = rightkit_crypto::hex_encode(&rightkit_crypto::sha256(raw.as_bytes()));
+    let mapped: String = raw
+        .chars()
+        .map(|c| if inside(c) { c } else { '-' })
+        .take(ALERT_ID_MAX - 9)
+        .collect();
+    format!("{mapped}-{}", &digest[..8])
+}
+
+/// An alert one open item owes one phone.
+pub struct OwedAlert {
+    pub item_id: String,
+    pub urgent: bool,
+    pub device_id: String,
+}
+
+/// One pass of the phone-only poll: moves time forward ([`tick`]: snoozes end, expiries fall due,
+/// an expiry inside a quiet-hours hold is deferred) and routes each open item with [`route_item`]
+/// over `phones`, the owner's own paired phones that hold an alert token. No computer is taken as
+/// in use, so the phone is the target; quiet hours hold an alert as the stored setting of
+/// `workspace_root` says. Nothing is marked sent here: the sender calls
+/// [`Inbox::record_delivery`] after a send, so a failed one is offered again on the next pass.
+pub fn route_pass<S: InboxStore>(
+    store: &S,
+    workspace_root: &str,
+    now: i64,
+    phones: &[String],
+) -> Result<Vec<OwedAlert>, String> {
+    let settings = RoutingSettings::default();
+    let release = |at: i64| {
+        let seconds = u64::try_from(at).ok()?;
+        super::quiet_hours_release_for_workspace(workspace_root, seconds)
+            .and_then(|end| i64::try_from(end).ok())
+    };
+    let devices: Vec<DevicePresence> = phones
+        .iter()
+        .map(|id| DevicePresence {
+            device_id: id.clone(),
+            kind: DeviceKind::Phone,
+            last_input_at: None,
+            presence: PresenceState::Available,
+        })
+        .collect();
+    store.update(|items| {
+        let ticked = tick(items, now, &settings, &release);
+        let release_now = release(now);
+        let mut owed = Vec::new();
+        for item in items.iter().filter(|i| i.state == InboxState::Open) {
+            let fresh =
+                item.created_at >= now - ALERT_MAX_AGE_SECS || ticked.woken.contains(&item.id);
+            if !fresh {
+                continue;
+            }
+            let decision = route_item(item, &devices, &settings, release_now, now);
+            for device_id in decision.deliver_now {
+                owed.push(OwedAlert {
+                    item_id: item.id.clone(),
+                    urgent: item.urgent,
+                    device_id,
+                });
+            }
+        }
+        owed
+    })
+}

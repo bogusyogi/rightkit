@@ -1,11 +1,14 @@
 //! Brand-neutral cloud sync engine. See `API.md` for the adapter traits and
 //! the record/conflict contract shared with the iOS CloudKit implementation.
 
+#[cfg(feature = "cipher")]
+pub mod adapter;
 mod backoff;
 #[cfg(feature = "cipher")]
 pub mod cipher;
 #[cfg(feature = "drive")]
 pub mod drive;
+pub mod duty_lease;
 mod engine;
 mod error;
 #[cfg(feature = "cipher")]
@@ -18,6 +21,8 @@ mod ledger;
 mod record;
 #[cfg(feature = "transcripts")]
 pub mod recovery_marker;
+#[cfg(all(feature = "cipher", feature = "drive"))]
+pub mod runtime;
 mod schedule;
 #[cfg(any(feature = "drive", feature = "http"))]
 pub mod scope;

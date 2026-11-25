@@ -106,14 +106,32 @@ export function wrappers(zig, platform = process.platform, { node = realNode(), 
   return files;
 }
 
+/** Community mirrors of ziglang.org/download, tried before the origin (flat layout: <mirror>/<archive>). */
+const ZIG_MIRRORS = ["https://pkg.hexops.org/zig", "https://zigmirror.hryx.net/zig", "https://zig.linus.dev/zig"];
+
 /** Download, verify, unpack, version-check and write the wrappers. Returns the wrapper directory. */
 export async function provision({ pins, key, dest, fetchImpl = fetch, run = spawnSync, platform = process.platform }) {
   const pin = pinFor(pins, key);
-  const response = await fetchImpl(pin.url, { redirect: "follow", signal: AbortSignal.timeout(300_000) });
-  if (!response.ok) refuse(`download of ${pin.url} returned ${response.status}`);
-  const bytes = Buffer.from(await response.arrayBuffer());
-  const digest = crypto.createHash("sha256").update(bytes).digest("hex");
-  if (digest !== pin.sha256) refuse(`${pin.archive} sha256 is ${digest}, pinned ${pin.sha256}`);
+  // ziglang.org asks automated downloads to use its community mirrors (ziglang.org/download/community-mirrors.txt), and
+  // from hosted runners it can be slower than the timeout. Each source is tried in turn; the pinned sha256 decides, so a
+  // mirror can only supply the exact pinned bytes.
+  const sources = [...ZIG_MIRRORS.map((m) => `${m}/${pin.archive}`), pin.url];
+  let bytes = null;
+  const tried = [];
+  for (const url of sources) {
+    try {
+      const response = await fetchImpl(url, { redirect: "follow", signal: AbortSignal.timeout(150_000) });
+      if (!response.ok) { tried.push(`${url}: HTTP ${response.status}`); continue; }
+      const got = Buffer.from(await response.arrayBuffer());
+      const digest = crypto.createHash("sha256").update(got).digest("hex");
+      if (digest !== pin.sha256) { tried.push(`${url}: sha256 ${digest}, pinned ${pin.sha256}`); continue; }
+      bytes = got;
+      break;
+    } catch (error) {
+      tried.push(`${url}: ${error?.message ?? error}`);
+    }
+  }
+  if (!bytes) refuse(`download of ${pin.archive} failed from every source: ${tried.join("; ")}`);
   fs.mkdirSync(dest, { recursive: true });
   const archive = path.join(dest, pin.archive);
   fs.writeFileSync(archive, bytes);

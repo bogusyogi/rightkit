@@ -255,7 +255,7 @@ pub enum SmallOf<A> {
 /// The small item with its tag as raw JSON, as every earlier release carried it.
 pub type Small = SmallOf<serde_json::Value>;
 
-impl<A: Serialize + serde::de::DeserializeOwned> SmallOf<A> {
+impl<A: Serialize + serde::de::DeserializeOwned + Default> SmallOf<A> {
     pub fn encode(&self) -> Result<Vec<u8>, Error> {
         serde_json::to_vec(self).map_err(|e| Error::Internal {
             detail: e.to_string(),

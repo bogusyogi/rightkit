@@ -13,7 +13,15 @@
 //! | `SCOPE_DRIVE_APPDATA`, `ISSUERS` | [`DRIVE_APPDATA_SCOPE`], [`GOOGLE_ISSUERS`] |
 //! | `IdTokenProvider` (Android Credential Manager seam, never implemented) | the platform code obtains the ID token and passes it to [`GoogleIdVerifier::verify`] |
 //!
-//! This crate only re-exports `rightkit_oauth::google`, so the old crate name points at the one
+//! This crate re-exports `rightkit_oauth::google`, so the old crate name points at the one
 //! implementation. 0.1.0 stays on crates.io; no new version is published.
+//!
+//! It is also the home of an app's Google grant glue over `rightkit-google-apis`: [`Home`] (where
+//! the grant lives: desktop credential store, or the sealed store on a duty host), [`Failure`] (the
+//! only error a caller sees, a fixed code and fixed text), [`Texts`], [`KeyState`] and
+//! [`PendingGrant`] (see the `home` module).
 
+mod home;
+
+pub use home::{Failure, Home, KeyState, PendingGrant, Texts};
 pub use rightkit_oauth::google::*;

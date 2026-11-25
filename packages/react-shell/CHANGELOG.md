@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.8
+## 0.7.9
 Additive. Moved from HeardRight; no existing export, signature or behaviour changes. New modules import only `react` (headless-safe, in `./headless`), except `bootstrapWindows`, which imports `react-dom/client` (in `./react` only).
 
 - `createFieldStore(initial?)`, `useField(store)`, `FieldStore` (`field-store.ts`): a shared string value over `useSyncExternalStore`, for a title-bar search field and the page under it.
@@ -12,6 +12,12 @@ Additive. Moved from HeardRight; no existing export, signature or behaviour chan
 - `buildCatalogView`, `useCatalogView` and `useLoadedList` (`catalog-view.ts`): searchable, categorised catalog view-model (excluded categories, featured slice, grouping in first-seen order) and a list loaded while enabled.
 - `bootstrapWindows({ views, nativeViews, hub, before, ... })`, `WindowView` (`react/bootstrap.tsx`, `./react`): picks the window kind from a query parameter, returns without mounting for native kinds, else mounts the named view or the hub, optionally in `StrictMode`.
 - `TabItem.buttonClassName` and `TabItem.dataAttributes`, and `TabStrip` props `tabId` and `tabButtonData`: a class and `data-*` attributes on the tab button, and a resolver for the button `id`. With `scrollArrows={false}` (existing) the strip draws no arrows. Defaults are unchanged.
+
+## 0.7.8
+
+Additive; no existing export changes.
+
+- `Listbox focusOwner="input"` keeps focus in an external text input (completion lists); `Popover keepFocusOnPress`; Listbox forwards dismissOnScroll, dismissOnResize and returnFocus.
 
 ## 0.7.7
 

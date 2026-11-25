@@ -164,6 +164,12 @@ Network defaults (no change in this version):
 - Proxy: `ClientConfig::proxy` defaults to `ProxyMode::None`, which ignores environment proxy variables. `ProxyMode::Environment` and `ProxyMode::Explicit(url)` come from `rightkit-http`. The operating system's proxy settings are read only when the client is built with `ProxyMode::System` (`rightkit-http`; on Windows it follows the static proxy settings exactly or fails closed, and elsewhere it behaves as `ProxyMode::Environment`).
 - Timeouts: connect 10 s, whole request 60 s, response headers 60 s (`ClientConfig` defaults).
 
+## Thinking-block binding
+
+`AnthropicCompatClient::with_thinking_block_binding(ThinkingBlockBinding::Error | ThinkingBlockBinding::DropBlock)` sends beta `thinking-binding-controls-2026-08-01` and `thinking.block_binding.prefix_mismatch_behavior`. It is off by default; a client that never calls it sends exactly what it sent before. With it on, the thinking blocks of another model or provider (by the message `origin` tag) are removed from the request only, never from stored history. `is_thinking_binding_mismatch` recognises the 400 that reports a mismatch, and `set_input_transformation_logger` receives the response `input_transformations`.
+
+`set_codex_originator` (module `agent_providers::host`) sets the `originator` header sent to chatgpt.com and in the ChatGPT sign-in URL; the default is `pi`.
+
 ## Platform support
 
 Pure Rust over `rightkit-http` (`ureq` with `rustls`). `provider::cli` has `cfg(windows)` and `cfg(unix)` branches (`src/provider/cli.rs:145` and `:362`) and inherits `rightkit-child-process` platform behavior.

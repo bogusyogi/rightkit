@@ -49,7 +49,7 @@ pub use native_oauth::{
 };
 #[cfg(feature = "agent_providers-os-keyring")]
 pub use token_store::{
-    open_subscription_store, subscription_keychain_service, subscription_leg,
+    has_subscription_leg, open_subscription_store, subscription_keychain_service, subscription_leg,
     subscription_resolver, KeychainTokenStore, SUBSCRIPTION_KEYCHAIN_SERVICE,
 };
 pub use types::{

@@ -15,6 +15,8 @@
 
 pub mod attachments;
 pub mod calendar;
+pub mod compose;
+pub mod discovery;
 pub mod drafts;
 pub mod drive;
 pub mod filters;
@@ -25,4 +27,5 @@ pub mod mail_settings;
 pub mod meet;
 pub mod oauth;
 pub mod people;
+pub mod send_limits;
 pub mod tasks;

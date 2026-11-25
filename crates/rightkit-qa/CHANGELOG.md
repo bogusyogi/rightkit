@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.11
+
+- Correct the README: the installed-package lane is shipped (right-release qa --stage installed, journeys run on the installed dev copy).
+
 ## 0.10.10 (unpublished)
 
 - Add opt-in `in-app-shot`: host-configured screenshot options, current-process Windows capture & typed JSON command argument readers. Keep app window identity, defaults & handlers in app code. Reject empty title tables, changed process ownership & oversized pixel buffers; release tooling must exclude QA-only feature.

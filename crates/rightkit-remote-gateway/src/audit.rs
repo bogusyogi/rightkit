@@ -55,6 +55,7 @@ pub fn record_args(
     shape(&mut fields, args);
     let client = client(&call.client);
     let outcome = match result {
+        Ok(_) if fields.get("verdict").and_then(Value::as_str) == Some("no_effect") => "no_effect",
         Ok(_) => "ok",
         Err(refusal) => refusal.code,
     };
@@ -179,6 +180,37 @@ fn facts(call: &Call, result: &super::Result<Value>) -> Map<String, Value> {
             && matches!(tier, "semantic" | "in_app" | "targeted" | "foreground")
         {
             fields.insert("tier".into(), json!(tier));
+        }
+        // A screen.act answer also names the verdict of the before and after reads, the crate's
+        // result word and the seconds the act took. An act that changed nothing is not "ok"
+        // (`record_args` reads the verdict).
+        if matches!(call.tool.as_str(), "screen.act" | "browser.do") {
+            if let Some(verdict) = answer["verdict"].as_str()
+                && matches!(verdict, "effect" | "no_effect" | "unmeasured")
+            {
+                fields.insert("verdict".into(), json!(verdict));
+            }
+            if let Some(result) = answer["result"].as_str()
+                && matches!(
+                    result,
+                    "done" | "changed" | "blocked" | "failed" | "no_effect"
+                )
+            {
+                fields.insert("result".into(), json!(result));
+            }
+            if let Some(seconds) = answer["seconds"].as_f64()
+                && (0.0..=3600.0).contains(&seconds)
+            {
+                fields.insert("seconds".into(), json!(seconds));
+            }
+            // A foreground lease's use (AG-12): whether the foreground did the work and whether
+            // the person's front app was put back. Never an app's name.
+            if let Some(used) = answer["foreground"]["used"].as_bool() {
+                fields.insert("foreground".into(), json!(used));
+                if let Some(back) = answer["foreground"]["frontRestored"].as_bool() {
+                    fields.insert("frontRestored".into(), json!(back));
+                }
+            }
         }
         for key in ["bytes", "returned"] {
             if let Some(n) = answer[key].as_u64() {

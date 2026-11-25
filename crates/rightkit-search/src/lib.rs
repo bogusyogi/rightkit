@@ -10,6 +10,7 @@
 //! - [`scan`]: budgeted, resumable scans over sources that cannot be filtered in SQL.
 //! - [`html_text`]: HTML to indexable plain text (visible text only, entities decoded).
 //! - `filename` (feature `filename-index`): Cockpit-derived in-memory filename index.
+//! - `grep` and `grep_stream` (feature `workspace-grep`): bounded resumable workspace regex search; `grep_stream` streams bytes with a per-file authorization hook, multiline mode, asymmetric context and a mid-file byte cursor.
 
 pub mod ast;
 pub mod bm25;
@@ -30,6 +31,8 @@ pub mod filename;
 
 #[cfg(feature = "workspace-grep")]
 pub mod grep;
+#[cfg(feature = "workspace-grep")]
+pub mod grep_stream;
 
 pub use ast::{Leaf, Node, ParseError, Syntax};
 pub use fold::{check_fold_version, fold, fold_with, FoldOptions, RebuildNeeded, FOLD_VERSION};

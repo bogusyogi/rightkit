@@ -1,7 +1,7 @@
 //! Who a paired device may be, for the chat link: the receiving computer decides per call from the
 //! caller's registry record.
 
-use rightkit_device_link_types::{EffectClass, PairedDevice, Registry};
+use rightkit_device_link_types::{DevicePlatform, EffectClass, MemberRole, PairedDevice, Registry};
 
 use super::circle::CheckKeyExt;
 
@@ -19,6 +19,55 @@ fn owner_admitted(record: &PairedDevice) -> bool {
             || record.pairing_check.as_ref().is_some_and(|k| {
                 k.bound_to(&record.device.device_id, &record.public_key)
             }))
+}
+
+/// Owner-pairing questions a host asks of a [`PairedDevice`], including the phone rule that reads
+/// this computer's enrolled approval keys.
+pub trait OwnerPairedExt {
+    /// The owner check admitted this device: `admit`, a trusted owner-check key bound to it, an
+    /// endorsement, a join-token pairing, or a host key bound to the host device; and the owner has
+    /// not taken `admit` from it. A guest is not looked at here: callers test `is_guest` first,
+    /// because `authorize` calls a guest "owner".
+    fn owner_admitted(&self) -> bool;
+
+    /// Whether this device is one the OWNER paired, for owner-only asks and a phone's inbox and ask
+    /// methods. Read from the registry record and this computer's own approval-key store, never from
+    /// the device's own word, and never true for a guest or a revoked or pending record.
+    /// `admin_root` is the device-link folder (the one that holds `registry.json` and the local
+    /// revocations), where `admin_sig` looks for the phone's approval key.
+    ///
+    /// * A phone (`ios`, `android`) is owner-paired when its pairing is active, it is not a guest,
+    ///   and it holds an enrolled owner approval key at this computer
+    ///   (`admin_sig::enrolled_for`: a live key that has not been revoked here). A pairing alone
+    ///   does not make a phone the owner's. A key store that cannot be read or does not answer is
+    ///   "not enrolled" (fail closed). A phone never holds `admit`.
+    /// * Any other device: the role is `computer` (a server or an unclassified computer is not) and
+    ///   the owner check admitted it ([`Self::owner_admitted`]; the guest test comes first). No
+    ///   approval key is asked of a computer.
+    fn is_owner_paired(&self, admin_root: &std::path::Path) -> bool;
+}
+
+impl OwnerPairedExt for PairedDevice {
+    fn owner_admitted(&self) -> bool {
+        owner_admitted(self)
+    }
+
+    fn is_owner_paired(&self, admin_root: &std::path::Path) -> bool {
+        if !self.is_active() || self.is_guest() {
+            return false;
+        }
+        if matches!(
+            self.device.platform,
+            DevicePlatform::Ios | DevicePlatform::Android
+        ) {
+            return rightkit_owner_approvals::admin_sig::enrolled_for(
+                admin_root,
+                &self.device.device_id,
+            )
+            .unwrap_or(false);
+        }
+        self.member_role() == MemberRole::Computer && owner_admitted(self)
+    }
 }
 
 /// Whether `record` is a device the owner paired as their own: active (not revoked, and not a

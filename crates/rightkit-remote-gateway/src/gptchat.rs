@@ -177,6 +177,7 @@ mod imp {
                 "no chat matches that target; call chat_peers and use a `to` from it",
             ),
             ChatError::Invalid(why) => invalid(why),
+            e @ ChatError::Ambiguous { .. } => invalid(e.to_string()),
             other => Refusal::new(
                 "send_failed",
                 super::super::redact::redact(&other.to_string()).0,

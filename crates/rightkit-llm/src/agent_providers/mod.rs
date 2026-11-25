@@ -38,7 +38,9 @@ pub mod tool_emulation;
 pub mod transport;
 
 // Re-exports of key types
-pub use anthropic_client::{AnthropicCompatClient, CacheRetention};
+pub use anthropic_client::{
+    is_thinking_binding_mismatch, AnthropicCompatClient, CacheRetention, ThinkingBlockBinding,
+};
 pub use client::{
     find_provider, find_provider_by_base_url, is_subscription_billed_route, load_api_key,
     provider_model_id, strip_think_tags, token_plan_provider_for_base_url, transcript_to_wire,
@@ -55,7 +57,8 @@ pub use extension_registration::{
 pub use github::{GitHubClient, PrFile, PullRequest};
 pub use health::{HealthState, RouteHealth};
 pub use host::{
-    set_app_label, set_context_window_resolver, set_host_options, set_keychain_service,
+    codex_originator, set_app_label, set_codex_originator, set_context_window_resolver,
+    set_host_options, set_input_transformation_logger, set_keychain_service,
     set_openrouter_attribution, ProviderHostOptions,
 };
 pub use host_credentials::{

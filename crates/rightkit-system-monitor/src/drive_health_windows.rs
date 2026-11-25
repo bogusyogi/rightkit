@@ -19,6 +19,7 @@
 //!     (hidden). That is a CIM call and is refused without elevation on many machines; it
 //!     has no written-bytes counter, self-test log or critical-warning flags.
 //!  4. Just the temperature (`StorageDeviceTemperatureProperty`, also unelevated).
+//!
 //! When all fail the drive is "unavailable through this connection" and keeps its last
 //! good reading, exactly like the Mac. SATA SMART attributes need an elevated smartctl.
 
@@ -496,10 +497,10 @@ pub fn refresh(dir: &Path, candidates: &[PathBuf], mounts: &[String], now: u64) 
     if let Some(last) = history.last_sample {
         LAST_SAMPLE.store(last, Ordering::Relaxed);
     }
-    if let Some(last) = history.last_sample {
-        if now.saturating_sub(last) < SAMPLE_INTERVAL_SECS {
-            return Vec::new();
-        }
+    if let Some(last) = history.last_sample
+        && now.saturating_sub(last) < SAMPLE_INTERVAL_SECS
+    {
+        return Vec::new();
     }
     let tool = dh::find_tool(candidates);
     history.last_sample = Some(now);

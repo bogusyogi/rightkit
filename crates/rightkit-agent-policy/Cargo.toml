@@ -27,7 +27,7 @@ tree-sitter = { version = "0.27" }
 tree-sitter-bash = { version = "0.25" }
 rightkit-agent-engine-protocol = { version = "0.4.0", path = "../rightkit-agent-engine-protocol" }
 rightkit-http = { version = "0.4.0", features = ["gzip", "untrusted", "async"], path = "../rightkit-http" }
-rightkit-sandbox = {version = "0.6.3", path = "../rightkit-sandbox", features = ["execution"], optional = true}
+rightkit-sandbox = {version = "0.7.0", path = "../rightkit-sandbox", features = ["execution"], optional = true}
 
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2" }

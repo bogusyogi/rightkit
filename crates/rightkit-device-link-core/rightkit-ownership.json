@@ -1,0 +1,15 @@
+{
+  "package": "rightkit-device-link-core",
+  "capabilities": [
+    {
+      "capability": "device-link-core",
+      "summary": "Transport-agnostic device link: pairing, paired-device registry, device circle, per-request authorization and phone policy; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

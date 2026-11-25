@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-sandbox"
-version = "0.6.6"
+version = "0.7.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared OS sandbox, PTY lease, process-tree, and reserve-before-spawn resource authority for Right Suite apps."
@@ -11,7 +11,7 @@ include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LI
 
 [dependencies]
 rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
-rightkit-pty = { version = "0.1.0", path = "../rightkit-pty", optional = true }
+rightkit-pty = { version = "0.1.2", path = "../rightkit-pty", optional = true }
 rightkit-crypto = {version = "0.1.0", path = "../rightkit-crypto", optional = true}
 async-trait = {version = "0.1", optional = true}
 serde = {version = "1", features = ["derive"], optional = true}
@@ -48,6 +48,13 @@ api = "PtySession"
 file = "src/pty.rs"
 holds = ["child", "thread", "memory"]
 scale = "one rightkit-pty terminal and its owned child process tree, one private tokio runtime with a single worker thread (plus its blocking-pool threads for wait and cancel, idle-reaped) that carries one reader task ending at PTY EOF, and an output buffer capped at OUTPUT_CAP (1 MiB, oldest bytes dropped); Drop runs the staged kill and shuts the runtime down; fixed per session"
+release = "Drop"
+
+[[package.metadata.rightkit.resources]]
+api = "StreamedPty"
+file = "src/pty.rs"
+holds = ["child", "thread", "memory"]
+scale = "one rightkit-pty terminal (or, confined on Windows, one AppContainer ConPTY child in its own kill-on-close Job Object with its profile leases) and its owned process tree; no runtime, reader task or output buffer of its own (the caller owns the streams); on Windows two rightkit-pty bridge threads of at most 64 KiB each that end with their pipe or dropped stream plus one short pseudoconsole-close thread; fixed per session"
 release = "Drop"
 
 [[package.metadata.rightkit.resources]]

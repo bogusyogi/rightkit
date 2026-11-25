@@ -41,6 +41,10 @@ use serde_json::{json, Map, Value};
 
 pub mod inbox;
 
+pub mod act_plan;
+pub mod duty;
+pub mod phone_ask;
+pub mod phone_relay;
 #[cfg(feature = "server")]
 mod server;
 #[cfg(feature = "server")]

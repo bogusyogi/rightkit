@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-local-models"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Local model primitives for an agent host: hardware report, runtime detection, local model catalog and fit, provider route suggestion and a bounded local inference seam."
@@ -16,6 +16,6 @@ default = []
 
 [dependencies]
 rightkit-models = { version = "0.7.0", path = "../rightkit-models" }
-rightkit-sandbox = { version = "0.6.3", path = "../rightkit-sandbox", features = ["execution"] }
+rightkit-sandbox = { version = "0.7.0", path = "../rightkit-sandbox", features = ["execution"] }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["io-util", "macros", "time"] }

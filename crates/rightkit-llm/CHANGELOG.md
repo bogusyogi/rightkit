@@ -2,6 +2,8 @@
 
 ## 0.7.1
 
+- Add opt-in thinking-block binding (beta `thinking-binding-controls-2026-08-01`, drop only foreign-model thinking, 400 matcher, `input_transformations` logger) and a host-set Codex originator header.
+- Add `subscription_auth::has_subscription_leg(provider)`, so a caller can tell whether a provider has a subscription leg without opening the keychain store or a lock directory.
 - Added the `llamacpp` preset (RK-11): the llama.cpp `llama-server` on `http://127.0.0.1:8080/v1`, OpenAI chat protocol, no credential, as `ollama` and `lmstudio` are. Additive: `PRESETS` gains one row and no existing id or URL changes. A local model is run by the server, never by this crate; `base_url` overrides the port. Not compiled or run against a live server in this pass.
 
 ## 0.7.0 (2026-11-16)

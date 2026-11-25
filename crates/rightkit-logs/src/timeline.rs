@@ -172,3 +172,53 @@ fn parse_cursor(cursor: &str) -> Option<(&str, usize)> {
     }
     Some((key, ordinal.parse().ok()?))
 }
+
+/// The newest `keep` rows of one source, newest first (`at` is a row's Unix seconds).
+pub fn newest<T>(mut rows: Vec<T>, at: impl Fn(&T) -> i64, keep: usize) -> Vec<T> {
+    rows.sort_by_key(|row| std::cmp::Reverse(at(row)));
+    rows.truncate(keep);
+    rows
+}
+
+/// One unpaged read of merged rows: newest first, only those strictly before `before` when given,
+/// and at most `limit` of them, clamped to `1..=max`.
+pub fn latest<T>(
+    mut rows: Vec<T>,
+    at: impl Fn(&T) -> i64,
+    before: Option<i64>,
+    limit: u32,
+    max: usize,
+) -> Vec<T> {
+    rows.sort_by_key(|row| std::cmp::Reverse(at(row)));
+    if let Some(time) = before {
+        rows.retain(|row| at(row) < time);
+    }
+    rows.truncate((limit as usize).clamp(1, max));
+    rows
+}
+
+/// `text` cut to at most `max` characters, ending in an ellipsis when it was cut.
+pub fn clip(text: String, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text;
+    }
+    let mut short: String = text.chars().take(max.saturating_sub(1)).collect();
+    short.push('\u{2026}');
+    short
+}
+
+/// Bytes in decimal units, as a file manager shows them (`999 bytes`, `1.5 KB`).
+pub fn size(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["bytes", "KB", "MB", "GB", "TB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1000.0 && unit < UNITS.len() - 1 {
+        value /= 1000.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} bytes")
+    } else {
+        format!("{value:.1} {}", UNITS[unit])
+    }
+}

@@ -38,11 +38,14 @@ fn supervise(role: &str) {
     shell
         .args(["-c", &format!("sleep 300.{tag}1 & sleep 300.{tag}2")])
         .process_group(0);
-    let child = shell.spawn().expect("shell starts");
+    let mut child = shell.spawn().expect("shell starts");
     if role == "tied" {
         rightkit_child_process::tie_group_to_parent(child.id()).expect("tie");
     }
     println!("shell {}", child.id());
+    // `sh` exits once it has backgrounded both sleeps, and the sleeps keep their own process
+    // group after that. Reap the shell so the supervisor does not leave a zombie behind.
+    let _ = child.wait();
     std::thread::sleep(Duration::from_secs(600));
 }
 

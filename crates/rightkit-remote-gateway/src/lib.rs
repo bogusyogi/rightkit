@@ -81,6 +81,7 @@ mod b64;
 // The page address of the front browser on Windows (UI Automation), read by `agent_secrets`.
 #[cfg(windows)]
 mod browser_address;
+pub mod browser_tools;
 pub mod chat;
 pub mod chat_start;
 pub mod chat_term;
@@ -92,19 +93,25 @@ pub mod docs_write;
 pub mod files;
 pub mod files_fetch;
 pub mod files_write;
+pub mod foreground;
+pub mod google;
+pub mod google_write;
 pub mod gptchat;
 pub mod manifest;
 pub mod media;
+pub mod memory;
 pub mod owner_settings;
 pub mod package;
 pub mod procs;
 pub mod protected_store;
+pub mod push_key;
 pub mod screen;
 #[cfg(any(target_os = "macos", windows))]
 mod sensitive;
 pub mod settings;
 pub mod term;
 pub mod unlock;
+pub mod web_read;
 
 pub use unlock::Requester;
 
@@ -299,7 +306,7 @@ fn run(call: &Call, args: &Value) -> Result<Value> {
         "clipboard.read" => clipboard::read(&settings, call.origin, args),
         "chat_stop" => chat_start::stop(&settings, call.origin, args),
         "screen.observe" => screen::observe(&settings, call.origin, args),
-        "screen.act" => screen::act(&settings, call.origin, args),
+        "screen.act" => screen::act(&settings, call.origin, &call.requester, args),
         "apps.launch" => apps::launch(&settings, call.origin, args),
         "media.control" => media::control(&settings, call.origin, args),
         "login.fill" => agent_secrets::login_fill(&settings, call.origin, args),

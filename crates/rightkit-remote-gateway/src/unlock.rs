@@ -38,11 +38,12 @@
 //!   owner answers on this computer, in owner app: Touch ID on a Mac (a Secure Enclave key whose
 //!   use needs the fingerprint; owner app signs the request and sends `remote.unlock.decide` with
 //!   `method: "sig"`, which `approval_sig.rs` verifies against an enrolled key, the engine's own
-//!   request id, digest and client, a short expiry and a single-use nonce) or the host app PIN
+//!   request id, digest and client, a short expiry and a single-use nonce) or a PIN
 //!   (`method: "pin"`, verified only here). `method: "os"` (owner app's word that the system accepted
-//!   the owner) is refused on every platform: a caller's word is not an approval. On Windows that
-//!   leaves the PIN until Windows Hello signs approvals with an enrolled key. The generic
-//!   `remote.approvals.decide` refuses to approve an unlock.
+//!   the owner) is refused on every platform: a caller's word is not an approval. On Windows,
+//!   Windows Hello signs with its enrolled owner-check key in the same way (kind `unlock` from the
+//!   owner app; kinds `device` and `settings` from the hub: `authorise_device_op`,
+//!   `authorise_settings`). The generic `remote.approvals.decide` refuses to approve an unlock.
 //! * **The PIN** is set from the hub (`remote.unlock.pin.set`) and stored as a salted PBKDF2-HMAC-
 //!   SHA-256 hash in the OS credential store (`rightkit-credentials`), never in a file or a log.
 //!   Three wrong PINs are free; each one after that locks entry for 30 seconds, doubling every time
@@ -60,7 +61,10 @@
 //!   key, cannot be recovered here: recovery is refused (`recovery_unavailable`) and nothing changes.
 //!   If the engine's item, its marker file and the PIN item are all
 //!   deleted, that is a first run and the PIN reads as unset (every gate is then off).
-//!   The PIN also confirms a change that makes a security setting less safe (`owner_settings.rs`).
+//!   A change that makes a security setting less safe (`owner_settings.rs`) is confirmed by the
+//!   system check first (Windows Hello, Touch ID or the Mac login password signing a single-use
+//!   challenge: `authorise_settings`); the PIN confirms it only when that is not set up or not
+//!   available, never both.
 //! * **How long.** Until the chat ends (the roster no longer lists it live, checked on use) when
 //!   `chatUnlockMinutes` is 0 and the roster calls the chat live, else that many minutes. A chat
 //!   the roster does not call live (registered, unknown) cannot be seen ending, so with 0 it gets
@@ -145,6 +149,7 @@ pub fn effectful(tool: &str) -> bool {
             | "term.list"
             | "term.resize"
             | "procs.stop"
+            | "memory.push"
     )
 }
 
@@ -156,6 +161,7 @@ fn tool_switch(settings: &Settings, tool: &str) -> Result<()> {
         "media.control" => settings.require_media(),
         "login.fill" => settings.require_logins(),
         "payment.fill" => settings.require_payments(),
+        "memory.push" => settings.require_agent_memory(),
         "files.patch" | "files.manage" => settings.require_files_write(),
         "docs.write" => settings
             .require_docs()
@@ -312,6 +318,7 @@ fn what_for(tool: &str) -> &'static str {
         "login.fill" => "to type a saved login into your browser",
         "payment.fill" => "to type a saved virtual card into a checkout",
         "files.patch" | "files.manage" | "docs.write" => "to change a file",
+        "memory.push" => "to save a note to memory",
         _ => "to use the terminal",
     }
 }
@@ -443,13 +450,14 @@ fn ancestors(pid: u32) -> Vec<u32> {
 /// A key this engine process makes once and never stores: a seal (`seal`) proves that this process
 /// wrote a stamp (an agent task's submitter, `resident.rs`), so a stamp copied from a request, from
 /// another process or from before a restart proves nothing.
-static SEAL_KEY: std::sync::OnceLock<Option<ring::hmac::Key>> = std::sync::OnceLock::new();
+static SEAL_KEY: std::sync::OnceLock<Option<[u8; 32]>> = std::sync::OnceLock::new();
 
-fn seal_key() -> Option<&'static ring::hmac::Key> {
+fn seal_key() -> Option<&'static [u8; 32]> {
     SEAL_KEY
         .get_or_init(|| {
-            ring::hmac::Key::generate(ring::hmac::HMAC_SHA256, &ring::rand::SystemRandom::new())
-                .ok()
+            let mut key = [0u8; 32];
+            rightkit_crypto::random_fill(&mut key).ok()?;
+            Some(key)
         })
         .as_ref()
 }
@@ -466,9 +474,10 @@ pub fn seal(text: &str) -> Result<String> {
         return Err(unavailable());
     }
     let key = seal_key().ok_or_else(unavailable)?;
-    Ok(rightkit_fs::digest::hex(
-        ring::hmac::sign(key, text.as_bytes()).as_ref(),
-    ))
+    Ok(rightkit_fs::digest::hex(&rightkit_crypto::hmac_sha256(
+        key,
+        text.as_bytes(),
+    )))
 }
 
 /// Whether `mac` is this process's seal of `text` (constant time). False outside the engine, for a
@@ -480,7 +489,7 @@ pub fn sealed(text: &str, mac: &str) -> bool {
     let (Some(key), Some(tag)) = (seal_key(), rightkit_fs::digest::unhex(mac)) else {
         return false;
     };
-    ring::hmac::verify(key, text.as_bytes(), &tag).is_ok()
+    rightkit_crypto::ct_eq(&rightkit_crypto::hmac_sha256(key, text.as_bytes()), &tag)
 }
 
 // ---- the host app PIN ---------------------------------------------------------------------------
@@ -525,23 +534,21 @@ fn pin_store() -> Result<rightkit_credentials::Store> {
 
 /// `v1$<iterations>$<salt hex>$<hash hex>` of `pin` under a fresh salt.
 fn hash_pin(pin: &str) -> Result<String> {
-    use ring::rand::{SecureRandom, SystemRandom};
     let mut salt = [0u8; SALT_BYTES];
-    SystemRandom::new().fill(&mut salt).map_err(|_| {
+    rightkit_crypto::random_fill(&mut salt).map_err(|_| {
         Refusal::new(
             "pin_unavailable",
             "the system could not make a random salt for the PIN",
         )
     })?;
-    let mut hash = [0u8; HASH_BYTES];
-    let iterations = std::num::NonZeroU32::new(PBKDF2_ITERATIONS).expect("a non-zero count");
-    ring::pbkdf2::derive(
-        ring::pbkdf2::PBKDF2_HMAC_SHA256,
-        iterations,
+    let hash = rightkit_crypto::pbkdf2_derive(
+        rightkit_crypto::Pbkdf2Hash::Sha256,
+        PBKDF2_ITERATIONS,
         &salt,
         pin.as_bytes(),
-        &mut hash,
-    );
+        HASH_BYTES,
+    )
+    .map_err(|_| Refusal::new("pin_unavailable", "the system could not hash the PIN"))?;
     Ok(format!(
         "v1${PBKDF2_ITERATIONS}${}${}",
         rightkit_fs::digest::hex(&salt),
@@ -549,7 +556,7 @@ fn hash_pin(pin: &str) -> Result<String> {
     ))
 }
 
-/// Whether `pin` is the one `stored` holds (`ring` compares in constant time).
+/// Whether `pin` is the one `stored` holds (`pbkdf2_verify` compares in constant time).
 fn pin_matches(stored: &str, pin: &str) -> bool {
     let mut parts = stored.split('$');
     let (Some("v1"), Some(iterations), Some(salt), Some(hash), None) = (
@@ -565,7 +572,6 @@ fn pin_matches(stored: &str, pin: &str) -> bool {
         .parse::<u32>()
         .ok()
         .filter(|n| (1..=10_000_000).contains(n))
-        .and_then(std::num::NonZeroU32::new)
     else {
         return false;
     };
@@ -575,14 +581,13 @@ fn pin_matches(stored: &str, pin: &str) -> bool {
     ) else {
         return false;
     };
-    ring::pbkdf2::verify(
-        ring::pbkdf2::PBKDF2_HMAC_SHA256,
+    rightkit_crypto::pbkdf2_verify(
+        rightkit_crypto::Pbkdf2Hash::Sha256,
         iterations,
         &salt,
         pin.as_bytes(),
         &hash,
     )
-    .is_ok()
 }
 
 /// A PIN being checked: any length up to `PIN_MAX` (PINs set before the minimum rose to 6 still
@@ -674,6 +679,16 @@ fn lock_seconds(failures: u32) -> u64 {
         .min(LOCK_MAX_SECONDS)
 }
 
+/// Records one refused unlock, recovery or owner-check step as `unlock.refused`: the scope and the
+/// refusal's code only, never its message, a PIN or a signature. `record_security` keeps one line a
+/// minute per code.
+fn log_refused(scope: &str, code: &str) {
+    super::audit::record_security(
+        "unlock.refused",
+        serde_json::json!({ "scope": scope, "reason": code }),
+    );
+}
+
 /// Checks `pin` against the stored hash: `pin_not_set`, `pin_wrong`, `pin_locked`, `pin_invalid`.
 /// Serialised, with an exponential lockout that survives a restart.
 fn verify_pin(pin: &str) -> Result<()> {
@@ -701,12 +716,14 @@ fn verify_pin(pin: &str) -> Result<()> {
     {
         Some(stored) => stored,
         None if super::protected_store::pin_was_set()? => {
+            log_refused("pin", "pin_lost");
             return Err(Refusal::new(
                 "pin_lost",
                 "the PIN was set but its stored hash is gone (deleted or reset from outside the app), so no PIN can be checked; on a Mac, reset it from the notch (Lost PIN, signed with Touch ID by the notch's enrolled key); Windows Hello cannot prove a reset yet",
             ));
         }
         None => {
+            log_refused("pin", "pin_not_set");
             return Err(Refusal::new(
                 "pin_not_set",
                 "no PIN is set; set one in the app settings, or on a Mac unlock with Touch ID in the notch",
@@ -795,9 +812,8 @@ static RECOVERY_OPEN: Mutex<Vec<(String, u64)>> = Mutex::new(Vec::new());
 static ENGINE_INSTANCE: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
 
 fn random_hex(bytes: usize) -> Option<String> {
-    use ring::rand::{SecureRandom, SystemRandom};
     let mut buffer = vec![0u8; bytes];
-    SystemRandom::new().fill(&mut buffer).ok()?;
+    rightkit_crypto::random_fill(&mut buffer).ok()?;
     Some(rightkit_fs::digest::hex(&buffer))
 }
 
@@ -832,6 +848,7 @@ pub fn recovery_action(repair: bool, new_pin: Option<&str>) -> String {
 /// challenge, action `recovery_action`, client the `client` returned here). Engine only.
 pub fn recovery_challenge() -> Result<Value> {
     if !approvals::is_engine_process() {
+        log_refused("recovery", "approval_unavailable");
         return Err(Refusal::new(
             "approval_unavailable",
             "recovery is answered by the engine, and this process is not the engine",
@@ -852,6 +869,7 @@ pub fn recovery_challenge() -> Result<Value> {
         open.remove(0);
     }
     open.push((challenge.clone(), expires));
+    super::audit::record_security("recovery.challenge", serde_json::json!({}));
     Ok(serde_json::json!({
         "kind": "recover",
         "challenge": challenge,
@@ -866,6 +884,9 @@ fn take_challenge(challenge: &str) -> Result<()> {
     let now = now_secs();
     let mut open = RECOVERY_OPEN.lock().unwrap_or_else(|e| e.into_inner());
     open.retain(|(_, until)| *until > now);
+    if !open.iter().any(|(c, _)| c == challenge) {
+        log_refused("recovery", "recovery_challenge_unknown");
+    }
     match open.iter().position(|(c, _)| c == challenge) {
         Some(at) => {
             open.remove(at);
@@ -903,6 +924,7 @@ pub fn authorise_recovery(
     from_notch: bool,
 ) -> Result<Recovery> {
     if !from_notch {
+        log_refused("recovery", "unlock_needs_auth");
         return Err(Refusal::new(
             "unlock_needs_auth",
             "recovery runs in the app notch on this computer, never from another program",
@@ -915,6 +937,7 @@ pub fn authorise_recovery(
     let challenge = challenge.filter(|c| !c.is_empty());
     let sig = sig.filter(|s| !s.is_null());
     let (Some(challenge), Some(sig)) = (challenge, sig) else {
+        log_refused("recovery", "recovery_needs_proof");
         return Err(Refusal::new(
             "recovery_needs_proof",
             "recovering the app's security needs the owner's proof: the current PIN, or on a Mac the notch's Touch ID signature of this recovery; the notch's word that the system accepted you is not enough, and Windows Hello cannot sign it yet",
@@ -927,12 +950,16 @@ pub fn authorise_recovery(
     super::approval_sig::verify("recover", challenge, &action, &client, &signed)
     .map_err(|refusal| match refusal.code {
         "approver_registry_unproven" | "approver_unknown" | "approver_registry_unavailable" => {
+            log_refused("recovery", "recovery_unavailable");
             Refusal::new(
                 "recovery_unavailable",
                 "no owner key this engine can trust signed this recovery (the keys count only after the PIN was entered since the app started, and a lost or replaced key proves nothing), so a lost PIN cannot be recovered here; nothing was changed",
             )
         }
-        _ => refusal,
+        _ => {
+            log_refused("recovery", refusal.code);
+            refusal
+        }
     })?;
     Ok(Recovery {
         signed_for: Some((repair, action)),
@@ -955,6 +982,7 @@ pub fn pin_reset_by_owner(pin: &str, proof: &Recovery) -> Result<()> {
     if let Some((repair, action)) = &proof.signed_for
         && *action != recovery_action(*repair, Some(pin))
     {
+        log_refused("recovery", "approval_signature_invalid");
         return Err(Refusal::new(
             "approval_signature_invalid",
             "the owner's signature was made for another recovery",
@@ -968,7 +996,19 @@ pub fn pin_reset_by_owner(pin: &str, proof: &Recovery) -> Result<()> {
         .set_str(PIN_ACCOUNT, &hashed)
         .map_err(|e| Refusal::new("pin_unavailable", e.to_string()))?;
     let _ = write_attempts(&store, 0, 0);
-    super::protected_store::mark_pin_set(pin)
+    let marked = super::protected_store::mark_pin_set(pin);
+    if marked.is_ok() {
+        let method = if proof.signed_for.is_some() {
+            "sig"
+        } else {
+            "pin"
+        };
+        super::audit::record_security(
+            "pin.reset_by_owner",
+            serde_json::json!({ "method": method }),
+        );
+    }
+    marked
 }
 
 // ---- device-link owner check -------------------------------------------------------------------
@@ -1027,9 +1067,15 @@ impl Admission {
 }
 
 /// The device operations the owner check covers: `join` (making a join token, `device.join.create`)
-/// and `approve:<pairing id, 32 hex>` (approving one pairing, `device.pair.approve`).
+/// and `approve:<pairing id, 32 hex>` (approving one pairing, `device.pair.approve`), and the two that store or
+/// remove the phone-alert key: `push.key:<digest, 64 hex>` (`push_key::key_digest`, `device.push.key.set`) and
+/// `push.key.clear` (`device.push.key.clear`).
 fn device_op_known(op: &str) -> bool {
     op == "join"
+        || op == "push.key.clear"
+        || op
+            .strip_prefix("push.key:")
+            .is_some_and(|d| d.len() == 64 && d.bytes().all(|b| b.is_ascii_hexdigit()))
         || op
             .strip_prefix("approve:")
             .is_some_and(|id| id.len() == 32 && id.bytes().all(|b| b.is_ascii_hexdigit()))
@@ -1182,6 +1228,7 @@ pub fn authorise_device_op_proof(
     sig: Option<&Value>,
 ) -> Result<Option<(super::approval_sig::OwnerCheckProof, Admission)>> {
     if !approvals::is_engine_process() {
+        log_refused("device", "approval_unavailable");
         return Err(Refusal::new(
             "approval_unavailable",
             "the owner check is made by the engine, and this process is not the engine",
@@ -1196,6 +1243,7 @@ pub fn authorise_device_op_proof(
     let challenge = challenge.filter(|c| !c.is_empty());
     let sig = sig.filter(|s| !s.is_null());
     let (Some(challenge), Some(sig)) = (challenge, sig) else {
+        log_refused("device", "unlock_needs_auth");
         return Err(Refusal::new(
             "unlock_needs_auth",
             "adding or approving a device needs you: enter your PIN, or confirm with Touch ID (Mac) or Windows Hello",
@@ -1207,6 +1255,7 @@ pub fn authorise_device_op_proof(
         let mut open = DEVICE_OPEN.lock().unwrap_or_else(|e| e.into_inner());
         open.retain(|(_, _, until)| *until > now);
         let Some(at) = open.iter().position(|(c, o, _)| c == challenge && o == op) else {
+            log_refused("device", "device_challenge_unknown");
             return Err(Refusal::new(
                 "device_challenge_unknown",
                 "this owner check is unknown, expired, already used or for another operation; try again",
@@ -1238,6 +1287,113 @@ pub fn authorise_device_op_proof(
             ),
             _ => refusal,
         })
+}
+
+// ---- protected-setting owner check -------------------------------------------------------------
+
+/// How long a settings challenge may be answered, in seconds (an approval signature's own limit).
+const SETTINGS_VALID: u64 = 120;
+/// The most settings challenges waiting at once; the oldest goes first.
+const SETTINGS_OPEN_MAX: usize = 8;
+/// The settings challenges this engine process issued and nobody answered yet: (challenge, action,
+/// expiry). The action names the one key and value the challenge may confirm.
+static SETTINGS_OPEN: Mutex<Vec<(String, String, u64)>> = Mutex::new(Vec::new());
+
+/// `remote.settings.challenge` for a change that loosens a gate: a fresh single-use challenge, valid
+/// `SETTINGS_VALID` seconds, for the owner's device to sign (`approval_sig` v1, kind
+/// `owner_settings::SETTINGS_PROOF_KIND`, request the challenge, action `action`, the `client`
+/// returned here) before `remote.settings.set`. Engine only; it grants nothing by itself.
+pub fn settings_challenge(action: &str) -> Result<Value> {
+    if !approvals::is_engine_process() {
+        log_refused("settings", "approval_unavailable");
+        return Err(Refusal::new(
+            "approval_unavailable",
+            "the owner check is answered by the engine, and this process is not the engine",
+        ));
+    }
+    let challenge = random_hex(32).ok_or_else(|| {
+        Refusal::new(
+            "approval_unavailable",
+            "the system could not make a random challenge",
+        )
+    })?;
+    let client = recovery_client()?;
+    let now = now_secs();
+    let expires = now + SETTINGS_VALID;
+    let mut open = SETTINGS_OPEN.lock().unwrap_or_else(|e| e.into_inner());
+    open.retain(|(_, _, until)| *until > now);
+    if open.len() >= SETTINGS_OPEN_MAX {
+        open.remove(0);
+    }
+    open.push((challenge.clone(), action.to_string(), expires));
+    Ok(serde_json::json!({
+        "kind": super::owner_settings::SETTINGS_PROOF_KIND,
+        "challenge": challenge,
+        "action": action,
+        "client": client,
+        "expires": expires,
+    }))
+}
+
+/// The owner check for one protected-setting change, made INSIDE the engine before anything is
+/// stored: `sig` is a signature of an enrolled, proven owner-check key (Windows Hello, or the Mac's
+/// Touch ID or login password key) over `challenge` (from `settings_challenge`, single use, used up
+/// by its first answer whatever it is), kind `settings`, exactly this `action` (the key and checked
+/// value, `owner_settings::settings_action`) and this engine process. A caller's word that the
+/// system accepted the owner is no proof. Every failure is `unlock_needs_auth`, so the page asks for
+/// the PIN instead. Returns the proof, which is stored with the loosened value. Engine only.
+pub fn authorise_settings(
+    action: &str,
+    challenge: &str,
+    sig: &Value,
+) -> Result<super::approval_sig::OwnerCheckProof> {
+    authorise_settings_checked(action, challenge, sig).map_err(|refusal| {
+        log_refused("settings", refusal.code);
+        Refusal::new(
+            "unlock_needs_auth",
+            format!(
+                "the system check did not confirm this change ({}); confirm again, or enter your PIN",
+                refusal.message
+            ),
+        )
+    })
+}
+
+fn authorise_settings_checked(
+    action: &str,
+    challenge: &str,
+    sig: &Value,
+) -> Result<super::approval_sig::OwnerCheckProof> {
+    if !approvals::is_engine_process() {
+        return Err(Refusal::new(
+            "approval_unavailable",
+            "the owner check is made by the engine, and this process is not the engine",
+        ));
+    }
+    // A challenge is used up by its first answer, right or wrong, and confirms only its own change.
+    let issued_for = {
+        let now = now_secs();
+        let mut open = SETTINGS_OPEN.lock().unwrap_or_else(|e| e.into_inner());
+        open.retain(|(_, _, until)| *until > now);
+        open.iter()
+            .position(|(c, _, _)| c == challenge)
+            .map(|at| open.remove(at).1)
+    };
+    if issued_for.as_deref() != Some(action) {
+        return Err(Refusal::new(
+            "settings_challenge_unknown",
+            "this owner check is unknown, expired, already used or for another change",
+        ));
+    }
+    let signed = super::approval_sig::Signed::from_value(sig)?;
+    let client = recovery_client()?;
+    super::approval_sig::verify_owner_check_proof_kind(
+        super::owner_settings::SETTINGS_PROOF_KIND,
+        challenge,
+        action,
+        &client,
+        &signed,
+    )
 }
 
 fn now_ms() -> u64 {
@@ -1303,14 +1459,19 @@ pub fn decide_signed(
                 Ok(()) => signed_unlock = true,
                 Err(r) if r.code == "approver_unknown" => {
                     if super::approval_sig::owner_check_enrolled()? {
+                        log_refused("unlock", r.code);
                         return Err(r);
                     }
                     super::approval_sig::verify("unlock", id, digest, &client, &signed)?;
                 }
-                Err(r) => return Err(r),
+                Err(r) => {
+                    log_refused("unlock", r.code);
+                    return Err(r);
+                }
             }
         }
         Some("os") => {
+            log_refused("unlock", "unlock_needs_auth");
             return Err(Refusal::new(
                 "unlock_needs_auth",
                 "an unlock needs the owner's signed approval (Touch ID in the notch on a Mac) or the PIN; the notch's word that the system accepted the owner is not enough, and on Windows Hello cannot sign yet, so use the PIN",
@@ -1318,6 +1479,7 @@ pub fn decide_signed(
         }
         Some("pin") => verify_pin(pin.unwrap_or(""))?,
         _ => {
+            log_refused("unlock", "unlock_needs_auth");
             return Err(Refusal::new(
                 "unlock_needs_auth",
                 "an unlock needs method sig (from the notch) or pin",
@@ -1341,6 +1503,17 @@ pub fn decide_signed(
     };
     let client = approvals::unlock_request_client(id).unwrap_or_default();
     let decided = approvals::decide_unlock(id, true, digest, expires)?;
+    // The grant itself, by method and whether a token is kept (#580, remote D6). Codes only.
+    if decided {
+        super::audit::record_security(
+            "unlock.granted",
+            serde_json::json!({
+                "method": method.unwrap_or(""),
+                "tokenKept": signed_unlock,
+                "untilEnd": expires == 0,
+            }),
+        );
+    }
     if decided && signed_unlock {
         // The owner check passed: keep one token for this chat in the OS credential store, with an
         // expiry, so the unlock survives an engine restart. The in-memory grant stands without it.
@@ -1416,7 +1589,6 @@ fn token_text(client: &str, until_end: bool, expires: u64, generation: u64, nonc
 /// secret together with the chat, the expiry and the generation. Engine only; the unlock path calls
 /// it after a verified owner check.
 fn store_token(client: &str, expires: u64, until_end: bool) -> Result<()> {
-    use ring::rand::{SecureRandom, SystemRandom};
     if !approvals::is_engine_process() || !client.starts_with("chat:") {
         return Err(Refusal::new("unlock_needs_auth", "not stored"));
     }
@@ -1436,8 +1608,7 @@ fn store_token(client: &str, expires: u64, until_end: bool) -> Result<()> {
         write_token_index(&store, &index)?;
     }
     let mut raw = [0u8; 32];
-    SystemRandom::new()
-        .fill(&mut raw)
+    rightkit_crypto::random_fill(&mut raw)
         .map_err(|_| Refusal::new("pin_unavailable", "no random nonce for the unlock token"))?;
     let nonce = rightkit_fs::digest::hex(&raw);
     let text = token_text(client, until_end, expires, generation, &nonce);

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- `browser` feature: `chromiumoxide` dropped from the feature and the target table (no source used it). `rightkit-browser` 0.3.12 with `secret-fill`, so `BrowserPage::fill_secret` is available to sessions. Requirements: `rightkit-owner-approvals` 0.1.3, `rightkit-remote-gateway` 0.1.4. Not compiled.
+
 ## 0.1.1
 
 - Ships the change below, made after 0.1.0 was published, under a new version so the repository never differs from the published 0.1.0 (#1572).

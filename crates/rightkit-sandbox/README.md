@@ -19,6 +19,10 @@ Shared sandbox, PTY, process-tree, and resource-authority primitives for Right S
 
 `pty` (default): `Sandbox::spawn_pty`, `PtySession`, `PtySize`, `PtyError`, and the lease-epoch input fence, over `rightkit-pty` (the one PTY implementation: POSIX PTY and ConPTY, owned process tree, staged kill; rightkit#557). `PtySession` stays synchronous: each session runs the terminal's async streams on a private one-worker tokio runtime, so callers need no runtime. `PtySession::wait_exit` returns `std::process::ExitStatus`. With `default-features = false` those items, `rightkit-pty` and the runtime are gone. Other dependencies: `rightkit-child-process`, `libc` (Unix), and `windows` (Windows).
 
+`Sandbox::spawn_pty_stream` returns a `StreamedPty`: a lossless async PTY with no ring buffer. `take_reader` and `take_writer` hand the caller the async streams (`PtyReader` and `PtyWriter`, re-exported), `wait` and `cancel` are async, and the call must run inside a tokio runtime. `PtySize` carries `rows`, `cols`, `pixel_width` and `pixel_height` (pixels 0 = unknown): macOS and Linux apply them to the terminal and `StreamedPty::winsize()` reads the size back from the kernel; Windows ConPTY accepts and ignores the pixels. On Windows `cancel` terminates the Job Object and ignores `TerminationOptions::grace`.
+
+`ResourceAuthority::unlimited()` admits everything and only counts; the profile string `unlimited` is not accepted by `ResourceProfile::parse`.
+
 ## Platform support
 
 | Capability | macOS | Linux | Windows |
@@ -29,7 +33,10 @@ Shared sandbox, PTY, process-tree, and resource-authority primitives for Right S
 | Windows ancestor-ACE lease and sweep | No | No | Yes (`windows_ancestors.rs`, `windows_appcontainer.rs`) |
 | `confine_command` (caller-owned command) | Seatbelt | Landlock + seccomp | `Unsupported` (an AppContainer is set at process creation) |
 | `ConfinementMode::WriteOnly` | Yes | Refused | Refused |
-| `SandboxPolicy::deny_read` | `(deny file-read* file-write*)` after the allows | **Not enforced** (`deny_read_enforced()` is `false`) | **Refused** (`Unsupported`), not supported yet, [#887](https://github.com/bogusyogi/rightkit/issues/887) |
+| `SandboxPolicy::deny_read` | `(deny file-read* file-write*)` after the allows | Enforced for paths that exist at spawn by splitting granted roots (`deny_read_enforced()` is true); more than 4096 sibling entries refuses the launch | **Refused** (`Unsupported`), not supported yet, [#887](https://github.com/bogusyogi/rightkit/issues/887) |
+| `SandboxPolicy::signal_scope(Own)` | No | Landlock ABI 6 (kernel 6.12); check `signal_scope_enforced()` | No |
+| `Sandbox::spawn_pty_stream` (lossless async stream, caller's tokio runtime) | Yes | Yes | Yes (AppContainer + ConPTY in one `CreateProcessW`; also `spawn_pty_stream_in_profile`) |
+| `ResourceAuthority::unlimited()` | Yes | Yes | Yes |
 | `SandboxPolicy::exec_any` | `(allow process*)` | Landlock `EXECUTE` on `/` | No effect |
 | `Sandbox::spawn_piped` | Yes | Yes | Yes (ACL-bound named pipe) |
 | Loopback exemption, `AppContainerProfile`, `resolve_program` | No | No | Yes |
@@ -66,7 +73,8 @@ let output = child.wait_with_output(std::time::Duration::from_secs(30))?;
 - Landlock ABI is probed (`landlock_abi_version()`, `is_landlock_available()`). ABI 2 adds `REFER` and ABI 3 adds `TRUNCATE`; both are handled when present and granted only on write roots, so a cross-directory rename or a truncate outside the grants is denied. On an older kernel those operations keep that ABI's behaviour. Read and exec grants on a single file carry file rights only.
 - `SandboxPolicy::landlock(LandlockMode::SkipWhenNoPaths)` skips Landlock when no path is listed (a network-only tier). It is opt-in; the default always applies it.
 - seccomp applies when the network is denied. `SeccompMode::Allowlist` (default) is the default-deny allowlist (x86_64 only). `SeccompMode::NetworkOnly` is default-allow and denies `socket`/`socketpair` for every domain except `AF_UNIX` and `io_uring_*` (x86_64 and aarch64). Both start with an architecture check: a foreign architecture is killed, and on x86_64 the x32 range is denied. Both are checked by a BPF interpreter in the unit tests, on any host.
-- `deny_read` is not enforced (Landlock only adds allowances): grant narrower roots when `deny_read_enforced()` is `false`.
+- `deny_read` and `deny_read_glob` are enforced by splitting granted roots: Landlock only adds allowances and cannot carve a hole, so a granted directory that holds a denied entry is replaced by one rule per sibling entry and the denied inode gets no rule (`deny_read_enforced()` is `true`). Residuals: a path that does not exist at spawn has no object and is not denied; a file created later inside a split directory is not readable until the next launch; unlink, rename or truncate of the denied entry through the split directory's retained rights is not prevented; symlink entries get no rule. More than 4096 sibling entries refuses the launch. The system roots and `exec_any` are not split.
+- `SandboxPolicy::signal_scope(SignalScope::Own)` sets `LANDLOCK_SCOPE_SIGNAL` (Landlock ABI 6, kernel 6.12): a confined process may signal only itself and its own domain, never the launcher or another same-user process. On an older kernel it is best effort; check `signal_scope_enforced()`.
 - Nothing in this section was run on Linux.
 
 ## macOS (`WriteOnly`, `exec_any`, `from_profile`)
@@ -74,6 +82,8 @@ let output = child.wait_with_output(std::time::Duration::from_secs(30))?;
 `ConfinementMode::WriteOnly` builds `seatbelt::write_only_profile`: default-allow, `(deny file-write*)`, then writes allowed under `write_paths` (realpath-resolved), `/private/tmp`, `/private/var/folders`, `/private/var/tmp`, `/tmp` and a few `/dev` nodes; with the network denied, outbound is denied and unix sockets stay allowed. `exec_any` emits `(allow process*)` and grants execution only: the image still needs a read grant. `seatbelt::Prepared::from_profile(String)` applies a profile you built, as is. `try_profile_for` and `try_wrap_argv` return the error when a profile cannot be built; `profile_for` and `wrap_argv` keep their signatures and, if a `deny_read` entry cannot be planned, return a profile that denies everything. Nothing in this section was run on a Mac; `exec_any` against real vendor drivers is unverified.
 
 ## Narrowing options (0.6.4)
+
+0.7.0 adds `SignalScope`, Linux `deny_read`, `StreamedPty` and `ResourceAuthority::unlimited()`; `ResourceProfile` gains the variant `Unlimited` (breaking for an exhaustive match); `PtySize` gains `pixel_width` and `pixel_height`, 0 = unknown (breaking for a `PtySize { rows, cols }` struct literal: use `PtySize::new(rows, cols)` or `.with_pixels(w, h)`); `StreamedPty` gains `winsize()`.
 
 All opt-in, defaults unchanged. `system_roots(SystemRoots::Minimal(roots) | None)` limits the implicit Linux system roots (`/proc`, `/etc`, `/sys` are no longer readable unless listed; `system_roots_enforced()` is `true` on Linux only). `allow_tty(false)` and `allow_global_metadata(false)` narrow the macOS Strict profile (terminal nodes; metadata, `/Applications` and `/etc`). `deny_exec_path` / `deny_exec_glob` deny execution (macOS `(deny process-exec* ...)`; Linux only where no exec grant overlaps, otherwise `Unsupported`; Windows `Unsupported`; `deny_exec_enforced()`). `unix_sockets(UnixSocketPolicy::Deny | Allow(paths))` controls unix-socket reach when the network is denied (`Allow` is macOS only; Linux refuses it). See CHANGELOG 0.6.4 for the decisions behind each default.
 
@@ -125,7 +135,7 @@ deriving each SID & comparing it with its profile mapping; unrelated
 - Reusable container: `AppContainerProfile::for_workspace(root)` (or `for_policy`) holds the allow leases, the ancestor leases and the loopback lease for as long as it and its children live; spawn into it with `Sandbox::spawn_in_profile`. Its ancestor leases are best effort: an ancestor the user cannot re-ACL is skipped, and the deepest one becomes a `GIT_CEILING_DIRECTORIES` entry in each child's environment unless the caller sets that variable. `lease_grant` refuses protected locations, filesystem roots and any path that resolves into a secret.
 - Denied by default: AppContainer blocks file and registry access outside the granted paths, as the module header states. A `cwd` outside every grant is refused.
 - `rightkit-sandbox-exec` (`src/bin/rightkit-sandbox-exec.rs`, Windows only) takes `--read-only`, `--writable`, `--cwd` and `--env`, then `-- <command>`. It relays stdout and stderr with a 64 MiB cap per stream and propagates the exit code. Setup failures exit 125.
-- PTYs: `spawn_pty` with a policy returns `PtyError::Sandbox(SandboxError::Unsupported)` on Windows. Without a policy the PTY is unconfined.
+- PTYs: `spawn_pty_stream(Some(policy), ..)` and `spawn_pty_stream_in_profile(..)` run the child in the AppContainer with a ConPTY (`SECURITY_CAPABILITIES` and the pseudoconsole attribute in one `CreateProcessW`, no inherited handles, created suspended, assigned to the kill-on-close Job Object, then resumed); a `deny_read` policy is refused as everywhere on Windows. `spawn_pty` (the lease-fenced `PtySession`) with a policy still returns `PtyError::Sandbox(SandboxError::Unsupported)` on Windows. Without a policy the PTY is unconfined. Not run on Windows for this README until `tests/pty_stream_windows.rs` has run on a Windows host.
 - Dependency: `windows` 0.62 under `cfg(windows)` (`Cargo.toml:26`), with features `Win32_Foundation`, `Win32_System_Threading`, `Win32_System_JobObjects` and `Win32_Security`. Most AppContainer calls are declared directly in `windows_appcontainer.rs` (kernel32, userenv, ole32, advapi32). Consumers enable no Windows features.
 - Nothing in this section was run on Windows for this README.
 

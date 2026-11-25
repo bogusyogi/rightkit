@@ -1,0 +1,10 @@
+[package]
+name = "rightkit-agent-task-journal-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-agent-task-journal = { version = "=0.1.0" }

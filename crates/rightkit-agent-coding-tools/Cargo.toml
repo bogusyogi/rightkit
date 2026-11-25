@@ -43,7 +43,7 @@ rightkit-agent-config = { version = "0.1.3", path = "../rightkit-agent-config" }
 rightkit-mcp = { version = "0.10.0", path = "../rightkit-mcp", features = ["agent_mcp"] }
 rightkit-agent-engine-history = { version = "0.1.3", path = "../rightkit-agent-engine-history" }
 rightkit-agent-host-traits = { version = "0.1.0", path = "../rightkit-agent-host-traits" }
-rightkit-sandbox = { version = "0.6.2", path = "../rightkit-sandbox", features = ["execution"] }
+rightkit-sandbox = { version = "0.7.0", path = "../rightkit-sandbox", features = ["execution"] }
 rightkit-llm = { version = "0.7.0", path = "../rightkit-llm", features = ["agent_providers"] }
 rightkit-agent-telemetry = { version = "0.1.0", path = "../rightkit-agent-telemetry" }
 thiserror = "2"

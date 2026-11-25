@@ -32,8 +32,13 @@
 //! id, role and name) and the action (kind and full payload); the first call answers
 //! `approval_required`, the user approves in the host app, and the caller repeats the call with
 //! `approval`. A target that changed since the snapshot (the process was replaced, the window is
-//! gone, retitled, or blocked, the structure moved) is `target_changed`, and an approval
-//! given for another target or action is `approval_invalid`. Actions run with the crate's
+//! gone or retitled) is `target_changed`; a window that exists but that `screen.observe` would not
+//! list (off screen, a utility window, a blocked app) is `window_not_approved`, so act reaches only
+//! what observe can show. Three more refusals say what to do next, each before anything was done: a
+//! snapshot no longer held is `snapshot_expired`, an element id the snapshot no longer holds (the
+//! structure moved) is `stale_ref`, and a click point two controls claim equally is
+//! `ambiguous_target`. An approval given for another target or action is `approval_invalid`.
+//! Actions run with the crate's
 //! allowlist, kill switch, secure-field and credential gates, freshness guard (`Guard::Structure`)
 //! and strict focus guard, and never above the targeted tier: foreground input (which would take
 //! the user's focus and pointer) is not allowed, and launching, terminating or delivering text to
@@ -66,9 +71,15 @@
 //! `screen.spot.end`, owner-only). The call waits for the answer and returns `handed_back`. While
 //! it waits every screen tool answers `user_in_control`: nothing is observed, captured or acted on.
 //!
+//! After an action the window is read again (`Automation::act_verified`): the answer carries
+//! `verdict` (`effect`, `no_effect` or `unmeasured`), `verified`, and `seconds`. A control that
+//! ignored the action is `done: false`, `result: "no_effect"`, never done. `unmeasured` (a window
+//! that could not be read twice, or a tree cut by its node limit) is neither: `done` stays true and
+//! `verified` is false.
+//!
 //! Receipts: each call is one line in the Activity log (`audit`): the tool, the action kind, the
-//! tier that ran, the outcome and counts; never an app, a window title, element text or a typed
-//! value.
+//! tier that ran, the verdict, the outcome (`no_effect` for an act that changed nothing), the
+//! seconds and counts; never an app, a window title, element text or a typed value.
 //!
 //! Threading (macOS): the crate reads the app list through NSWorkspace, which publishes through
 //! the main run loop. A host without a running main loop may see a stale app list; that is
@@ -80,7 +91,7 @@
 use super::settings::Settings;
 #[cfg_attr(not(any(target_os = "macos", windows)), allow(unused_imports))]
 use super::settings::hard_floor;
-use super::{Origin, Refusal, Result};
+use super::{Origin, Refusal, Requester, Result};
 use serde_json::{Value, json};
 
 const TEXT_MAX: usize = 4096;
@@ -108,7 +119,12 @@ pub fn observe(settings: &Settings, origin: Origin, args: &Value) -> Result<Valu
 /// (`{type, ...}`: press, set_value, type_text, keys, click, scroll, focus, menu_press; `profile`
 /// in place of `text` for set_value and type_text; `handover` with an `element` and optional
 /// `seconds`, 10 to 600, default 180, gives that region to the user: see `Spot`), `approval`.
-pub fn act(settings: &Settings, origin: Origin, args: &Value) -> Result<Value> {
+pub fn act(
+    settings: &Settings,
+    origin: Origin,
+    requester: &Requester,
+    args: &Value,
+) -> Result<Value> {
     settings.require_screen_act()?;
     user_in_control()?;
     // `wait` (Zenon's `computer` wait, tools-desktop.ts:384) touches nothing: it only pauses, up to
@@ -118,7 +134,18 @@ pub fn act(settings: &Settings, origin: Origin, args: &Value) -> Result<Value> {
         std::thread::sleep(std::time::Duration::from_millis(ms));
         return Ok(json!({"done": true, "result": "waited", "waitedMs": ms}));
     }
-    imp::act(settings, origin, args)
+    imp::act(settings, origin, requester, args)
+}
+
+/// The foreground lease on screen now, for the owner app: `{active: false}` or `{active: true, state
+/// (warning or held), app, secondsLeft}`. Owner-only (`screen.lease.current`).
+pub fn lease_current() -> Value {
+    imp::lease_current()
+}
+
+/// The owner cancels the lease's warning or ends the lease (`screen.lease.end`, owner-only).
+pub fn lease_end() -> Value {
+    imp::lease_end()
 }
 
 /// The clipboard's text and whether the clipboard holds nothing else (`clipboard.read`), through
@@ -307,14 +334,16 @@ fn spot_write(path: &std::path::Path, spot: &Spot) -> std::io::Result<()> {
 /// nothing the user types or sees in the region is read, captured or acted on (the design's rule
 /// "no screenshots during takeover"). The check reads the shared state file, so it holds in every
 /// process that runs a screen tool, and for `clipboard.read`.
-pub(super) fn user_in_control() -> Result<()> {
+pub fn user_in_control() -> Result<()> {
     if matches!(read_slot(), Slot::Taken(_)) {
         return Err(Refusal::new(
             "user_in_control",
             "the user has taken over part of the screen; wait for the hand back, then call screen.observe again",
         ));
     }
-    Ok(())
+    // A foreground lease ends, and this answers `user_in_control` once, when the person used the
+    // keyboard or the pointer since the agent's last action (`foreground.rs`).
+    imp::lease_user_check()
 }
 
 /// The takeover on screen now, for owner app: `{active: false}` or `{active: true, id, label,
@@ -549,8 +578,20 @@ mod imp {
         Err(unsupported())
     }
 
-    pub fn act(_: &Settings, _: Origin, _: &Value) -> Result<Value> {
+    pub fn act(_: &Settings, _: Origin, _: &Requester, _: &Value) -> Result<Value> {
         Err(unsupported())
+    }
+
+    pub fn lease_user_check() -> Result<()> {
+        Ok(())
+    }
+
+    pub fn lease_current() -> Value {
+        json!({"active": false})
+    }
+
+    pub fn lease_end() -> Value {
+        json!({"ended": false})
     }
 
     pub fn clipboard_text() -> Result<(Option<String>, bool)> {
@@ -570,6 +611,7 @@ mod imp {
 mod imp {
     use super::*;
     use crate::approvals;
+    use crate::foreground;
     use crate::sensitive;
     use rightkit_automation::{
         ActOptions, Action, Admission, Admit, Automation, Button, EffectKind, EffectRequest,
@@ -577,6 +619,7 @@ mod imp {
         classify_risk, credential_label, looks_secret, native, redact as redact_payload,
     };
     use std::collections::{HashMap, HashSet, VecDeque};
+    use std::sync::atomic::{AtomicU8, Ordering};
     use std::sync::{Arc, Mutex, OnceLock};
 
     type Auto = Automation<NativePlatform>;
@@ -611,6 +654,31 @@ mod imp {
         y: f64,
         w: f64,
         h: f64,
+    }
+
+    /// Whether two different elements tie for the deepest, smallest frame under a point, so none
+    /// of them is the click's target (`ambiguous_target`). The order is `element_at`'s.
+    fn ambiguous_at(issued: &Issued, x: f64, y: f64) -> bool {
+        let mut under = issued
+            .rects
+            .iter()
+            .filter(|r| x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h)
+            .collect::<Vec<_>>();
+        under.sort_by(|a, b| {
+            b.depth
+                .cmp(&a.depth)
+                .then((a.w * a.h).total_cmp(&(b.w * b.h)))
+        });
+        match under.as_slice() {
+            [first, second, ..] => {
+                first.depth == second.depth
+                    && (first.w * first.h)
+                        .total_cmp(&(second.w * second.h))
+                        .is_eq()
+                    && issued.nodes.get(&first.id) != issued.nodes.get(&second.id)
+            }
+            _ => false,
+        }
     }
 
     /// What a press, click or key lands on, for the submit, buy, send and delete check.
@@ -715,8 +783,76 @@ mod imp {
         issued: VecDeque<Issued>,
     }
 
+    /// The tier ceiling of the act now running (AG-12): 3 (targeted) except while a foreground lease
+    /// covers it, 4. It is a per-call value: `CeilingGuard` sets it for one call under the shared
+    /// state's lock and puts 3 back when the call ends, however it ends, so the one admission hook
+    /// (`Gate`) and the call's own `ActOptions` always say the same thing.
+    static CEILING: AtomicU8 = AtomicU8::new(TARGETED);
+    const TARGETED: u8 = 3;
+    const FOREGROUND: u8 = 4;
+
+    fn ceiling() -> Tier {
+        if CEILING.load(Ordering::SeqCst) >= FOREGROUND {
+            Tier::Foreground
+        } else {
+            Tier::Targeted
+        }
+    }
+
+    /// The crate's input watch (`InputWatch`, rightkit-automation 0.7.5), on only while a foreground
+    /// lease acts: it ends the action with `Error::UserInControl` the moment the person touches the
+    /// keyboard or the pointer, which the last-input counter between calls cannot see. It is not used
+    /// for any other call (general use is an open owner decision). A watch that cannot start refuses
+    /// the foreground action: fail closed.
+    struct WatchGuard<'a> {
+        auto: &'a Auto,
+    }
+
+    impl<'a> WatchGuard<'a> {
+        fn start(auto: &'a Auto) -> Result<WatchGuard<'a>> {
+            let watch = rightkit_automation::SystemInputWatch::start();
+            // `start` always answers; a watch that is not live (a second one on Windows, no hook)
+            // reads no count, and then the lease is not given.
+            if rightkit_automation::InputWatch::count(&watch).is_none() {
+                return Err(Refusal::new(
+                    "lease_refused",
+                    "the foreground lease was not given: the app cannot watch for your keyboard and pointer, so it could not tell when you return",
+                ));
+            }
+            auto.set_input_watch(Some(Arc::new(watch)));
+            Ok(WatchGuard { auto })
+        }
+    }
+
+    impl Drop for WatchGuard<'_> {
+        fn drop(&mut self) {
+            self.auto.set_input_watch(None);
+        }
+    }
+
+    struct CeilingGuard;
+
+    impl CeilingGuard {
+        fn set(tier: Tier) -> CeilingGuard {
+            let value = if tier >= Tier::Foreground {
+                FOREGROUND
+            } else {
+                TARGETED
+            };
+            CEILING.store(value, Ordering::SeqCst);
+            CeilingGuard
+        }
+    }
+
+    impl Drop for CeilingGuard {
+        fn drop(&mut self) {
+            CEILING.store(TARGETED, Ordering::SeqCst);
+        }
+    }
+
     /// The admission hook every effect passes after the crate's own gates: no launch, no
-    /// terminate, no text delivery to another app, and input never above the targeted tier.
+    /// terminate, no text delivery to another app, and input never above the call's ceiling
+    /// (targeted, or foreground while a lease covers the call).
     struct Gate;
 
     impl Admission for Gate {
@@ -725,7 +861,7 @@ mod imp {
                 EffectKind::Launch | EffectKind::Terminate | EffectKind::Deliver => {
                     Admit::Deny("not offered to remote callers".into())
                 }
-                EffectKind::Act => Admit::AllowUpTo(Tier::Targeted),
+                EffectKind::Act => Admit::AllowUpTo(ceiling()),
                 EffectKind::Observe | EffectKind::Capture => Admit::Allow,
             }
         }
@@ -1063,6 +1199,34 @@ mod imp {
                 })
             })
             .collect()
+    }
+
+    /// The window `issued` was taken from, if `screen.observe` would list it now: the same
+    /// on-screen, ordinary window of an app that is not blocked (`approved_windows`). Observe and
+    /// act must agree, or a caller could act on a window it never could see. A window that still
+    /// exists but is not listed is `window_not_approved`; one that is gone is `target_changed`.
+    fn listed_window(auto: &Auto, settings: &Settings, issued: &Issued) -> Result<Win> {
+        if let Some(win) = approved_windows(auto, settings)
+            .into_iter()
+            .find(|w| w.id == issued.window && w.pid == issued.pid)
+        {
+            return Ok(win);
+        }
+        let exists = auto
+            .windows(false)
+            .iter()
+            .any(|w| w.window_id == issued.window && w.pid == issued.pid);
+        Err(if exists {
+            Refusal::new(
+                "window_not_approved",
+                "that window is not one screen.observe lists (it is off screen, a utility window, or its app is blocked); nothing was done, call screen.observe again",
+            )
+        } else {
+            Refusal::new(
+                "target_changed",
+                "the window is gone; nothing was done, call screen.observe again",
+            )
+        })
     }
 
     fn clip(text: &str) -> String {
@@ -1433,12 +1597,15 @@ mod imp {
             .find(|i| i.snapshot == snapshot && i.origin == origin)
             .ok_or_else(|| {
                 Refusal::new(
-                    "unknown_snapshot",
-                    "no such snapshot for this caller; call screen.observe again",
+                    "snapshot_expired",
+                    "no such snapshot for this caller, or it was dropped to make room (the newest 8 are kept); nothing was done, call screen.observe again",
                 )
             })?;
         let (role, name) = issued.nodes.get(element).cloned().ok_or_else(|| {
-            Refusal::new("unknown_snapshot", "that element is not in the snapshot")
+            Refusal::new(
+                "stale_ref",
+                "that element is not in the snapshot; nothing was done, call screen.observe again",
+            )
         })?;
         let changed = |why: &str| {
             Refusal::new(
@@ -1452,12 +1619,7 @@ mod imp {
             .app(issued.pid)
             .filter(|a| a.app_id == issued.app_id && a.started == issued.started)
             .ok_or_else(|| changed("the app is no longer the one that was observed"))?;
-        let window = state
-            .auto
-            .windows(false)
-            .into_iter()
-            .find(|w| w.window_id == issued.window && w.pid == issued.pid)
-            .ok_or_else(|| changed("the window is gone"))?;
+        let window = listed_window(&state.auto, settings, issued)?;
         if window.title != issued.title {
             return Err(changed("the window title changed"));
         }
@@ -1573,7 +1735,46 @@ mod imp {
         }))
     }
 
-    pub fn act(settings: &Settings, origin: Origin, args: &Value) -> Result<Value> {
+    pub fn lease_user_check() -> Result<()> {
+        foreground::check_user()
+    }
+
+    pub fn lease_current() -> Value {
+        foreground::current()
+    }
+
+    pub fn lease_end() -> Value {
+        foreground::end()
+    }
+
+    /// Whether a quiet route's result is a reason to ask for the foreground (AG-12): no route that
+    /// leaves the person's focus alone could do the action (`no_tier`), or a click went through the
+    /// targeted tier and the window showed no change at all, which is how an app that ignores
+    /// input addressed to it looks. Only a click is tried again that way: a repeated key or text
+    /// would land twice in an app that did take it.
+    fn wants_lease(
+        attempt: &std::result::Result<rightkit_automation::VerifiedOutcome, AutoError>,
+        action: &Action,
+    ) -> bool {
+        match attempt {
+            Err(AutoError::NoTier(_)) => true,
+            Ok(done) => {
+                matches!(action, Action::Click { .. })
+                    && done.outcome.fresh.is_none()
+                    && done.outcome.done()
+                    && done.no_effect()
+                    && done.outcome.receipt.tier_used == Some(Tier::Targeted)
+            }
+            Err(_) => false,
+        }
+    }
+
+    pub fn act(
+        settings: &Settings,
+        origin: Origin,
+        requester: &Requester,
+        args: &Value,
+    ) -> Result<Value> {
         if args["action"]["type"].as_str() == Some("handover") {
             return handover(settings, origin, args);
         }
@@ -1598,13 +1799,16 @@ mod imp {
             .find(|i| i.snapshot == snapshot && i.origin == origin)
             .ok_or_else(|| {
                 Refusal::new(
-                    "unknown_snapshot",
-                    "no such snapshot for this caller; call screen.observe again",
+                    "snapshot_expired",
+                    "no such snapshot for this caller, or it was dropped to make room (the newest 8 are kept); nothing was done, call screen.observe again",
                 )
             })?;
         let node = match element {
             Some(id) => Some(issued.nodes.get(id).ok_or_else(|| {
-                Refusal::new("unknown_snapshot", "that element is not in the snapshot")
+                Refusal::new(
+                    "stale_ref",
+                    "that element is not in the snapshot; nothing was done, call screen.observe again",
+                )
             })?),
             None => None,
         };
@@ -1623,12 +1827,7 @@ mod imp {
             .app(issued.pid)
             .filter(|a| a.app_id == issued.app_id && a.started == issued.started)
             .ok_or_else(|| changed("the app is no longer the one that was observed"))?;
-        let window = state
-            .auto
-            .windows(false)
-            .into_iter()
-            .find(|w| w.window_id == issued.window && w.pid == issued.pid)
-            .ok_or_else(|| changed("the window is gone"))?;
+        let window = listed_window(&state.auto, settings, issued)?;
         if window.title != issued.title {
             return Err(changed("the window title changed"));
         }
@@ -1645,6 +1844,18 @@ mod imp {
             && !window.bounds.contains(*x, *y)
         {
             return Err(invalid("the click point is outside the window"));
+        }
+        // Two controls that tie for the point are not one target: the caller names one by its id.
+        if let Action::Click {
+            point: Some((x, y)),
+            ..
+        } = &action
+            && ambiguous_at(issued, *x, *y)
+        {
+            return Err(Refusal::new(
+                "ambiguous_target",
+                "two controls claim that point equally; click one by its element id; nothing was done",
+            ));
         }
 
         // The element that typing and keys land in: the one the call names, else the one that had
@@ -1840,9 +2051,10 @@ mod imp {
             Some(id) => approvals::take_act_held(origin, "screen.act", &bind, id)?,
         }
 
-        let opts = ActOptions {
+        // The call's tier ceiling (AG-12): targeted, or foreground while a lease on this app stands.
+        let options = |max_tier: Tier| ActOptions {
             min_tier: Tier::Semantic,
-            max_tier: Tier::Targeted,
+            max_tier,
             guard: Guard::Structure,
             confirm: risk.into_iter().collect(),
             strict_focus: true,
@@ -1855,13 +2067,79 @@ mod imp {
         // BackSpace and Delete can leave digits that now read as one, so they are read back too.
         let readback = typed.as_deref().is_some_and(sensitive::has_digit)
             || matches!(&action, Action::Keys(k) if sensitive::keys_delete(k));
-        let outcome = state
-            .auto
-            .act(snapshot, element, action, &opts)
-            .map_err(auto_refusal)?;
-        if outcome.fresh.is_some() {
-            return Err(changed("the window's structure changed since the snapshot"));
+        // The window is read before and after, so a control that ignored the action is reported as
+        // `no_effect` and never as done. Only a window that could not be read twice, or one cut
+        // short by its node limit, is `unmeasured`.
+        let began = std::time::Instant::now();
+        let held = foreground::standing(issued.pid);
+        let front_before = foreground::front_before(state.auto.platform());
+        let mut leased = held;
+        let mut attempt = {
+            let cap = if held {
+                Tier::Foreground
+            } else {
+                Tier::Targeted
+            };
+            let _ceiling = CeilingGuard::set(cap);
+            // The crate watches for the person's own input while a held lease acts (AG-12).
+            let _watch = if held {
+                Some(WatchGuard::start(&state.auto)?)
+            } else {
+                None
+            };
+            state
+                .auto
+                .act_verified(snapshot, element, action.clone(), &options(cap))
+        };
+        // The quiet routes could not do it: ask for a lease on this app when the owner allows it.
+        // The foreground is taken only after the owner's approval and the warning pill.
+        if !held && wants_lease(&attempt, &action) {
+            let wanted = foreground::Wanted {
+                pid: issued.pid,
+                window: issued.window,
+                app_id: &issued.app_id,
+                app_name: &issued.app_name,
+            };
+            if foreground::request(settings, origin, requester, &wanted)? {
+                foreground::warn()?;
+                leased = true;
+                let _ceiling = CeilingGuard::set(Tier::Foreground);
+                let _watch = WatchGuard::start(&state.auto)?;
+                attempt = state.auto.act_verified(
+                    snapshot,
+                    element,
+                    action.clone(),
+                    &options(Tier::Foreground),
+                );
+            }
         }
+        // The person's input during the action: the lease is over.
+        if matches!(attempt, Err(AutoError::UserInControl)) {
+            let _ = foreground::end();
+        }
+        let outcome = attempt.map_err(auto_refusal)?;
+        // After a foreground action: put the person's front app back, say whether it is, and move
+        // the lease's input mark past the agent's own events.
+        let foreground_used = outcome.outcome.receipt.tier_used == Some(Tier::Foreground);
+        let front_restored = if foreground_used {
+            let back = front_before
+                .as_ref()
+                .map(|before| foreground::restore(state.auto.platform(), before));
+            foreground::rebase();
+            back
+        } else {
+            None
+        };
+        let seconds = (began.elapsed().as_secs_f64() * 1000.0).round() / 1000.0;
+        if outcome.outcome.fresh.is_some() {
+            return Err(Refusal::new(
+                "stale_ref",
+                "the window's structure changed since the snapshot, so its element ids are stale; nothing was done, call screen.observe again",
+            ));
+        }
+        let verdict = outcome.verdict;
+        let verified = outcome.verified();
+        let no_effect = outcome.outcome.done() && outcome.no_effect();
         let done = outcome.done();
         if done
             && readback
@@ -1869,17 +2147,35 @@ mod imp {
         {
             return Err(refusal);
         }
-        let receipt = outcome.receipt;
+        let receipt = outcome.outcome.receipt;
         let tier = receipt.tier_used.map(|t| t.label());
-        Ok(json!({
+        let mut answer = json!({
             "done": done,
-            "result": receipt.result.label(),
+            "result": if no_effect { "no_effect" } else { receipt.result.label() },
+            "verdict": verdict.map(|v| v.label()),
+            "verified": verified,
+            "seconds": seconds,
             "tier": tier,
             "focusMoved": receipt.focus_moved,
             "attempts": receipt.attempts.iter()
                 .map(|a| json!({"tier": a.tier.label(), "ok": a.ok}))
                 .collect::<Vec<_>>(),
-        }))
+        });
+        if leased {
+            // The lease was used for this call: whether the foreground did the work, and whether
+            // the person's front app is in front again (null when it could not be known).
+            answer["foreground"] = json!({
+                "leased": true,
+                "used": foreground_used,
+                "frontRestored": front_restored,
+            });
+        }
+        if no_effect {
+            answer["note"] = json!(
+                "the window showed no change after the action; some apps do not show their state, so call screen.observe before repeating a typed or keyed action"
+            );
+        }
+        Ok(answer)
     }
 
     fn find_node<'n>(node: &'n Node, id: &str) -> Option<&'n Node> {
@@ -1906,6 +2202,7 @@ mod imp {
         let node = find_node(&after.root, &focused)?;
         let value = node.value.clone().unwrap_or_default();
         sensitive::sensitive_value(&value)?;
+        // The clear never takes the foreground, lease or not: its ceiling stays targeted.
         let clear = ActOptions {
             min_tier: Tier::Semantic,
             max_tier: Tier::Targeted,
@@ -2014,9 +2311,15 @@ mod imp {
                 "focus_moved",
                 "the action moved the user's focus, which is refused",
             ),
-            AutoError::Invalid(_) | AutoError::UnknownSnapshot(_) => {
-                Refusal::new("invalid_request", error.to_string())
-            }
+            AutoError::UserInControl => Refusal::new(
+                "user_in_control",
+                "the owner is using the keyboard or mouse; nothing was sent, try again when they stop",
+            ),
+            AutoError::UnknownSnapshot(_) => Refusal::new(
+                "snapshot_expired",
+                "the snapshot is no longer held (only the newest are kept); nothing was done, call screen.observe again",
+            ),
+            AutoError::Invalid(_) => Refusal::new("invalid_request", error.to_string()),
             AutoError::Unsupported(_) => Refusal::new("unsupported_platform", error.to_string()),
             _ => Refusal::new("act_failed", error.to_string()),
         }

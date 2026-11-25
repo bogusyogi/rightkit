@@ -227,6 +227,13 @@ export function installProbeMemo({ storeDir = null } = {}) {
       if (answered && !missing && (r.stdout?.length ?? 0) <= KEEP_MAX_BYTES) seenSpawn.set(key, { ...r, stdout: copy(r.stdout), stderr: copy(r.stderr) });
       return r;
     }
+    // A path missing from a commit named by its full id is missing for ever (NN08: `git show <sha>:package.json` asked twice, status 128, 0.6.72).
+    if (absentAtCommit(cmd, argv)) {
+      const r = spawnSync.apply(this, arguments);
+      if (r && !r.error && r.signal === null && r.status === 128 && /does not exist in|exists on disk, but not in/.test(String(r.stderr ?? ""))) seenSpawn.set(key, { ...r, stdout: copy(r.stdout), stderr: copy(r.stderr) });
+      else if (r && !r.error && r.status === 0 && (r.stdout?.length ?? 0) <= KEEP_MAX_BYTES) seenSpawn.set(key, { ...r, stdout: copy(r.stdout), stderr: copy(r.stderr) });
+      return r;
+    }
     const question = piped(opts) ? questionKeyOf(cmd, argv, opts) : null;
     const shared = question ? answers.get(question) : undefined;
     if (shared) {
@@ -272,4 +279,8 @@ export function installProbeMemo({ storeDir = null } = {}) {
   };
   module.syncBuiltinESMExports();
   return stats;
+}
+
+export function absentAtCommit(cmd, argv) {
+  return /(^|[\\/])git(\.exe)?$/i.test(String(cmd)) && argv.length === 2 && argv[0] === "show" && /^[0-9a-f]{40}:[^:]+$/.test(String(argv[1]));
 }

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.76
+
+- `right-release direct-release finalize` materializes the SLSA provenance and CycloneDX SBOM when an asset names none, and passes `allowLocalReleaseRoot` to the bootstrap validator.
+
+## 0.6.75
+
+- NN08: a missing path at a full commit id is recognised when git is named by its full Windows path (the pattern had lost its backslash), and the gate's synchronous read memory keeps that answer too, so `git show <sha>:package.json` is asked once.
+- NN08: the scan version probe shares the pnpm version answer behind the snapshot's direct-read wrapper (it only diverts cargo; `underlying` names the spawn it wraps), so `pnpm --version` is not started again by the probe.
+
+## 0.6.74
+
+- NN08: the scan version probe shares the Class A digest's `pnpm --version` answer where no packageManager pin or manage-package-manager-versions applies (the probe-only variables are left out of the key there); a missing path at a full commit id (status 128) is kept on the asynchronous path too.
+- Acceptance run: cases including case 2 do not start within 45 minutes of UTC midnight (the advisory rows change key at midnight).
+
+## 0.6.73
+
+- NN08: a remembered read is answered even when the caller passes a cancel signal (Class A's version probe always does), so `pnpm --version` is not asked again in the real pass; a path missing from a commit named by its full id (`git show <sha>:<path>`, status 128) is remembered; the advisory database's HEAD question names its checkout with `-C`, so it is told apart from the fixture's.
+
 ## 0.6.72
 
 - NN08: the snapshot is not asked for its top level (the gate knows it is a snapshot when it passes the tracked-file list); the Class-A-only path uses the `--commit` id instead of asking HEAD; content-addressed git questions are remembered whatever folder asks; versions of actionlint, shellcheck, oxlint, cargo-deny and cargo-audit are asked once (rustup proxies and pnpm stay per folder).

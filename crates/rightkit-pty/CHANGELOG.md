@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- Windows: new `ConPty` exposes the pseudoconsole and its bridged streams so rightkit-sandbox can start an AppContainer child on it; `PtyCommand` behaviour is unchanged.
+
 ## 0.1.1
 
 - Manifest only: dependency requirements and workspace metadata changed since 0.1.0 was published; no source change.

@@ -394,7 +394,7 @@ impl OpenAICodexOAuth {
     pub fn new(poster: Arc<dyn FormPoster>) -> Self {
         Self {
             poster,
-            originator: "pi".into(),
+            originator: crate::agent_providers::host::codex_originator().to_string(),
         }
     }
     pub fn with_originator(mut self, originator: impl Into<String>) -> Self {

@@ -274,16 +274,36 @@ export function pnpmVersionSwitchInputs({ dir }) {
   return { pin, manageVersions };
 }
 
-export function pnpmVersionAnswer({ cwd, env, remember = false, run, ask }) {
+// Variables only the scan's version probe adds (no pnpmfile, no lifecycle scripts, no corepack auto-pin). With no pin to switch to they cannot
+// change the version pnpm reports, so there they are left out of the key and the probe shares the Class A digest's answer (NN08, 0.6.73 case 1:
+// `pnpm --version` from the repository root and again from the probe folder, neither with a pin).
+const PROBE_ONLY_PNPM_ENV = /^(?:npm_config_ignore_pnpmfile|npm_config_ignore_scripts|pnpm_config_ignore_pnpmfile|pnpm_config_ignore_scripts|COREPACK_ENABLE_AUTO_PIN|RIGHTKIT_CARGO_SCAN)$/i;
+function pnpmVersionKeyOf({ cwd, env, remember }) {
   const dependencies = remember ? pnpmConfigDependencies({ dir: cwd, env }) : null;
-  const lastingEnv = dependencies?.program ? Object.entries(env ?? {}).filter(([name]) => !PER_RUN_BOOKKEEPING.test(String(name).toUpperCase())).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)) : null;
-  const key = dependencies?.program ? answerKey(['rightkit.pnpm-version-answer/3', dependencies.program, lastingEnv, pnpmVersionSwitchInputs({ dir: cwd })]) : null;
+  if (!dependencies?.program) return { key: null, dependencies };
+  const switches = pnpmVersionSwitchInputs({ dir: cwd });
+  const noPin = !switches.pin && !switches.manageVersions;
+  const lastingEnv = Object.entries(env ?? {}).filter(([name]) => !PER_RUN_BOOKKEEPING.test(String(name).toUpperCase()) && !(noPin && PROBE_ONLY_PNPM_ENV.test(String(name)))).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return { key: answerKey(['rightkit.pnpm-version-answer/4', dependencies.program, lastingEnv, switches]), dependencies };
+}
+export function pnpmVersionAnswer({ cwd, env, remember = false, run, ask }) {
+  const { key, dependencies } = pnpmVersionKeyOf({ cwd, env, remember });
   const kept = key ? recallAnswer(key, { env, ...(ask ? { ask } : {}) }) : null;
   if (kept) return kept;
   const marks = key ? fileMarks(dependencies.files) : null;
   const version = run();
   if (key && typeof version === 'string' && /^\d+\.\d+\.\d+/.test(version)) rememberAnswer(key, version, marks, { env, ...(ask ? { ask } : {}) });
   return version;
+}
+/** pnpmVersionAnswer for an asynchronous run (the scan's version probe): run() resolves to the version text, or null when it failed. */
+export async function pnpmVersionAnswerAsync({ cwd, env, remember = false, run, ask }) {
+  const { key, dependencies } = pnpmVersionKeyOf({ cwd, env, remember });
+  const kept = key ? recallAnswer(key, { env, ...(ask ? { ask } : {}) }) : null;
+  if (kept) return { version: kept, kept: true };
+  const marks = key ? fileMarks(dependencies.files) : null;
+  const version = await run();
+  if (key && typeof version === 'string' && /^\d+\.\d+\.\d+/.test(version)) rememberAnswer(key, version, marks, { env, ...(ask ? { ask } : {}) });
+  return { version, kept: false };
 }
 
 export function pnpmConfigIdentity({ dir, env, spawn, remember = false }) {

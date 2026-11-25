@@ -19,6 +19,10 @@
 //! * `link`: the service: registry mutations, revocation, resume tickets, per-request check,
 //!   and the [`ReplayStore`] seam that makes request redelivery idempotent.
 //! * `policy`: whether a paired computer may use chat here, and by which rule.
+//! * `phone_policy`: what a paired phone may do (per-device modes, held sends, uploads, send
+//!   de-duplication), independent of the host's method table.
+//! * `host_support`: wiping secrets, refusal codes, relay files, admission state and the other
+//!   helpers a host needs around the protocol core.
 //! * `relay_admit`: relay admission for a guest with no direct path: bootstrap key, key proof,
 //!   admission file.
 //! * `wire`: canonical byte encoding, hex and randomness helpers.
@@ -27,10 +31,12 @@
 //! separate crates.
 
 pub mod circle;
+pub mod host_support;
 pub mod identity;
 pub mod join_token;
 pub mod link;
 pub mod pairing;
+pub mod phone_policy;
 pub mod policy;
 pub mod registry;
 pub mod relay_admit;

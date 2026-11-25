@@ -21,6 +21,12 @@ public enum OAuthError: Error, Equatable, Sendable {
     case http(HTTPFailure)
     case cancelled
     case storage(String)
+    /// RFC 8628 expired_token, or the device code's expires_in elapsed before approval.
+    case deviceCodeExpired
+    /// RFC 8628 access_denied: the user declined.
+    case accessDenied
+    /// GitHub device_flow_disabled: the app does not allow the device flow.
+    case deviceFlowDisabled
 
     /// An HTTP-layer failure carried without importing RightKitHTTP into your code.
     public struct HTTPFailure: Equatable, Sendable { public var description: String }

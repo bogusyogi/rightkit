@@ -13,7 +13,7 @@ impl DeviceToken {
     /// Accepts the hex string (either case, stored lowercase) of 32 to 100 bytes.
     pub fn from_hex(hex: &str) -> Result<Self, PushError> {
         let hex = hex.trim();
-        let ok = hex.len() % 2 == 0
+        let ok = hex.len().is_multiple_of(2)
             && (MIN_DEVICE_TOKEN_BYTES * 2..=MAX_DEVICE_TOKEN_BYTES * 2).contains(&hex.len())
             && hex.bytes().all(|b| b.is_ascii_hexdigit());
         if !ok {

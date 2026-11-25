@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-pty"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 rust-version = "1.98.0"
 description = "Async managed PTY child for Right Suite apps: owned tree, resize, bounded input, EOF, staged cancel, ConPTY and POSIX PTY."
@@ -13,7 +13,7 @@ include = ["src/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "thread-spawn: Windows only, one `rightkit-pty-read` and one `rightkit-pty-write` bridge thread per PtyChild between the blocking ConPTY pipes and tokio (src/windows.rs), each ending with its pipe or its dropped stream, plus one short thread that closes the pseudoconsole after the child exits or the child is dropped; Unix starts no thread; detached-child: spawning and owning the PTY child is this crate's purpose, every child is a rightkit-child-process OwnedChild (process group or session on Unix, Job Object on Windows) torn down with a bounded staged kill; task-spawn/runtime-builder: none of its own runtime, `wait` and `cancel` use the caller's runtime blocking pool (spawn_blocking, one task per call, ending with the call); no listener, resident cache or model (reviewed 2026-11-03); event-loop: none, Unix registers the pty master with the caller's tokio reactor through AsyncFd, one descriptor per child, closed when the last stream and the child are dropped; resident-static: none"
+continuous_reason = "thread-spawn: Windows only, one `rightkit-pty-read` and one `rightkit-pty-write` bridge thread per PtyChild (or per `ConPty` a sandbox opened directly) between the blocking ConPTY pipes and tokio (src/windows.rs), each ending with its pipe or its dropped stream, plus one short thread that closes the pseudoconsole after the child exits or the child is dropped (or the ConPty is dropped or told its child exited); Unix starts no thread; detached-child: spawning and owning the PTY child is this crate's purpose, every child is a rightkit-child-process OwnedChild (process group or session on Unix, Job Object on Windows) torn down with a bounded staged kill; task-spawn/runtime-builder: none of its own runtime, `wait` and `cancel` use the caller's runtime blocking pool (spawn_blocking, one task per call, ending with the call); no listener, resident cache or model (reviewed 2026-11-03); event-loop: none, Unix registers the pty master with the caller's tokio reactor through AsyncFd, one descriptor per child, closed when the last stream and the child are dropped; resident-static: none"
 
 [lib]
 name = "rightkit_pty"

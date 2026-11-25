@@ -20,9 +20,8 @@
 //! Admission to the relay is never trust: every the host app endpoint still authenticates each peer by
 //! its key and refuses an unpaired or unapproved one on everything but its open pairing ALPN.
 
+use rightkit_crypto::Ed25519Signer;
 use rightkit_fs::digest::hex;
-use ring::hkdf;
-use ring::signature::{Ed25519KeyPair, KeyPair};
 
 use super::LinkError;
 use super::identity::{DeviceIdentity, verify};
@@ -35,37 +34,24 @@ const ENROL_DOMAIN: &str = "pulse-relay-enrol-v1";
 /// Longest relay admission file the engine writes (entries).
 pub const ADMIT_FILE_MAX: usize = 4096;
 
-struct Len32;
-
-impl hkdf::KeyType for Len32 {
-    fn len(&self) -> usize {
-        32
-    }
-}
-
 /// The bootstrap key's seed for the token with `secret` and `pairing_id`. Treat it as the secret
 /// it derives from: wipe it after use, never log it.
 pub fn bootstrap_seed(secret: &[u8; 32], pairing_id: &[u8; 16]) -> Result<[u8; 32], LinkError> {
-    let prk = hkdf::Salt::new(hkdf::HKDF_SHA256, BOOTSTRAP_SALT).extract(secret);
-    let info: [&[u8]; 1] = [&pairing_id[..]];
-    let okm = prk
-        .expand(&info, Len32)
+    let mut okm = rightkit_crypto::hkdf_sha256(secret, BOOTSTRAP_SALT, pairing_id, 32)
         .map_err(|_| LinkError::Malformed("bootstrap key"))?;
-    let mut seed = [0u8; 32];
-    okm.fill(&mut seed)
-        .map_err(|_| LinkError::Malformed("bootstrap key"))?;
-    Ok(seed)
+    let seed =
+        <[u8; 32]>::try_from(okm.as_slice()).map_err(|_| LinkError::Malformed("bootstrap key"));
+    rightkit_crypto::wipe(&mut okm);
+    seed
 }
 
 /// The public half of the bootstrap key: the endpoint id the relay admits until the link expires.
 pub fn bootstrap_key(secret: &[u8; 32], pairing_id: &[u8; 16]) -> Result<[u8; 32], LinkError> {
     let mut seed = bootstrap_seed(secret, pairing_id)?;
-    let pair = Ed25519KeyPair::from_seed_unchecked(&seed);
-    seed.fill(0);
+    let pair = Ed25519Signer::from_seed(&seed);
+    rightkit_crypto::wipe(&mut seed);
     let pair = pair.map_err(|_| LinkError::Malformed("bootstrap key"))?;
-    let mut public = [0u8; 32];
-    public.copy_from_slice(pair.public_key().as_ref());
-    Ok(public)
+    Ok(pair.public_key())
 }
 
 /// 64 lowercase hex characters (an endpoint id or device public key).

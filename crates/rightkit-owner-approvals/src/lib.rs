@@ -15,6 +15,7 @@
 pub mod admin_sig;
 pub mod approval_sig;
 pub mod audit;
+pub mod phone_challenge;
 pub mod protected_guard;
 
 use std::sync::OnceLock;
@@ -46,6 +47,10 @@ impl PhoneError {
             retryable: true,
             ..Self::new(code, message)
         }
+    }
+
+    pub fn invalid(message: impl Into<String>) -> Self {
+        Self::new("invalid_request", message)
     }
 }
 

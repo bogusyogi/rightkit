@@ -253,6 +253,7 @@ Every addition is optional. The CHANGELOG lists them with their defaults.
 | Errors | `ErrorBoundary resetKey` | The error clears when the key changes (`Object.is`). |
 | Menus | `ContextMenu anchor`, `placement` | Opens from an element or rectangle; `bottom-start`, `bottom-end`, `top-start`, `top-end`; flips when it would overflow. `anchorPoint()` is the pure placement function. |
 | Menus | `Popover` | Anchored panel for arbitrary content. Outside press ignores the anchor, so the opener's own click toggles it. Escape and resize or scroll close it. |
+| Menus | `Listbox focusOwner="input"`, `Popover keepFocusOnPress` | A completion list for a text input that keeps focus: `nav` is created with `focusOwner: "input"`, the input spreads `nav.getInputProps()` (role combobox, aria-controls, aria-activedescendant) and owns the keys, the panel does not take focus on open and a press on it does not move focus. `Listbox dismissOnScroll`, `dismissOnResize`, `returnFocus` pass through to `Popover`. Default `focusOwner="list"` is unchanged. |
 | Appearance | `AppearanceMenu presets / preset / onPresetChange / fonts / font / onFontChange`, `applyBodyFont(family)` | Presets show a swatch (up to three colours); fonts show their face. The app applies the choice. |
 | Shortcuts | `ShortcutRecorder`, `chordFromEvent(event, platform)` | The recorder takes the next chord; Escape cancels, Backspace clears. Host dialogs should pass `escape={false}`. |
 | Shortcuts | `mod+digit`, `mod+arrow` | Pseudo-keys match any digit or any arrow. Read `event.key` in `run`. |

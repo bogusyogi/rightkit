@@ -18,7 +18,7 @@ rightkit-dictation-core = { version = "0.3.2", path = "../rightkit-dictation-cor
 
 [target.'cfg(target_os = "windows")'.dependencies]
 rightkit-overlay = { version = "=0.2.4", path = "../rightkit-overlay" }
-rightkit-overlay-win = { version = "=0.1.6", path = "../rightkit-overlay-win" }
+rightkit-overlay-win = { version = "=0.1.7", path = "../rightkit-overlay-win" }
 windows-sys = { version = "0.61.2", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",

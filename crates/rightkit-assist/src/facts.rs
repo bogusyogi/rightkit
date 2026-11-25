@@ -264,6 +264,7 @@ pub struct CalendarEntry {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[allow(clippy::large_enum_variant)]
 pub enum FactBody {
     Booking(Booking),
     Party(Party),

@@ -461,6 +461,28 @@ fn stop_pty(pid: u32, pty: &Pty) -> bool {
     }
 }
 
+fn private_folder() -> Refusal {
+    Refusal::new(
+        "sensitive_path",
+        "that is one of the app's or Membrane's private folders (state, memory store, owner key); the terminal never starts there or names it",
+    )
+}
+
+/// Best effort, not a sandbox: a command line that names Membrane's folder or the owner key file
+/// is refused. A shell can still build the name another way (`cd` from a parent, a wildcard, a
+/// variable), so this narrows the plain case; the owner's per-command approval (and the deny list)
+/// are what stand behind it.
+fn refuse_membrane_state(command: &str) -> Result<()> {
+    let flat = command.to_lowercase().replace('\\', "/");
+    if flat.contains("provenance.key")
+        || flat.contains("orthic labs/membrane")
+        || flat.contains("orthic%20labs/membrane")
+    {
+        return Err(private_folder());
+    }
+    Ok(())
+}
+
 /// The user's command policy (`remoteTermAllow`, `remoteTermDeny`; both empty by default, which
 /// changes nothing). Applied to every command `term.exec` starts, before anything runs. It reads
 /// the program word of each part of the line (split at `; | & ( ) { }`, line breaks, `` ` `` and
@@ -615,6 +637,7 @@ pub fn exec(settings: &Settings, origin: Origin, args: &Value) -> Result<Value> 
             )));
         }
         check_policy(settings, text)?;
+        refuse_membrane_state(text)?;
     }
     let tty = match &args["tty"] {
         Value::Null => false,
@@ -645,6 +668,13 @@ pub fn exec(settings: &Settings, origin: Origin, args: &Value) -> Result<Value> 
                 return Err(invalid(
                     "cwd must be an existing folder, as an absolute path",
                 ));
+            }
+            if super::confine::protected(path)
+                || path
+                    .canonicalize()
+                    .is_ok_and(|real| super::confine::protected(&real))
+            {
+                return Err(private_folder());
             }
             Some(path.to_path_buf())
         }
@@ -962,6 +992,8 @@ pub fn write(settings: &Settings, origin: Origin, args: &Value) -> Result<Value>
             )));
         }
     };
+    // Text typed into a running shell is a command line too.
+    refuse_membrane_state(&input)?;
     lock(&session.state).last_used = Instant::now();
     if poll_exit(&session) {
         return Err(Refusal::new(
