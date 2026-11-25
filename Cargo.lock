@@ -10706,7 +10706,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-audio"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "block2",
  "cpal",
@@ -11515,7 +11515,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-pill"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "core-foundation 0.10.1",
  "core-graphics",
@@ -11588,7 +11588,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-telemetry"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "chrono",
  "dirs",
@@ -12736,7 +12736,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa"
-version = "0.10.11"
+version = "0.10.12"
 dependencies = [
  "getrandom 0.4.3",
  "png",
@@ -13120,7 +13120,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sync"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -13170,7 +13170,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tauri-shell"
-version = "0.8.9"
+version = "0.8.10"
 dependencies = [
  "block2",
  "libc 0.2.191",
@@ -13291,7 +13291,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-transcript-library"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "http",
  "rightkit-db",

@@ -3,15 +3,18 @@ import type { LegalGateDocument, LegalGateProps, LegalGateTheme } from "@rightki
 
 export type SettingsValues = Record<string, unknown>;
 
-export interface SettingsSnapshot {
+/** A committed revision: a counter fits a number; a 64-bit value travels as a decimal string. Compared by identity and echoed back. */
+export type SettingsRevision = number | string;
+
+export interface SettingsSnapshot<R extends SettingsRevision = number> {
   values: SettingsValues;
-  revision: number;
+  revision: R;
 }
 
 /** Structural port shared with @rightkit/settings-ui and rightkit-app-settings. */
-export interface SettingsBackend {
-  load(): Promise<SettingsSnapshot>;
-  patch(patch: SettingsValues, expectedRevision?: number): Promise<SettingsSnapshot>;
+export interface SettingsBackend<R extends SettingsRevision = number> {
+  load(): Promise<SettingsSnapshot<R>>;
+  patch(patch: SettingsValues, expectedRevision?: R): Promise<SettingsSnapshot<R>>;
   subscribe?(handler: (keys: string[]) => void): Promise<() => void>;
 }
 
@@ -200,7 +203,7 @@ export interface OnboardingLabels {
 
 export interface OnboardingStepContext {
   state: PersistedOnboardingState;
-  settings: SettingsBackend;
+  settings: SettingsBackend<SettingsRevision>;
   setState: (next: Partial<PersistedOnboardingState>) => Promise<void>;
   permissions?: PermissionsBackend;
   models?: ModelsBackend;
@@ -275,7 +278,7 @@ export interface OnboardingProps {
    * `titlebar` or `dragRegion` on macOS windows with overlay title bars. Default false.
    */
   trafficLightInset?: boolean;
-  settings: SettingsBackend;
+  settings: SettingsBackend<SettingsRevision>;
   /** Required when `legalMode` is `gate` (default). Optional for `notice` (the documents shown) and `none`. */
   legal?: LegalStepConfig;
   /** Default `gate`. See `LegalMode`. */

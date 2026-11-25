@@ -1,5 +1,5 @@
 import { onboardingStateKey, readAcceptance, readState } from "./Onboarding.js";
-import type { HistoricalLegalReceipt, LegalAcceptanceRecord, LegalReceiptCreateRequest, LegalReceiptPort, SettingsBackend } from "./types.js";
+import type { HistoricalLegalReceipt, LegalAcceptanceRecord, LegalReceiptCreateRequest, LegalReceiptPort, SettingsBackend, SettingsRevision } from "./types.js";
 
 /**
  * The commands of the native legal-receipt host service. The native side registers them once under the host caller policy
@@ -85,7 +85,7 @@ export function createNativeLegalReceiptPort({ invoke, commands }: NativeLegalRe
  * `Onboarding`. The old record (and the app's receipt) stays until the user agrees again; agreeing creates the new receipt and
  * clears the flag. Progress through the other steps is kept.
  */
-export async function reopenLegalAcceptance({ settings }: { settings: SettingsBackend }): Promise<void> {
+export async function reopenLegalAcceptance({ settings }: { settings: SettingsBackend<SettingsRevision> }): Promise<void> {
   const key = onboardingStateKey();
   const snapshot = await settings.load();
   const state = readState(snapshot.values[key]);
@@ -97,7 +97,7 @@ export async function reopenLegalAcceptance({ settings }: { settings: SettingsBa
  * given, so a failed reset cannot leave the receipt accepted), then the settings copy, so the next mount shows the first-run
  * gate. Other steps' progress is kept.
  */
-export async function resetLegalAcceptance({ settings, legalReceipt }: { settings: SettingsBackend; legalReceipt?: LegalReceiptPort }): Promise<void> {
+export async function resetLegalAcceptance({ settings, legalReceipt }: { settings: SettingsBackend<SettingsRevision>; legalReceipt?: LegalReceiptPort }): Promise<void> {
   if (legalReceipt) {
     if (!legalReceipt.reset) throw new Error("The legal receipt cannot be reset.");
     await legalReceipt.reset();

@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/tauri",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "description": "Typed host adapters for shared Right Suite Tauri commands.",
   "license": "MIT OR Apache-2.0",
   "packageManager": "pnpm@12.16.1",

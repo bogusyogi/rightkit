@@ -17,6 +17,8 @@
 //!   retained PCM file and decodes its JSON result.
 //! * [`calibration_session`]: finishes capture, bounds PCM lifetime with an owned temp,
 //!   and coordinates host model, engine and restart hooks.
+//! * [`calibration_result`]: maps a finished session's outcome to the setup result a step shows
+//!   (status, failure code, route, WER), with the host wording its own messages.
 //!
 //! Nothing here conditions or analyses audio for recognition: the host keeps its own conditioning
 //! authority and decides what captured PCM is used for. Renderer events, copy, paths & thresholds
@@ -28,6 +30,7 @@
 
 pub mod calibration_capture;
 pub mod calibration_engine;
+pub mod calibration_result;
 pub mod calibration_session;
 pub mod media_guard;
 pub mod mic_devices;

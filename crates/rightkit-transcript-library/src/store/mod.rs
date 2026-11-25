@@ -32,7 +32,7 @@ mod queries;
 
 use connection::HistoryConnection;
 #[cfg(feature = "managed-store")]
-pub use connection::ManagedConnection;
+pub use connection::{KeyRotation, ManagedConnection};
 
 /// Host event sink: `(event name, detail)`. The store reports history events through it
 /// (`history_find_failed`, `history_migration_row_mismatch`); the host decides where they go.
@@ -135,7 +135,25 @@ impl DeliveryHistoryStore<ManagedConnection> {
         legacy_json_path: &Path,
         events: EventSink,
     ) -> Result<Self, HistoryError> {
-        Self::open_backend(ManagedConnection(store), legacy_json_path, events)
+        Self::open_backend(ManagedConnection(store, None), legacy_json_path, events)
+    }
+
+    /// [`Self::open_managed`], and the store can rotate its own key:
+    /// `HistoryStore::rotate_encryption_key` mints a key with `rotation.mint_key`, settles any
+    /// leftover rotation state, rotates through the `EncryptedStore` and reports through `events`
+    /// under the names in `rotation`. The order is mint, settle, rotate, report; a mint failure
+    /// leaves the store untouched.
+    pub fn open_managed_with_rotation(
+        store: rightkit_db::encrypted_lifecycle::EncryptedStore,
+        legacy_json_path: &Path,
+        events: EventSink,
+        rotation: KeyRotation,
+    ) -> Result<Self, HistoryError> {
+        Self::open_backend(
+            ManagedConnection(store, Some(rotation)),
+            legacy_json_path,
+            events,
+        )
     }
 
     /// The lifecycle owner behind the managed writer, for backup, restore, recovery and status.
@@ -186,6 +204,10 @@ fn load_all(conn: &rusqlite::Connection) -> Result<Vec<DeliveryRecord>, HistoryE
 }
 
 impl<C: HistoryConnection> HistoryStore for DeliveryHistoryStore<C> {
+    fn rotate_encryption_key(&mut self) -> Result<(), HistoryError> {
+        self.conn.rotate_encryption_key(self.events)
+    }
+
     fn push(&mut self, record: DeliveryRecord) -> Result<(), HistoryError> {
         let json = serde_json::to_string(&record)
             .map_err(|e| HistoryError::new(format!("serialize record: {e}")))?;

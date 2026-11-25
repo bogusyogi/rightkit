@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.10
+
+- `SettingsBackend` and `SettingsSnapshot` take a revision type parameter (default `number`) and positions that receive a revision accept `number | string`, so a backend with string revisions can drive onboarding. Code that does arithmetic on a received revision must narrow it first.
+
 ## 0.6.9
 - Added `useAccessibilityWatch(port, { enabled, pollMs? })` with `AccessibilityWatchPort { status, activateShortcuts? }`: a hub-level granted flag re-checked on mount, focus and visibility change, polled only while access is absent, activating shortcuts once per grant. Additive.
 - Added `useMicLevel(subscribe, { active?, readLevel? })`, `clampMicLevel`, `micMeterActiveBars` and `micMeterBarHeight` for a setup microphone meter; the bars are drawn by the host. Additive.

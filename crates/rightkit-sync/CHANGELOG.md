@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.4
+
+- Add `transcript_host::renderer_status`: `RendererSyncStatus`, `StatusCopy`, `map_status_report`, `renderer_status`, `map_delete_outcome` and `delete_everywhere_for_renderer` turn a `StatusReport` and a delete-everywhere outcome into what a renderer shows. The host supplies every string through `StatusCopy`.
+- Additive only: no existing item changes.
+
 ## 0.4.3
 
 - Sync families (ME-4, RK-9; feature `cipher`, additive): `families::Family` is the closed list of what syncs (memories, profile entries, the Inbox, facts, schedules, standing instructions, cursors; Google tokens, secrets and repository text have no family), each with its own zone name and record type. `FamilyItem` is the one generic item (id, `createdAt`, `updatedAt`, origin device, a schema number and an opaque body that travels byte for byte as a `Bytes` field, capped at 1 MiB), `FamilyMapper` its `RecordMapper`, `item_id` a stable 64-character record name for any row key, and `families::sync_config` the engine settings an encrypting provider needs. The hosts that own the stores implement `LocalStore<FamilyItem>`; this crate depends on none of them. Run each family behind `cipher::EncryptingBackend` with keys from `rightkit-sync-keys` (its new `sync` feature bridges them). Written, not compiled. No unit tests, per the 2026-11-03 rule.

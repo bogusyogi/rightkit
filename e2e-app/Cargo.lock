@@ -6179,7 +6179,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-audio"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "block2",
  "cpal",
@@ -6732,7 +6732,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa"
-version = "0.10.11"
+version = "0.10.12"
 dependencies = [
  "getrandom 0.4.3",
  "png",
@@ -6860,7 +6860,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sync"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -6888,7 +6888,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tauri-shell"
-version = "0.8.9"
+version = "0.8.10"
 dependencies = [
  "block2",
  "libc",
