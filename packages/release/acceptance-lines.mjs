@@ -344,6 +344,8 @@ function jobOf(r) {
     file: r.file, verified: r.verified?.ok === true, problems: r.verified?.problems ?? [], jobId: p?.jobId ?? null, argv, cwd: typeof req?.workspace === "string" ? req.workspace : null,
     sub: argv ? cargoVerb(argv) : null, args: argv ? argv.slice(1) : [], gate: p?.gate ?? null, started, ended: timeOf(p?.terminalAt), submitted: Number.isFinite(started) ? started - waits : NaN, queueMs: Number.isFinite(t.queue) ? t.queue : null,
     testExecutables: p?.testExecutables, testExecutablesReason: p?.testExecutablesReason,
+    // The signed outcome: status, whether the post-checks ran, and whether the tree was reaped.
+    status: typeof p?.result?.status === "string" ? p.result.status : null, postChecksRan: p?.result?.postChecks?.ran ?? null, reaped: p?.result?.reap?.reaped === true,
   };
 }
 

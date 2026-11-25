@@ -363,7 +363,16 @@ fn is_claude_code(exe: Option<&Path>, cmd: &[std::ffi::OsString]) -> bool {
         return false;
     }
     if exe.is_some_and(|e| stem(e) == "claude") {
-        return true;
+        // The bundled binary also runs as its embedded search tools (argv[0] `ugrep`, `rg`, `bfs`):
+        // a process like that is not a chat, and used to raise "a running Claude has a chat the
+        // host app cannot list".
+        let embedded_tool = cmd.first().is_some_and(|c| {
+            matches!(
+                stem(Path::new(c)).as_str(),
+                "ugrep" | "ugrep-indexer" | "rg" | "bfs" | "fd"
+            )
+        });
+        return !embedded_tool;
     }
     // A shell running a script that merely mentions a Claude folder (Git Bash's `bash -c "source
     // …/claude-config/…/D--Claude-coderight/…"` on the Dell, pids 19628 and 31188) is not one: it
@@ -517,6 +526,28 @@ fn scan_running_claude() -> RunningScan {
             if !scan.configs.contains(found) {
                 scan.configs.push(found.clone());
             }
+            continue;
+        }
+        // A child of a chat (a tool or helper process Claude started) has no registry file of its
+        // own: when an ancestor has one, this is that chat, not another.
+        let mut ancestor = p.parent();
+        let mut hops = 0;
+        let mut child_of_chat = false;
+        while let Some(up) = ancestor
+            && hops < 8
+        {
+            let up_file = format!("{}.json", up.as_u32());
+            if candidates
+                .iter()
+                .any(|c| c.join("sessions").join(&up_file).is_file())
+            {
+                child_of_chat = true;
+                break;
+            }
+            ancestor = system.process(up).and_then(|q| q.parent());
+            hops += 1;
+        }
+        if child_of_chat {
             continue;
         }
         // No registry file for this process. A folder that exists but cannot be read is a
@@ -1254,12 +1285,16 @@ pub(super) fn sender_name(origin: &super::envelope::Origin) -> String {
 /// a closing tag itself and then drops the message for differing from what was sent.
 fn defuse_tags(text: &str) -> String {
     const CLOSING: &str = "/cross-session-message";
+    /// Characters after a `<` that are scanned for the tag name (was 96, which padding beat).
+    const LOOKAHEAD_CHARS: usize = 4096;
     let mut out = String::with_capacity(text.len());
     for (at, c) in text.char_indices() {
         if c == '<' {
+            // The window is raw characters, so padding before the tag name cannot push the
+            // name out of sight; only the first `CLOSING` length of kept letters is needed.
             let ahead: String = text[at + 1..]
                 .chars()
-                .take(96)
+                .take(LOOKAHEAD_CHARS)
                 .filter(|&c| c.is_ascii_alphanumeric() || c == '/' || c == '-' || c == '_')
                 .map(|c| {
                     if c == '_' {
@@ -1268,6 +1303,7 @@ fn defuse_tags(text: &str) -> String {
                         c.to_ascii_lowercase()
                     }
                 })
+                .take(CLOSING.len())
                 .collect();
             if ahead.starts_with(CLOSING) || ahead.starts_with(&CLOSING[1..]) {
                 out.push_str("&lt;");
@@ -1328,7 +1364,7 @@ pub(super) fn agent_text(env: &Envelope) -> String {
         return format!(
             "{}\n{}",
             super::envelope::chatgpt_header(&id),
-            shim::env_text(env)
+            super::envelope::defuse_product_lines(shim::env_text(env))
         );
     }
     let origin = super::origin_of(env);
@@ -1336,7 +1372,7 @@ pub(super) fn agent_text(env: &Envelope) -> String {
     format!(
         "{}\n{}",
         super::envelope::message_header(&origin, &id, first),
-        shim::env_text(env)
+        super::envelope::defuse_product_lines(shim::env_text(env))
     )
 }
 
@@ -1427,15 +1463,21 @@ pub(super) fn frame_line(frame: &Value) -> Result<String, ChatError> {
 /// `busy` (a turn is running, so a hook will fire). The roster records nothing else that
 /// tells a running turn from an idle chat, so an idle or unknown chat keeps the socket.
 pub(super) fn hook_route_wanted(session: &LocalSession) -> bool {
-    session.kind == "claude"
-        && session.status == "busy"
-        && Store::open_default().is_ok_and(|store| store.claude_hook_delivery())
-        && codex_hook::claude_hook_seen_recently(&session.id, HOOK_SEEN_WITHIN)
+    session.kind == "claude" && hook_route_open(&session.id, &session.status)
 }
 
-/// The hook route; `None` when it does not apply or the inbox could not be written, in
-/// which case nothing was left for the hook and the socket route runs.
-fn deliver_by_hook(session: &LocalSession, env: &Envelope) -> Option<Receipt> {
+/// `hook_route_wanted` for a chat known by its id and roster status. Also what a Claude chat on
+/// a computer with no hub depends on: the hook is the only way a message reaches it then.
+pub fn hook_route_open(session_id: &str, status: &str) -> bool {
+    status == "busy"
+        && Store::open_default().is_ok_and(|store| store.claude_hook_delivery())
+        && codex_hook::claude_hook_seen_recently(session_id, HOOK_SEEN_WITHIN)
+}
+
+/// The hook route; `None` when it does not apply, the inbox could not be written, or the hook
+/// did not claim the message within the window and it was taken back, in which case nothing is
+/// left for the hook and the socket route runs.
+pub(super) fn deliver_by_hook(session: &LocalSession, env: &Envelope) -> Option<Receipt> {
     if !hook_route_wanted(session) {
         return None;
     }
@@ -1449,8 +1491,20 @@ fn deliver_by_hook(session: &LocalSession, env: &Envelope) -> Option<Receipt> {
             ));
         }
     }
-    Some(shim::queued(
-        "Waiting in the app for this Claude chat; it reads the message after its next tool call, when its turn ends, or with its next prompt.",
+    // Not claimed in the window: the chat's status can say `busy` after its turn ended (Claude
+    // keeps it while a background agent or task runs), and then no hook fires until something
+    // else wakes it. Take the message back and send it over the chat's socket, which a
+    // running turn also takes; if the hook claimed it meanwhile, it has it.
+    if codex_hook::withdraw_claude(&session.id, id) {
+        return None;
+    }
+    if codex_hook::pending_claude(&session.id, id) {
+        return Some(shim::queued(
+            "Waiting in the app for this Claude chat; it reads the message after its next tool call, when its turn ends, or with its next prompt.",
+        ));
+    }
+    Some(shim::delivered(
+        "The Claude chat read the message through the app's Claude plugin hook.",
     ))
 }
 
@@ -1477,18 +1531,37 @@ fn wake_idle_desktop(
     reply_socket: Option<&str>,
 ) -> Result<Receipt, ChatError> {
     let store = Store::open_default().ok();
+    let began = Instant::now();
     let woken = if store.as_ref().is_some_and(|s| s.claude_wake_idle()) {
         let wait = if store.as_ref().is_some_and(super::control::hub_running) {
             WAKE_WAIT
         } else {
             WAKE_WAIT_DIRECT
         };
+        super::sendlog::event(
+            rightkit_logs::Level::Info,
+            "chat.wake.start",
+            json!({ "harness": "claude", "waitMs": wait.as_millis() as u64 }),
+        );
         wake_idle_desktop_for(session, env, reply_socket, wait)
     } else {
         Ok(shim::held(
             "Waking idle Claude chats is off; the message waits for this chat's next turn.",
         ))
     };
+    let state = match &woken {
+        Ok(receipt) => receipt.state.as_str(),
+        Err(_) => "error",
+    };
+    super::sendlog::event(
+        rightkit_logs::Level::Info,
+        "chat.wake.outcome",
+        json!({
+            "harness": "claude",
+            "state": state,
+            "durationMs": began.elapsed().as_millis() as u64,
+        }),
+    );
     // A wake that did not deliver leaves the message where the target's next turn reads it: the
     // Claude plugin's hook inbox, not only the generic Chat inbox the caller falls back to (F10).
     // `unknown` is not kept here: the message may have reached the chat.
@@ -1512,17 +1585,53 @@ fn wake_idle_desktop_for(
     reply_socket: Option<&str>,
     wait: Duration,
 ) -> Result<Receipt, ChatError> {
+    let store = Store::open_default().ok();
+    let span = store
+        .as_ref()
+        .map(|store| super::trace::start(store, &env.id, "claude_wake"));
+    let result = wake_idle_desktop_for_inner(session, env, reply_socket, wait);
+    if let Some(span) = span {
+        span.finish(
+            result
+                .as_ref()
+                .map_or("failed", |receipt| receipt.state.as_str()),
+        );
+    }
+    result
+}
+
+fn wake_idle_desktop_for_inner(
+    session: &LocalSession,
+    env: &Envelope,
+    reply_socket: Option<&str>,
+    wait: Duration,
+) -> Result<Receipt, ChatError> {
     if session.raw["desktopWakeable"].as_bool() != Some(true) {
-        return Ok(shim::unsupported(
-            "This idle chat is in another Claude Desktop profile, which the app cannot wake; the message waits in its Chat inbox.",
-        ));
+        super::sendlog::event(
+            rightkit_logs::Level::Info,
+            "chat.wake.unsupported",
+            json!({ "harness": "claude", "reason": "other_profile" }),
+        );
+        return Ok(shim::unsupported(&super::brand::branded(
+            "This idle chat is in another Claude Desktop profile, which @product@ cannot wake. The message is kept in its Chat inbox and is handed to the chat when someone opens it in that profile; nothing else wakes it (check later with `@cli@ chat receipt <message id>`).",
+        )));
     }
     let Some(host) = session.raw["hostSessionId"].as_str() else {
+        super::sendlog::event(
+            rightkit_logs::Level::Info,
+            "chat.wake.unsupported",
+            json!({ "harness": "claude", "reason": "no_record" }),
+        );
         return Ok(shim::unsupported(
             "This idle chat has no Claude Desktop record.",
         ));
     };
     if !crate::claude_chats::open_link(host) {
+        super::sendlog::event(
+            rightkit_logs::Level::Info,
+            "chat.wake.unsupported",
+            json!({ "harness": "claude", "reason": "link_not_taken" }),
+        );
         return Ok(shim::unsupported(
             "Claude Desktop did not take the link that wakes this idle chat; the message waits in its Chat inbox.",
         ));
@@ -1555,6 +1664,13 @@ fn wake_idle_desktop_for(
             Err(e) => return Err(e),
         }
     }
+    if last.is_none() {
+        super::sendlog::event(
+            rightkit_logs::Level::Info,
+            "chat.wake.unsupported",
+            json!({ "harness": "claude", "reason": "not_started" }),
+        );
+    }
     match last {
         Some(e) => Err(e),
         None => Ok(shim::unsupported(
@@ -1573,6 +1689,26 @@ pub fn deliver(session: &LocalSession, env: &Envelope) -> Result<Receipt, ChatEr
 /// `deliver`, with `reply_socket` (the sending chat's own messaging socket)
 /// as the address the chat replies to instead of a reply-hub socket.
 pub fn deliver_via(
+    session: &LocalSession,
+    env: &Envelope,
+    reply_socket: Option<&str>,
+) -> Result<Receipt, ChatError> {
+    let store = Store::open_default().ok();
+    let span = store
+        .as_ref()
+        .map(|store| super::trace::start(store, &env.id, "claude_delivery"));
+    let result = deliver_via_inner(session, env, reply_socket);
+    if let Some(span) = span {
+        span.finish(
+            result
+                .as_ref()
+                .map_or("failed", |receipt| receipt.state.as_str()),
+        );
+    }
+    result
+}
+
+fn deliver_via_inner(
     session: &LocalSession,
     env: &Envelope,
     reply_socket: Option<&str>,
@@ -1615,13 +1751,31 @@ pub fn deliver_via(
             reply_route(peer_key)
         }
     };
-    // A frame without a reply address is dropped by the chat without a word. When no
+    // A frame without a reply address is dropped by the chat without a word. For a remote post when no
     // reply route exists, a stable placeholder is advertised so the message is still
     // deliverable; the receipt says replies are unavailable, and a chat that answers
     // the placeholder reaches nobody.
     let mut reply_note: Option<String> = None;
     let reply_from = Some(match route {
         ReplyRoute::Listening(address) => format!("uds:{address}"),
+        ReplyRoute::Unavailable(why) if env.from.device.eq_ignore_ascii_case(&env.to.device) => {
+            // No usable return address. Keep a single copy for the target instead of posting
+            // with a fictitious pipe, where Claude's replies and refusal notices are lost.
+            if Store::open_default().is_ok_and(|store| store.claude_hook_delivery())
+                && codex_hook::claude_hook_seen_recently(&session.id, HOOK_SEEN_WITHIN)
+                && codex_hook::enqueue_claude(&session.id, shim::env_id(env), &agent_text(env))
+                    .is_ok()
+            {
+                return Ok(shim::queued(&format!(
+                    "Queued for this Claude chat's next hook. Reply with `{} chat reply <id>`.",
+                    super::envelope::cli()
+                )));
+            }
+            return Ok(shim::held(&format!(
+                "Claude's reply listener is unavailable ({why}). Read with `{cli} chat inbox` and answer with `{cli} chat reply <id>`.",
+                cli = super::envelope::cli()
+            )));
+        }
         ReplyRoute::Unavailable(why) => {
             eprintln!(
                 "{}: reply route unavailable ({why}); advertising a placeholder",
@@ -1685,6 +1839,10 @@ pub fn deliver_via(
     })();
     writing.finish();
     sent?;
+    if let Ok(store) = Store::open_default() {
+        super::trace::mark(&store, &env.id, "claude_socket_submission", "written");
+        super::trace::waiting(&store, &env.id, "claude_pickup_wait");
+    }
 
     let (tx, rx) = mpsc::channel::<Value>();
     // Ends at the chat's close, after 10 s or after 64 KiB, whichever comes first (a watcher
@@ -2183,6 +2341,48 @@ fn note_chat_socket(socket: &str) {
     if let Some(dir) = Path::new(socket).parent().filter(|d| d.is_dir()) {
         *CHAT_SOCKET_DIR.lock().unwrap_or_else(|e| e.into_inner()) = Some(dir.to_path_buf());
     }
+}
+
+/// Learn where the chats' messaging sockets live from the registry, before any message has been
+/// posted. A long-running host with no desktop app (a Linux server's chat service) registers and
+/// opens reply sockets at start; without this its first reply sockets would go to the host app's
+/// private folder, where Claude sends no hold/refuse notice (see `reply_socket_path`), until the
+/// first post taught `note_chat_socket`. Reads the first registry entry (not the hub's own) that
+/// names a socket in an existing folder; changes nothing on disk. True once a folder is known
+/// (this call or an earlier one), so a caller can stop looking.
+#[cfg(target_os = "linux")]
+pub fn learn_chat_socket_dir() -> bool {
+    if CHAT_SOCKET_DIR
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_some()
+    {
+        return true;
+    }
+    for (dir, _) in sessions_dirs() {
+        let Ok(listing) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in listing.flatten() {
+            let path = entry.path();
+            if path.extension().is_none_or(|x| x != "json") {
+                continue;
+            }
+            let Some(info) = read_json(&path) else {
+                continue;
+            };
+            if info["entrypoint"] == super::hub::entrypoint() {
+                continue;
+            }
+            if let Some(socket) = info["messagingSocketPath"].as_str()
+                && Path::new(socket).parent().is_some_and(Path::is_dir)
+            {
+                note_chat_socket(socket);
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// The host app's own private per-user folder for reply sockets.

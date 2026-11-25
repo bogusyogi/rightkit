@@ -1,14 +1,15 @@
 //! Chat over the device link: a paired computer is a chat link beside the ssh links.
 //!
-//! The device link (`pulse/phone/1` on the mesh, `engine/src/devicelink_host.rs`) carries four
+//! The device link (`pulse/phone/1` on the mesh, `engine/src/devicelink_host.rs`) carries five
 //! methods between two paired computers, the same three commands an ssh link runs plus the
-//! receipt update:
+//! receipt update and the trace read:
 //!
 //! * `chat.peers`: that computer's own chats (what `<cli> chat peers --local --json` prints);
 //! * `chat.deliver {envelope}`: deliver one envelope there, answered with the receipt
 //!   `{msg_id, status, detail}` `<cli> chat post` prints;
 //! * `chat.said {target, limit}`: what the user typed in one chat there (`<cli> chat said --local`);
-//! * `chat.receipt {update}`: a receipt update for one of that computer's sending chats.
+//! * `chat.receipt {update}`: a receipt update for one of that computer's sending chats;
+//! * `chat.trace {id}`: bounded timings for one UUID shared with the calling owner computer.
 //!
 //! **Who may.** The receiving engine decides per call from the caller's registry record
 //! (`rightkit_mesh::devicelink::policy::authorize`): the owner's own computer (a record the owner check admitted, endorsed or
@@ -44,6 +45,7 @@ pub const PEERS: &str = "chat.peers";
 pub const DELIVER: &str = "chat.deliver";
 pub const SAID: &str = "chat.said";
 pub const RECEIPT: &str = "chat.receipt";
+pub const TRACE: &str = "chat.trace";
 
 /// A paired computer that can carry chat: its device-link id and the name it is shown under.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -277,6 +279,9 @@ pub fn serve(
     method: &str,
     params: &Value,
 ) -> Result<Value, Refusal> {
+    if method == TRACE {
+        return serve_trace(store, caller, params);
+    }
     let me = super::local_identity(store).map_err(|e| refuse("unavailable", e.to_string()))?;
     match method {
         PEERS => Ok(peers_listing(store, &me)),
@@ -287,6 +292,9 @@ pub fn serve(
                 .ok_or_else(|| refuse("invalid_params", "missing param `envelope`"))?;
             let mut env: Envelope =
                 links::decode_envelope(text).map_err(|e| refuse("invalid_params", e))?;
+            if caller.owner && caller.role == rightkit_device_link_types::MemberRole::Computer {
+                super::trace::allow_peer(store, &env.id, &caller.device_id);
+            }
             stamp(&mut env, caller);
             let receipt = super::receive(store, &env);
             Ok(
@@ -295,7 +303,8 @@ pub fn serve(
             )
         }
         SAID => {
-            if !caller.owner {
+            // Role as well as `owner`: a guest may carry `owner`, and this method must not rest on the engine guard alone.
+            if !caller.owner || caller.role != rightkit_device_link_types::MemberRole::Computer {
                 return Err(refuse(
                     "not_granted",
                     "the user's typed words are shared with the owner's own computers only",
@@ -356,6 +365,40 @@ pub fn serve(
     }
 }
 
+/// `chat.trace`: the timings of one message, for the owner computer it was sent to or from.
+fn serve_trace(store: &Store, caller: &Caller, params: &Value) -> Result<Value, Refusal> {
+    if !caller.owner || caller.role != rightkit_device_link_types::MemberRole::Computer {
+        return Err(refuse(
+            "not_granted",
+            "message traces are shared with owner computers only",
+        ));
+    }
+    let id = params
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|id| super::trace::valid_id(id))
+        .ok_or_else(|| refuse("invalid_params", "missing or invalid message UUID"))?;
+    // A UUID is not an authorization credential: only this message's corresponding
+    // authenticated peer can read its timings. No chat or message scan is performed.
+    let incoming = store.reply_route(id).is_some_and(|route| {
+        route.msg_id == id && route.mesh_device_id.as_deref() == Some(caller.device_id.as_str())
+    });
+    let sent: Option<Value> = store.read_record(&store.record_path("sent-messages", id));
+    let outgoing = sent.is_some_and(|note| {
+        note["msg_id"].as_str() == Some(id)
+            && note["device_id"].as_str() == Some(caller.device_id.as_str())
+    });
+    if !incoming && !outgoing && !super::trace::allows_peer(store, id, &caller.device_id) {
+        return Err(refuse(
+            "not_granted",
+            "no message trace shared with this peer",
+        ));
+    }
+    let events =
+        super::trace::read_local(store, id).map_err(|why| refuse("trace_unavailable", why))?;
+    Ok(json!({"events": events}))
+}
+
 /// Put the mesh-proven sender on `env`: the caller's registry name and id replace whatever the
 /// envelope said, any signature (made for an ssh link) is dropped, and `mesh` records that the
 /// device link vouched for the machine. Names are cut to the envelope's own field limit.
@@ -367,9 +410,10 @@ fn stamp(env: &mut Envelope, caller: &Caller) {
     // The role is the registry's word, never the sender's.
     env.mesh_role = caller.role.as_str().to_string();
     env.sig.clear();
-    if !caller.owner {
-        // A grant holder's claim to have proven the sending chat, and the user words it stamped,
-        // are its own say-so: neither is believed.
+    if !caller.owner || caller.role == rightkit_device_link_types::MemberRole::Guest {
+        // A grant holder's or a guest's claim to have proven the sending chat, and the user words
+        // it stamped, are its own say-so: neither is believed. A guest passes the device-link
+        // policy as owner, but what it says the user typed is not the user's.
         env.verified = false;
         env.said.clear();
     }
@@ -381,7 +425,7 @@ fn stamp(env: &mut Envelope, caller: &Caller) {
 /// sweeps every local chat folder (on the Dell, ~290 MB of reads and a 27-42% CPU spike); the Mac
 /// and the box each ask about once a minute. The answer may come from the hub's own scan, itself up
 /// to this old, so a chat started moments ago can be missing for up to twice this long (about 20 s
-/// with the hub's 5 s scan). Delivery resolves its target from a fresh roster, so only the listing lags.
+/// with the hub's 5 s scan). Delivery resolves its target from the hub's scan (at most 5 s old), with a fresh sweep only when that scan lacks the chat, so only the listing lags.
 const PEERS_CACHE: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// The `chat.peers` answer: one roster sweep, then served from memory for [`PEERS_CACHE`].

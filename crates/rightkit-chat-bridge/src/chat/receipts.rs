@@ -6,7 +6,9 @@
 //! * `seen`: the chat's hook claimed the message and wrote it into its output for the chat's model
 //!   (persisted -> claimed -> emitted; a claim whose output was never written is recovered after
 //!   120 s and handed over again, so delivery is at least once);
-//! * `picked-up`: the message was in Codex's own queue and the thread took it from there;
+//! * `picked-up`: the message was in Codex's own queue and the thread took it from there, or a
+//!   Claude chat's hook found a socket-delivered message's id in the chat's own transcript
+//!   (`picked_up_in_transcript`);
 //! * `released`: a held message was read from the chat inbox (`inbox --ack`), or the chat that
 //!   held it said it let it through;
 //! * `refused`: the owner refused a held message (`inbox --refuse`), or the chat said it refused
@@ -44,6 +46,34 @@ const STATES: [&str; 6] = [DELIVERED, SEEN, PICKED_UP, RELEASED, REFUSED, EXPIRE
 
 const WATCH_DIR: &str = "receipt-watch";
 const OUTBOX_DIR: &str = "receipt-outbox";
+
+fn outbox_wait_stage(state: &str) -> Option<&'static str> {
+    match state {
+        DELIVERED => Some("receipt_outbox_delivered_wait"),
+        SEEN => Some("receipt_outbox_seen_wait"),
+        PICKED_UP => Some("receipt_outbox_picked_up_wait"),
+        RELEASED => Some("receipt_outbox_released_wait"),
+        REFUSED => Some("receipt_outbox_refused_wait"),
+        EXPIRED => Some("receipt_outbox_expired_wait"),
+        _ => None,
+    }
+}
+
+fn outbox_resumed(store: &Store, update: &Update, outcome: &'static str) {
+    if let Some(stage) = outbox_wait_stage(&update.state) {
+        super::trace::resumed(store, &update.msg_id, stage, outcome);
+    }
+}
+
+fn discard_outbox(store: &Store, path: &std::path::Path, update: &Update) {
+    match std::fs::remove_file(path) {
+        Ok(()) => outbox_resumed(store, update, "discarded"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            outbox_resumed(store, update, "discarded");
+        }
+        Err(_) => {}
+    }
+}
 const SENDERS_DIR: &str = "senders";
 /// A queued Codex message is watched, and an outbound update retried, for this long.
 const WINDOW_MS: u64 = 24 * 60 * 60 * 1000;
@@ -152,6 +182,7 @@ pub fn report(
     state: &str,
     detail: &str,
 ) {
+    let span = super::trace::start(store, msg_id, "receipt_update");
     let update = Update {
         seq: 0,
         msg_id: msg_id.to_string(),
@@ -162,7 +193,8 @@ pub fn report(
         ts: now_ms(),
     };
     if from_device == computer_of(store) {
-        let _ = store.append_receipt(from_session, &update);
+        let result = store.append_receipt(from_session, &update);
+        span.finish(if result.is_ok() { "stored" } else { "failed" });
     } else {
         let key = format!("{msg_id}-{state}-{from_session}");
         let item = Outbox {
@@ -171,7 +203,13 @@ pub fn report(
             attempts: 0,
             next_ms: 0,
         };
-        let _ = store.save_record(&store.record_path(OUTBOX_DIR, &key), &item);
+        let result = store.save_record(&store.record_path(OUTBOX_DIR, &key), &item);
+        if result.is_ok()
+            && let Some(stage) = outbox_wait_stage(state)
+        {
+            super::trace::waiting(store, msg_id, stage);
+        }
+        span.finish(if result.is_ok() { "queued" } else { "failed" });
     }
 }
 
@@ -211,11 +249,78 @@ pub fn late_delivered(
 /// on its way to that chat's model. Reported only after the output was written; a claim whose
 /// output failed goes back to the inbox and is reported when a later run emits it.
 pub fn seen(store: &Store, msg_id: &str) {
+    super::trace::resumed(store, msg_id, "hook_queue_wait", "emitted");
+    super::trace::mark(store, msg_id, "hook_pickup", "emitted");
     note_route(store, msg_id, SEEN, "handed to the chat as added context");
+}
+
+/// How much of the end of a chat's transcript `picked_up_in_transcript` reads.
+const TRANSCRIPT_TAIL: u64 = 4 * 1024 * 1024;
+/// Marks of messages already reported picked up from a transcript (one per message id).
+const PICKUP_DIR: &str = "receipt-pickup";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PickupMark {
+    msg_id: String,
+    ts: u64,
+}
+
+/// A Claude chat's hook ran for `session` with its transcript at `transcript`. A message pushed
+/// over the chat's messaging socket gets no verdict from Claude when it takes it, so the send
+/// stays `sent`. The chat's own transcript is the proof: its header carries the message id, so a
+/// route saved here for this chat whose id now appears in the end of the transcript was taken
+/// into the conversation, and the sender gets `picked-up` once per message (a mark in
+/// `receipt-pickup` keeps later hook runs from reading again). Best effort and never slow: with
+/// no unmarked route newer than `WINDOW_MS` for this chat the transcript is not opened.
+pub fn picked_up_in_transcript(store: &Store, session: &str, transcript: &str) {
+    let now = now_ms();
+    let open: Vec<_> = store
+        .reply_routes_since(now.saturating_sub(WINDOW_MS))
+        .into_iter()
+        .filter(|r| r.to_session == session)
+        .filter(|r| !store.record_path(PICKUP_DIR, &r.msg_id).is_file())
+        .collect();
+    if open.is_empty() {
+        return;
+    }
+    let Ok(bytes) = rightkit_logs::tail_bytes(std::path::Path::new(transcript), TRANSCRIPT_TAIL)
+    else {
+        return;
+    };
+    let text = String::from_utf8_lossy(&bytes);
+    for route in open {
+        if !text.contains(route.msg_id.as_str()) {
+            continue;
+        }
+        super::trace::resumed(
+            store,
+            &route.msg_id,
+            "claude_pickup_wait",
+            "transcript_observed",
+        );
+        super::trace::mark(
+            store,
+            &route.msg_id,
+            "harness_pickup",
+            "transcript_observed",
+        );
+        note_route(
+            store,
+            &route.msg_id,
+            PICKED_UP,
+            "the message is in the chat's transcript",
+        );
+        let mark = PickupMark {
+            msg_id: route.msg_id.clone(),
+            ts: now,
+        };
+        let _ = store.save_record(&store.record_path(PICKUP_DIR, &route.msg_id), &mark);
+    }
 }
 
 /// The hook set message `msg_id` aside because it was too large to hand to the chat whole.
 pub fn hook_refused(store: &Store, msg_id: &str) {
+    super::trace::resumed(store, msg_id, "hook_queue_wait", "refused");
     note_route(
         store,
         msg_id,
@@ -234,6 +339,18 @@ pub fn from_chat_status(store: &Store, msg_id: &str, status: &str, reason: &str)
         "expired" => EXPIRED,
         _ => return,
     };
+    super::trace::resumed(
+        store,
+        msg_id,
+        "claude_pickup_wait",
+        if state == RELEASED {
+            "reported_delivered"
+        } else if state == EXPIRED {
+            "expired"
+        } else {
+            "refused"
+        },
+    );
     let detail = if reason.trim().is_empty() {
         "the chat said so"
     } else {
@@ -309,6 +426,7 @@ pub fn expired(store: &Store, session: &str, env: &Envelope) {
 /// A message went into Codex's own queue (`queue_id`, which the queue row carries): watch it
 /// until the thread takes it. `chat_name` is the receiving Codex chat.
 pub fn watch_codex_queue(store: &Store, env: &Envelope, queue_id: &str, chat_name: &str) {
+    super::trace::waiting(store, &env.id, "codex_queue_wait");
     let watch = Watch {
         msg_id: env.id.clone(),
         queue_id: queue_id.to_string(),
@@ -322,6 +440,16 @@ pub fn watch_codex_queue(store: &Store, env: &Envelope, queue_id: &str, chat_nam
 
 /// The hub's background pass: report picked-up or expired watches, then post queued updates.
 pub fn background(store: &Store) {
+    // One pass at a time in this process: `drain_outbox` takes no lock of its own, so two passes
+    // at once (the headless host's receipt thread and the chat tick's) could post one queued
+    // receipt twice. A pass that finds another running skips; every caller repeats within seconds
+    // (the tick every 2 s, the bridge's thread every 10 s), so a skipped pass is only a later one.
+    static PASS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = match PASS.try_lock() {
+        Ok(guard) => guard,
+        Err(std::sync::TryLockError::Poisoned(p)) => p.into_inner(),
+        Err(std::sync::TryLockError::WouldBlock) => return,
+    };
     check_watches(store);
     drain_outbox(store);
 }
@@ -339,6 +467,16 @@ fn check_watches(store: &Store) {
         } else {
             continue;
         };
+        super::trace::resumed(
+            store,
+            &watch.msg_id,
+            "codex_queue_wait",
+            if state == PICKED_UP {
+                "queue_row_removed"
+            } else {
+                "expired"
+            },
+        );
         report(
             store,
             &watch.msg_id,
@@ -368,19 +506,51 @@ fn drain_outbox(store: &Store) {
                     .map(|(device, _)| device.to_string())
             })
             .and_then(|device| links::find(store, &device));
+        let linked = link.is_some();
+        let span = super::trace::start(store, &item.update.msg_id, "receipt_post");
         let posted = match link {
             Some(link) => links::post_receipt(&link, &item.update).is_ok(),
             None => false,
         };
+        span.finish(if posted {
+            "posted"
+        } else if linked {
+            "failed"
+        } else {
+            "no_link"
+        });
         if posted {
+            outbox_resumed(store, &item.update, "posted");
+            super::sendlog::event(
+                rightkit_logs::Level::Info,
+                "chat.receipt.posted",
+                serde_json::json!({ "attempt": item.attempts + 1 }),
+            );
             store.remove_record(&path);
             continue;
         }
         item.attempts += 1;
         item.next_ms = now_ms() + u64::from(item.attempts.min(30)) * 60_000;
         let stale = now_ms().saturating_sub(item.update.ts) > WINDOW_MS;
-        if item.attempts >= OUTBOX_ATTEMPTS || stale {
-            store.remove_record(&path);
+        let dropped = item.attempts >= OUTBOX_ATTEMPTS || stale;
+        super::sendlog::event(
+            rightkit_logs::Level::Warn,
+            "chat.receipt.post_failed",
+            serde_json::json!({
+                "attempt": item.attempts,
+                "linked": linked,
+                "stale": stale,
+                "dropped": dropped,
+            }),
+        );
+        super::trace::mark(
+            store,
+            &item.update.msg_id,
+            "receipt_retry",
+            if dropped { "dropped" } else { "scheduled" },
+        );
+        if dropped {
+            discard_outbox(store, &path, &item.update);
         } else {
             let _ = store.save_record(&path, &item);
         }
@@ -559,6 +729,22 @@ pub fn apply_remote_from(
 
 fn apply_checked(
     store: &Store,
+    update: Update,
+    caller: &super::mesh::Caller,
+    via_ssh: bool,
+) -> Result<bool, Refusal> {
+    let span = super::trace::start(store, &update.msg_id, "receipt_apply");
+    let result = apply_checked_inner(store, update, caller, via_ssh);
+    span.finish(match &result {
+        Ok(true) => "stored",
+        Ok(false) => "unchanged",
+        Err(_) => "refused",
+    });
+    result
+}
+
+fn apply_checked_inner(
+    store: &Store,
     mut update: Update,
     caller: &super::mesh::Caller,
     via_ssh: bool,
@@ -707,7 +893,7 @@ pub fn note_sender(store: &Store, session: &str) {
 fn drop_stale_outbox(store: &Store) {
     for (path, item) in store.list_records::<Outbox>(OUTBOX_DIR) {
         if now_ms().saturating_sub(item.update.ts) > WINDOW_MS {
-            store.remove_record(&path);
+            discard_outbox(store, &path, &item.update);
         }
     }
 }
@@ -721,12 +907,22 @@ fn drop_old_sent_notes(store: &Store) {
     }
 }
 
+/// Forget pick-up marks past the window: their routes are gone by then.
+fn drop_old_pickup_marks(store: &Store) {
+    for (path, mark) in store.list_records::<PickupMark>(PICKUP_DIR) {
+        if now_ms().saturating_sub(mark.ts) > 2 * WINDOW_MS {
+            store.remove_record(&path);
+        }
+    }
+}
+
 /// Housekeeping, run when the hub starts: report watches that are done or past their window,
 /// drop queued updates past theirs, and remove receipt lists past their limits.
 pub fn prune(store: &Store) {
     check_watches(store);
     drop_stale_outbox(store);
     drop_old_sent_notes(store);
+    drop_old_pickup_marks(store);
     store.prune_receipt_files();
 }
 

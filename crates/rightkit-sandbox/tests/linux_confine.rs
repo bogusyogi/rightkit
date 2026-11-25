@@ -53,10 +53,56 @@ fn sh(script: &str, cwd: &Path) -> Command {
     cmd
 }
 
+/// Runs `script` confined by `policy` and waits at most `LIMIT`: a child that does not finish is
+/// killed and the test fails with what it printed, instead of hanging the whole test binary.
 fn run_confined(script: &str, cwd: &Path, policy: &SandboxPolicy) -> io::Result<Output> {
+    use std::io::Read;
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+    const LIMIT: Duration = Duration::from_secs(60);
     let mut cmd = sh(script, cwd);
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     confine_command(&mut cmd, policy)?;
-    cmd.output()
+    let mut child = cmd.spawn()?;
+    let mut stdout = child.stdout.take().expect("piped stdout");
+    let mut stderr = child.stderr.take().expect("piped stderr");
+    let out_reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stdout.read_to_end(&mut buf);
+        buf
+    });
+    let err_reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stderr.read_to_end(&mut buf);
+        buf
+    });
+    let started = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if started.elapsed() > LIMIT {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("confined script did not finish within {LIMIT:?}: {script}");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    // A background grandchild may still hold the pipes; bound the readers too.
+    let deadline = Instant::now() + Duration::from_secs(40);
+    while !(out_reader.is_finished() && err_reader.is_finished()) {
+        if Instant::now() > deadline {
+            panic!("confined script exited ({status:?}) but a child of it kept its output open: {script}");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    Ok(Output {
+        status,
+        stdout: out_reader.join().unwrap_or_default(),
+        stderr: err_reader.join().unwrap_or_default(),
+    })
 }
 
 fn text(bytes: &[u8]) -> String {

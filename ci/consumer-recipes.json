@@ -690,7 +690,7 @@
       },
       "files": {
         "ci/consumers/npm/react-shell/README.md": "f3f2c936ccdb11d97794c94b96369a3874ee82794ae6cc7fdbc7e7fd6b74fd18",
-        "ci/consumers/npm/react-shell/consumer.mjs": "82369c8d889df2967cadbba6058a20ee091c8e96bb9137233f005ea90d5a267d",
+        "ci/consumers/npm/react-shell/consumer.mjs": "8098d37284ad9dc5cf82923e22d050d449344616241e69a71fc85fa811356d71",
         "ci/consumers/npm/react-shell/package.json": "7316f3eadb4c9d39d41c790089429d4a215dabb70e26eac121a99b0e36581e25",
         "ci/consumers/npm/react-shell/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "a0e235cbb1540000a57f1af3b603e5f81c6c14322ad481bf189c497d8358e98f"
@@ -2359,7 +2359,7 @@
       "gateEvidence": "existing consumer runs the child as itself for process cases; bundle resolver case uses a synthetic temporary .app tree, never launches a child, and refuses an escaping relative path; no network or real user data",
       "consumes": "PK02 plan (01-packages.md:116-129): ScrapeRight and CodeRight runners; public items exercised: run (crates/rightkit-child-process/src/run.rs:192), run_with_stdin (src/run.rs:173), run_command (src/run.rs:249), run_command_capture (src/run.rs:271), RunOptions (src/run.rs:64), CaptureOptions (src/run.rs:105), OwnedCommand::new and command_mut (src/owned.rs:167,216); 0.5.5 descriptor policy surface: OwnedCommand::inherit_all_descriptors and inherit_fd (src/owned.rs:255,273); 0.5.14 bundled_app::resolve_app_in_bundle resolves nested app placement and refuses escaping relative paths without child launch",
       "files": {
-        "Cargo.toml": "b050ec9d1423e6165edd16a57d21f363719ed682a18ace9a16f17eacb996d30b",
+        "Cargo.toml": "2b38b062b3c4e252f5a8597fec89f6903cd55e0bb56939324500c70be2b4b06e",
         "README.md": "852edbc451881d88c9f3b3064200faaf1e973b5e09f11aef2e7e2c5d58509a71",
         "src/main.rs": "41e97e7d733d7be1465825efa6a5126e993d90eb9a339424295f309fe70ee487"
       },
@@ -3097,7 +3097,7 @@
       "pkId": "PK78",
       "id": "ci/consumers/rightkit-app-manager/src/main.rs",
       "files": {
-        "Cargo.toml": "1ba1353c9de010471efe294dca9692509ab9da347c72d65b0d42a25587c64b50",
+        "Cargo.toml": "b8bf9642bcaf36e2afd8f056cef06c99d70d39a75a75012bc9c4fa931b5ecec2",
         "README.md": "f6ff78139a9a4aa99a71acfe62b3b50cca7c0c9d9abf3e51ed746d6ff0319a73",
         "src/main.rs": "0176ab600d699cc5db95e481e4958146ef2da81a38be569748b9971cda4b499e"
       }
@@ -3188,7 +3188,7 @@
       "pkId": "PK92",
       "id": "ci/consumers/rightkit-disk-cleanup/src/main.rs",
       "files": {
-        "Cargo.toml": "584c8a41c8b639afaaf477ab8ef00e7e1a71d3ecf8cb0be1f350c1f8d1fb770f",
+        "Cargo.toml": "27e0fc5d4ecb0e3db98063d5d903f78fb020f9b8c62d01a064694001c6918b04",
         "README.md": "e94e1a225da26cd1130a968bed896ca944b8262c21d9d2bfbb76055b88074922",
         "src/main.rs": "5390ebfe754fad27c388cf46ba21774cf72592521f0973af82c9c9bcf275de8c"
       }

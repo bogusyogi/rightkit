@@ -85,7 +85,10 @@ async function main() {
   fs.mkdirSync(out, { recursive: true });
   const cpu = startCpuSampler(path.join(out, "cpu.csv"));
   process.on("exit", () => cpu.stop());
-  const record = { schema: "rightkit.acceptance-run/1", casesSha256: sha256(casesBody), gate: path.resolve(gate), startedAt: new Date().toISOString(), cases: {}, realBuild: null };
+  // The lock (step F): the sha256 of every judge file contract-nn.json names, so a verdict says which judge made it.
+  const locked = JSON.parse(fs.readFileSync(path.join(here, "contract-nn.json"), "utf8")).runnerFiles ?? [];
+  const judgeFiles = Object.fromEntries(locked.map((f) => { try { return [f, sha256(fs.readFileSync(path.join(here, f)))]; } catch { return [f, null]; } }));
+  const record = { schema: "rightkit.acceptance-run/1", casesSha256: sha256(casesBody), judgeFiles, gate: path.resolve(gate), startedAt: new Date().toISOString(), cases: {}, realBuild: null };
   const results = {}; const refs = [];
   const one = async (repo, commit, name, { args, kill = false } = {}) => {
     const dir = path.join(out, name); fs.rmSync(dir, { recursive: true, force: true }); fs.mkdirSync(dir, { recursive: true });

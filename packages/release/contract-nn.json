@@ -1,10 +1,31 @@
 {
   "schema": "rightkit.contract-nn/1",
-  "contractSha256": "08344cbc66ffb802c7e069760317a31424135925d3af3c3ce703a6a6a0e6fbf8",
+  "contractSha256": "5748f0f7d297fc8ed5de0a2a9b4e252865752873d5b931f0f630fc90ce74d213",
   "runnerFiles": [
+    "acceptance-callers.mjs",
+    "acceptance-cases.json",
+    "acceptance-cases.mjs",
     "acceptance-launch.mjs",
     "acceptance-lines.mjs",
-    "acceptance-lines.test.mjs"
+    "acceptance-lines.test.mjs",
+    "acceptance-rows.mjs",
+    "acceptance-run.mjs",
+    "atomic-write.mjs",
+    "background-process.mjs",
+    "broker-client.mjs",
+    "disk-policy.mjs",
+    "gate-seam.mjs",
+    "gate-serve.mjs",
+    "gate-stages.mjs",
+    "managed-root-guard.mjs",
+    "managed-roots.mjs",
+    "platform-dir.mjs",
+    "rustright-names.mjs",
+    "snapshot-changes.mjs",
+    "snapshot-git.mjs",
+    "snapshot-identity.mjs",
+    "snapshot-root-config.mjs",
+    "snapshot.mjs"
   ],
   "ids": [
     "NN01",

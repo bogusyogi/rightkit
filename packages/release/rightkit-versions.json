@@ -49,7 +49,7 @@
     "@rightkit/qa": "0.7.0",
     "@rightkit/qa-chrome": "0.1.12",
     "@rightkit/react-shell": "0.7.9",
-    "@rightkit/release": "0.6.77",
+    "@rightkit/release": "0.6.79",
     "@rightkit/send-ui": "0.1.0",
     "@rightkit/settings-ui": "0.7.6",
     "@rightkit/social-ui": "0.2.1",
@@ -439,7 +439,9 @@
       "0.6.57",
       "0.6.60",
       "0.6.61",
-      "0.6.75"
+      "0.6.75",
+      "0.6.77",
+      "0.6.78"
     ],
     "@rightkit/settings-ui": [
       "0.1.0",
@@ -568,7 +570,7 @@
     "rightkit-app-host": "0.1.2",
     "rightkit-app-icon": "0.1.0",
     "rightkit-app-lock": "0.1.0",
-    "rightkit-app-manager": "0.2.3",
+    "rightkit-app-manager": "0.2.4",
     "rightkit-app-settings": "0.4.3",
     "rightkit-app-update": "0.2.0",
     "rightkit-apple-ops": "0.2.0",
@@ -587,7 +589,7 @@
     "rightkit-catalog": "0.1.0",
     "rightkit-channel-memory": "0.2.3",
     "rightkit-chat-bridge": "0.2.1",
-    "rightkit-child-process": "0.5.16",
+    "rightkit-child-process": "0.5.17",
     "rightkit-clipboard": "0.1.0",
     "rightkit-clipboard-history": "0.4.0",
     "rightkit-code-audit-commands": "0.2.0",
@@ -634,7 +636,7 @@
     "rightkit-dictation-tauri": "0.3.3",
     "rightkit-dictation-telemetry": "0.2.3",
     "rightkit-dictation-text-pipeline": "0.2.7",
-    "rightkit-disk-cleanup": "0.2.0",
+    "rightkit-disk-cleanup": "0.2.1",
     "rightkit-docs": "0.1.6",
     "rightkit-doctor": "0.2.0",
     "rightkit-document-workspace": "0.2.0",
@@ -902,7 +904,7 @@
       "@rightkit/qa": "0.7.0",
       "@rightkit/qa-chrome": "0.1.12",
       "@rightkit/react-shell": "0.7.7",
-      "@rightkit/release": "0.6.75",
+      "@rightkit/release": "0.6.79",
       "@rightkit/settings-ui": "0.7.4",
       "@rightkit/shell": "0.1.1",
       "@rightkit/tauri": "0.4.3",
@@ -958,7 +960,8 @@
       "0.3.1"
     ],
     "rightkit-app-manager": [
-      "0.2.2"
+      "0.2.2",
+      "0.2.3"
     ],
     "rightkit-app-settings": [
       "0.2.0",
@@ -1043,7 +1046,8 @@
       "0.5.7",
       "0.5.13",
       "0.5.14",
-      "0.5.15"
+      "0.5.15",
+      "0.5.16"
     ],
     "rightkit-clipboard-history": [
       "0.3.2"
@@ -1676,6 +1680,9 @@
     ],
     "rightkit-approvals": [
       "0.2.1"
+    ],
+    "rightkit-disk-cleanup": [
+      "0.2.0"
     ]
   }
 }

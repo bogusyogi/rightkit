@@ -39,7 +39,6 @@ use rightkit_hooks::STDIN_CAP;
 use rightkit_hooks::{HookEvent, Reply, Wire};
 #[cfg(unix)]
 use serde_json::{Value, json};
-#[cfg(unix)]
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -210,6 +209,23 @@ fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 fn enqueue_for(tool: Tool, thread: &str, message_id: &str, text: &str) -> Result<(), String> {
+    let store = chat_root().map(|root| super::store::Store::at_chat_folder(&root));
+    let span = store
+        .as_ref()
+        .map(|store| super::trace::start(store, message_id, "hook_admission"));
+    let result = enqueue_for_inner(tool, thread, message_id, text);
+    if let Some(store) = &store
+        && result.is_ok()
+    {
+        super::trace::waiting(store, message_id, "hook_queue_wait");
+    }
+    if let Some(span) = span {
+        span.finish(if result.is_ok() { "admitted" } else { "failed" });
+    }
+    result
+}
+
+fn enqueue_for_inner(tool: Tool, thread: &str, message_id: &str, text: &str) -> Result<(), String> {
     if !safe_component(thread) || !safe_component(message_id) {
         return Err("thread or message id is not a safe file name".into());
     }
@@ -290,6 +306,39 @@ fn pending_for(tool: Tool, thread: &str, message_id: &str) -> bool {
     }
     tool.inbox_root()
         .is_some_and(|r| r.join(thread).join(format!("{message_id}.txt")).exists())
+}
+
+/// Whether a Claude hook run claimed the message or handed it to the chat
+/// (`claimed/<id>.<secs>.claimed` or `.sent`): the hook holds it, so no other copy is needed.
+pub fn claimed_claude(session: &str, message_id: &str) -> bool {
+    if !safe_component(session) || !safe_component(message_id) {
+        return false;
+    }
+    Tool::Claude
+        .inbox_root()
+        .is_some_and(|r| handed_to_chat(&r.join(session).join("claimed"), message_id, true))
+}
+
+/// Take a waiting message back out of a Claude chat's hook inbox so it can go another way.
+/// `true` only when this call removed it: the rename is exclusive against a hook run's claim,
+/// so a message the hook took meanwhile is never also sent elsewhere.
+pub fn withdraw_claude(session: &str, message_id: &str) -> bool {
+    if !safe_component(session) || !safe_component(message_id) {
+        return false;
+    }
+    let Some(dir) = Tool::Claude.inbox_root().map(|r| r.join(session)) else {
+        return false;
+    };
+    let aside = dir.join(format!("{message_id}.withdrawn"));
+    if rightkit_fs::rename_exclusive(&dir.join(format!("{message_id}.txt")), &aside).is_err() {
+        return false;
+    }
+    let _ = std::fs::remove_file(&aside);
+    if let Some(root) = chat_root() {
+        let store = super::store::Store::at_chat_folder(&root);
+        super::trace::resumed(&store, message_id, "hook_queue_wait", "withdrawn");
+    }
+    true
 }
 
 /// The newest time (unix seconds) any Codex chat ran the hook, if ever.
@@ -568,6 +617,10 @@ fn claim(dir: &Path) -> Claims {
         if rightkit_fs::rename_exclusive(&path, &target).is_err() {
             continue;
         }
+        if let Some(root) = chat_root() {
+            let store = super::store::Store::at_chat_folder(&root);
+            super::trace::mark(&store, &id, "hook_claim", "claimed");
+        }
         let Ok(bytes) = std::fs::read(&target) else {
             // Left claimed: recovered after the timeout.
             continue;
@@ -595,7 +648,20 @@ fn mark_emitted(held: &[Claimed]) {
 /// The output could not be written: put the claims straight back in the inbox for the next run.
 fn release_claims(dir: &Path, held: &[Claimed]) {
     for c in held {
-        let _ = rightkit_fs::rename_exclusive(&c.path, &dir.join(format!("{}.txt", c.id)));
+        let returned = rightkit_fs::rename_exclusive(&c.path, &dir.join(format!("{}.txt", c.id)));
+        if let Some(root) = chat_root() {
+            let store = super::store::Store::at_chat_folder(&root);
+            super::trace::mark(
+                &store,
+                &c.id,
+                "hook_output",
+                if returned.is_ok() {
+                    "requeued"
+                } else {
+                    "recovery_pending"
+                },
+            );
+        }
     }
 }
 
@@ -821,6 +887,20 @@ fn hook_output(
     {
         *confirm = Some((session.to_string(), path.to_string()));
     }
+    // A Claude socket delivery gets no verdict from Claude, so the chat's transcript is what shows
+    // it took the message: report `picked-up` to the sender (#623). Own turns only.
+    if tool == Tool::Claude
+        && own_turn
+        && matches!(event, "PostToolUse" | "Stop" | "UserPromptSubmit")
+        && let Some(path) = hook.transcript_path.as_deref()
+        && let Some(root) = chat_root()
+    {
+        super::receipts::picked_up_in_transcript(
+            &super::store::Store::at_chat_folder(&root),
+            session,
+            path,
+        );
+    }
     let seen = tool.seen_root()?;
     let beating = rightkit_fs::private_cached::ensure_dir(&seen).is_ok();
     if !beating {
@@ -838,6 +918,25 @@ fn hook_output(
         return None;
     }
     let dir = tool.inbox_root()?.join(session);
+    // Claude draws a Stop hook's reason in the chat as "Hook feedback", so the message itself is
+    // not put there: the run is continued with one short line, and the next tool call's
+    // PostToolUse hands the text over as hidden context (the owner, 2026-11-09, #461). If the chat
+    // stops again without a tool call, the full text goes by Stop after all, so nothing waits.
+    if tool == Tool::Claude && event == "Stop" && hook.stop_hook_active != Some(true) {
+        let senders = waiting_senders(&dir);
+        if !senders.is_empty() {
+            if beating {
+                write_heartbeat(&seen, session, "StopContinued");
+            }
+            let line = format!(
+                "{}: {} message(s) from {} waiting. Run `true` with Bash to receive them; tell your user nothing about this line.",
+                super::brand::brand().chat_label(),
+                senders.len(),
+                senders.join(", ")
+            );
+            return Reply::block_stop(&line).stdout_line();
+        }
+    }
     // The store of Chat folder the message files were claimed from.
     let store = super::store::Store::at_chat_folder(&chat_root()?);
     let claims = claim(&dir);
@@ -911,6 +1010,36 @@ fn hook_output(
         _ => reply,
     };
     reply.stdout_line()
+}
+
+/// The sender chat of each message waiting unclaimed in `dir`, read from its envelope line
+/// (`[<product> Chat from <who>; id ...`), oldest first; "another chat" when the line is missing.
+fn waiting_senders(dir: &Path) -> Vec<String> {
+    let prefix = format!("[{} from ", super::brand::brand().chat_label());
+    let mut files: Vec<(SystemTime, PathBuf)> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "txt"))
+        .filter_map(|e| {
+            Some((
+                e.metadata().ok()?.modified().unwrap_or(UNIX_EPOCH),
+                e.path(),
+            ))
+        })
+        .collect();
+    files.sort();
+    files
+        .iter()
+        .map(|(_, path)| {
+            let mut head = String::new();
+            let _ = std::fs::File::open(path).and_then(|f| f.take(4096).read_to_string(&mut head));
+            head.lines()
+                .find_map(|l| l.trim().strip_prefix(prefix.as_str()))
+                .and_then(|rest| rest.split_once("; id ").map(|(who, _)| who.to_string()))
+                .unwrap_or_else(|| "another chat".to_string())
+        })
+        .collect()
 }
 
 /// The message id of a prompt that is exactly a wake line

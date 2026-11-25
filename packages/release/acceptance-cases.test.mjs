@@ -180,7 +180,12 @@ test("NN10: a broker that runs the tests, a gate that skips or repeats a signed 
   failsFor("NN10", 6, (r) => { r.exit = 0; }, /failing exit/);
 });
 test("NN11: a run over its limit, or a case with no pinned limit, fails", () => {
-  failsFor("NN11", 2, (r) => { r.durationMs = 700_000; }, /took 700 s; its limit is 600 s/);
+  failsFor("NN11", 2, (r) => { r.durationMs = 700_000; }, /spent 700 s of its own \(wall 700 s, broker 0 s\); its limit is 600 s/);
+  // Option b (Adrian, 2026-11-25): time the broker held the run is not the gate's. A run whose wall time is over the limit only because its jobs
+  // were in the broker passes; the same run with the broker time its own fails.
+  const slow = (r, gate) => { r.startMs = 0; r.durationMs = 900_000; r.jobs = [{ submitted: 100_000, ended: 100_000 + (900_000 - gate) }]; };
+  { const g = good(); slow(g[2][0], 500_000); assert.equal(decideCase({ ...def(2), runs: g[2] }, CASES).NN11.verdict, PASS); }
+  failsFor("NN11", 2, (r) => slow(r, 650_000), /spent 650 s of its own \(wall 900 s, broker 250 s\)/);
   const cases = { ...CASES, limitsMs: { ...CASES.limitsMs, case3: null } }; const g = good();
   assert.equal(decideCase({ ...def(3), runs: g[3] }, cases).NN11.verdict, FAIL);
 });
@@ -229,4 +234,14 @@ test("NN13: a missing or failing callers verdict fails NN13 and the whole", () =
 
 test("NN01: a broker job of this repository built from its working checkout during the run fails, even though it is not one of the run's own jobs", () => {
   failsFor("NN01", 3, (r) => { r.foreignJobs = [{ ...job("rk", "check", bc.hostTarget, "", T0 + 50), cwd: "D:\Claude\rk-witness-fixture\rk" }]; }, /ran for this repository during the run but not from its snapshot/);
+});
+
+
+test("NN01 case 7: a job the kill cancelled before its post-checks (signed CANCELLED, post-checks not run, reaped) is not held to the unchanged-snapshot proof; anywhere else it is", () => {
+  const killed = (j) => Object.assign(j, { status: "CANCELLED", postChecksRan: false, reaped: true, gate: { ...j.gate, snapshotUnchanged: undefined } });
+  // A job of case 1's run, signed for case 7's own commit and tree, put in the killed run of case 7.
+  const jobFor7 = (g) => { const j = killed(structuredClone(g[1][0].jobs[0])); j.gate = { ...j.gate, commit: g[7][0].commit, tree: g[7][0].tree }; return j; };
+  { const g = good(); g[7][0].jobs = [jobFor7(g)]; assert.equal(decideCase({ ...def(7), runs: g[7] }, CASES).NN01.verdict, PASS, JSON.stringify(decideCase({ ...def(7), runs: g[7] }, CASES).NN01)); }
+  failsFor("NN01", 1, (r) => { killed(r.jobs[0]); }, /did not sign that the snapshot was unchanged/);
+  { const g = good(); const j = jobFor7(g); j.reaped = false; g[7][0].jobs = [j]; assert.equal(decideCase({ ...def(7), runs: g[7] }, CASES).NN01.verdict, FAIL); }
 });

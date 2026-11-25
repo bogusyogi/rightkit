@@ -6,7 +6,7 @@
 //! depend on `rightkit-sync` (and `rightkit-sync` does not depend on this crate): whichever side
 //! defines the final trait, a four-line adapter bridges them, for example
 //!
-//! ```ignore
+//! ```text
 //! struct Adapter(rightkit_sync_keys::ZoneKeys);
 //! impl rightkit_sync::cipher::VersionedKeyProvider for Adapter {   // the sync crate's trait
 //!     fn current_versioned(&self) -> SyncResult<(u32, CipherKey)> {

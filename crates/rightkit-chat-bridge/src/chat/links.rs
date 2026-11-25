@@ -680,14 +680,20 @@ pub fn list_chats_identified(
             ),
         };
         answer.map_err(|e| {
-            // A refusal is terminal: the ssh twin is never asked after it (R05). A listing that
-            // got no answer in time (`may_have_arrived`) is not a refusal and changes nothing on
-            // the other computer, so the ssh twin may be asked for the same read. A
+            // A refusal is terminal: the ssh twin is never asked after it (R05), even one that
+            // came after a first attempt was written. A listing that
+            // got no answer in time (`may_have_arrived`, a non-answer code) is not a refusal and changes nothing on
+            // the other computer, so the ssh twin may be asked for the same read (#582). A
             // send with no answer is retried once over ssh with the same id (C-D19, `post_traced`).
             // Only a deadline-bound listing may be answered by the ssh twin after no answer in time;
             // a send-deciding call (`deadline` None) keeps the old rule (C-D4).
             MESH_REFUSED.with(|flag| {
-                flag.set(!e.may_fall_back() && !(deadline.is_some() && e.may_have_arrived))
+                flag.set(
+                    !e.may_fall_back()
+                        && !(deadline.is_some()
+                            && e.may_have_arrived
+                            && SAME_ID_RETRY_CODES.contains(&e.code.as_str())),
+                )
             });
             e.to_string()
         })?
@@ -1090,7 +1096,7 @@ pub fn list_all(store: &Store) -> Vec<RemoteChats> {
 }
 
 /// [`list_all`] for `status` and `peers`: with `Some(wait)` every link's poll, ssh twin included,
-/// ends within `wait` (C-D4). Sends never use it.
+/// ends within `wait` (C-D4). Bare local titles use the same bound for discovery.
 pub fn list_all_within(store: &Store, wait: Option<Duration>) -> Vec<RemoteChats> {
     let deadline = wait.map(|w| Instant::now() + w);
     let handles: Vec<_> = resolved(store)
@@ -1144,15 +1150,33 @@ pub struct PostTrace {
 
 /// `post`, with how it travelled.
 pub fn post_traced(link: &Link, env: &Envelope) -> (Result<Value, String>, PostTrace) {
+    let store = Store::open_default().ok();
+    post_traced_inner(store.as_ref(), link, env)
+}
+
+/// Deliver using the caller's actual state store, including transport timings.
+pub fn post_traced_in(
+    store: &Store,
+    link: &Link,
+    env: &Envelope,
+) -> (Result<Value, String>, PostTrace) {
+    post_traced_inner(Some(store), link, env)
+}
+
+fn post_traced_inner(
+    store: Option<&Store>,
+    link: &Link,
+    env: &Envelope,
+) -> (Result<Value, String>, PostTrace) {
     if super::mesh::mesh_id(link).is_none() {
         let trace = PostTrace {
             transport: "ssh",
             ..PostTrace::default()
         };
-        if let Ok(store) = Store::open_default() {
-            super::receipts::note_outbound(&store, env, link);
+        if let Some(store) = store {
+            super::receipts::note_outbound(store, env, link);
         }
-        return (post_ssh(link, env), trace);
+        return (post_ssh_traced(store, link, env, "transport.ssh"), trace);
     }
     let mut trace = PostTrace {
         transport: "device link",
@@ -1161,11 +1185,19 @@ pub fn post_traced(link: &Link, env: &Envelope) -> (Result<Value, String>, PostT
     // Over the device link first. A transport-unreachable failure that certainly delivered
     // nothing (no dial, no engine, a call that ran out of time before it wrote) falls back to
     // ssh; a refusal is terminal; a request that may have arrived is retried once (below).
-    if let Ok(store) = Store::open_default() {
-        super::receipts::note_outbound(&store, env, link);
+    if let Some(store) = store {
+        super::receipts::note_outbound(store, env, link);
     }
     let params = serde_json::json!({ "envelope": encode_envelope(env) });
-    match super::mesh::call(link, super::mesh::DELIVER, params) {
+    let span = store.map(|store| super::trace::start(store, &env.id, "transport.mesh"));
+    let result = super::mesh::call(link, super::mesh::DELIVER, params);
+    if let Some(span) = span {
+        span.finish(match &result {
+            Ok(receipt) => receipt["status"].as_str().unwrap_or("answered"),
+            Err(failure) => failure.code.as_str(),
+        });
+    }
+    match result {
         Ok(receipt) => (Ok(receipt), trace),
         // A request that may have arrived (the engine did not answer, C-D19): it is asked again
         // once over the ssh twin with the SAME envelope id. The receiving computer keeps a
@@ -1205,18 +1237,16 @@ pub fn post_traced(link: &Link, env: &Envelope) -> (Result<Value, String>, PostT
                     ),
                 })
             };
-            let twin = Store::open_default().ok().and_then(|store| {
-                twin_of(&store, link).map(|twin| {
-                    let sealed = super::seal(&store, &twin, env.clone());
-                    (twin, sealed)
-                })
+            let twin = store.and_then(|store| {
+                twin_of(store, link)
+                    .map(|twin| (twin.clone(), super::seal(store, &twin, env.clone())))
             });
             let Some((twin, sealed)) = twin else {
                 return (Ok(unknown("")), trace);
             };
             trace.transport = "ssh";
             trace.fallback = true;
-            let answer = match post_ssh(&twin, &sealed) {
+            let answer = match post_ssh_traced(store, &twin, &sealed, "transport.ssh.retry") {
                 Ok(receipt) => {
                     match super::ReceiptState::parse(receipt["status"].as_str().unwrap_or("")) {
                         // A receipt that says the message is in the chat (or its inbox or queue)
@@ -1249,17 +1279,20 @@ pub fn post_traced(link: &Link, env: &Envelope) -> (Result<Value, String>, PostT
         }
         Err(failure) => {
             trace.mesh_error = Some(failure.code.clone());
-            match Store::open_default().ok().and_then(|store| {
-                twin_of(&store, link).map(|twin| {
+            match store.and_then(|store| {
+                twin_of(store, link).map(|twin| {
                     // The ssh link's own receiver id and chat key sign the envelope.
-                    let sealed = super::seal(&store, &twin, env.clone());
+                    let sealed = super::seal(store, &twin, env.clone());
                     (twin, sealed)
                 })
             }) {
                 Some((twin, sealed)) => {
                     trace.transport = "ssh";
                     trace.fallback = true;
-                    (post_ssh(&twin, &sealed), trace)
+                    (
+                        post_ssh_traced(store, &twin, &sealed, "transport.ssh.fallback"),
+                        trace,
+                    )
                 }
                 None => (
                     Err(format!("{} (device link): {failure}", link.device)),
@@ -1278,6 +1311,129 @@ const SAME_ID_RETRY_CODES: [&str; 4] = [
     "engine_unknown",
     "engine_unresponsive",
 ];
+
+fn post_ssh_traced(
+    store: Option<&Store>,
+    link: &Link,
+    env: &Envelope,
+    stage: &'static str,
+) -> Result<Value, String> {
+    let span = store.map(|store| super::trace::start(store, &env.id, stage));
+    let answer = post_ssh(link, env);
+    if let Some(span) = span {
+        span.finish(match &answer {
+            Ok(receipt) => receipt["status"].as_str().unwrap_or("answered"),
+            Err(_) => "failed",
+        });
+    }
+    answer
+}
+
+/// Read one message's trace from its paired peer. Only an unreachable mesh may use its
+/// configured SSH twin; authorization, policy and version refusals remain terminal.
+pub fn fetch_trace(
+    store: &Store,
+    link: &Link,
+    id: &str,
+) -> Result<Vec<super::trace::Event>, String> {
+    if !super::trace::valid_id(id) {
+        return Err("invalid message UUID".to_string());
+    }
+    let mut route = "SSH";
+    let value = if super::mesh::mesh_id(link).is_some() {
+        route = "device link";
+        match super::mesh::call(link, super::mesh::TRACE, serde_json::json!({"id": id})) {
+            Ok(value) => value,
+            Err(failure) if failure.may_fall_back() => {
+                let twin = twin_of(store, link).ok_or_else(|| {
+                    format!(
+                        "trace unavailable on {} (device link): {failure}; no configured SSH twin",
+                        link.device
+                    )
+                })?;
+                route = "SSH twin";
+                fetch_trace_ssh(&twin, id).map_err(|why| {
+                    format!(
+                        "trace unavailable on {} (device link): {failure}; SSH twin {}: {why}",
+                        link.device, twin.device
+                    )
+                })?
+            }
+            Err(failure) => {
+                if matches!(
+                    failure.code.as_str(),
+                    "unknown_method" | "unsupported" | "unsupported_version" | "method_not_found"
+                ) {
+                    return Err(format!(
+                        "trace unsupported on {} (device link): {failure}",
+                        link.device
+                    ));
+                } else {
+                    return Err(format!(
+                        "trace unavailable on {} (device link): {failure}",
+                        link.device
+                    ));
+                }
+            }
+        }
+    } else {
+        fetch_trace_ssh(link, id)?
+    };
+    if serde_json::to_vec(&value)
+        .map_err(|_| "invalid trace response".to_string())?
+        .len()
+        > 256 * 1024
+    {
+        return Err(format!(
+            "trace response from {} ({route}) exceeds 256 KiB",
+            link.device
+        ));
+    }
+    let events = value
+        .get("events")
+        .filter(|events| events.is_array())
+        .ok_or_else(|| {
+            format!(
+                "trace unsupported on {} ({route}): missing events",
+                link.device
+            )
+        })?;
+    if events.as_array().is_some_and(|events| events.len() > 256) {
+        return Err(format!(
+            "trace response from {} ({route}) exceeds 256 events",
+            link.device
+        ));
+    }
+    let events: Vec<super::trace::Event> = serde_json::from_value(events.clone())
+        .map_err(|_| format!("invalid trace response from {} ({route})", link.device))?;
+    super::trace::validate_remote(&events)
+        .map_err(|why| format!("trace response from {} ({route}): {why}", link.device))?;
+    Ok(events)
+}
+
+fn fetch_trace_ssh(link: &Link, id: &str) -> Result<Value, String> {
+    let out = run(link, &["trace-local", id, "--json"], REMOTE_TIMEOUT).map_err(|why| {
+        format!(
+            "trace unavailable or unsupported on {} (SSH): {why}",
+            link.device
+        )
+    })?;
+    if out.len() > 256 * 1024 {
+        return Err("trace response exceeds 256 KiB".to_string());
+    }
+    let line = last_json_line(&out).ok_or_else(|| {
+        format!(
+            "trace unsupported on {} (SSH): no trace response",
+            link.device
+        )
+    })?;
+    serde_json::from_str::<Value>(line).map_err(|_| {
+        format!(
+            "trace unsupported on {} (SSH): invalid response",
+            link.device
+        )
+    })
+}
 
 fn post_ssh(link: &Link, env: &Envelope) -> Result<Value, String> {
     let encoded = encode_envelope(env);

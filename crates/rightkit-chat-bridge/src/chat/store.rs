@@ -244,6 +244,24 @@ fn process_alive(pid: u32) -> bool {
     system.process(target).is_some()
 }
 
+/// Length and modification time of the journal file, `None` when it cannot be read.
+type JournalStat = Option<(u64, Option<std::time::SystemTime>)>;
+
+fn journal_stat(path: &Path) -> JournalStat {
+    fs::metadata(path)
+        .ok()
+        .map(|m| (m.len(), m.modified().ok()))
+}
+
+/// The journal lines this process last read or wrote, with the file stat they match.
+struct JournalCache {
+    path: PathBuf,
+    stat: JournalStat,
+    lines: Vec<JournalLine>,
+}
+
+static JOURNAL_CACHE: std::sync::Mutex<Option<JournalCache>> = std::sync::Mutex::new(None);
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct JournalLine {
     o: String,
@@ -325,7 +343,7 @@ pub fn payload_hash(env: &Envelope) -> String {
 
 // ---- files that stay private ---------------------------------------------------
 
-fn refuse_link(path: &Path) -> io::Result<()> {
+pub(super) fn refuse_link(path: &Path) -> io::Result<()> {
     match fs::symlink_metadata(path) {
         Ok(meta) if meta.file_type().is_symlink() => Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
@@ -343,7 +361,7 @@ fn refuse_link(path: &Path) -> io::Result<()> {
 /// The owner-only check (a security descriptor read) runs on first use of a folder and again only
 /// after the trust window, when the folder is gone, or after a write there was denied
 /// (`crate::store::private_dir_verified`); every store call used to repeat it.
-fn secure_chain(dir: &Path) -> io::Result<()> {
+pub(super) fn secure_chain(dir: &Path) -> io::Result<()> {
     secure_one(dir)?;
     if let Some(parent) = dir.parent()
         && parent.file_name().is_some_and(|n| n == "chat")
@@ -868,6 +886,17 @@ impl Store {
     /// pass the cap, the oldest messages are dropped first (and noted, see
     /// `inbox_evicted`). The `seq` follows the last committed line of the file.
     pub fn append_inbox(&self, session: &str, env: &Envelope) -> io::Result<u64> {
+        let span = super::trace::start(self, &env.id, "inbox_admission");
+        let result = self.append_inbox_inner(session, env);
+        span.finish(match &result {
+            Ok(0) => "unchanged",
+            Ok(_) => "stored",
+            Err(_) => "failed",
+        });
+        result
+    }
+
+    fn append_inbox_inner(&self, session: &str, env: &Envelope) -> io::Result<u64> {
         let path = self.inbox_path(session);
         let _guard = self.lock(&path)?;
         // Idempotent on the message id (checked under this inbox lock): an id already in the
@@ -925,6 +954,7 @@ impl Store {
                 .take(drop_count)
                 .filter(|e| e.seq > cursor.read)
             {
+                super::trace::resumed(self, &dropped.env.id, "inbox_wait", "expired");
                 super::receipts::expired(self, session, &dropped.env);
             }
             if drop_count > 0 {
@@ -938,6 +968,9 @@ impl Store {
         } else {
             append_text(&path, &line)?;
         }
+        // The inbox line is durable even if the cursor write below fails; retries deduplicate it.
+        super::trace::waiting(self, &env.id, "inbox_wait");
+        super::trace::mark(self, &env.id, "inbox_persisted", "stored");
         cursor.next = seq + 1;
         write_json(&self.cursor_path(session), &cursor)?;
         Ok(seq)
@@ -966,6 +999,16 @@ impl Store {
         let mut cursor = self.read_cursor(session);
         let entries = Self::read_lines(&path);
         let newest = entries.iter().map(|e| e.seq).max().unwrap_or(cursor.read);
+        // Acknowledgement advances the cursor across all entries, including a `since` filter.
+        let acknowledged: Vec<String> = if ack {
+            entries
+                .iter()
+                .filter(|entry| entry.seq > cursor.read)
+                .map(|entry| entry.env.id.clone())
+                .collect()
+        } else {
+            Vec::new()
+        };
         let unread: Vec<InboxEntry> = entries
             .into_iter()
             .filter(|e| e.seq > cursor.read && since.is_none_or(|s| e.received > s))
@@ -974,6 +1017,9 @@ impl Store {
             cursor.read = newest;
             cursor.next = cursor.next.max(newest + 1);
             write_json(&self.cursor_path(session), &cursor)?;
+            for id in &acknowledged {
+                super::trace::resumed(self, id, "inbox_wait", "read");
+            }
             for entry in &unread {
                 self.record_inbox_delivery(session, &entry.env);
             }
@@ -995,6 +1041,7 @@ impl Store {
             cursor.next = cursor.next.max(up_to_seq + 1);
             write_json(&self.cursor_path(session), &cursor)?;
             for entry in &newly_read {
+                super::trace::resumed(self, &entry.env.id, "inbox_wait", "read");
                 self.record_inbox_delivery(session, &entry.env);
             }
         }
@@ -1049,7 +1096,9 @@ impl Store {
             let kept = ids.split_off(ids.len() - REFUSED_CAP);
             ids = kept;
         }
-        write_json(&path, &ids)
+        write_json(&path, &ids)?;
+        super::trace::resumed(self, msg_id, "inbox_wait", "refused");
+        Ok(())
     }
 
     fn refused_path(&self, session: &str) -> PathBuf {
@@ -1350,16 +1399,40 @@ impl Store {
         let Ok(_guard) = self.lock(&path) else {
             return Seen::Unavailable;
         };
-        let mut lines: Vec<JournalLine> = match read_bytes(&path) {
-            Ok(bytes) => String::from_utf8_lossy(&bytes)
-                .lines()
-                .filter_map(|l| serde_json::from_str(l).ok())
-                .collect(),
-            // No journal yet is an empty one; any other failure is not.
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Vec::new(),
-            Err(_) => return Seen::Unavailable,
+        // The journal is read and parsed whole only when the file is not the one this process last
+        // read or wrote (length and modification time differ, for example after another process
+        // appended). Otherwise the lines kept from the last call are used: under a disk or engine
+        // stall the 3 s lock wait was being spent re-reading a 660 KB file for every message, so a
+        // slow read made every other sender time out as "could not record the message" (#619).
+        let mut cache = JOURNAL_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        let current = journal_stat(&path);
+        let fresh = cache
+            .as_ref()
+            .is_some_and(|c| c.path == path && c.stat == current);
+        if !fresh {
+            let lines: Vec<JournalLine> = match read_bytes(&path) {
+                Ok(bytes) => String::from_utf8_lossy(&bytes)
+                    .lines()
+                    .filter_map(|l| serde_json::from_str(l).ok())
+                    .collect(),
+                // No journal yet is an empty one; any other failure is not.
+                Err(e) if e.kind() == io::ErrorKind::NotFound => Vec::new(),
+                Err(_) => {
+                    *cache = None;
+                    return Seen::Unavailable;
+                }
+            };
+            *cache = Some(JournalCache {
+                path: path.clone(),
+                stat: current,
+                lines,
+            });
+        }
+        let Some(kept) = cache.as_mut() else {
+            return Seen::Unavailable;
         };
-        if let Some(hit) = lines
+        if let Some(hit) = kept
+            .lines
             .iter()
             .find(|l| l.o == origin_device && l.id == msg_id)
         {
@@ -1376,16 +1449,19 @@ impl Store {
             ts: now_ms(),
         };
         let text = serde_json::to_string(&line).unwrap_or_default() + "\n";
-        if lines.len() < JOURNAL_CAP {
+        if kept.lines.len() < JOURNAL_CAP {
             if append_text(&path, &text).is_err() {
+                *cache = None;
                 return Seen::Unavailable;
             }
+            kept.lines.push(line);
         } else {
-            lines.push(line);
-            let skip = lines.len() - JOURNAL_CAP;
-            let body: String = lines
+            kept.lines.push(line);
+            let skip = kept.lines.len() - JOURNAL_CAP;
+            kept.lines.drain(..skip);
+            let body: String = kept
+                .lines
                 .iter()
-                .skip(skip)
                 .filter_map(|l| serde_json::to_string(l).ok())
                 .map(|l| l + "\n")
                 .collect();
@@ -1402,12 +1478,16 @@ impl Store {
                 )
                 .is_err()
                 {
+                    *cache = None;
                     return Seen::Unavailable;
                 }
             } else {
+                *cache = None;
                 return Seen::Unavailable;
             }
         }
+        // What this process just wrote is the file now: remember its length and time.
+        kept.stat = journal_stat(&path);
         Seen::New
     }
 

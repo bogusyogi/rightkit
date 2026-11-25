@@ -22,7 +22,7 @@ use windows::{
     Win32::{
         Foundation::{
             GetHandleInformation, SetHandleInformation, HANDLE, HANDLE_FLAGS, HANDLE_FLAG_INHERIT,
-            WAIT_OBJECT_0, WAIT_TIMEOUT,
+            INVALID_HANDLE_VALUE, WAIT_OBJECT_0, WAIT_TIMEOUT,
         },
         System::Threading::{
             CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess,
@@ -538,8 +538,15 @@ pub(crate) fn spawn(
     let attributes = Attributes::new(&handles, pseudoconsole, restrict_image_load)?;
     let mut startup = STARTUPINFOEXW::default();
     startup.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
-    if !pty {
-        startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+    startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+    if pty {
+        // Without explicit handles a console child takes this process's standard handles when
+        // they are redirected (a test harness, CI, a service) and writes there instead of to the
+        // pseudoconsole. Invalid handles make the pseudoconsole its only console.
+        startup.StartupInfo.hStdInput = INVALID_HANDLE_VALUE;
+        startup.StartupInfo.hStdOutput = INVALID_HANDLE_VALUE;
+        startup.StartupInfo.hStdError = INVALID_HANDLE_VALUE;
+    } else {
         startup.StartupInfo.hStdInput = HANDLE(stdin.as_raw_handle());
         startup.StartupInfo.hStdOutput = HANDLE(stdout.as_raw_handle());
         startup.StartupInfo.hStdError = HANDLE(stderr.as_raw_handle());

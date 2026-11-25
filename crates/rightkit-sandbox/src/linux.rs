@@ -602,9 +602,11 @@ const ALLOWED_SYSCALLS: &[u32] = &[
     104, // getgid
     107, // geteuid
     108, // getegid
+    109, // setpgid: the spawn puts the child in its own process group after the filter is on
     110, // getppid
     111, // getpgrp
     112, // setsid
+    130, // rt_sigsuspend: a shell's `wait` sleeps here until SIGCHLD; refused, it spins forever
     131, // sigaltstack
     158, // arch_prctl
     186, // gettid

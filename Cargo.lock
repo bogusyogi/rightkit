@@ -10601,7 +10601,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-app-manager"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "libc 0.2.191",
  "rightkit-child-process",
@@ -10889,7 +10889,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.16"
+version = "0.5.17"
 dependencies = [
  "libc 0.2.191",
  "tokio",
@@ -11630,7 +11630,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-disk-cleanup"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "libc 0.2.191",
  "rightkit-app-settings",

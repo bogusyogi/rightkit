@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.17
+
+- Windows: a pseudoconsole child is started with invalid standard handles, so it writes to the pseudoconsole and not to this process's redirected stdout (seen under a test harness and CI).
+
 ## 0.5.16
 
 - New: `tie_group_to_parent(child_pid)` arms the parent-death watchdog of `OwnedCommand::kill_on_parent_exit` for a child the caller already spawned (rightkit#1688). For a host that builds and spawns its own commands and cannot go through `OwnedCommand::spawn`: CodeRight's shells are `tokio::process::Command`s with Landlock and seccomp `pre_exec` hooks, so they only had `PR_SET_PDEATHSIG` on the direct child and a `sh -c 'a & b'` outlived a SIGKILLed daemon (CodeRight #448). The child must lead its own process group; one that does not is refused with `InvalidInput`. macOS and Linux only; other platforms return `Unsupported`. No change to existing behaviour.

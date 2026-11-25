@@ -16,8 +16,12 @@ import { formatPreflight, PREFLIGHT_FAIL } from "./preflight.mjs";
 import { cargoManifestState } from "./cargo-manifest-text.mjs";
 
 const FORBIDDEN_PACKAGE_PATH = /(^|\/)(?:\.env(?:\.[^/]*)?|target(?:\/.*)?|node_modules(?:\/.*)?|[^/]+\.(?:p8|p12|pem|key))$/i;
+// A PEM private key is its header followed by key data: a line of base64, after a line break or after an escaped "\n" inside a string literal (a key
+// pasted into code or JSON). The header alone is a format marker, as in code that checks an uploaded key's shape (rightkit-remote-gateway push_key.rs:
+// valid_p8 compares the text with the BEGIN/END markers); it holds no key and is not flagged, so no exemption record is needed for it.
+export const PEM_PRIVATE_KEY = /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----(?:\r?\n|(?:\\r)?\\n)[A-Za-z0-9+/=]{40,}/;
 export const SECRET_PATTERNS = [
-  /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
+  PEM_PRIVATE_KEY,
   /\bAKIA[0-9A-Z]{16}\b/,
   /\bgh[pousr]_[A-Za-z0-9_]{20,}\b/,
   /\bnpm_[A-Za-z0-9]{30,}\b/,
@@ -166,11 +170,11 @@ const RECORD_KEYS = Object.freeze(["path", "sha256", "kind", "note"]);
 const RECORD_NOTE_PLACEHOLDER = "<what it holds and why it is safe>";
 const ENV_TEMPLATE = /(^|\/)\.env(?:\.[^/]*)?\.(?:example|sample|template)$/i;
 // Labels of SECRET_PATTERNS, index for index.
-const SECRET_PATTERN_LABELS = Object.freeze(["a PEM private key header", "an AWS access key id (AKIA)", "a GitHub token (gh*_)", "an npm token (npm_)"]);
+const SECRET_PATTERN_LABELS = Object.freeze(["a PEM private key", "an AWS access key id (AKIA)", "a GitHub token (gh*_)", "an npm token (npm_)"]);
 // Credential shapes that are never a placeholder, matched in env templates besides SECRET_PATTERNS. Every expression is linear:
 // each quantified class is followed by a delimiter it cannot match or by the end of the match.
 const TEMPLATE_SHAPES = Object.freeze([
-  [/-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----/, "a PEM private key header"],
+  [PEM_PRIVATE_KEY, "a PEM private key"],
   [/github_pat_[A-Za-z0-9_]{22,}/, "a GitHub fine-grained token (github_pat_)"],
   [/sk_live_[A-Za-z0-9]{16,}/, "a Stripe live key (sk_live_)"],
   [/xox[abprs]-[A-Za-z0-9-]{10,}/, "a Slack token (xox*-)"],

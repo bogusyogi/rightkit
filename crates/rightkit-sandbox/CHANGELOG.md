@@ -3,6 +3,7 @@
 ## 0.7.0
 
 - Linux: `deny_read` and `deny_read_glob` are enforced by splitting granted roots; opt-in `SandboxPolicy::signal_scope(SignalScope::Own)` scopes signals under Landlock ABI 6; `Sandbox::spawn_pty_stream` returns a lossless async PTY (`StreamedPty`) on macOS, Linux and Windows; `ResourceAuthority::unlimited()` and `ResourceProfile::Unlimited` added. Minor bump: a new `ResourceProfile` variant and enforced Linux `deny_read` change behaviour.
+- Windows: a confined pseudoconsole child is started with invalid standard handles, so it writes to the pseudoconsole and not to the launcher's redirected stdout (seen under a test harness and CI). Linux: the seccomp allowlist adds `setpgid` and `rt_sigsuspend`, which a confined shell needs for its own process group and for `wait`.
 
 ## 0.6.6
 

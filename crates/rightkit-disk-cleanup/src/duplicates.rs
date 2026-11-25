@@ -118,10 +118,23 @@ pub fn find_duplicates(paths: &[PathBuf], options: &DuplicateOptions) -> Duplica
     }
 }
 
-/// True for a Windows UNC path (including the verbatim UNC form) or a drive letter that is a
-/// mapped network drive; always false elsewhere.
+/// True for a UNC path (`\\server\share`, `//server/share`, `\\?\UNC\...`), a drive letter that is a
+/// mapped network drive (Windows), or a network mount under `/Volumes` (Mac); false otherwise.
+pub fn is_network_path(path: &Path) -> bool {
+    if let Some(text) = path.to_str() {
+        let unc = text.starts_with("\\\\") || text.starts_with("//");
+        if unc && !text.starts_with("\\\\?\\") {
+            return true;
+        }
+        if text.to_ascii_uppercase().starts_with("\\\\?\\UNC\\") {
+            return true;
+        }
+    }
+    is_network_volume(path)
+}
+
 #[cfg(windows)]
-fn is_network_path(path: &Path) -> bool {
+fn is_network_volume(path: &Path) -> bool {
     use std::os::windows::ffi::OsStrExt;
     use std::path::{Component, Prefix};
     use windows::Win32::Storage::FileSystem::GetDriveTypeW;
@@ -144,8 +157,67 @@ fn is_network_path(path: &Path) -> bool {
     }
 }
 
-#[cfg(not(windows))]
-fn is_network_path(_path: &Path) -> bool {
+/// File system types a Mac mounts from a server.
+#[cfg(unix)]
+const NETWORK_FS_TYPES: [&str; 4] = ["smbfs", "afpfs", "nfs", "webdav"];
+
+#[cfg(unix)]
+fn is_network_volume(path: &Path) -> bool {
+    let Some(text) = path.to_str() else {
+        return false;
+    };
+    let Some(rest) = text.strip_prefix("/Volumes/") else {
+        return false;
+    };
+    let name = rest.split('/').next().unwrap_or("");
+    if name.is_empty() {
+        return false;
+    }
+    mount_is_network(&format!("/Volumes/{name}"))
+}
+
+/// Whether `mount` lists `mount_point` as served by a network file system. The query is
+/// bounded to 10 seconds; no answer counts as not a network volume.
+#[cfg(unix)]
+fn mount_is_network(mount_point: &str) -> bool {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let spawned = std::thread::Builder::new()
+        .name("rightkit-volume-query".into())
+        .spawn(move || {
+            let _ = tx.send(std::process::Command::new("/sbin/mount").output());
+        });
+    if spawned.is_err() {
+        return false;
+    }
+    let Ok(Ok(output)) = rx.recv_timeout(Duration::from_secs(10)) else {
+        return false;
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .any(|line| mount_line_is_network(line, mount_point))
+}
+
+/// One line of `mount`: `//user@nas/Media on /Volumes/Media (smbfs, nodev, nosuid)`.
+#[cfg(unix)]
+fn mount_line_is_network(line: &str, mount_point: &str) -> bool {
+    let Some((_, rest)) = line.split_once(" on ") else {
+        return false;
+    };
+    let Some((target, options)) = rest.rsplit_once(" (") else {
+        return false;
+    };
+    if target != mount_point {
+        return false;
+    }
+    options
+        .trim_end_matches(')')
+        .split(',')
+        .next()
+        .is_some_and(|kind| NETWORK_FS_TYPES.contains(&kind.trim()))
+}
+
+#[cfg(not(any(windows, unix)))]
+fn is_network_volume(_path: &Path) -> bool {
     false
 }
 

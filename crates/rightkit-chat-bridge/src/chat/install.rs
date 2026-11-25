@@ -918,6 +918,16 @@ fn marketplace_source(config: &Path, marketplace: &str) -> Option<PathBuf> {
     path.map(PathBuf::from)
 }
 
+/// The folder of a marketplace whose source is a directory (`"source": "directory"`); `None` for
+/// any other kind of source.
+fn directory_marketplace_path(config: &Path, marketplace: &str) -> Option<PathBuf> {
+    let known = read_json(&config.join("plugins").join("known_marketplaces.json"))?;
+    let source = &known[marketplace]["source"];
+    (source["source"].as_str() == Some("directory"))
+        .then(|| source["path"].as_str().map(PathBuf::from))
+        .flatten()
+}
+
 /// Judge the host app plugin in the Claude config folder `config` (`PluginHealth`).
 pub fn claude_plugin_health(config: &Path) -> PluginHealth {
     let listed = installed_plugins_path(config);
@@ -956,11 +966,25 @@ pub fn claude_plugin_health(config: &Path) -> PluginHealth {
         let Some(marketplace) = key.strip_prefix(&format!("{}@", brand().plugin_id)) else {
             continue;
         };
-        let folder_ok = installs.as_array().into_iter().flatten().any(|i| {
-            i["installPath"]
-                .as_str()
-                .is_some_and(|p| Path::new(p).is_dir())
-        });
+        // Claude Code reads a plugin of a directory-source marketplace in place and keeps no cache
+        // folder for it (seen with `claude plugin list` on the server, 2026-11-09), so a missing
+        // installPath is fine when that directory holds the plugin at the path the marketplace
+        // file gives (`./plugins/claude/<plugin>`). A git or GitHub marketplace is cloned and its
+        // plugin copied into the cache, so there a missing installPath still fails.
+        let folder_ok =
+            installs.as_array().into_iter().flatten().any(|i| {
+                i["installPath"]
+                    .as_str()
+                    .is_some_and(|p| Path::new(p).is_dir())
+            }) || directory_marketplace_path(config, marketplace).is_some_and(|source| {
+                source
+                    .join("plugins")
+                    .join("claude")
+                    .join(&brand().plugin_id)
+                    .join(".claude-plugin")
+                    .join("plugin.json")
+                    .is_file()
+            });
         if !folder_ok {
             best.key = Some(key.clone());
             best.reason = format!(

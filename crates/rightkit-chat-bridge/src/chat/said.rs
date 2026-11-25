@@ -1006,7 +1006,9 @@ pub fn said(store: &Store, me: &Identity, target: &str, limit: usize) -> Result<
         )));
     }
     let peer = super::resolve_peer(store, me, target).map_err(|e| match e {
-        ChatError::NotFound(_) | ChatError::Invalid(_) => SaidError::Refused(e.to_string()),
+        ChatError::NotFound(_) | ChatError::Invalid(_) | ChatError::Ambiguous { .. } => {
+            SaidError::Refused(e.to_string())
+        }
         other => SaidError::Failed(other.to_string()),
     })?;
     if peer.local {

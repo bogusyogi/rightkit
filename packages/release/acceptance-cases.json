@@ -543,16 +543,16 @@
     ]
   },
   "limitsMs": {
-    "case1": 977000,
-    "case2": 34000,
-    "case3": 41000,
-    "case4": 31000,
-    "case5": 24000,
-    "case6": 41000,
-    "case7": 103000,
-    "realBuild": null
+    "case1": 168000,
+    "case2": 49000,
+    "case3": 111000,
+    "case4": 46000,
+    "case5": 74000,
+    "case6": 96000,
+    "case7": 78000,
+    "realBuild": 421000
   },
-  "limitsRule": "first clean measured time x 1.25, at least the measured time + 15 s (Gemini for Adrian, 2026-11-25: the gate must pass under normal working load, so a short case keeps 15 s of headroom), filled once from the 0.6.75 run of 2026-11-25 (accept-0675b); one limit per case covers each of its unkilled runs; null means not yet measured, and NN11 fails while it is null",
+  "limitsRule": "NN11 limits the gate's own time: a run's wall time less the time its broker jobs were in flight (the broker is shared with every other build on the host; Adrian, 2026-11-25, option b). Each limit is the worst own time of four full runs on the installed pairs of 2026-11-25 (accept-0675b, accept-0675c, accept-0677, accept-0678) x 1.5, and at least that time + 30 s: under the host's normal load the gate's own time of the same case moved up to 3x between runs (case 5 run 2: 9 s to 44 s, most of it before the gate's first line), so the limit catches a stall, not that spread. One limit per case covers each of its unkilled runs; the real build's limit is its worst own time of its two runs with a complete record (accept-0678: 281 s, accept-final2: 72 s) x 1.5, at least + 30 s; null means not yet measured, and NN11 fails while it is null.",
   "corrections": {
     "approved": "Adrian, 2026-11-24: \"Approve, keep going\" (to: C1, C4, the sidecar-build half of C2, and C3 tightened to an exact command list). Reviewed first by Gemini, which rejected C3 as first worded (\"in one command or split by target\" lets a gate always split) and the rk-sidecar half of C2.",
     "previousSha256": "e41bba2b2331adc866ed602f3ab3ecda27adb615d296e981f9a2310479b06bdc",

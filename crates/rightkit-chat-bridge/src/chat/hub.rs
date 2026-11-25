@@ -11,7 +11,8 @@
 //! it through `control` when it runs. On Windows the chat also checks the auth
 //! token, so the CLI can post directly; the hub is registered there too
 //! (`pidDomain` windows, its own reply pipe as `messagingSocketPath`) so chats
-//! list it and can answer it.
+//! list it and can answer it. On a computer with no host app (the Linux server) the same
+//! functions are run by `headless`, started from `<cli> chat bridge-serve`.
 
 use super::control::{self, Request};
 use super::deliver_claude::ReplyMessage;
@@ -28,7 +29,12 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
-const SESSION_SCAN_EVERY: Duration = Duration::from_secs(5);
+pub(super) const SESSION_SCAN_EVERY: Duration = Duration::from_secs(5);
+/// Whether the background pass asks the linked computers for their chat lists, which only the
+/// hub's page shows. The headless host has no page and turns it off, so it never starts the
+/// device-link broker every minute for a list nobody reads.
+static POLL_LINKS: AtomicBool = AtomicBool::new(true);
+
 /// The registry entry's name, as other Claude chats list it.
 pub fn registered_name() -> &'static str {
     &super::brand::brand().hub_name
@@ -102,6 +108,17 @@ pub(super) fn local_chats(store: &Store, max_age: Duration) -> Vec<LocalSession>
     state.sessions = sessions.clone();
     state.scanned = Some(Instant::now());
     sessions
+}
+
+/// The working folders of this computer's chats as the hub's last scan saw them. Reads the
+/// scan already held in memory; it sweeps nothing itself, so a caller may ask every tick.
+pub fn local_chat_folders() -> Vec<String> {
+    state()
+        .sessions
+        .iter()
+        .map(|session| session.cwd.clone())
+        .filter(|cwd| !cwd.trim().is_empty())
+        .collect()
 }
 
 /// Whether `id` is a chat on this computer (for `ReplyHub`).
@@ -663,9 +680,10 @@ fn background(store: &Store) {
     lane.stage("receipts");
     super::receipts::background(store);
     lane.stage("links");
-    let due = state()
-        .links_asked
-        .is_none_or(|at| at.elapsed() >= Duration::from_secs(60));
+    let due = POLL_LINKS.load(Ordering::Relaxed)
+        && state()
+            .links_asked
+            .is_none_or(|at| at.elapsed() >= Duration::from_secs(60));
     if due {
         state().links_asked = Some(Instant::now());
         let answers = links::list_all(store);
@@ -1029,14 +1047,18 @@ fn handle_control_inner(request: &Request) -> Value {
                 Err(e) => return json!({"ok": false, "error": format!("Bad request: {e}")}),
             };
             let lock = session_lock(session_id);
+            let span = super::trace::start(store, &envelope.id, "hub_session_wait");
             let _turn = lock.lock().unwrap_or_else(|p| p.into_inner());
+            span.finish("acquired");
             let sessions = local_chats(store, Duration::from_secs(2));
             let Some(session) = sessions.iter().find(|s| s.id == session_id) else {
                 return json!({"ok": true, "status": "refused",
                               "detail": "That chat isn't open on this computer any more."});
             };
             let reply_socket = request.args["reply_socket"].as_str();
+            let span = super::trace::start(store, &envelope.id, "hub_delivery");
             let receipt = deliver_local_via(store, session, &envelope, reply_socket);
+            span.finish(receipt.state.as_str());
             json!({"ok": true, "status": receipt.state.as_str(), "detail": receipt.detail})
         }
         other => json!({"ok": false, "error": format!("Unknown request: {other}")}),
@@ -1148,5 +1170,290 @@ pub fn status() -> Status {
         links: state.link_state.clone(),
         last_error: state.last_error.clone(),
         activity: store().map(|s| s.activity()).unwrap_or_default(),
+    }
+}
+
+// ---- headless host --------------------------------------------------------------------
+
+/// Chat's service for a computer with no host app: the Linux server's `<cli> chat bridge-serve`
+/// (`cross_user::serve`) runs it, as the same user that runs the Claude chats. It is the app's
+/// chat service (`agent_chat::sync`, `start_tick`, `start_control`) over the same functions in
+/// this file, nothing parallel: it registers this process in Claude's
+/// session registry (`start`), opens the reply listeners (`ReplyHub`), heartbeats and rescans
+/// (`tick`), and answers the CLI's control requests (`control::take_requests`, then
+/// `handle_control`), so `control::hub_running` is true here and a delivery is posted by this
+/// registered process into the chat's live messaging socket, which is what a Claude chat
+/// accepts (see the module comment). It follows the Chat switch every two seconds as the app
+/// does, and on SIGTERM or SIGINT it stops the reply listeners and removes its registry files
+/// and heartbeat before it exits.
+#[cfg(target_os = "linux")]
+pub mod headless {
+    use super::*;
+    use crate::chat::deliver_claude::{self, ReplyHub, ReplyMessage};
+    use std::io::Read;
+    use std::os::fd::FromRawFd;
+    use std::sync::atomic::AtomicI32;
+
+    /// How often Chat is started or stopped to match the switch, and ticked.
+    const SUPERVISE_EVERY: Duration = Duration::from_secs(2);
+    /// How often the control reader looks for a request (the CLI's wake-up needs no sockets here:
+    /// there is none on Linux, so the folder is read this often; an empty folder costs one
+    /// directory read).
+    const CONTROL_EVERY: Duration = Duration::from_millis(250);
+
+    /// Chat is started by this host (the switch is on and `start` has run).
+    static ACTIVE: AtomicBool = AtomicBool::new(false);
+    /// The write end of the signal pipe, read by the handler.
+    static SIGNAL_FD: AtomicI32 = AtomicI32::new(-1);
+    /// A stop signal arrived: the supervisor starts nothing more while the process exits. Read and
+    /// written only while `lifecycle()` is held, so a pass cannot begin after the stop began.
+    static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
+    /// Consecutive panicking passes of the control reader after which the process is restarted.
+    const CONTROL_PANICS_FATAL: u32 = 5;
+
+    /// Held by the supervisor for each whole pass (start, stop, learn, tick) and by the signal
+    /// thread for the whole shutdown, so a tick cannot re-register or rewrite the heartbeat after
+    /// the stop has unregistered it, and a signal cannot run between a start's register and its
+    /// reply listener. Lock order: this first, then the hub's own `state()`, `gate()` and
+    /// `progress()` inside the functions called under it. Nothing the hub does under those (the
+    /// heartbeat thread, the chat-tick thread, reply and request threads) ever takes this lock, so
+    /// there is no cycle. It is not held while the supervisor sleeps.
+    fn lifecycle() -> MutexGuard<'static, ()> {
+        static LIFECYCLE: Mutex<()> = Mutex::new(());
+        LIFECYCLE.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// The service cannot go on in a state nobody can name (a panic in a start, a stop or a tick
+    /// leaves the registration, the reply listeners and the heartbeat in an unknown mix): say so
+    /// and abort, which systemd's `Restart=on-failure` turns into a fresh start; the dead hub's
+    /// entries are removed by the next `register`, and the heartbeat goes stale in 30 s.
+    fn fatal(what: &str) -> ! {
+        eprintln!(
+            "{}: {what}; restarting the chat service",
+            super::super::brand::brand().chat_marker()
+        );
+        std::process::abort()
+    }
+
+    /// Start the chat service and return at once; its threads run for the life of the process.
+    /// Fails (and starts nothing) only when its threads or the signal pipe cannot be made; the
+    /// caller goes on without it, and every delivery then takes the route of a computer with no
+    /// hub (`chat::deliver_here_by_route`).
+    pub fn run() -> Result<(), String> {
+        // This computer's name exactly as Chat names it with no hub running (`local_identity`),
+        // so starting the service does not rename it to its peers.
+        let alias = crate::chat::default_alias();
+        POLL_LINKS.store(false, Ordering::Relaxed);
+        stop_on_signal()?;
+        let supervisor_alias = alias.clone();
+        std::thread::Builder::new()
+            .name("chat-service".into())
+            .spawn(move || supervise(&supervisor_alias))
+            .map_err(|e| format!("could not start the chat service thread: {e}"))?;
+        std::thread::Builder::new()
+            .name("chat-control".into())
+            .spawn(control_loop)
+            .map_err(|e| format!("could not start the chat control thread: {e}"))?;
+        Ok(())
+    }
+
+    /// Start or stop Chat to match the switch (`Store::chat_enabled`, `agent_chat::sync`), and tick
+    /// it while it runs. The store is opened once and kept, as the app's loops do. Each pass runs
+    /// under `lifecycle()` and inside `catch_unwind` (as the app's reader does); a panic in
+    /// a pass leaves the service in an unknown state, so it ends the process (`fatal`) instead of
+    /// leaving a process that heartbeats with nothing behind it.
+    fn supervise(alias: &str) {
+        let mut store: Option<Store> = None;
+        // Where the chats' messaging sockets live, learnt from the registry; looked for on each
+        // pass until found (a computer with no chat running at start learns it when one appears).
+        let mut learned = false;
+        loop {
+            let pass = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _held = lifecycle();
+                if SHUTTING_DOWN.load(Ordering::Acquire) {
+                    return false;
+                }
+                if store.is_none() {
+                    store = Store::open_default().ok();
+                }
+                if !learned {
+                    learned = deliver_claude::learn_chat_socket_dir();
+                }
+                let want = store.as_ref().is_some_and(Store::chat_enabled);
+                let active = ACTIVE.load(Ordering::Acquire);
+                if want && !active {
+                    start_chat(alias);
+                } else if !want && active {
+                    stop_chat();
+                }
+                if ACTIVE.load(Ordering::Acquire) {
+                    tick(alias);
+                }
+                true
+            }));
+            match pass {
+                Ok(true) => {}
+                Ok(false) => return,
+                Err(_) => fatal("the chat service pass panicked"),
+            }
+            std::thread::sleep(SUPERVISE_EVERY);
+        }
+    }
+
+    /// `agent_chat::sync`'s start: register, then the reply listener.
+    fn start_chat(alias: &str) {
+        start(alias);
+        let on_reply = Arc::new(|reply: ReplyMessage| {
+            std::thread::spawn(move || on_local_reply(reply));
+        });
+        let is_known = Arc::new(|id: &str| is_known_local_session(id));
+        let reply_hub = match Store::open_default() {
+            Ok(store) => ReplyHub::new_with_store(store, on_reply, is_known),
+            Err(_) => ReplyHub::new(on_reply, is_known),
+        };
+        deliver_claude::set_reply_hub(Some(reply_hub));
+        ACTIVE.store(true, Ordering::Release);
+    }
+
+    /// `agent_chat::sync`'s stop: close the reply listeners, remove the registration.
+    fn stop_chat() {
+        deliver_claude::set_reply_hub(None);
+        stop();
+        ACTIVE.store(false, Ordering::Release);
+    }
+
+    /// Claim and answer the CLI's control requests (`agent_chat::start_control`), each on its own
+    /// thread, with a handler that panics still answering so the CLI gets an outcome and the claim
+    /// is released. While Chat is not started the reader only beats, so the CLI sees the reader
+    /// alive and nothing is claimed. Each pass is guarded as the app's reader is: a panic
+    /// is logged, the store is reopened and the loop goes on, because a pass keeps no state but
+    /// the store (claims it left are recovered by the tick, `control::recover_stale_claims`). A
+    /// reader that panics five passes running cannot be recovered by retrying, and one that is
+    /// dead while the heartbeat stays fresh would make every delivery wait 15 s and end unknown,
+    /// so then the process restarts (`fatal`).
+    fn control_loop() {
+        let mut store: Option<Store> = None;
+        let mut panics = 0u32;
+        loop {
+            std::thread::sleep(CONTROL_EVERY);
+            let pass =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| control_pass(&mut store)));
+            match pass {
+                Ok(failed) => {
+                    panics = 0;
+                    if failed {
+                        store = None;
+                    }
+                }
+                Err(_) => {
+                    panics += 1;
+                    eprintln!(
+                        "{}: the chat control reader panicked ({panics})",
+                        super::super::brand::brand().chat_marker()
+                    );
+                    note("panic in the control reader".to_string());
+                    store = None;
+                    if panics >= CONTROL_PANICS_FATAL {
+                        fatal("the chat control reader keeps panicking");
+                    }
+                    std::thread::sleep(Duration::from_secs(1));
+                }
+            }
+        }
+    }
+
+    /// One pass of the control reader. True when the requests folder could not be read (the store
+    /// is then reopened).
+    fn control_pass(store: &mut Option<Store>) -> bool {
+        if store.is_none() {
+            *store = Store::open_default().ok();
+        }
+        let Some(open) = store.as_ref() else {
+            return false;
+        };
+        if !ACTIVE.load(Ordering::Acquire) {
+            control::beat_reader(open);
+            return false;
+        }
+        let taken = control::take_requests(open);
+        let failed = taken.error.is_some();
+        match &taken.error {
+            // Claims made before the error are still run; the reader beats only when it
+            // read and claimed without error.
+            Some(error) => note(format!("requests folder: {error}")),
+            None => control::beat_reader(open),
+        }
+        for request in taken.requests {
+            let store = open.clone();
+            std::thread::spawn(move || {
+                let reply = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    handle_control(&request)
+                }))
+                .unwrap_or_else(|_| {
+                    json!({"ok": false, "error": "The chat service failed while handling this request; nothing is known to have been sent."})
+                });
+                control::reply(&store, &request.id, &reply);
+            });
+        }
+        failed
+    }
+
+    /// The handler only writes a byte to the pipe, which is all a signal handler may safely do;
+    /// the thread reading the other end does the shutdown.
+    extern "C" fn on_signal(_: libc::c_int) {
+        let fd = SIGNAL_FD.load(Ordering::Relaxed);
+        if fd >= 0 {
+            let byte = 1u8;
+            // SAFETY: write(2) is async-signal-safe; it reads one byte of a live local.
+            unsafe {
+                libc::write(fd, std::ptr::from_ref(&byte).cast(), 1);
+            }
+        }
+    }
+
+    /// On SIGTERM (systemd's stop) or SIGINT: stop the reply listeners, remove the registry files
+    /// and heartbeat, and exit 0. A kill that cannot be caught leaves the files; the next start
+    /// removes a dead hub's entries (`register_in`), and the heartbeat goes stale in 30 s, so
+    /// nothing then claims the hub is running.
+    fn stop_on_signal() -> Result<(), String> {
+        let mut fds = [0 as libc::c_int; 2];
+        // SAFETY: pipe2 fills the two descriptors of a live array.
+        if unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) } != 0 {
+            return Err(format!(
+                "could not make the signal pipe: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        // SAFETY: fds[0] was just made and nothing else owns it.
+        let mut reader = unsafe { std::fs::File::from_raw_fd(fds[0]) };
+        SIGNAL_FD.store(fds[1], Ordering::Relaxed);
+        std::thread::Builder::new()
+            .name("chat-signal".into())
+            .spawn(move || {
+                let mut byte = [0u8; 1];
+                if reader.read_exact(&mut byte).is_ok() {
+                    // Waits for the pass in progress (a start or a tick) to end, then no pass
+                    // begins again: the supervisor reads the flag under the same lock. A stop
+                    // that panics still ends the process, or the handler would swallow SIGTERM.
+                    let _held = lifecycle();
+                    SHUTTING_DOWN.store(true, Ordering::Release);
+                    if ACTIVE.load(Ordering::Acquire) {
+                        let _ = std::panic::catch_unwind(stop_chat);
+                    }
+                    std::process::exit(0);
+                }
+            })
+            .map_err(|e| format!("could not start the signal thread: {e}"))?;
+        for signal in [libc::SIGTERM, libc::SIGINT] {
+            // SAFETY: `on_signal` is async-signal-safe (above); the handler is installed once,
+            // before the service's threads exist beyond the reader of the pipe.
+            unsafe {
+                libc::signal(
+                    signal,
+                    on_signal as extern "C" fn(libc::c_int) as libc::sighandler_t,
+                );
+            }
+        }
+        Ok(())
     }
 }
