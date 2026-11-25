@@ -179,11 +179,33 @@ fn reader_silence_ms(store: &Store) -> Option<u64> {
     Some(now_ms().saturating_sub(ts))
 }
 
-/// Whether the host app hub's chat is running (its relay heartbeat is fresh).
+/// Whether the host app hub's chat is running: a fresh relay heartbeat, or a fresh request-reader
+/// heartbeat from the same relay. Roster discovery can stall the relay tick while the same host
+/// continues taking requests.
 pub fn hub_running(store: &Store) -> bool {
-    store
-        .relay_status()
-        .is_some_and(|s| now_ms().saturating_sub(s.ts) < HUB_FRESH_MS)
+    let Some(relay) = store.relay_status() else {
+        return false;
+    };
+    let now = now_ms();
+    if now.saturating_sub(relay.ts) < HUB_FRESH_MS {
+        return true;
+    }
+    fs::read(reader_beat_path(store))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .is_some_and(|reader| {
+            reader["pid"].as_u64() == Some(u64::from(relay.pid))
+                && reader["ts"]
+                    .as_u64()
+                    .is_some_and(|ts| now.saturating_sub(ts) < READER_FRESH_MS)
+        })
+}
+
+fn trace_message_id(args: &Value) -> Option<String> {
+    args["envelope"]
+        .as_str()
+        .and_then(|encoded| super::links::decode_envelope_local(encoded).ok())
+        .map(|env| env.id)
 }
 
 /// Ask the hub to run `op` and wait up to `wait` for its reply. An `Err` that
@@ -220,6 +242,9 @@ pub fn call(store: &Store, op: &str, args: Value, wait: Duration) -> Result<Valu
         |file| io::Write::write_all(file, body.to_string().as_bytes()),
     )
     .map_err(|e| e.to_string())?;
+    if let Some(msg_id) = trace_message_id(&args) {
+        super::trace::waiting(store, &msg_id, "hub_claim_wait");
+    }
     wake_hub();
     let started = Instant::now();
     loop {
@@ -511,6 +536,10 @@ fn claim_into(store: &Store, out: &mut Vec<(Request, ClaimGuard)>) -> io::Result
             let _ = fs::remove_file(&claim);
             continue;
         };
+        if let Some(msg_id) = trace_message_id(&value["args"]) {
+            super::trace::resumed(store, &msg_id, "hub_claim_wait", "claimed");
+            super::trace::mark(store, &msg_id, "hub_claim", "claimed");
+        }
         out.push((
             Request {
                 id,

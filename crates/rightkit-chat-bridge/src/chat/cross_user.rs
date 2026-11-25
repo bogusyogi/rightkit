@@ -1,6 +1,6 @@
 //! Linux-only, root-configured chat boundary for a website user's sessions and a separate the host app
 //! engine uid. RightKit's resident transport deliberately accepts only its own uid. This adapter
-//! extends that boundary for four chat methods, without exposing the resident socket or keys.
+//! extends that boundary for bounded chat methods, without exposing the resident socket or keys.
 //! Session discovery, hooks and transcripts stay under their original uid and HOME.
 
 use super::mesh;
@@ -96,7 +96,7 @@ mod linux {
     fn allowed(method: &str) -> bool {
         matches!(
             method,
-            mesh::PEERS | mesh::DELIVER | mesh::SAID | mesh::RECEIPT
+            mesh::PEERS | mesh::DELIVER | mesh::SAID | mesh::RECEIPT | mesh::TRACE
         )
     }
     pub fn allowed_engine(method: &str, params: &Value) -> bool {
@@ -266,8 +266,22 @@ mod linux {
         let listener = UnixListener::bind(socket_path()).map_err(|e| e.to_string())?;
         std::fs::set_permissions(socket_path(), std::fs::Permissions::from_mode(0o660))
             .map_err(|e| e.to_string())?;
+        // The chat service the app runs, run here: registered with Claude as a peer, the reply
+        // listener, the control channel the CLI hands deliveries to. This process runs as the
+        // same user as the Claude chats (its posts are accepted only from there), so it is the
+        // one place the hub's job can be done on this computer. When it cannot start, the
+        // bridge still serves and deliveries take the no-hub route (held, or the hook).
+        if let Err(error) = super::super::hub::headless::run() {
+            eprintln!(
+                "{} chat: the chat service did not start: {error}",
+                crate::chat::brand::brand().cli
+            );
+        }
         std::thread::spawn(|| {
             loop {
+                // The chat service's tick runs this same pass while Chat is started; the pass
+                // itself lets only one run at a time (`receipts::background`), so the two cannot
+                // post a receipt twice, and this one covers Chat off or the service not running.
                 if let Ok(store) = super::super::Store::open_default() {
                     super::super::receipts::background(&store);
                 }

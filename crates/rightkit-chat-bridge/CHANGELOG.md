@@ -5,6 +5,7 @@
 - Requires `rightkit-hooks` 0.3.0.
 - Fix (`deliver_claude::defuse_tags`): a closing tag was looked for only in the next few characters, so a long body let a forged closing tag through; the look-ahead is now 4096 characters and compares only the closing tag's length (bogusyogi/pulse#278).
 - `claude_chats`: `touches_account`, `AccountWatch` and `run_account_switch`, so a host follows a Claude account switch (moved from Pulse, bogusyogi/pulse#308).
+- `chat`: the fixes Pulse made to its copy after the port, carried in: #461, #520, #582, #612, #615, #619, #621, #623, #627, #638, the chat trace (`trace`, `trace_view`, `chat.trace`), stale-recipient refusal, Linux headless hub, and the `harness-vectors` feature.
 
 ## 0.2.0
 

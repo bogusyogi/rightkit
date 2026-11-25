@@ -110,8 +110,8 @@ pub struct Envelope {
     /// ssh link needs (`chat::origin_of`). Empty on every envelope that did not come that way.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub mesh: String,
-    /// With `mesh`: the paired device is the owner's own computer (`mesh::authorize` said
-    /// "owner"), not one that only holds a grant. Only then is its machine believed verified.
+    /// With `mesh`: the paired device is the owner's own computer (`rightkit_mesh::devicelink::policy::authorize`
+    /// said "owner"), not one that only holds a grant. Only then is its machine believed verified.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub mesh_owner: bool,
     /// With `mesh`: the sending device's role as THIS computer's registry holds it (`computer`,
@@ -247,6 +247,34 @@ pub fn cli() -> String {
         }
         None => stem.to_string(),
     }
+}
+
+/// The body as a chat reads it: every line that opens like one of the host app's own lines (`[`
+/// then the product name, in any case, after leading spaces, also with a full-width bracket) opens
+/// with `(` instead. Only the host app writes lines that open that way, so a sender cannot put a
+/// header, a "the user said" block or another message id into its body and have it read as the
+/// host app's.
+pub fn defuse_product_lines(body: &str) -> String {
+    let product = super::brand::product();
+    let width = product.chars().count();
+    let mut out = String::with_capacity(body.len());
+    for (i, line) in body.split('\n').enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        let rest = line.trim_start();
+        let lead = &line[..line.len() - rest.len()];
+        let opener = rest.chars().next();
+        let after: String = rest.chars().skip(1).take(width).collect();
+        if matches!(opener, Some('[') | Some('\u{FF3B}')) && after.eq_ignore_ascii_case(product) {
+            out.push_str(lead);
+            out.push('(');
+            out.push_str(&rest[opener.map_or(0, char::len_utf8)..]);
+        } else {
+            out.push_str(line);
+        }
+    }
+    out
 }
 
 /// True for a message ChatGPT sent through the host app's ChatGPT gateway (sender chat id `chatgpt`).

@@ -744,7 +744,7 @@ fn thread_text_as(env: &Envelope, visible: bool) -> String {
         return format!(
             "{}\n{}",
             super::envelope::chatgpt_header(&id),
-            shim::env_text(env)
+            super::envelope::defuse_product_lines(shim::env_text(env))
         );
     }
     let origin = super::origin_of(env);
@@ -754,7 +754,10 @@ fn thread_text_as(env: &Envelope, visible: bool) -> String {
     } else {
         super::envelope::message_header(&origin, &id, first)
     };
-    format!("{header}\n{}", shim::env_text(env))
+    format!(
+        "{header}\n{}",
+        super::envelope::defuse_product_lines(shim::env_text(env))
+    )
 }
 
 /// Where a thread's last turn stands, from its rollout file.
@@ -1211,7 +1214,7 @@ fn deliver_by_hook(session: &LocalSession, env: &Envelope) -> Option<Receipt> {
                 "This Codex chat was stopped by its owner; it reads the message with the owner's next prompt.",
             ))
         }
-        ChatState::Idle => wake_idle(session, id, &text, true),
+        ChatState::Idle => wake_idle_logged(session, id, &text, true),
         ChatState::Quiet | ChatState::Unknown => {
             codex_hook::enqueue(thread, id, &text).ok()?;
             // A terminal session, a Codex app window, or an owner the app cannot name is woken
@@ -1369,6 +1372,37 @@ fn wake_failed(thread: &str, id: &str, text: &str, why: &str) -> Receipt {
     ))
 }
 
+/// `wake_idle`, with its outcome logged (`chat.wake.outcome`): the state the route answered, or
+/// `not_woken` when it left the message to the queue or the hook inbox. A state and a duration
+/// only, never the message.
+fn wake_idle_logged(
+    session: &LocalSession,
+    id: &str,
+    text: &str,
+    to_queue: bool,
+) -> Option<Receipt> {
+    let began = Instant::now();
+    let store = Store::open_default().ok();
+    let span = store
+        .as_ref()
+        .map(|store| super::trace::start(store, id, "codex_wake"));
+    let out = wake_idle(session, id, text, to_queue);
+    let state = out.as_ref().map_or("not_woken", |r| r.state.as_str());
+    if let Some(span) = span {
+        span.finish(state);
+    }
+    super::sendlog::event(
+        rightkit_logs::Level::Info,
+        "chat.wake.outcome",
+        serde_json::json!({
+            "harness": "codex",
+            "state": state,
+            "durationMs": began.elapsed().as_millis() as u64,
+        }),
+    );
+    out
+}
+
 /// The wake route for an idle chat: start a turn with the message (see the module doc);
 /// when waking is off, unavailable or already under way, the message waits in the hook inbox.
 ///
@@ -1444,6 +1478,11 @@ fn wake_idle(session: &LocalSession, id: &str, text: &str, to_queue: bool) -> Op
         return if to_queue { None } else { hold() };
     }
     let log_path = dir.join(format!("{id}.log"));
+    super::sendlog::event(
+        rightkit_logs::Level::Info,
+        "chat.wake.start",
+        serde_json::json!({ "harness": "codex" }),
+    );
     let launched = start_turn(
         &binary,
         thread,
@@ -2056,6 +2095,19 @@ fn deliver_hidden(session: &LocalSession, env: &Envelope) -> Option<Receipt> {
 /// fails leaves it there (`held`), so it is never lost or sent twice.
 #[cfg(unix)]
 fn wake_hidden_headless(session: &LocalSession, id: &str, line: &str) -> Receipt {
+    let store = Store::open_default().ok();
+    let span = store
+        .as_ref()
+        .map(|store| super::trace::start(store, id, "codex_headless_wake"));
+    let receipt = wake_hidden_headless_inner(session, id, line);
+    if let Some(span) = span {
+        span.finish(receipt.state.as_str());
+    }
+    receipt
+}
+
+#[cfg(unix)]
+fn wake_hidden_headless_inner(session: &LocalSession, id: &str, line: &str) -> Receipt {
     let thread = session.id.as_str();
     let held = |why: &str| {
         Receipt::held(format!(
@@ -2116,6 +2168,25 @@ fn wake_hidden_headless(session: &LocalSession, id: &str, line: &str) -> Receipt
 /// waiting message over on that prompt.
 #[cfg(unix)]
 fn queue_wake_line(
+    binary: &Path,
+    thread: &str,
+    id: &str,
+    line: &str,
+    held: impl Fn(&str) -> Receipt,
+) -> Receipt {
+    let store = Store::open_default().ok();
+    let span = store
+        .as_ref()
+        .map(|store| super::trace::start(store, id, "codex_queue_wake"));
+    let receipt = queue_wake_line_inner(binary, thread, id, line, held);
+    if let Some(span) = span {
+        span.finish(receipt.state.as_str());
+    }
+    receipt
+}
+
+#[cfg(unix)]
+fn queue_wake_line_inner(
     binary: &Path,
     thread: &str,
     id: &str,
@@ -2237,7 +2308,7 @@ pub fn deliver(
         // Too long for `codex queue --message`: the stdin route has no such limit. An idle
         // chat is woken with it (when waking is allowed) or the message waits in the hook
         // inbox; only a message neither route can take is `unsupported`.
-        if let Some(receipt) = wake_idle(session, shim::env_id(env), &text, false) {
+        if let Some(receipt) = wake_idle_logged(session, shim::env_id(env), &text, false) {
             return Ok(receipt);
         }
         return Ok(shim::unsupported(&format!(
@@ -2251,10 +2322,15 @@ pub fn deliver(
         "--message".to_string(),
         text,
     ];
-    Ok(match run_capture(&binary, &args, QUEUE_TIMEOUT) {
+    let span = super::trace::start(store, &env.id, "codex_queue_admission");
+    let receipt = match run_capture(&binary, &args, QUEUE_TIMEOUT) {
         Ok(done) if done.success => match queued_id(&done.stdout) {
             Some(id) => {
+                super::trace::waiting(store, &env.id, "codex_queue_wait");
                 let receipt = queued_receipt(thread, id);
+                if matches!(receipt.state, ReceiptState::Delivered) {
+                    super::trace::resumed(store, &env.id, "codex_queue_wait", "queue_row_removed");
+                }
                 // Still in Codex's queue: watch it, so the sender hears when the thread takes it.
                 if matches!(receipt.state, ReceiptState::Queued | ReceiptState::Held) {
                     crate::chat::receipts::watch_codex_queue(store, env, id, &session.name);
@@ -2278,5 +2354,7 @@ pub fn deliver(
         Err(RunFailure::Ambiguous(reason)) => shim::unknown(&format!(
             "{reason} The message may or may not have been queued."
         )),
-    })
+    };
+    span.finish(receipt.state.as_str());
+    Ok(receipt)
 }

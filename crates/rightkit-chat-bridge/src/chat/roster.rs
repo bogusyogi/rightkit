@@ -9,7 +9,9 @@
 //! live. Terminal chats (an interactive `claude` CLI session, an interactive Codex CLI
 //! thread) are listed too, but only while active: activity within `TERMINAL_CHAT_WINDOW`
 //! (6 hours), and only while the setting `terminalChats` (default on) is on. The terminal
-//! leaves session files behind for days; an older one is not a chat anyone is in.
+//! leaves session files behind for days; an older one is not a chat anyone is in. Exception:
+//! on Linux a live Claude terminal chat with a messaging socket stays listed however old (see
+//! `listed_entrypoint`); it is then a stale recipient, sent to only with `--even-if-stale`.
 
 use super::ChatError;
 use super::deliver_claude::{start_identity, text_of};
@@ -304,8 +306,13 @@ fn listed_identity(pid: u32, recorded: Option<&str>, domain: Option<&str>) -> Op
 /// * Claude Desktop and the IDE extension (`claude-vscode`) are app chats: always listed
 ///   (a file without the key is an older Claude's and is kept).
 /// * The terminal (`cli`) is listed only when `terminal` is on, the session is `interactive`
-///   and its newest `statusUpdatedAt` / `updatedAt` is within `TERMINAL_CHAT_WINDOW`.
-/// * Anything else is not a chat: SDK and non-interactive sessions, the host app hub's own
+///   and its newest `statusUpdatedAt` / `updatedAt` is within `TERMINAL_CHAT_WINDOW`. On Linux
+///   (the headless server, no host app) a terminal chat older than the window stays listed
+///   while its process is alive and its messaging socket still exists (`old_terminal_chat_kept`):
+///   the server's chats are terminal chats, often idle for days, and a chat that is not listed
+///   cannot be messaged at all. It is listed with its real last-activity time, so the
+///   `stale_recipient` rule (`is_stale_recipient`) and `--even-if-stale` apply to it.
+/// * Anything else is not a chat: SDK and non-interactive sessions, the Pulse hub's own
 ///   registration (`pulse-hub`, which Claude needs to accept its posts) and `cc-post`.
 fn listed_entrypoint(value: &Value, terminal: bool, now_ms: u64) -> bool {
     match value.get("entrypoint").and_then(Value::as_str) {
@@ -317,10 +324,95 @@ fn listed_entrypoint(value: &Value, terminal: bool, now_ms: u64) -> bool {
                     .iter()
                     .filter_map(|k| value.get(*k).and_then(Value::as_u64))
                     .max()
-                    .is_some_and(|ms| within_terminal_window(ms, now_ms))
+                    .is_some_and(|ms| {
+                        within_terminal_window(ms, now_ms)
+                            || (ms <= now_ms.saturating_add(60_000)
+                                && old_terminal_chat_kept(value))
+                    })
         }
         Some(_) => false,
     }
+}
+
+/// Whether a terminal chat older than `TERMINAL_CHAT_WINDOW` is still listed: only on Linux, where
+/// there is no host app and the chats are terminal chats, and only while its registry entry
+/// names a messaging socket that exists as a socket and its pid still belongs to the process the
+/// entry was written for (`pid_reused`). The caller has not yet checked that the process is
+/// alive (`parse_claude` does, right after). A Claude killed without cleanup leaves its entry and
+/// socket file, so the socket alone would list a dead chat for ever once an unrelated process
+/// takes its pid; the start time closes that. Nothing is opened or connected here, the path is
+/// only looked at.
+#[cfg(target_os = "linux")]
+fn old_terminal_chat_kept(value: &Value) -> bool {
+    use std::os::unix::fs::FileTypeExt;
+    value
+        .get("messagingSocketPath")
+        .and_then(Value::as_str)
+        .filter(|path| !path.is_empty())
+        .and_then(|path| std::fs::symlink_metadata(path).ok())
+        .is_some_and(|meta| meta.file_type().is_socket())
+        && !pid_reused(value)
+}
+
+/// How much later than the entry's `startedAt` a process may have started and still be its
+/// owner. The entry is written after the process starts, so the true gap is about zero or
+/// negative; the rest is the one-second resolution of the boot time and a wall clock that was
+/// stepped since boot. A reused pid belongs to a process that started after the old chat died,
+/// and this check runs only for chats idle over six hours, so two minutes loses no live chat and
+/// no real reuse.
+#[cfg(target_os = "linux")]
+const PID_REUSE_TOLERANCE_MS: u64 = 120_000;
+
+/// True when the process now holding the entry's pid started clearly after the entry says the
+/// chat did, so the pid was reused. Anything that cannot be read or compared (no `startedAt`, no
+/// `/proc` data) is not proof of reuse: the chat stays listed on the strength of its socket.
+#[cfg(target_os = "linux")]
+fn pid_reused(value: &Value) -> bool {
+    let (Some(pid), Some(started)) = (
+        value
+            .get("pid")
+            .and_then(Value::as_u64)
+            .and_then(|p| u32::try_from(p).ok()),
+        value.get("startedAt").and_then(Value::as_u64),
+    ) else {
+        return false;
+    };
+    // Milliseconds since the epoch; a value that small is seconds.
+    let started_ms = if started < 100_000_000_000 {
+        started.saturating_mul(1000)
+    } else {
+        started
+    };
+    process_started_ms(pid)
+        .is_some_and(|actual| actual > started_ms.saturating_add(PID_REUSE_TOLERANCE_MS))
+}
+
+/// When process `pid` started, in milliseconds since the epoch, from `/proc/<pid>/stat` (field 22,
+/// clock ticks after boot) and the boot time in `/proc/stat`. None when either cannot be read.
+#[cfg(target_os = "linux")]
+fn process_started_ms(pid: u32) -> Option<u64> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    // The command name (field 2) may hold spaces and parentheses: fields resume after the last
+    // `)`, field 3 first, so field 22 is the 20th after it.
+    let after = &stat[stat.rfind(')')? + 1..];
+    let ticks: u64 = after.split_whitespace().nth(19)?.parse().ok()?;
+    // SAFETY: sysconf has no preconditions.
+    let hz = u64::try_from(unsafe { libc::sysconf(libc::_SC_CLK_TCK) })
+        .ok()
+        .filter(|hz| *hz > 0)?;
+    let boot: u64 = std::fs::read_to_string("/proc/stat")
+        .ok()?
+        .lines()
+        .find_map(|line| line.strip_prefix("btime ")?.trim().parse().ok())?;
+    Some(
+        boot.saturating_mul(1000)
+            .saturating_add(ticks.saturating_mul(1000) / hz),
+    )
+}
+
+#[cfg(not(target_os = "linux"))]
+fn old_terminal_chat_kept(_value: &Value) -> bool {
+    false
 }
 
 fn parse_claude(
@@ -485,13 +577,21 @@ pub fn claude_sessions_all(alive: &dyn Fn(u32) -> bool, terminal: bool) -> Vec<L
             .parent()
             .and_then(rightkit_ai_accounts::names::account_of_config);
         for mut session in claude_sessions_in(&dir, alive, terminal) {
-            if sessions.iter().any(|(s, _)| s.id == session.id) {
-                continue;
-            }
             if let Some(label) = &label {
                 session.name = format!("{} ({label})", session.name);
             }
-            sessions.push((session, account.clone()));
+            // A session id in two profile folders is one chat: the newest copy wins, with the
+            // account and recency of that copy. The first folder read is not the newest, and the
+            // folder read first depends on which process lists (the hub, ssh, a terminal), so
+            // keeping it made a linked computer's row show another account and an older age.
+            match sessions.iter().position(|(s, _)| s.id == session.id) {
+                Some(at) => {
+                    if session.updated_ms.unwrap_or(0) > sessions[at].0.updated_ms.unwrap_or(0) {
+                        sessions[at] = (session, account.clone());
+                    }
+                }
+                None => sessions.push((session, account.clone())),
+            }
         }
     }
     // With more than one account's chats on this computer, each chat names its account.
@@ -595,10 +695,14 @@ fn desktop_cache() -> std::sync::MutexGuard<'static, DesktopCache> {
 }
 
 /// One Desktop chat record, parsed only when its (mtime, length) changed since the last refresh
-///. `None` when unreadable, archived, scheduled or missing its ids.
-fn desktop_record(path: &std::path::Path, entry: &std::fs::DirEntry) -> Option<DesktopRecord> {
-    let meta = entry.metadata().ok()?;
-    let stamp = (meta.modified().ok()?, meta.len());
+/// `None` when unreadable, archived, scheduled or missing its ids. `meta` is the file's
+/// metadata, from the directory listing (full sweep) or a stat of just this file (a refresh).
+fn desktop_record(path: &std::path::Path, meta: &std::fs::Metadata) -> Option<DesktopRecord> {
+    let Some(stamp) = meta.modified().ok().map(|m| (m, meta.len())) else {
+        // No readable stamp: the record is not judged, and no older answer for it is kept.
+        desktop_cache().remove(path);
+        return None;
+    };
     if let Some((m, l, rec, parsed)) = desktop_cache().get_mut(path) {
         if (*m, *l) == stamp {
             return rec.clone();
@@ -617,10 +721,10 @@ fn desktop_record(path: &std::path::Path, entry: &std::fs::DirEntry) -> Option<D
             {
                 r.last_activity = r.last_activity.max(Some(ms.as_millis() as u64));
             }
-            // The cached stamp stays the last fully parsed one, so every later sweep still sees
-            // the change and parses in full once DESKTOP_REPARSE_AFTER has passed; re-arming the
-            // sweep makes that happen even if the file is not touched again (no watch event).
-            DESKTOP_DIRTY.store(true, std::sync::atomic::Ordering::SeqCst);
+            // The cached stamp stays the last fully parsed one, so every later look still sees
+            // the change and parses in full once DESKTOP_REPARSE_AFTER has passed; queueing this
+            // one record makes that happen even if the file is not touched again (no watch event).
+            desktop_touched().insert(path.to_path_buf());
             return rec.clone();
         }
     }
@@ -752,26 +856,82 @@ pub fn add_idle_desktop(sessions: &mut Vec<LocalSession>, others: bool) {
     sessions.extend(idle);
 }
 
-/// Set by the folder watch (engine) when anything under a `claude-code-sessions` folder changed.
+/// Set by the folder watch (engine) when the folder layout may have changed (a record or folder
+/// appeared, went or moved, the watch lost events): the next listing walks the folders again.
 static DESKTOP_DIRTY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 /// A folder watch is running, so an unchanged folder needs no directory sweep.
 static DESKTOP_WATCHED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-/// Slow backstop: with a watch running, the folders are still swept this often.
+/// Slow backstop: with a watch running, the folders are still walked this often.
 const DESKTOP_BACKSTOP: std::time::Duration = std::time::Duration::from_secs(120);
-/// A watch-flagged change sweeps at most this often (active Desktop sessions flag one every few
-/// seconds, so while Desktop is busy the sweep runs at this rate: over the Dell's 6,000+ records
-/// that was a walk every 10 s, #449). The idle list has no liveness of its own (running chats come
-/// from the registry files), so it only lags new, renamed or reordered idle chats by this much.
+/// A watch-flagged change is looked at at most this often (active Desktop sessions flag one every
+/// few seconds, so while Desktop is busy this is the rate: over the Dell's 6,000+ records a walk
+/// every 10 s was a large share of its idle CPU, #449). The idle list has no liveness of its own
+/// (running chats come from the registry files), so it only lags new, renamed or reordered idle
+/// chats by this much.
 const DESKTOP_DEBOUNCE: std::time::Duration = std::time::Duration::from_secs(30);
+/// More queued record changes than this and the folders are walked instead (an overflowing watch).
+const DESKTOP_TOUCHED_LIMIT: usize = 4096;
 
 type DesktopRows = Vec<(PathBuf, Option<String>, bool, DesktopRecord)>;
 /// Shared, so a listing that finds the folders unchanged takes a pointer, not a copy of every record.
 type DesktopScan = std::sync::Arc<DesktopRows>;
-type DesktopMemo = (bool, std::time::Instant, DesktopScan);
 
-/// The folder watch reports a change under a Desktop chat folder: the next listing sweeps again.
+/// One record file the last full walk saw (chat or not), with the data folder it sits under.
+struct DesktopFile {
+    path: PathBuf,
+    root: PathBuf,
+    label: Option<String>,
+    main: bool,
+}
+
+struct DesktopMemo {
+    others: bool,
+    /// When the folders were last walked in full (the backstop's clock).
+    walked: std::time::Instant,
+    /// When `scan` was last produced, by a walk or a refresh (the debounce's clock).
+    scanned: std::time::Instant,
+    /// Every record file of the last walk, in walk order.
+    files: Vec<DesktopFile>,
+    scan: DesktopScan,
+}
+
+/// Record files the watch reported changed (or whose deferred re-parse is due) since the last
+/// listing: a listing re-looks at just these, not at every record in the folders.
+fn desktop_touched() -> std::sync::MutexGuard<'static, std::collections::HashSet<PathBuf>> {
+    static TOUCHED: std::sync::OnceLock<Mutex<std::collections::HashSet<PathBuf>>> =
+        std::sync::OnceLock::new();
+    TOUCHED
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+}
+
+/// The folder watch reports the folder layout may have changed: the next listing walks again.
 pub fn mark_desktop_dirty() {
     DESKTOP_DIRTY.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// The folder watch reports a change at `path`. A record file (`local_*.json`) is re-looked at
+/// alone: a record already known is stat-ed and re-parsed only if its (mtime, length) moved, and
+/// one not known, or gone, makes the next listing walk the folders. `modify_only` is a content or
+/// metadata change (not a create, delete or move): a change to a folder itself adds no record, so
+/// it is ignored. A create, delete or move of anything else that is not a side file (no `.` in its
+/// name: an account or org folder, a uuid) walks the folders; temporary files beside a record do not.
+pub fn mark_desktop_path(path: &std::path::Path, modify_only: bool) {
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if name.starts_with("local_") && name.ends_with(".json") {
+        let mut touched = desktop_touched();
+        touched.insert(path.to_path_buf());
+        if touched.len() > DESKTOP_TOUCHED_LIMIT {
+            touched.clear();
+            mark_desktop_dirty();
+        }
+    } else if !modify_only && !name.contains('.') {
+        mark_desktop_dirty();
+    }
 }
 
 /// Whether a folder watch is running (`false` when it ended or could not start).
@@ -782,38 +942,96 @@ pub fn set_desktop_watched(watched: bool) {
     }
 }
 
-/// The Desktop chat records, swept from disk only when the watch flagged a change, the last sweep
-/// is older than `DESKTOP_BACKSTOP`, `others` changed, or no watch runs (then every call sweeps,
-/// as before). Within a sweep an unchanged record (path, length, mtime) is not parsed again.
+/// The Desktop chat records. With a watch running: the last answer while nothing changed; after a
+/// change to known record files, those files alone are re-looked at (no directory walk, no stat of
+/// the rest); the folders are walked in full only on a layout change, when `others` changed, once
+/// `DESKTOP_BACKSTOP` has passed, or when no watch runs (then every call walks, as before). In any
+/// walk an unchanged record (path, length, mtime) is not parsed again.
 fn desktop_scan(others: bool) -> DesktopScan {
-    static MEMO: std::sync::Mutex<Option<DesktopMemo>> = std::sync::Mutex::new(None);
+    use std::sync::atomic::Ordering::SeqCst;
+    static MEMO: Mutex<Option<DesktopMemo>> = Mutex::new(None);
     let mut memo = MEMO.lock().unwrap_or_else(|p| p.into_inner());
-    let dirty = DESKTOP_DIRTY.swap(false, std::sync::atomic::Ordering::SeqCst);
-    if DESKTOP_WATCHED.load(std::sync::atomic::Ordering::SeqCst)
-        && let Some((was_others, at, scan)) = memo.as_ref()
-        && *was_others == others
+    // Taken before anything is looked at: a change that lands during this listing sets them
+    // again and is seen by the next one.
+    let dirty = DESKTOP_DIRTY.swap(false, SeqCst);
+    let touched: Vec<PathBuf> = desktop_touched().drain().collect();
+    if DESKTOP_WATCHED.load(SeqCst)
+        && let Some(m) = memo.as_mut()
+        && m.others == others
     {
-        let age = at.elapsed();
-        if !dirty && age < DESKTOP_BACKSTOP {
-            return std::sync::Arc::clone(scan);
+        let pending = dirty || !touched.is_empty();
+        if !pending && m.walked.elapsed() < DESKTOP_BACKSTOP {
+            return std::sync::Arc::clone(&m.scan);
         }
-        if dirty && age < DESKTOP_DEBOUNCE {
-            // Too soon: keep the flag so the change is swept once the debounce passes.
-            DESKTOP_DIRTY.store(true, std::sync::atomic::Ordering::SeqCst);
-            return std::sync::Arc::clone(scan);
+        if pending && m.scanned.elapsed() < DESKTOP_DEBOUNCE {
+            // Too soon: keep the changes so they are looked at once the debounce passes.
+            if dirty {
+                mark_desktop_dirty();
+            }
+            desktop_touched().extend(touched);
+            return std::sync::Arc::clone(&m.scan);
+        }
+        // A touched record that is new or gone makes the refresh give up: fall through to the walk.
+        if !dirty
+            && m.walked.elapsed() < DESKTOP_BACKSTOP
+            && let Some(rows) = desktop_refresh(&m.files, &touched)
+        {
+            m.scan = std::sync::Arc::new(rows);
+            m.scanned = std::time::Instant::now();
+            return std::sync::Arc::clone(&m.scan);
         }
     }
-    let scan = std::sync::Arc::new(desktop_sweep(others));
-    *memo = Some((
+    let (rows, files) = desktop_sweep(others);
+    let scan = std::sync::Arc::new(rows);
+    let now = std::time::Instant::now();
+    *memo = Some(DesktopMemo {
         others,
-        std::time::Instant::now(),
-        std::sync::Arc::clone(&scan),
-    ));
+        walked: now,
+        scanned: now,
+        files,
+        scan: std::sync::Arc::clone(&scan),
+    });
     scan
 }
 
-fn desktop_sweep(others: bool) -> DesktopRows {
-    let mut found: DesktopRows = Vec::new();
+/// The listing after a change to some known record files: each touched one is stat-ed and, if its
+/// stamp moved, parsed again (`desktop_record`); every other record keeps its cached answer, with
+/// no stat. `None` when a touched path is not a known record file or cannot be stat-ed (a new or
+/// deleted record): the layout changed, and only a walk can say how.
+fn desktop_refresh(files: &[DesktopFile], touched: &[PathBuf]) -> Option<DesktopRows> {
+    for path in touched {
+        if !files.iter().any(|f| f.path == *path) {
+            return None;
+        }
+        let meta = std::fs::metadata(path).ok()?;
+        desktop_record(path, &meta);
+    }
+    Some(desktop_rows(files))
+}
+
+/// The rows for `files` from the record cache, newest first, one per chat (the same chat is
+/// recorded under several account/org folders: listed once, newest kept).
+fn desktop_rows(files: &[DesktopFile]) -> DesktopRows {
+    let mut found: DesktopRows = {
+        let cache = desktop_cache();
+        files
+            .iter()
+            .filter_map(|f| match cache.get(&f.path) {
+                Some((_, _, Some(rec), _)) => {
+                    Some((f.root.clone(), f.label.clone(), f.main, rec.clone()))
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    found.sort_by_key(|(_, _, _, rec)| std::cmp::Reverse(rec.last_activity));
+    let mut cli_seen: std::collections::HashSet<String> = Default::default();
+    found.retain(|(_, _, _, rec)| cli_seen.insert(rec.cli.clone()));
+    found
+}
+
+fn desktop_sweep(others: bool) -> (DesktopRows, Vec<DesktopFile>) {
+    let mut files: Vec<DesktopFile> = Vec::new();
     for (root, label, main) in super::deliver_claude::desktop_chat_roots() {
         if !main && !others {
             continue;
@@ -845,20 +1063,23 @@ fn desktop_sweep(others: bool) -> DesktopRows {
                 // let the `retain` below drop those entries every sweep, so each sweep read and
                 // parsed every archived record in full again (#444: the Dell's ~290 MB per sweep).
                 seen.insert(path.clone());
-                let Some(rec) = desktop_record(&path, &record) else {
-                    continue;
-                };
-                found.push((root.clone(), label.clone(), main, rec));
+                if let Ok(meta) = record.metadata() {
+                    desktop_record(&path, &meta);
+                } else {
+                    desktop_cache().remove(&path);
+                }
+                files.push(DesktopFile {
+                    path,
+                    root: root.clone(),
+                    label: label.clone(),
+                    main,
+                });
             }
             desktop_cache()
                 .retain(|path, _| path.parent() != Some(org_path.as_path()) || seen.contains(path));
         }
     }
-    // The same chat is recorded under several account/org folders: list it once, newest kept.
-    found.sort_by_key(|(_, _, _, rec)| std::cmp::Reverse(rec.last_activity));
-    let mut cli_seen: std::collections::HashSet<String> = Default::default();
-    found.retain(|(_, _, _, rec)| cli_seen.insert(rec.cli.clone()));
-    found
+    (desktop_rows(&files), files)
 }
 
 /// How many Codex threads (newest first, not archived) are listed.
@@ -1119,12 +1340,8 @@ pub(super) fn iso_epoch(text: &str) -> Option<u64> {
         num(14, 16)?,
         num(17, 19)?,
     );
-    let yy = if mo <= 2 { y - 1 } else { y };
-    let era = yy.div_euclid(400);
-    let yoe = yy - era * 400;
-    let doy = (153 * (mo + if mo > 2 { -3 } else { 9 }) + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146_097 + doe - 719_468;
+    let date = rightkit_time::Date::new(y, mo.try_into().ok()?, d.try_into().ok()?)?;
+    let days = date.days_since_epoch();
     u64::try_from(days * 86_400 + h * 3600 + mi * 60 + s).ok()
 }
 
@@ -1269,10 +1486,17 @@ fn matches_tier(tier: usize, p: &Peer, wanted: &str) -> bool {
 
 /// The peer a user or chat meant: exact id, then session id, then title or
 /// "title on device", then a part of the display name (a fragment, never a full
-/// "title on device" address). More than one match is an error that lists them (never picked between, even when
-/// one is live or newer). A name that matches nothing is
+/// "title on device" address). More than one match is an error that lists them (never picked between, except when exactly
+/// one is live and the rest are stale: `resolve_routed`). A name that matches nothing is
 /// refused, never read as some other chat.
 pub fn resolve(peers: &[Peer], query: &str) -> Result<Peer, ChatError> {
+    resolve_routed(peers, query).map(|(peer, _)| peer)
+}
+
+/// `resolve`, and the sentence to put in the receipt when the name matched several chats and
+/// exactly one of them is live (the others stale): the message goes to the live one and says so.
+/// Any other name that matches more than one chat is `ChatError::Ambiguous`.
+pub fn resolve_routed(peers: &[Peer], query: &str) -> Result<(Peer, Option<String>), ChatError> {
     match resolve_exact(peers, query) {
         // A name copied from a listing carries its ` [Claude A]` label: match without it.
         Err(first @ ChatError::NotFound(_)) => {
@@ -1280,10 +1504,54 @@ pub fn resolve(peers: &[Peer], query: &str) -> Result<Peer, ChatError> {
             if stripped == query {
                 return Err(first);
             }
-            resolve_exact(peers, &stripped).map_err(|_| first)
+            resolve_exact(peers, &stripped).map_err(|e| match e {
+                ChatError::Ambiguous { .. } => e,
+                _ => first,
+            })
         }
         other => other,
     }
+}
+
+/// How long ago `updated_ms` was, in words ("5 h ago"), or "unknown".
+pub fn age_words(updated_ms: Option<u64>, now_ms: u64) -> String {
+    let Some(at) = updated_ms else {
+        return "unknown".to_string();
+    };
+    let minutes = now_ms.saturating_sub(at) / 60_000;
+    match minutes {
+        0..=59 => format!("{minutes} min ago"),
+        60..=2879 => format!("{} h ago", minutes / 60),
+        _ => format!("{} d ago", minutes / 1440),
+    }
+}
+
+/// A recently active idle Codex thread can receive queued messages. Its roster uses "stale"
+/// for a finished turn too. Keep refusing old threads and those without a believable timestamp.
+pub fn is_stale_recipient(peer: &Peer, now_ms: u64) -> bool {
+    let window = u64::try_from(TERMINAL_CHAT_WINDOW.as_millis()).unwrap_or(u64::MAX);
+    if peer.kind == "codex" && peer.status == "idle" && peer.liveness == "stale" {
+        return !peer
+            .updated_ms
+            .is_some_and(|at| within_terminal_window(at, now_ms));
+    }
+    peer.liveness == "stale"
+        || peer
+            .updated_ms
+            .is_some_and(|at| now_ms.saturating_sub(at) > window)
+}
+
+/// One chat as a receipt or an error names it: title, computer, id, harness, liveness, last
+/// activity.
+pub fn describe(peer: &Peer, now_ms: u64) -> String {
+    format!(
+        "{} (id {}, {}, {}, last active {})",
+        peer.display,
+        peer.id,
+        peer.kind,
+        peer.liveness,
+        age_words(peer.updated_ms, now_ms)
+    )
 }
 
 /// `query` without ` [..]` account labels (`the host app VM [Claude A] on mac` is `the host app VM on mac`).
@@ -1301,7 +1569,7 @@ fn strip_account_label(query: &str) -> String {
     out
 }
 
-fn resolve_exact(peers: &[Peer], query: &str) -> Result<Peer, ChatError> {
+fn resolve_exact(peers: &[Peer], query: &str) -> Result<(Peer, Option<String>), ChatError> {
     let wanted = query.trim().to_lowercase();
     if wanted.is_empty() {
         return Err(ChatError::Invalid("who should it go to?".into()));
@@ -1313,19 +1581,44 @@ fn resolve_exact(peers: &[Peer], query: &str) -> Result<Peer, ChatError> {
             .collect();
         match hits.len() {
             0 => continue,
-            1 => return Ok(hits[0].clone()),
+            1 => return Ok((hits[0].clone(), None)),
             _ => {
-                // Never a guess between chats that answer to one name (#500: "message pulse"
-                // went to the newest of several): the candidates are listed, the sender picks by
-                // id or "<title> on <device>" with an id.
-                let names: Vec<String> = hits
+                // Never a guess between chats that answer to one name: the
+                // candidates are listed and the sender picks by id or "<title> on <device>". The
+                // one exception: exactly one is live and every other is stale.
+                let now = super::envelope::now_ms();
+                let live: Vec<&&Peer> = hits.iter().filter(|p| p.liveness == "live").collect();
+                if let [only] = live.as_slice()
+                    && hits
+                        .iter()
+                        .all(|p| p.liveness == "live" || p.liveness == "stale")
+                {
+                    let note = format!(
+                        "\"{query}\" matched {} chats; {} is the only live one, so it went there",
+                        hits.len(),
+                        describe(only, now)
+                    );
+                    return Ok(((**only).clone(), Some(note)));
+                }
+                let candidates: Vec<serde_json::Value> = hits
                     .iter()
-                    .map(|p| format!("{} ({})", p.display, p.id))
+                    .map(|p| {
+                        serde_json::json!({
+                            "chat": p.display, "id": p.id, "machine": p.device,
+                            "harness": p.kind, "liveness": p.liveness,
+                            "lastActivityMs": p.updated_ms,
+                            "lastActivity": age_words(p.updated_ms, now),
+                        })
+                    })
                     .collect();
-                return Err(ChatError::Invalid(format!(
-                    "\"{query}\" matches more than one chat: {}",
-                    names.join(", ")
-                )));
+                let listed: Vec<String> = hits.iter().map(|p| describe(p, now)).collect();
+                return Err(ChatError::Ambiguous {
+                    detail: format!(
+                        "\"{query}\" matches more than one chat: {}. Send to \"<chat> on <device>\" or the chat id",
+                        listed.join("; ")
+                    ),
+                    candidates,
+                });
             }
         }
     }

@@ -56,6 +56,11 @@ pub mod said;
 pub mod sendlog;
 pub mod store;
 mod tail;
+pub mod trace;
+pub mod trace_view;
+#[cfg(feature = "harness-vectors")]
+#[doc(hidden)]
+pub mod vectors;
 pub mod whoami;
 
 pub use rightkit_device_link_types::MemberRole;
@@ -115,6 +120,9 @@ pub enum ChatError {
         detail: String,
         candidates: Vec<serde_json::Value>,
     },
+    /// The chat's last activity is older than 6 hours, or its liveness is stale.
+    #[error("{0}")]
+    Stale(String),
     #[error("{0}")]
     Io(String),
     #[error("{0}")]
@@ -391,7 +399,7 @@ pub fn all_peers(store: &Store, me: &Identity) -> Vec<Peer> {
 }
 
 /// [`all_peers`] for the `peers` listing: `Some(wait)` bounds every link's poll (C-D4). A send
-/// resolves its target through `all_peers` and keeps the full wait.
+/// resolving a bare local title uses this same link budget for duplicate-name discovery.
 pub fn all_peers_within(store: &Store, me: &Identity, wait: Option<Duration>) -> Vec<Peer> {
     roster::merge_with(
         &roster::local_sessions(store),
@@ -491,11 +499,13 @@ fn repeat_receipt(env: &Envelope, session: &str, seen: store::Delivery) -> Recei
         // Not yet in the chat or its inbox, so not `sent`: the caller checks `inbox`/`status`.
         store::Delivery::InProgress { msg_id } => receipt(
             ReceiptState::Unknown,
-            format!(
-                "{} is being delivered to this chat right now (or its delivery stopped \
-                 midway); it is not delivered twice. Check inbox and status.",
-                which(&msg_id)
-            ),
+            brand::branded(&format!(
+                "{} is still being delivered to this chat (or its delivery stopped midway); it \
+                 is not delivered twice. When it finishes, the receipt arrives as an update: \
+                 `@cli@ chat receipt {}` shows it; do not resend.",
+                which(&msg_id),
+                env.id
+            )),
         ),
         store::Delivery::Conflict | store::Delivery::New => receipt(
             ReceiptState::Refused,
@@ -588,8 +598,18 @@ fn deliver_local_push(
     // any route), so the route for that id is stored before the text can reach the chat. If
     // it cannot be stored, nothing is delivered and the receipt says why.
     if let Err(why) = save_reply_route_for(store, session, env) {
+        sendlog::event(
+            rightkit_logs::Level::Warn,
+            "chat.route.refused",
+            json!({ "harness": session.kind }),
+        );
         return (receipt(ReceiptState::Refused, why), false);
     }
+    sendlog::event(
+        rightkit_logs::Level::Info,
+        "chat.route.saved",
+        json!({ "harness": session.kind }),
+    );
     let pushed = match session.kind.as_str() {
         "claude" => deliver_claude::deliver_via(session, env, reply_socket),
         "codex" => deliver_codex::deliver(store, session, env),
@@ -621,16 +641,39 @@ fn deliver_local_push(
         Err(ChatError::Invalid(why)) => return (receipt(ReceiptState::Refused, why), false),
         Err(e) => (ReceiptState::Held, e.to_string()),
     };
-    match store.append_inbox(&session.id, env) {
+    // A message the push already left in the chat's hook inbox of the host app (a failed idle wake
+    // does, `deliver_claude::wake_idle_desktop`) has its one copy there: the hook hands it over at the
+    // chat's next prompt. A second copy in the chat inbox would be read again by `<cli> chat
+    // inbox` and answered with a second `released` receipt, so none is written. A hook that
+    // claimed it between the wake's enqueue and this check holds it already (`claimed_claude`),
+    // so that case needs no chat-inbox copy either.
+    let hook_claimed = session.kind == "claude"
+        && codex_hook::claimed_claude(&session.id, deliver_claude::shim::env_id(env));
+    let hook_waiting = session.kind == "claude"
+        && !hook_claimed
+        && codex_hook::pending_claude(&session.id, deliver_claude::shim::env_id(env));
+    let stored = if hook_claimed || hook_waiting {
+        Ok(0)
+    } else {
+        store.append_inbox(&session.id, env)
+    };
+    match stored {
         Ok(_) => {
             let state = match state {
                 ReceiptState::Refused | ReceiptState::Unknown => state,
+                _ if hook_claimed => ReceiptState::Queued,
                 _ => ReceiptState::Held,
             };
-            (
-                receipt(state, format!("{detail} (kept in the chat inbox)")),
-                true,
-            )
+            // One true sentence per case: the wake's own text says "kept in the chat inbox",
+            // which is false once the message is in the hook inbox, so it is not repeated.
+            let detail = if hook_claimed {
+                "The idle wake did not report delivery, but the chat's hook of the host app has claimed the message and hands it over to the chat. Its one copy is with the hook; none is kept in the chat inbox.".to_string()
+            } else if hook_waiting {
+                "The idle wake did not deliver the message. Its one copy waits in the chat's hook inbox of the host app, which hands it over at the chat's next prompt, tool call or end of turn; none is kept in the chat inbox.".to_string()
+            } else {
+                format!("{detail} (kept in the chat inbox)")
+            };
+            (receipt(state, detail), true)
         }
         // Not recorded, even when the push's outcome is unknown: the sender is told `unknown`
         // and resends once, which must be able to deliver.
@@ -709,7 +752,7 @@ fn save_reply_route_for(
             mesh_device_id,
             payload_hash: store::payload_hash(env),
             to_pid: session.pid,
-            to_start: deliver_claude::text_of(&session.raw["procStart"]),
+            to_start: registry_start(&session.raw),
         })
         .map_err(|e| {
             format!("could not store the reply route ({e}), so the message was not delivered")
@@ -1289,15 +1332,25 @@ pub fn identify(
     })
 }
 
+/// The process start a Claude registry file records: `procStart` on macOS, `procStartFt` on
+/// Windows (the same two keys the key file uses).
+fn registry_start(value: &serde_json::Value) -> Option<String> {
+    deliver_claude::text_of(&value["procStart"])
+        .or_else(|| deliver_claude::text_of(&value["procStartFt"]))
+}
+
 /// Whether the proven calling chat is the Claude chat a reply route was saved for, after that
 /// chat's session id changed while its process did not (compaction or a session switch inside the
-/// same live Claude; #506). It holds only when the proof came from the registry (`detected`), the
-/// chat is a Claude chat listed here, and it runs in the same process id AND the same recorded
-/// process start the route saved. A route without a recorded start is never accepted, and a pid
-/// reused by another process has another start, so a different chat is never taken for the one
-/// that received the message.
+/// same live Claude; #506). It holds only when the caller was proven from its own registry file
+/// (`detected`) and the registry file of the process the route recorded (`to_pid`, in
+/// `claude_dirs`) now names the proven session, still records the start the route saved (macOS
+/// `procStart` or Windows `procStartFt`), and that process is live with that start. It reads the
+/// registry file itself, not the chat roster, so a chat the roster filters out (terminal chat past
+/// its listing window, another entrypoint) is still recognised. A route without a recorded start
+/// is never accepted, and a pid reused by another process has another start, so a different chat
+/// is never taken for the one that received the message.
 pub fn route_successor(
-    sessions: &[LocalSession],
+    claude_dirs: &[std::path::PathBuf],
     proven: &Caller,
     to_pid: Option<u32>,
     to_start: Option<&str>,
@@ -1305,13 +1358,30 @@ pub fn route_successor(
     let (Some(pid), Some(start)) = (to_pid, to_start.filter(|s| !s.is_empty())) else {
         return false;
     };
-    proven.detected
-        && sessions.iter().any(|s| {
-            s.id == proven.id
-                && s.kind == "claude"
-                && s.pid == Some(pid)
-                && deliver_claude::text_of(&s.raw["procStart"]).as_deref() == Some(start)
-        })
+    if !proven.detected {
+        return false;
+    }
+    claude_dirs.iter().any(|dir| {
+        let Ok(bytes) = std::fs::read(dir.join(format!("{pid}.json"))) else {
+            return false;
+        };
+        let body = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&bytes);
+        let Ok(value) = serde_json::from_slice::<serde_json::Value>(body) else {
+            return false;
+        };
+        let text = |key: &str| deliver_claude::text_of(&value[key]);
+        let own = text("entrypoint").is_some_and(|e| {
+            e.starts_with(brand::brand().entrypoint_prefix.as_str()) || e == "cc-post"
+        });
+        let recorded = registry_start(&value);
+        !own && value.get("pid").and_then(serde_json::Value::as_u64) == Some(u64::from(pid))
+            && text("sessionId").as_deref() == Some(proven.id.as_str())
+            && recorded.as_deref() == Some(start)
+            && matches!(
+                deliver_claude::start_check(pid, recorded.as_deref(), text("pidDomain").as_deref()),
+                Some(Ok(gap)) if gap <= 2.0
+            )
+    })
 }
 
 /// One line saying which step of the sender proof failed, for a refusal and `<cli> chat whoami`:
@@ -1408,7 +1478,7 @@ fn deliver_here_by_route(
     }
     let needs_hub = session.kind == "claude" && !direct_post_trusted();
     // The hub owns the reply listener on both platforms: a delivery it posts advertises a
-    // real reply address, one the CLI posts only a placeholder. So the hub is preferred
+    // real reply address. A CLI without one keeps a local message for its target. The hub is preferred
     // whenever it runs; the direct post stays for when it does not (and is trusted).
     let prefer_hub = session.kind == "claude" && control::hub_running(store);
     if (needs_hub || prefer_hub) && control::hub_running(store) {
@@ -1453,14 +1523,51 @@ fn deliver_here_by_route(
     }
     if needs_hub {
         return deliver_once(store, &session.id, env, || {
+            // No hub (the headless server while its chat service, `hub::headless`, is not running,
+            // or Chat is off there, which is refused above): a busy chat is reached through the same route a
+            // running hub takes, `deliver_claude::deliver_by_hook`: the message goes into the
+            // chat's hook inbox of the host app, which the hook hands over at the chat's next prompt, tool
+            // call or end of turn, and it is taken back out if the hook has not claimed it
+            // within that function's short wait (the roster can say `busy` after the turn ended).
+            // The reply route is saved first so the hook's `seen` and `picked-up` receipts
+            // reach the sender. A taken-back message falls through to the chat inbox below: one
+            // copy only, never also left in the hook inbox, where `<cli> chat inbox` cannot see
+            // it and nothing expires it.
+            let wanted = deliver_claude::hook_route_wanted(session);
+            if wanted
+                && save_reply_route_for(store, session, env).is_ok()
+                && let Some(r) = deliver_claude::deliver_by_hook(session, env)
+            {
+                return (
+                    Receipt {
+                        msg_id: env.id.clone(),
+                        session: session.id.clone(),
+                        ..r
+                    },
+                    true,
+                );
+            }
+            let how_read = if wanted {
+                brand::branded(
+                    "The app isn't running here and the chat's hook did not claim the message in time (or could not take it). Kept in the chat inbox: read it with `@cli@ chat inbox`, answer with `@cli@ chat reply <id>`.",
+                )
+            } else {
+                brand::branded(
+                    "The app isn't running here, and a Claude chat takes a message through its hook of the host app only while a turn is running (hook delivery on, hook seen in the last 6 hours). Kept in the chat inbox: read it with `@cli@ chat inbox`.",
+                )
+            };
+            // A held message is read with `<cli> chat inbox` and answered with `<cli> chat
+            // reply <id>`: without its reply route that answer fails with "no route for that
+            // message id". Best effort: a message whose route cannot be saved is still
+            // kept.
+            let _ = save_reply_route_for(store, session, env);
             match store.append_inbox(&session.id, env) {
                 Ok(_) => (
                     Receipt {
                         msg_id: env.id.clone(),
                         session: session.id.clone(),
                         state: ReceiptState::Held,
-                        detail: "The app isn't running here; Claude only takes messages posted by it. Kept in the chat inbox."
-                            .to_string(),
+                        detail: how_read,
                     },
                     true,
                 ),
@@ -1508,15 +1615,29 @@ fn resolve_target(
     me: &Identity,
     to: &str,
 ) -> Result<(Peer, Option<LocalSession>), ChatError> {
+    resolve_target_routed(store, me, to, None).map(|(peer, known, _)| (peer, known))
+}
+
+/// `resolve_target`, plus the receipt sentence when a name matched several chats and went to the
+/// only live one (`roster::resolve_routed`).
+fn resolve_target_routed(
+    store: &Store,
+    me: &Identity,
+    to: &str,
+    supplied: Option<&[LocalSession]>,
+) -> Result<(Peer, Option<LocalSession>, Option<String>), ChatError> {
+    let scanned = std::cell::LazyCell::new(|| roster::local_sessions(store));
+    let sessions = || supplied.unwrap_or_else(|| scanned.as_slice());
     let local_peer = |s: &LocalSession| {
         roster::merge(std::slice::from_ref(s), &me.alias, &[])
             .into_iter()
             .next()
     };
     if let Some(id) = exact_local_id(to) {
-        let mut found = roster::local_sessions(store)
-            .into_iter()
-            .find(|s| s.id.eq_ignore_ascii_case(id));
+        let mut found = sessions()
+            .iter()
+            .find(|s| s.id.eq_ignore_ascii_case(id))
+            .cloned();
         if found.is_none() {
             found = match roster::resolve_exact_codex(id) {
                 Ok(session) => session,
@@ -1543,10 +1664,10 @@ fn resolve_target(
                     .into_iter()
                     .find(|p| !p.local && p.session == session.id)
             {
-                return Ok((peer, None));
+                return Ok((peer, None, None));
             }
             if let Some(peer) = local_peer(&session) {
-                return Ok((peer, Some(session)));
+                return Ok((peer, Some(session), None));
             }
         }
     }
@@ -1563,13 +1684,29 @@ fn resolve_target(
             String::new(),
         ));
     }
+    // A fully qualified local address needs no remote roster. In particular, an offline
+    // link must not delay a send between two chats on this computer.
+    let local_query = match to.rsplit_once(" on ") {
+        Some((_, device)) if device.trim().eq_ignore_ascii_case(&me.alias) => Some(to),
+        Some(_) => None,
+        None => to.split_once(':').and_then(|(device, session)| {
+            device.eq_ignore_ascii_case(&me.alias).then_some(session)
+        }),
+    };
+    if let Some(query) = local_query {
+        let sessions = sessions();
+        let peers = local_peers_from(store, me, sessions);
+        let (peer, note) = roster::resolve_routed(&peers, query)?;
+        let known = sessions
+            .iter()
+            .find(|session| session.id == peer.session)
+            .cloned();
+        return Ok((peer, known, note));
+    }
     // The link a name pointed at, and the target restated in that link's name. Once a name
     // pointed at a link, nothing on another computer may answer for it.
     let mut named: Option<(String, String)> = None;
     for (device, before, after) in devices {
-        if device.eq_ignore_ascii_case(&me.alias) {
-            continue;
-        }
         let Some(link) = links::find(store, &device) else {
             continue;
         };
@@ -1588,16 +1725,29 @@ fn resolve_target(
             cached: None,
         }];
         let peers = roster::merge(&[], &me.alias, &remote);
-        match roster::resolve(&peers, &query) {
-            Ok(peer) => return Ok((peer, None)),
+        match roster::resolve_routed(&peers, &query) {
+            Ok((peer, note)) => return Ok((peer, None, note)),
             // Two chats answer to the name there: say so, never fall back to a wider search.
-            Err(e @ ChatError::Invalid(_)) => return Err(e),
+            Err(e @ (ChatError::Invalid(_) | ChatError::Ambiguous { .. })) => return Err(e),
             Err(_) => {}
         }
     }
-    let peers = all_peers(store, me);
+    let sessions = sessions();
+    // A bare local title still needs the other rosters for duplicate-name protection. Give
+    // that read the peers-listing deadline. Keep full transport waits for remote-only lookups.
+    let local_title = named.is_none()
+        && sessions
+            .iter()
+            .any(|s| s.name.eq_ignore_ascii_case(to.trim()));
+    let remotes = links::list_all_within(store, local_title.then_some(mesh::PEERS_WAIT));
+    let peers = roster::merge_with(
+        sessions,
+        &me.alias,
+        &remotes,
+        &links::live_sessions_elsewhere(store),
+    );
     let query = named.as_ref().map_or(to, |(_, query)| query.as_str());
-    let peer = roster::resolve(&peers, query)?;
+    let (peer, note) = roster::resolve_routed(&peers, query)?;
     // The peer must be on the computer the name pointed at, under whichever of its names the
     // listing used (the device link's name, its ssh twin's, or the name it reports, #500).
     if let Some((link, _)) = &named
@@ -1606,7 +1756,12 @@ fn resolve_target(
     {
         return Err(ChatError::NotFound(to.to_string()));
     }
-    Ok((peer, None))
+    let known = if peer.local {
+        sessions.iter().find(|s| s.id == peer.session).cloned()
+    } else {
+        None
+    };
+    Ok((peer, known, note))
 }
 
 /// The chat `to` names (as `send` resolves it), without its local session.
@@ -1713,9 +1868,18 @@ fn placeholder(label: &str, alias: &str) -> Peer {
 
 /// The receipt for a send that never reached its chat (the target did not resolve, or the
 /// delivery failed before a receipt came back).
+pub fn failed_traced(label: &str, alias: &str, error: &ChatError, id: &str) -> SendOutcome {
+    let mut outcome = failed(label, alias, error);
+    outcome.msg_id = id.to_string();
+    outcome
+}
+
 pub fn failed(label: &str, alias: &str, error: &ChatError) -> SendOutcome {
     let status = match error {
-        ChatError::NotFound(_) | ChatError::Invalid(_) => ReceiptState::Refused,
+        ChatError::NotFound(_)
+        | ChatError::Invalid(_)
+        | ChatError::Ambiguous { .. }
+        | ChatError::Stale(_) => ReceiptState::Refused,
         _ => ReceiptState::Unknown,
     };
     SendOutcome {
@@ -1752,16 +1916,183 @@ pub fn send_text(
     to: &str,
     text: &str,
 ) -> Result<SendOutcome, ChatError> {
-    if let Some(off) = chat_off(store, "", "") {
-        return Ok(SendOutcome {
-            msg_id: String::new(),
-            to: placeholder(to, &me.alias),
-            status: off.state.as_str().to_string(),
-            detail: off.detail,
-        });
+    send_text_traced(store, me, from, to, text, &new_trace_id())
+}
+
+/// `send_text` as the `send` command routes it (#627): a chat whose last activity is older than
+/// 6 hours, or whose liveness is stale outside the recent idle Codex queue route, is refused (`ChatError::Stale`) unless `even_if_stale`;
+/// the receipt names the chat it went to. `reply` and other exact-address callers use `send_text`.
+pub fn send_text_checked(
+    store: &Store,
+    me: &Identity,
+    from: &Caller,
+    to: &str,
+    text: &str,
+    even_if_stale: bool,
+) -> Result<SendOutcome, ChatError> {
+    send_text_routed(
+        store,
+        me,
+        from,
+        to,
+        text,
+        Some(even_if_stale),
+        None,
+        &new_trace_id(),
+    )
+}
+
+/// Send using the same local roster that identified the CLI caller.
+pub fn send_text_checked_from_roster(
+    store: &Store,
+    me: &Identity,
+    from: &Caller,
+    to: &str,
+    text: &str,
+    even_if_stale: bool,
+    sessions: &[LocalSession],
+) -> Result<SendOutcome, ChatError> {
+    send_text_routed(
+        store,
+        me,
+        from,
+        to,
+        text,
+        Some(even_if_stale),
+        Some(sessions),
+        &new_trace_id(),
+    )
+}
+
+/// Stable, payload-free failure codes for outbound timing outcomes.
+pub fn trace_error_code(error: &ChatError) -> &'static str {
+    match error {
+        ChatError::Unsupported(_) => "unsupported",
+        ChatError::NotFound(_) => "not_found",
+        ChatError::Invalid(_) => "invalid",
+        ChatError::Ambiguous { .. } => "ambiguous_recipient",
+        ChatError::Stale(_) => "stale_recipient",
+        ChatError::Io(_) => "io_error",
+        ChatError::Delivery(_) => "delivery_error",
+        ChatError::SessionGone(_) => "session_gone",
+        ChatError::AuthRejected(_) => "auth_rejected",
     }
-    let (peer, known) = resolve_target(store, me, to)?;
-    send_to_peer(store, me, from, peer, known, text, None)
+}
+
+/// Allocate before discovery so an in-flight send is visible to trace latest.
+pub fn new_trace_id() -> String {
+    rightkit_logs::identity::random_uuid()
+}
+
+/// Trace a bounded operation without recording payloads or error details.
+pub fn trace_result<T, E>(
+    store: &Store,
+    id: &str,
+    stage: &'static str,
+    work: impl FnOnce() -> Result<T, E>,
+) -> Result<T, E> {
+    let span = trace::start(store, id, stage);
+    let result = work();
+    span.finish(if result.is_ok() { "ok" } else { "error" });
+    result
+}
+
+pub fn send_text_traced(
+    store: &Store,
+    me: &Identity,
+    from: &Caller,
+    to: &str,
+    text: &str,
+    id: &str,
+) -> Result<SendOutcome, ChatError> {
+    send_text_routed(store, me, from, to, text, None, None, id)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn send_text_checked_from_roster_traced(
+    store: &Store,
+    me: &Identity,
+    from: &Caller,
+    to: &str,
+    text: &str,
+    even_if_stale: bool,
+    sessions: &[LocalSession],
+    id: &str,
+) -> Result<SendOutcome, ChatError> {
+    send_text_routed(
+        store,
+        me,
+        from,
+        to,
+        text,
+        Some(even_if_stale),
+        Some(sessions),
+        id,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn send_text_routed(
+    store: &Store,
+    me: &Identity,
+    from: &Caller,
+    to: &str,
+    text: &str,
+    // None: no stale check and no naming (reply, phone, gateway). Some(flag): `send`.
+    stale: Option<bool>,
+    sessions: Option<&[LocalSession]>,
+    id: &str,
+) -> Result<SendOutcome, ChatError> {
+    trace::begin(store, id);
+    let sending = trace::start(store, id, "sender.send");
+    let result = (|| -> Result<SendOutcome, ChatError> {
+        if let Some(off) = chat_off(store, "", "") {
+            return Ok(SendOutcome {
+                msg_id: id.to_string(),
+                to: placeholder(to, &me.alias),
+                status: off.state.as_str().to_string(),
+                detail: off.detail,
+            });
+        }
+        let (peer, known, note) = trace_result(store, id, "recipient.lookup", || {
+            resolve_target_routed(store, me, to, sessions)
+        })?;
+        let now = envelope::now_ms();
+        if stale == Some(false) && roster::is_stale_recipient(&peer, now) {
+            // A chat whose process is alive but idle for hours (a server's terminal chat) is not a
+            // dead one: say so, and name the flag that sends to it.
+            let alive_note = if peer.liveness == "stale" {
+                ""
+            } else {
+                " Its process is alive; it has only been idle that long."
+            };
+            return Err(ChatError::Stale(brand::branded(&format!(
+                "{} is stale (liveness {}, last active {}; more than 6 hours is stale).{alive_note} \
+                 Nothing was sent. Run `@cli@ chat peers`, pick a live chat, or pass --even-if-stale \
+                 to send anyway",
+                peer.display,
+                peer.liveness,
+                roster::age_words(peer.updated_ms, now)
+            ))));
+        }
+        let described = roster::describe(&peer, now);
+        let mut outcome = send_to_peer(store, me, from, peer, known, text, None, id)?;
+        if stale.is_some() || note.is_some() {
+            let mut named = format!("to {described}");
+            if let Some(note) = note {
+                named = format!("{named}; {note}");
+            }
+            outcome.detail = format!("{} [{named}]", outcome.detail);
+        }
+        Ok(outcome)
+    })();
+    sending.finish(match &result {
+        Ok(outcome) => ReceiptState::parse(&outcome.status)
+            .unwrap_or(ReceiptState::Unknown)
+            .as_str(),
+        Err(error) => trace_error_code(error),
+    });
+    result
 }
 
 /// Answer the chat `session` on the computer `device`, named exactly by the id a message came
@@ -1777,36 +2108,60 @@ pub fn send_reply(
     session: &str,
     text: &str,
 ) -> Result<SendOutcome, ChatError> {
-    let remote = if device.eq_ignore_ascii_case(&me.alias) {
-        None
-    } else {
-        links::find(store, device)
-    };
-    let Some(link) = remote else {
-        let to = if device.eq_ignore_ascii_case(&me.alias) {
-            session.to_string()
+    send_reply_traced(store, me, from, device, session, text, &new_trace_id())
+}
+
+pub fn send_reply_traced(
+    store: &Store,
+    me: &Identity,
+    from: &Caller,
+    device: &str,
+    session: &str,
+    text: &str,
+    id: &str,
+) -> Result<SendOutcome, ChatError> {
+    trace::begin(store, id);
+    let sending = trace::start(store, id, "sender.send");
+    let result = (|| -> Result<SendOutcome, ChatError> {
+        let remote = if device.eq_ignore_ascii_case(&me.alias) {
+            None
         } else {
-            format!("{device}:{session}")
+            links::find(store, device)
         };
-        return send_text(store, me, from, &to, text);
-    };
-    if let Some(off) = chat_off(store, "", "") {
-        return Ok(SendOutcome {
-            msg_id: String::new(),
-            to: placeholder(session, &me.alias),
-            status: off.state.as_str().to_string(),
-            detail: off.detail,
-        });
-    }
-    send_to_peer(
-        store,
-        me,
-        from,
-        reply_peer(&link, session),
-        None,
-        text,
-        None,
-    )
+        let Some(link) = remote else {
+            let to = if device.eq_ignore_ascii_case(&me.alias) {
+                session.to_string()
+            } else {
+                format!("{device}:{session}")
+            };
+            return send_text_traced(store, me, from, &to, text, id);
+        };
+        if let Some(off) = chat_off(store, "", "") {
+            return Ok(SendOutcome {
+                msg_id: id.to_string(),
+                to: placeholder(session, &me.alias),
+                status: off.state.as_str().to_string(),
+                detail: off.detail,
+            });
+        }
+        send_to_peer(
+            store,
+            me,
+            from,
+            reply_peer(&link, session),
+            None,
+            text,
+            None,
+            id,
+        )
+    })();
+    sending.finish(match &result {
+        Ok(outcome) => ReceiptState::parse(&outcome.status)
+            .unwrap_or(ReceiptState::Unknown)
+            .as_str(),
+        Err(error) => trace_error_code(error),
+    });
+    result
 }
 
 /// The chat `session` on the linked computer `link`, addressed by its id alone (a reply).
@@ -1872,104 +2227,142 @@ pub fn send_with_files(
     files: &[std::path::PathBuf],
     transfer: &dyn Fn(&FileSendAsk<'_>) -> Result<(), FileSendFailure>,
 ) -> Result<SendOutcome, ChatError> {
-    let label = match &target {
-        FileTarget::Named(to) => to.to_string(),
-        FileTarget::Reply { device, session } => format!("{device}:{session}"),
-    };
-    if let Some(off) = chat_off(store, "", "") {
-        return Ok(SendOutcome {
-            msg_id: String::new(),
-            to: placeholder(&label, &me.alias),
-            status: off.state.as_str().to_string(),
-            detail: off.detail,
-        });
-    }
-    let peer = match target {
-        FileTarget::Named(to) => resolve_target(store, me, to)?.0,
-        FileTarget::Reply { device, session } => {
-            if device.eq_ignore_ascii_case(&me.alias) {
-                resolve_target(store, me, session)?.0
-            } else {
-                let link = links::find(store, device)
-                    .ok_or_else(|| ChatError::NotFound(format!("no link named {device}")))?;
-                reply_peer(&link, session)
-            }
-        }
-    };
-    if peer.local {
-        return Err(ChatError::Invalid(
-            "--file goes to a chat on another computer; that chat is on this computer, so put \
-            the file's path in the message"
-                .to_string(),
-        ));
-    }
-    let link = links::find(store, &peer.device)
-        .ok_or_else(|| ChatError::NotFound(format!("no link named {}", peer.device)))?;
-    let Some(device_id) = mesh::mesh_id(&link).map(str::to_string) else {
-        return Err(ChatError::Invalid(format!(
-            "--file needs the device link to {}; that computer is linked over ssh only (pair it \
-            in the app's device settings)",
-            peer.device
-        )));
-    };
-    let (paths, bytes) = attachment_paths(files)?;
-    let reference = rightkit_logs::identity::random_uuid()
-        .replace('-', "")
-        .to_ascii_lowercase();
-    let attachment = Attachment {
-        reference,
-        count: u32::try_from(paths.len()).unwrap_or(u32::MAX),
-        bytes,
-    };
-    if !attachment.valid() {
-        return Err(ChatError::Invalid(
-            "could not make a reference for the files".to_string(),
-        ));
-    }
-    let ask = FileSendAsk {
-        device_id: &device_id,
-        chat: &peer.session,
-        reference: &attachment.reference,
-        paths: &paths,
-    };
-    if let Err(failure) = transfer(&ask) {
-        // One line, codes and counts only: never a name or a path.
-        sendlog::event(
-            rightkit_logs::Level::Warn,
-            "chat.attach.failed",
-            json!({ "files": paths.len(), "bytes": bytes, "uncertain": failure.uncertain }),
-        );
-        let (status, detail) = if failure.uncertain {
-            (
-                ReceiptState::Unknown,
-                format!(
-                    "the files may not have arrived ({}), so the message was not sent; check with \
-                    the chat there before sending again",
-                    failure.message
-                ),
-            )
-        } else {
-            (
-                ReceiptState::Refused,
-                format!(
-                    "the files did not arrive ({}), so the message was not sent",
-                    failure.message
-                ),
-            )
+    send_with_files_traced(
+        store,
+        me,
+        from,
+        target,
+        text,
+        files,
+        transfer,
+        &new_trace_id(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn send_with_files_traced(
+    store: &Store,
+    me: &Identity,
+    from: &Caller,
+    target: FileTarget<'_>,
+    text: &str,
+    files: &[std::path::PathBuf],
+    transfer: &dyn Fn(&FileSendAsk<'_>) -> Result<(), FileSendFailure>,
+    id: &str,
+) -> Result<SendOutcome, ChatError> {
+    trace::begin(store, id);
+    let sending = trace::start(store, id, "sender.send");
+    let result = (|| -> Result<SendOutcome, ChatError> {
+        let label = match &target {
+            FileTarget::Named(to) => to.to_string(),
+            FileTarget::Reply { device, session } => format!("{device}:{session}"),
         };
-        return Ok(SendOutcome {
-            msg_id: String::new(),
-            to: peer,
-            status: status.as_str().to_string(),
-            detail,
-        });
-    }
-    sendlog::event(
-        rightkit_logs::Level::Info,
-        "chat.attach.sent",
-        json!({ "files": paths.len(), "bytes": bytes }),
-    );
-    send_to_peer(store, me, from, peer, None, text, Some(attachment))
+        if let Some(off) = chat_off(store, "", "") {
+            return Ok(SendOutcome {
+                msg_id: id.to_string(),
+                to: placeholder(&label, &me.alias),
+                status: off.state.as_str().to_string(),
+                detail: off.detail,
+            });
+        }
+        let peer = trace_result(store, id, "recipient.lookup", || {
+            Ok::<_, ChatError>(match target {
+                FileTarget::Named(to) => resolve_target(store, me, to)?.0,
+                FileTarget::Reply { device, session } => {
+                    if device.eq_ignore_ascii_case(&me.alias) {
+                        resolve_target(store, me, session)?.0
+                    } else {
+                        let link = links::find(store, device).ok_or_else(|| {
+                            ChatError::NotFound(format!("no link named {device}"))
+                        })?;
+                        reply_peer(&link, session)
+                    }
+                }
+            })
+        })?;
+        if peer.local {
+            return Err(ChatError::Invalid(
+                "--file goes to a chat on another computer; that chat is on this computer, so put \
+                the file's path in the message"
+                    .to_string(),
+            ));
+        }
+        let link = links::find(store, &peer.device)
+            .ok_or_else(|| ChatError::NotFound(format!("no link named {}", peer.device)))?;
+        let Some(device_id) = mesh::mesh_id(&link).map(str::to_string) else {
+            return Err(ChatError::Invalid(format!(
+                "--file needs the device link to {}; that computer is linked over ssh only (pair it \
+                in the app's device settings)",
+                peer.device
+            )));
+        };
+        let (paths, bytes) =
+            trace_result(store, id, "files.selection", || attachment_paths(files))?;
+        let reference = rightkit_logs::identity::random_uuid()
+            .replace('-', "")
+            .to_ascii_lowercase();
+        let attachment = Attachment {
+            reference,
+            count: u32::try_from(paths.len()).unwrap_or(u32::MAX),
+            bytes,
+        };
+        if !attachment.valid() {
+            return Err(ChatError::Invalid(
+                "could not make a reference for the files".to_string(),
+            ));
+        }
+        let ask = FileSendAsk {
+            device_id: &device_id,
+            chat: &peer.session,
+            reference: &attachment.reference,
+            paths: &paths,
+        };
+        if let Err(failure) = trace_result(store, id, "files.transfer", || transfer(&ask)) {
+            // One line, codes and counts only: never a name or a path.
+            sendlog::event(
+                rightkit_logs::Level::Warn,
+                "chat.attach.failed",
+                json!({ "files": paths.len(), "bytes": bytes, "uncertain": failure.uncertain }),
+            );
+            let (status, detail) = if failure.uncertain {
+                (
+                    ReceiptState::Unknown,
+                    format!(
+                        "the files may not have arrived ({}), so the message was not sent; check with \
+                        the chat there before sending again",
+                        failure.message
+                    ),
+                )
+            } else {
+                (
+                    ReceiptState::Refused,
+                    format!(
+                        "the files did not arrive ({}), so the message was not sent",
+                        failure.message
+                    ),
+                )
+            };
+            return Ok(SendOutcome {
+                msg_id: id.to_string(),
+                to: peer,
+                status: status.as_str().to_string(),
+                detail,
+            });
+        }
+        sendlog::event(
+            rightkit_logs::Level::Info,
+            "chat.attach.sent",
+            json!({ "files": paths.len(), "bytes": bytes }),
+        );
+        send_to_peer(store, me, from, peer, None, text, Some(attachment), id)
+    })();
+    sending.finish(match &result {
+        Ok(outcome) => ReceiptState::parse(&outcome.status)
+            .unwrap_or(ReceiptState::Unknown)
+            .as_str(),
+        Err(error) => trace_error_code(error),
+    });
+    result
 }
 
 /// The files of a `--file` send, checked before anything is sent: each an existing regular file
@@ -2113,11 +2506,23 @@ pub fn broadcast(
     picks: &[Pick],
     text: &str,
 ) -> Result<Vec<SendOutcome>, ChatError> {
+    broadcast_traced(store, me, from, picks, text, &new_trace_id())
+}
+
+pub fn broadcast_traced(
+    store: &Store,
+    me: &Identity,
+    from: &Caller,
+    picks: &[Pick],
+    text: &str,
+    id: &str,
+) -> Result<Vec<SendOutcome>, ChatError> {
+    trace::begin(store, id);
     if let Some(off) = chat_off(store, "", "") {
         return Ok(picks
             .iter()
             .map(|pick| SendOutcome {
-                msg_id: String::new(),
+                msg_id: id.to_string(),
                 to: placeholder(&pick.label(), &me.alias),
                 status: off.state.as_str().to_string(),
                 detail: off.detail.clone(),
@@ -2125,15 +2530,22 @@ pub fn broadcast(
             .collect());
     }
     let mut outcomes: Vec<SendOutcome> = Vec::new();
-    let mut targets: Vec<(Peer, Option<LocalSession>)> = Vec::new();
+    let selection = trace::start(store, id, "group.selection");
+    let mut targets: Vec<(Peer, Option<LocalSession>, String)> = Vec::new();
     let sessions = roster::local_sessions(store);
     let mut members: Option<Vec<Peer>> = None;
     for pick in picks {
         match pick {
-            Pick::Chat(to) => match resolve_target(store, me, to) {
-                Ok((peer, known)) => targets.push((peer, known)),
-                Err(e) => outcomes.push(failed(to, &me.alias, &e)),
-            },
+            Pick::Chat(to) => {
+                let child = new_trace_id();
+                trace::mark(store, &child, "group.member", "selected");
+                match trace_result(store, &child, "recipient.lookup", || {
+                    resolve_target(store, me, to)
+                }) {
+                    Ok((peer, known)) => targets.push((peer, known, child)),
+                    Err(e) => outcomes.push(failed_traced(to, &me.alias, &e, &child)),
+                }
+            }
             group => {
                 let all = members.get_or_insert_with(|| all_peers(store, me));
                 for peer in all.iter() {
@@ -2146,21 +2558,23 @@ pub fn broadcast(
                         } else {
                             None
                         };
-                        targets.push((peer.clone(), known));
+                        let child = new_trace_id();
+                        trace::mark(store, &child, "group.member", "selected");
+                        targets.push((peer.clone(), known, child));
                     }
                 }
             }
         }
     }
     let mut seen: Vec<(String, String)> = Vec::new();
-    let mut plan: Vec<(Peer, Option<LocalSession>)> = Vec::new();
-    for (peer, known) in targets {
+    let mut plan: Vec<(Peer, Option<LocalSession>, String)> = Vec::new();
+    for (peer, known, child) in targets {
         let key = (peer.device.to_lowercase(), peer.session.clone());
         if seen.contains(&key) {
             continue;
         }
         seen.push(key);
-        plan.push((peer, known));
+        plan.push((peer, known, child));
     }
     let total = plan.len() + outcomes.len();
     if total == 0 {
@@ -2173,11 +2587,23 @@ pub fn broadcast(
             "those targets are {total} chats; one send reaches at most {FANOUT_LIMIT}, so narrow them"
         )));
     }
-    for (peer, known) in plan {
+    selection.finish("ok");
+    for (peer, known, child) in plan {
         let label = peer.display.clone();
-        match send_to_peer(store, me, from, peer, known, text, None) {
+        trace::begin(store, &child);
+        trace::mark(store, &child, "group.parent", id);
+        trace::mark(store, id, "group.child", &child);
+        let sending = trace::start(store, &child, "sender.send");
+        let result = send_to_peer(store, me, from, peer, known, text, None, &child);
+        sending.finish(match &result {
+            Ok(outcome) => ReceiptState::parse(&outcome.status)
+                .unwrap_or(ReceiptState::Unknown)
+                .as_str(),
+            Err(error) => trace_error_code(error),
+        });
+        match result {
             Ok(outcome) => outcomes.push(outcome),
-            Err(e) => outcomes.push(failed(&label, &me.alias, &e)),
+            Err(e) => outcomes.push(failed_traced(&label, &me.alias, &e, &child)),
         }
     }
     Ok(outcomes)
@@ -2185,6 +2611,7 @@ pub fn broadcast(
 
 /// Send `text` to a chat already resolved to `peer` (with its local session when it is on this
 /// computer): one envelope, one receipt.
+#[allow(clippy::too_many_arguments)]
 fn send_to_peer(
     store: &Store,
     me: &Identity,
@@ -2193,6 +2620,7 @@ fn send_to_peer(
     known: Option<LocalSession>,
     text: &str,
     attachment: Option<Attachment>,
+    id: &str,
 ) -> Result<SendOutcome, ChatError> {
     if peer.local && peer.session == from.id {
         return Err(ChatError::Invalid(
@@ -2200,12 +2628,17 @@ fn send_to_peer(
         ));
     }
     receipts::note_sender(store, &from.id);
+    let harness = if from.id == CLI_CALLER_ID {
+        String::new()
+    } else {
+        harness_of_chat(store, &from.id)
+    };
     let env = Envelope::new(
         Sender {
             device: me.alias.clone(),
             session: from.id.clone(),
             name: format!("{} on {}", from.name, me.alias),
-            harness: harness_of_chat(store, &from.id),
+            harness,
             device_id: local_device_id(store),
         },
         Target {
@@ -2215,16 +2648,13 @@ fn send_to_peer(
         text,
     )?;
     let mut env = env;
+    env.id = id.to_string();
     env.attachment = attachment;
-    // The user's latest turns in the sending chat, read here from its transcript, only
-    // for a chat proven from the calling process.
+    // The user's latest turns in the sending chat, read here from its transcript (#400), only
+    // for a chat proven from the calling process (#191).
     let mut env = if from.detected {
-        env.stamped(said::stamp_for(
-            store,
-            me,
-            &harness_of_chat(store, &from.id),
-            &from.id,
-        ))
+        let stamp = said::stamp_for(store, me, &env.from.harness, &from.id);
+        env.stamped(stamp)
     } else {
         env
     };
@@ -2237,7 +2667,9 @@ fn send_to_peer(
                 .find(|s| s.id == peer.session)
                 .ok_or_else(|| ChatError::NotFound(peer.display.clone()))?,
         };
+        let delivery = trace::start(store, id, "delivery.local");
         let receipt = deliver_here(store, &session, &env, from.reply_socket.as_deref());
+        delivery.finish(receipt.state.as_str());
         if receipt.state != ReceiptState::Refused {
             store.note_sent(receipt.state.as_str());
         }
@@ -2250,11 +2682,13 @@ fn send_to_peer(
     }
     let link = links::find(store, &peer.device)
         .ok_or_else(|| ChatError::NotFound(format!("no link named {}", peer.device)))?;
+    trace::remote(store, id, &link.device);
+    let delivery = trace::start(store, id, "delivery.remote");
     let env = seal(store, &link, env);
     let started = std::time::Instant::now();
-    let (posted, trace) = links::post_traced(&link, &env);
+    let (posted, trace) = links::post_traced_in(store, &link, &env);
     // One `chat.send` line in the hub log for every send to another computer, whatever came back
-    //. No message text, title or address.
+    // (#500). No message text, title or address.
     let state = match &posted {
         Ok(receipt) => ReceiptState::parse(receipt["status"].as_str().unwrap_or(""))
             .unwrap_or(ReceiptState::Unknown)
@@ -2269,6 +2703,10 @@ fn send_to_peer(
         state,
         error_code: trace.mesh_error.clone().unwrap_or_default(),
         duration_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+    });
+    delivery.finish(match &posted {
+        Ok(_) => "ok",
+        Err(_) => "error",
     });
     let receipt = posted.map_err(ChatError::Delivery)?;
     let status = ReceiptState::parse(receipt["status"].as_str().unwrap_or(""));
@@ -2298,7 +2736,15 @@ const ENVELOPE_MAX_AGE_MS: u64 = 24 * 60 * 60 * 1000;
 pub fn receive(store: &Store, env: &Envelope) -> Receipt {
     let started = std::time::Instant::now();
     let mut repeat = false;
+    if let Some(link) = sender_link(store, env) {
+        let trusted_mesh = !env.mesh.is_empty() && env.mesh == env.from.device_id && env.mesh_owner;
+        if trusted_mesh || signed_by(store, &link, env) {
+            trace::remote(store, &env.id, &link.device);
+        }
+    }
+    let acceptance = trace::start(store, &env.id, "receiver.accept");
     let receipt = receive_inner(store, env, &mut repeat);
+    acceptance.finish(receipt.state.as_str());
     let took_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
     // The sender stops waiting 15 s after its first attempt and, after a redial, 45 s in all, and
     // is then told `unknown`. A delivery that ran that long also sends the sender a
@@ -2335,9 +2781,16 @@ pub fn receive(store: &Store, env: &Envelope) -> Receipt {
 }
 
 /// How long a repeat of an id waits in all, over both of its waits (`settled_delivery`), for the
-/// first delivery of that id, still running, to finish. Inside the 30 s the sender's redial waits
-/// for an answer (C-D3).
-const REPEAT_WAIT: Duration = Duration::from_secs(25);
+/// first delivery of that id, still running, to finish. The repeat that matters most is
+/// the sender's last chance: the CLI's ssh retry with the same id after the device link gave no
+/// answer (C-D19), which runs inside `links::REMOTE_TIMEOUT`. The first delivery it waits for can
+/// run as long as a direct wake of an idle chat (`deliver_claude::WAKE_WAIT_DIRECT`, 40 s), so
+/// the wait must outlast that, with room for ssh to start and answer. At 25 s the retry gave up
+/// on a first delivery that was still waking the chat and the sender was told `unknown` for a
+/// message that arrived seconds later. The engine's own 30 s redial is not bound by this: it
+/// ends `request_failed` at 30 s and the ssh retry then gets the definite answer.
+const REPEAT_WAIT: Duration = Duration::from_secs(50);
+const _: () = assert!(REPEAT_WAIT.as_millis() + 5_000 <= links::REMOTE_TIMEOUT.as_millis());
 const REPEAT_POLL: Duration = Duration::from_millis(250);
 
 /// The delivery record's word on `env` for chat `session`, after waiting (until `until`, which
@@ -2350,10 +2803,16 @@ fn settled_delivery(
     env: &Envelope,
     until: std::time::Instant,
 ) -> store::Delivery {
+    let waiting = trace::start(store, &env.id, "receiver.repeat_wait");
     loop {
         let seen = store.peek_delivery(session, env);
         if !matches!(seen, store::Delivery::InProgress { .. }) || std::time::Instant::now() >= until
         {
+            waiting.finish(if matches!(seen, store::Delivery::InProgress { .. }) {
+                "pending"
+            } else {
+                "settled"
+            });
             return seen;
         }
         std::thread::sleep(REPEAT_POLL);
@@ -2378,7 +2837,20 @@ fn receive_inner(store: &Store, env: &Envelope, repeat: &mut bool) -> Receipt {
              (use `@cli@ chat send` here)",
         ));
     }
-    let sessions = roster::local_sessions(store);
+    // The target comes from the hub's own roster scan (at most a few seconds old) and a fresh sweep
+    // only when that scan does not list it: every delivery used to sweep every chat folder itself
+    // (on the Dell ~7 GB), so under a disk stall a burst of deliveries queued behind sweeps that
+    // took minutes.
+    let lookup = trace::start(store, &env.id, "receiver.lookup");
+    let mut sessions = hub::local_chats(store, hub::SESSION_SCAN_EVERY);
+    if !sessions.iter().any(|s| s.id == env.to.session) {
+        sessions = roster::local_sessions(store);
+    }
+    lookup.finish(if sessions.iter().any(|s| s.id == env.to.session) {
+        "ok"
+    } else {
+        "not_found"
+    });
     let Some(session) = sessions.iter().find(|s| s.id == env.to.session) else {
         return refuse("That chat isn't open on this computer any more.");
     };
@@ -2407,7 +2879,9 @@ fn receive_inner(store: &Store, env: &Envelope, repeat: &mut bool) -> Receipt {
             );
         }
     }
+    let delivery = trace::start(store, &env.id, "receiver.delivery");
     let mut receipt = deliver_here(store, session, env, None);
+    delivery.finish(receipt.state.as_str());
     // A repeat that raced the first delivery (it had not marked the id in progress when this one
     // looked) is told "being delivered right now"; wait for the first to finish and give its receipt.
     // It waits only when the first delivery is still running (an `Unknown` for any other reason
