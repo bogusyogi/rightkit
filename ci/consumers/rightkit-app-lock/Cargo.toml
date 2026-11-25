@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-app-lock = { version = "=0.1.0" }
+rightkit-app-lock = { version = "=0.1.1" }

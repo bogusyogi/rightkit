@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Released with the `rightkit-fs` 0.5 dependency already on main (the published previous version still required `rightkit-fs` ^0.4, so consumers carried two `rightkit-fs` versions; bogusyogi/pulse#643).
+
 ## 0.2.0
 
 - Breaking for dependents: dependency requirements `rightkit-logs` 0.3 -> 0.4. 0.1.1 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.2.0 instead of changing 0.1.1 in place (#1572). No source change in this crate since 0.1.1.

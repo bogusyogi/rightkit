@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.1
+
+- Released with the `rightkit-fs` 0.5 dependency already on main (the published previous version still required `rightkit-fs` ^0.4, so consumers carried two `rightkit-fs` versions; bogusyogi/pulse#643).
+
 ## 0.7.0
 
 - Breaking for dependents: dependency requirements `rightkit-onnx` 0.2 -> 0.3. 0.6.5 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.7.0 instead of changing 0.6.5 in place (#1572). No source change in this crate since 0.6.5.

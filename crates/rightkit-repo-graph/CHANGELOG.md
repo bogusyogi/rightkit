@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.3
+
+- Released with the `rightkit-fs` 0.5 dependency already on main (the published previous version still required `rightkit-fs` ^0.4, so consumers carried two `rightkit-fs` versions; bogusyogi/pulse#643).
+
 ## 0.3.2 (2026-11-16)
 
 - The package no longer ships `src/trusted-update-keys.json` (an empty key list nothing read). No public item, feature or behaviour changes; the compiled library is unchanged.

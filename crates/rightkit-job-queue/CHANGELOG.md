@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.2
+
+- Released with the `rightkit-fs` 0.5 dependency already on main (the published previous version still required `rightkit-fs` ^0.4, so consumers carried two `rightkit-fs` versions; bogusyogi/pulse#643).
+
 ## 0.6.1
 
 - Outbound client frames now retain `Zeroizing` ownership through encoding & writer queues, wiping on write completion, failed enqueue, queue destruction & unwind. Caller timeout can precede release of queued or blocked-write buffers.
