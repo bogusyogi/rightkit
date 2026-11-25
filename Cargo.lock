@@ -12726,7 +12726,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-pty"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "libc 0.2.191",
  "rightkit-child-process",

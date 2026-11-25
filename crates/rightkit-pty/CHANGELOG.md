@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+- Fixed (macOS): `cancel` no longer waits for as long as a reader is stalled. macOS completes a process's exit only once its terminal's pending output is drained, so a killed child whose output nobody was reading stayed unreapable until the streams were dropped. After `options.grace` plus 250 ms, `cancel` now discards the unread output until the leader is reaped. A reader that keeps reading loses nothing; a stalled one loses the unread tail of a child that was being killed.
+
 ## 0.1.2
 
 - Windows: new `ConPty` exposes the pseudoconsole and its bridged streams so rightkit-sandbox can start an AppContainer child on it; `PtyCommand` behaviour is unchanged.
