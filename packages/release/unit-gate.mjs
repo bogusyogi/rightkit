@@ -10,7 +10,7 @@ import { readCargoPackage } from "./crate-graph.mjs";
 import { spawnSync as nodeSpawnSync } from "./background-process.mjs";
 import { endRun, startRun, stagesTo } from "./gate-stages.mjs";
 import { RIGHTKIT_REPOSITORY, buildDirectOrigin, directStageEvidence, verifyDirectOrigin } from "./direct-origin.mjs";
-import { exclusionsFor } from "./pack-digest.mjs";
+import { SWAP_HELPER_ARCHIVE_BIN, exclusionsFor } from "./pack-digest.mjs";
 import { verifyQualificationReceipts } from "./qualification-verify.mjs";
 import { makeCiCompileProof, verifyCiCompileProof } from "./ci-compile-admission.mjs";
 import { assignJobs, describeCommand, directRowsNotRun, expectedStageCommands } from "./stage-commands.mjs";
@@ -97,7 +97,9 @@ export function writeQualification({ report, artifact, unit, commit, tree, runti
     if (excluded.length && executor?.kind === "direct") {
       // A Linux direct origin neither builds nor signs the swap helper (publish.yml's build-swap/sign-swap do, hosted): its archive holds neither
       // entry, and says so. The Mac rule below is unchanged.
-      if (!Array.isArray(artifact.contentExcluded) || artifact.contentExcluded.length) throw new Error(`a direct origin's ${unit.name} archive must hold neither ${excluded.join(" nor ")}`);
+      // Since 0.6.81 the helper is committed (signed once), so the archive holds it; a signing receipt it must still not hold, and the hosted
+      // sign-swap job still binds the helper it publishes.
+      if (!Array.isArray(artifact.contentExcluded) || artifact.contentExcluded.some((p) => p !== SWAP_HELPER_ARCHIVE_BIN)) throw new Error(`a direct origin's ${unit.name} archive may hold the committed ${SWAP_HELPER_ARCHIVE_BIN} but no signing receipt (it holds ${(artifact.contentExcluded ?? []).join(", ") || "an unreadable list"})`);
       content.contentExcluded = [];
     } else if (excluded.length) {
       if (!Array.isArray(artifact.contentExcluded) || [...artifact.contentExcluded].sort().join("\n") !== [...excluded].sort().join("\n")) throw new Error(`release needs the qualified ${unit.name} archive to hold ${excluded.join(" and ")}`);
