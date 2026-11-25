@@ -6203,7 +6203,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.7.7"
+version = "0.7.6"
 dependencies = [
  "windows 0.62.2",
 ]
@@ -6631,7 +6631,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-onnx"
-version = "0.3.3"
+version = "0.3.2"
 dependencies = [
  "half",
  "ndarray",

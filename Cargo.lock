@@ -10661,7 +10661,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-approvals"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-fs",
@@ -10747,7 +10747,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.7.7"
+version = "0.7.6"
 dependencies = [
  "core-foundation 0.10.1",
  "core-graphics",
@@ -12531,7 +12531,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-onnx"
-version = "0.3.3"
+version = "0.3.2"
 dependencies = [
  "half",
  "ndarray",

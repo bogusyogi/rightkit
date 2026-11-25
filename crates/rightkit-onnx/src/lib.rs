@@ -521,56 +521,6 @@ pub fn installed_runtime_candidate(executable: &Path, subdir: &str) -> Option<Ru
     ))
 }
 
-/// Candidates for a desktop app that ships the runtime beside its executable, in first-existing
-/// order: `<executable dir>/<runtime file>` and `<resources>/<resource_subdir>/<runtime file>`
-/// ([`installed_runtime_candidate`]), both [`CandidateSource::Bundled`], then `explicit` (a
-/// developer path, [`CandidateSource::Explicit`]) when given. With no `executable` only `explicit`
-/// can appear, so an empty list makes [`configure_runtime`] report `NoCandidates`.
-///
-/// The host passes the executable path (for example `std::env::current_exe().ok()`), its resource
-/// subdirectory and an optional developer path.
-pub fn executable_runtime_candidates(
-    executable: Option<&Path>,
-    resource_subdir: &str,
-    explicit: Option<PathBuf>,
-) -> Vec<RuntimeCandidate> {
-    let sibling = executable
-        .and_then(Path::parent)
-        .map(|dir| dir.join(runtime_filename()));
-    let packaged = executable.and_then(|exe| installed_runtime_candidate(exe, resource_subdir));
-    sibling
-        .map(|path| RuntimeCandidate::new(path, CandidateSource::Bundled))
-        .into_iter()
-        .chain(packaged)
-        .chain(explicit.map(|path| RuntimeCandidate::new(path, CandidateSource::Explicit)))
-        .collect()
-}
-
-/// [`configure_runtime`] over [`executable_runtime_candidates`] for the running executable
-/// (`std::env::current_exe`). Call before any ORT use. The host passes its resource subdirectory
-/// and an optional developer path, and logs the result itself.
-pub fn configure_runtime_for_current_exe(
-    resource_subdir: &str,
-    explicit: Option<PathBuf>,
-) -> Result<RuntimeSelection, RuntimeError> {
-    let executable = std::env::current_exe().ok();
-    configure_runtime(executable_runtime_candidates(
-        executable.as_deref(),
-        resource_subdir,
-        explicit,
-    ))
-}
-
-/// The selected runtime's file name only, for a log line (the folder can sit under the user's
-/// profile). `"unnamed"` when the path has no UTF-8 file name.
-pub fn selection_file_name(selection: &RuntimeSelection) -> &str {
-    selection
-        .path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("unnamed")
-}
-
 /// Bundled-runtime candidate for Android: `<native_lib_dir>/libonnxruntime.so`.
 ///
 /// `native_lib_dir` is `ApplicationInfo.nativeLibraryDir`, handed in from Kotlin (an absolute

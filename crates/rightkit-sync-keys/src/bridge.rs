@@ -1,6 +1,6 @@
 //! The seam to `rightkit-sync`'s cipher (feature `sync`).
 //!
-//! [`SyncKeys`] turns any [`KeyProvider`] of this crate into the `VersionedKeyProvider` that
+//! `SyncKeys` turns any [`KeyProvider`] of this crate into the `VersionedKeyProvider` that
 //! `rightkit_sync::cipher::EncryptingBackend::new_versioned` takes. It seals under the key's version and
 //! writes its key id into the header of a record sealed above version 255 (format 2), and it opens such a
 //! record only with the key that has that id at that version, never another.

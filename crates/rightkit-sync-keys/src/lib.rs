@@ -13,7 +13,7 @@
 //!   synced copy and destroys its keys at its next start or contact (it cannot be forced while it
 //!   is off; see the module notes in `revoke.rs`).
 //!
-//! * [`SyncKeys`] (feature `sync`): any [`KeyProvider`] as the key provider `rightkit-sync`'s cipher takes.
+//! * `SyncKeys` (feature `sync`): any [`KeyProvider`] as the key provider `rightkit-sync`'s cipher takes.
 //!
 //! Not here: the recovery-phrase (Argon2id) wrap of the design, which is a separate path that
 //! needs a new dependency; and the relay, which only carries the opaque messages of [`transfer`].

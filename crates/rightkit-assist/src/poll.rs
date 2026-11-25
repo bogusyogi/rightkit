@@ -1,5 +1,5 @@
 //! The noticing poll: what a pass remembers between runs ([`PollState`]), one pass over new mail ([`poll_pass`]), the unfinished
-//! signals an earlier pass left ([`backlog`] runs inside it), one signal from the start ([`process`]) and the model-call gate
+//! signals an earlier pass left (`backlog` runs inside it), one signal from the start ([`process`]) and the model-call gate
 //! ([`MODEL_CALLS_PER_DAY`], the daily cap and the "model cannot be asked now" wait).
 //!
 //! Neutral logic only. The host supplies the mail source, the model call, the Inbox and the log through [`PollHost`], the records
