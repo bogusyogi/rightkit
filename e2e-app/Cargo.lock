@@ -6120,7 +6120,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agents"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "rightkit-child-process",
  "serde",
@@ -6329,7 +6329,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.9.1"
+version = "0.9.2"
 dependencies = [
  "core-foundation 0.10.1",
  "getrandom 0.4.3",
@@ -6428,7 +6428,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "libc",
  "sha2 0.11.1",
@@ -6448,7 +6448,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-hooks"
-version = "0.2.13"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -6546,7 +6546,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-mcp"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "getrandom 0.4.3",
  "rightkit-fs",
@@ -6720,7 +6720,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-pty"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "libc",
  "rightkit-child-process",
@@ -6730,7 +6730,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa"
-version = "0.10.10"
+version = "0.10.11"
 dependencies = [
  "getrandom 0.4.3",
  "png",
@@ -6792,7 +6792,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-sandbox"
-version = "0.6.6"
+version = "0.7.0"
 dependencies = [
  "libc",
  "rightkit-child-process",
@@ -6803,7 +6803,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-search"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "rusqlite",
 ]
