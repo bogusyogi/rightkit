@@ -13,6 +13,7 @@ use crate::layout::{
     TRACK_STROKE, WEEKLY_DASH, WEEKLY_OUTSIDE_RADIUS, WEEKLY_RADIUS, WEEKLY_STROKE,
 };
 use crate::motion::{self, Pose};
+use crate::text::{visible_prefix, visible_suffix};
 use rightkit_win_ui::canvas::{Canvas, Mask};
 use rightkit_win_ui::fileicon;
 use rightkit_win_ui::glyphs::{self, Glyph, Symbol, Tile};
@@ -104,6 +105,10 @@ const MENU_LINE: f32 = 18.0;
 pub const MENU_WIDTH: f32 = 180.0;
 pub const MENU_HEIGHT: f32 = 36.0;
 
+/// The widest run of text `TextPainter::render` draws (its scratch bitmap's width, device
+/// pixels); a string is never shaped past it.
+const MAX_RUN_PX: f32 = 4096.0;
+
 fn px(dip: f32, scale: f32) -> i32 {
     (dip * scale).round() as i32
 }
@@ -119,7 +124,11 @@ fn draw_text(
     color: u32,
     alpha: f32,
 ) -> i32 {
-    match text.render(value, px(size_dip, scale), bold) {
+    let size_px = px(size_dip, scale);
+    // The scratch bitmap is `MAX_RUN_PX` wide: what lies past it is never drawn, so it is never
+    // shaped (bogusyogi/pulse#558).
+    let value = visible_prefix(value, size_px, MAX_RUN_PX);
+    match text.render(value, size_px, bold) {
         Some(Mask { width: 0, .. }) | None => 0,
         Some(mask) => {
             canvas.draw_mask(&mask, x, y, color, alpha);
@@ -130,7 +139,8 @@ fn draw_text(
 
 /// Width in pixels a string would occupy.
 fn text_width(text: &mut TextPainter, value: &str, size_dip: f32, bold: bool, scale: f32) -> i32 {
-    text.measure(value, px(size_dip, scale), bold)
+    let size_px = px(size_dip, scale);
+    text.measure(visible_prefix(value, size_px, MAX_RUN_PX), size_px, bold)
 }
 
 /// Where points of the notch's own frame (along the screen edge, depth in from it) land on
@@ -1632,7 +1642,10 @@ fn button_spans(
     let natural: Vec<f32> = buttons
         .iter()
         .map(|button| {
-            let label = dip_width(text, &button.label, size, true, s);
+            // Only what could fill the whole row is measured: a longer label shrinks the pills
+            // the same, whatever its length.
+            let label = visible_prefix(&button.label, px(size, s), (right - left) * s);
+            let label = dip_width(text, label, size, true, s);
             let symbol = if button.symbol.is_some() || button.glyph.is_some() || button.busy {
                 symbol_width
             } else {
@@ -2599,6 +2612,7 @@ impl Pen<'_> {
     }
 
     fn width(&mut self, value: &str, style: Style) -> i32 {
+        let value = visible_prefix(value, px(style.size, self.s), self.canvas.width as f32);
         text_width(self.text, value, style.size, style.bold, self.s)
     }
 
@@ -2607,6 +2621,15 @@ impl Pen<'_> {
     fn put(&mut self, value: &str, x: f32, baseline: f32, style: Style, right: bool) -> i32 {
         let em = px(style.size, self.s) as f32;
         let top = (baseline - ASCENT * em).round() as i32;
+        // Only what the canvas can show is shaped: the start of a left-aligned run, the end of
+        // a right-aligned one (bogusyogi/pulse#558).
+        let size_px = px(style.size, self.s);
+        let room = self.canvas.width as f32;
+        let value = if right {
+            visible_suffix(value, size_px, room)
+        } else {
+            visible_prefix(value, size_px, room)
+        };
         let width = self.width(value, style);
         let left = x.round() as i32 - if right { width } else { 0 };
         draw_text(

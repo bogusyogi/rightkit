@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3
+
+- Added `text::{visible_chars, visible_prefix, visible_suffix}`: how much of a string can be on screen at a font size and room, taken from the start (a left-aligned run) or the end (a right-aligned one), without an ellipsis, so drawn pixels inside the room are unchanged. The card renderer's one text path (`Pen::put`, `Pen::width`, `draw_text`, `text_width` and the pill widths of `button_spans`) shapes only that much, so a card whose title, subtitle, label or row text is never fitted (a message of 20,000 characters on a card without header buttons) costs what the canvas can show, not what the string holds (bogusyogi/pulse#558). Text that fits is drawn exactly as before. The 4096-pixel cap is `TextPainter`'s scratch width; the wrap, fit and measure owner stays `rightkit-win-ui`'s `TextPainter` and `text_layout`.
+
 ## 0.2.2
 
 - The card renderer's two premultiplied pixel loops (a strip picture laid over a body, card contents laid over a body) are `rightkit_win_ui::canvas::Canvas::composite_clipped`; the loops in `render` are gone and the output is unchanged. Requires `rightkit-win-ui` 0.1.3.
