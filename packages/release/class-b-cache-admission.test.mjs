@@ -134,11 +134,15 @@ async function independentGroupFixture(t) {
   assert.ok(path.isAbsolute(nativeCargo) && fs.existsSync(nativeCargo), "rustup resolves installed native Cargo");
   const digest = f.cache.digest;
   f.cache.digest = (scan) => scan.batch ? JSON.stringify({ members: digest(scan), manifests: workspaceManifestDigest(f.root) }) : digest(scan);
+  // Native Cargo asks `rustc` on PATH for target information; inside a gate run that is the managed shim, which refuses this temporary
+  // workspace outside the repository and managed roots (macOS, 0.6.80). The toolchain's own rustc beside native Cargo answers instead.
+  const nativeRustc = path.join(path.dirname(nativeCargo), `rustc${process.platform === "win32" ? ".exe" : ""}`);
+  assert.ok(fs.existsSync(nativeRustc), "native rustc sits beside native Cargo");
   const resolutions = [];
   const spawn = async (tool, args, options) => {
     if (args[0] !== "tree") return defaultSpawnAsync(tool, args, options);
     resolutions.push(args);
-    return defaultSpawnAsync(nativeCargo, [...args, "--offline"], options);
+    return defaultSpawnAsync(nativeCargo, [...args, "--offline"], { ...options, env: { ...(options?.env ?? process.env), RUSTC: nativeRustc } });
   };
   const run = async () => {
     const history = f.openHistory();

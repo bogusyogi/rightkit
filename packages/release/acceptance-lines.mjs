@@ -30,6 +30,9 @@ import { enumerateRows } from "./acceptance-rows.mjs";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { kindOf } from "./acceptance-launch.mjs";
+// A file's last path element on any host: receipts carry the building host's paths (a Dell job names D:\...\b-1.exe), and path.basename on
+// macOS or Linux does not split a backslash.
+const fileName = (file) => String(file).split(/[\\/]/).pop();
 
 export const CONTRACT_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "docs", "GATE-CONTRACT.md");
 const BEGIN = "<!-- acceptance-lines:begin -->"; const END = "<!-- acceptance-lines:end -->";
@@ -415,7 +418,7 @@ function nn01(ctx) {
   if (!ctx.tree) return result(NOT_MEASURED, `git cannot say which tree commit ${short(ctx.commit)} is`);
   // Every broker job is signed as this commit's tree, built from a snapshot the broker confirmed unchanged.
   for (const j of ctx.jobs) {
-    if (!j.verified) { (ctx.verifierPinned ? fails : gaps).push(`broker job ${j.jobId ?? path.basename(j.file)}: its receipt ${ctx.verifierPinned ? `does not verify (${j.problems.join("; ") || "no reason given"})` : "cannot be verified: no broker key is pinned"}`); continue; }
+    if (!j.verified) { (ctx.verifierPinned ? fails : gaps).push(`broker job ${j.jobId ?? fileName(j.file)}: its receipt ${ctx.verifierPinned ? `does not verify (${j.problems.join("; ") || "no reason given"})` : "cannot be verified: no broker key is pinned"}`); continue; }
     if (j.gate?.commit !== ctx.commit) fails.push(`broker job ${j.jobId} built commit ${short(j.gate?.commit)}, not the selected ${short(ctx.commit)}`);
     if (j.gate?.tree !== ctx.tree) fails.push(`broker job ${j.jobId} built tree ${short(j.gate?.tree)}, not the selected commit's ${short(ctx.tree)}`);
     if (j.gate?.snapshotUnchanged === false) fails.push(`broker job ${j.jobId}: the broker found the snapshot changed`);
@@ -728,7 +731,7 @@ function nn10(ctx) {
   if (!tests.length) return decide(fails, gaps, "the broker built no test and no cargo test ran outside it");
   let programs = 0; const claims = new Map();
   for (const j of tests) {
-    const what = `broker job ${j.jobId ?? path.basename(j.file)}`;
+    const what = `broker job ${j.jobId ?? fileName(j.file)}`;
     if (!j.verified) { (ctx.verifierPinned ? fails : gaps).push(`${what}: its receipt ${ctx.verifierPinned ? "does not verify" : "cannot be verified: no broker key is pinned"}`); continue; }
     if (!Array.isArray(j.testExecutables) && typeof j.testExecutablesReason === "string") { gaps.push(`${what}: the receipt gives a reason string and no program list, which is not proof the broker only compiled and produced nothing`); continue; }
     if (!Array.isArray(j.testExecutables) && typeof j.testExecutablesReason !== "string") { gaps.push(`${what}: the signed receipt carries no manifest of test programs (no testExecutables), so that the broker only compiled is not shown`); continue; }
@@ -738,26 +741,26 @@ function nn10(ctx) {
       const file = typeof exe === "string" ? exe : exe?.path; const digest = typeof exe === "object" ? exe?.sha256 : null;
       if (typeof file !== "string") { fails.push(`${what}: the receipt lists a test program with no path`); continue; }
       const ran = ctx.procs.filter((p) => dirKey(p.exe) === dirKey(file));
-      if (!ran.length) { (ctx.processGaps.length ? gaps : fails).push(`${what}: the broker built ${path.basename(file)} and the gate never ran it`); continue; }
-      if (ran.length > 1) fails.push(`${what}: the gate ran ${path.basename(file)} ${ran.length} times`);
+      if (!ran.length) { (ctx.processGaps.length ? gaps : fails).push(`${what}: the broker built ${fileName(file)} and the gate never ran it`); continue; }
+      if (ran.length > 1) fails.push(`${what}: the gate ran ${fileName(file)} ${ran.length} times`);
       // One launch is credited to one receipt only: a program two receipts both list cannot have run for both.
       const claimed = claims.get(dirKey(file));
-      if (claimed && claimed !== j.jobId) { fails.push(`${what}: ${path.basename(file)} is also listed by broker job ${claimed}, and its launch is credited to that receipt only`); continue; }
+      if (claimed && claimed !== j.jobId) { fails.push(`${what}: ${fileName(file)} is also listed by broker job ${claimed}, and its launch is credited to that receipt only`); continue; }
       claims.set(dirKey(file), j.jobId);
       // Execution after production: a launch before the broker finished the build ran something else.
-      if (!Number.isFinite(j.ended)) gaps.push(`${what}: the receipt gives no end time, so that ${path.basename(file)} ran after it was built is not shown`);
-      else if (ran.some((p) => p.start === j.ended)) gaps.push(`${what}: ${path.basename(file)} started at the very moment the build ended, so which came first is not shown`);
-      if (Number.isFinite(j.ended) && ran.some((p) => p.start < j.ended)) fails.push(`${what}: ${path.basename(file)} was started before the broker finished building it (job ended ${new Date(j.ended).toISOString()})`);
+      if (!Number.isFinite(j.ended)) gaps.push(`${what}: the receipt gives no end time, so that ${fileName(file)} ran after it was built is not shown`);
+      else if (ran.some((p) => p.start === j.ended)) gaps.push(`${what}: ${fileName(file)} started at the very moment the build ended, so which came first is not shown`);
+      if (Number.isFinite(j.ended) && ran.some((p) => p.start < j.ended)) fails.push(`${what}: ${fileName(file)} was started before the broker finished building it (job ended ${new Date(j.ended).toISOString()})`);
       // The image at execution: the file's digest now equals the signed digest, and the file was last written before the launch and not since, so what ran is what the broker built.
       const img = typeof ctx.digestOf === "function" ? ctx.digestOf(file) : null;
       const now = img && typeof img === "object" ? img.sha256 : img; const written = img && typeof img === "object" ? img.mtimeMs : null;
-      if (typeof digest !== "string") gaps.push(`${what}: the receipt gives no digest for ${path.basename(file)}`);
-      else if (now === null || now === undefined) gaps.push(`${what}: ${path.basename(file)} cannot be read now to compare with the digest the broker signed`);
-      else if (now !== digest) fails.push(`${what}: ${path.basename(file)} is not the program the broker built (digest ${short(now)}, signed ${short(digest)})`);
-      else if (!Number.isFinite(written)) gaps.push(`${what}: when ${path.basename(file)} was last written is not shown, so that the image that ran is the one the broker built is not shown`);
-      else if (written > Math.min(...ran.map((p) => p.start))) fails.push(`${what}: ${path.basename(file)} was written after the gate started it, so the image that ran is not the image now`);
+      if (typeof digest !== "string") gaps.push(`${what}: the receipt gives no digest for ${fileName(file)}`);
+      else if (now === null || now === undefined) gaps.push(`${what}: ${fileName(file)} cannot be read now to compare with the digest the broker signed`);
+      else if (now !== digest) fails.push(`${what}: ${fileName(file)} is not the program the broker built (digest ${short(now)}, signed ${short(digest)})`);
+      else if (!Number.isFinite(written)) gaps.push(`${what}: when ${fileName(file)} was last written is not shown, so that the image that ran is the one the broker built is not shown`);
+      else if (written > Math.min(...ran.map((p) => p.start))) fails.push(`${what}: ${fileName(file)} was written after the gate started it, so the image that ran is not the image now`);
       // No digest of the bytes that ran, taken when they ran, exists outside the gate: a digest read afterwards and a write time do not identify them.
-      gaps.push(`${what}: the image of ${path.basename(file)} at the moment it ran is not shown by any record outside the gate (a digest taken after the run and a write time do not identify the bytes that ran)`);
+      gaps.push(`${what}: the image of ${fileName(file)} at the moment it ran is not shown by any record outside the gate (a digest taken after the run and a write time do not identify the bytes that ran)`);
     }
   }
   return decide(fails, gaps, `${tests.length} test build(s) by the broker, compile only and signed; the gate ran the ${programs} program(s) they list, each the one the broker built`);
@@ -1119,7 +1122,7 @@ export function judgeRun({ lines, launch = null, processes = null, witness = nul
   }
   const ctx = {
     launch, witnessTo: witness?.to ?? null, commit: launch?.commit ?? null, tree: g.tree, blobOf: g.blobOf, diskBlobs, cacheStore, snapshotStat,
-    sendGaps: sends.filter((d) => !claimed.has(d)).map((d) => `a broker send (cargo ${d.args.slice(1, 4).join(" ")}) has no signed job that matches its command, folder and lifetime, so what it built is not shown`), rustStarts, sends, vjobs: jobs.filter((j) => j.verified), foreignGaps: foreign.map((j) => `broker job ${j.jobId ?? path.basename(j.file)} is not shown to be this run's: no send of the run's own process tree has its command and folder`), jobGaps: [...foreign.map((j) => `broker job ${j.jobId ?? path.basename(j.file)} is not shown to be this run's: no send of the run's own process tree has its command and folder`), ...jobs.filter((j) => j.verified && !j.cwd).map((j) => `broker job ${j.jobId ?? path.basename(j.file)} is signed with no workspace, so which workspace and crate it built is not shown`), ...jobs.filter((j) => !j.verified).map((j) => `broker job ${j.jobId ?? path.basename(j.file)} is not credited: its receipt ${verifierPinned ? `does not verify (${j.problems.join("; ") || "no reason given"})` : "cannot be verified, no broker key is pinned"}`)],
+    sendGaps: sends.filter((d) => !claimed.has(d)).map((d) => `a broker send (cargo ${d.args.slice(1, 4).join(" ")}) has no signed job that matches its command, folder and lifetime, so what it built is not shown`), rustStarts, sends, vjobs: jobs.filter((j) => j.verified), foreignGaps: foreign.map((j) => `broker job ${j.jobId ?? fileName(j.file)} is not shown to be this run's: no send of the run's own process tree has its command and folder`), jobGaps: [...foreign.map((j) => `broker job ${j.jobId ?? fileName(j.file)} is not shown to be this run's: no send of the run's own process tree has its command and folder`), ...jobs.filter((j) => j.verified && !j.cwd).map((j) => `broker job ${j.jobId ?? fileName(j.file)} is signed with no workspace, so which workspace and crate it built is not shown`), ...jobs.filter((j) => !j.verified).map((j) => `broker job ${j.jobId ?? fileName(j.file)} is not credited: its receipt ${verifierPinned ? `does not verify (${j.problems.join("; ") || "no reason given"})` : "cannot be verified, no broker key is pinned"}`)],
     inventory: inventory ? new Map(inventory) : null, inventoryUncovered, readiness, prior,
     baselineGap: !launch?.baseline?.commit ? "the launcher has no earlier launched run to take a baseline commit from, so what changed since cannot be shown" : launch.baseline.exit !== 0 ? "the previous launched run did not end cleanly, so its state is not a baseline" : typeof g.priorBlobOf !== "function" ? "git cannot show the baseline commit's tree" : null, exit: Number.isFinite(end) && Number.isInteger(launch?.exit) ? launch.exit : null,
     root: tree.root, procs: tree.procs, processGaps: tree.gaps, starts: startsAll,
