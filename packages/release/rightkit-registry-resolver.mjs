@@ -187,25 +187,66 @@ function manifestRoots(root, extraLocks) {
 /** RightKit dependencies the manifests under root declare (Cargo.toml, package.json): the inputs that need lock proof. */
 export function declaredRightKitDependencies(root, owned, extraLocks = []) {
   const found = [];
-  const take = (ecosystem, name, file, local = false) => {
-    if (owned[ecosystem].has(name)) found.push({ ecosystem, name, file });
-    else if (prefixed(ecosystem, name) && !local) found.push({ ecosystem, name, file });
+  const take = (ecosystem, name, file, local = false, requirement = null) => {
+    if (owned[ecosystem].has(name)) found.push({ ecosystem, name, file, requirement });
+    else if (prefixed(ecosystem, name) && !local) found.push({ ecosystem, name, file, requirement });
   };
   for (const file of manifestRoots(root, extraLocks).flatMap((dir) => scanFiles(dir, new Set(["Cargo.toml", "package.json"])))) {
     try {
       if (path.basename(file) === "package.json") {
         const pkg = JSON.parse(readFileSync(file, "utf8"));
         // A git/file/link/workspace specifier never resolves from the registry; the package-contract validator refuses it by name.
-        for (const section of NPM_DEP_SECTIONS) for (const [name, spec] of Object.entries(pkg[section] ?? {})) if (!/[:/]/.test(String(spec))) take("npm", name, file);
+        for (const section of NPM_DEP_SECTIONS) for (const [name, spec] of Object.entries(pkg[section] ?? {})) if (!/[:/]/.test(String(spec))) take("npm", name, file, false, String(spec));
       } else {
         const doc = parseToml(readFileSync(file, "utf8"));
         const tables = [...MANIFEST_DEP_TABLES.map((t) => doc[t]), doc.workspace?.dependencies, ...Object.values(doc.target ?? {}).flatMap((target) => MANIFEST_DEP_TABLES.map((t) => target?.[t]))];
         // A path or workspace dependency on an unowned prefixed name is app-local (see collectLockedRightKit).
-        for (const table of tables) for (const [key, spec] of Object.entries(table ?? {})) take("cargo", typeof spec === "object" && spec && typeof spec.package === "string" ? spec.package : key, file, typeof spec === "object" && spec !== null && (typeof spec.path === "string" || spec.workspace === true));
+        for (const table of tables) for (const [key, spec] of Object.entries(table ?? {})) take("cargo", typeof spec === "object" && spec && typeof spec.package === "string" ? spec.package : key, file, typeof spec === "object" && spec !== null && (typeof spec.path === "string" || spec.workspace === true), typeof spec === "string" ? spec : typeof spec?.version === "string" ? spec.version : null);
       }
     } catch { /* an unreadable manifest is the manifest validators' finding */ }
   }
   return found;
+}
+
+
+/**
+ * Whether `version` satisfies a declared requirement, read as the ecosystem reads it: Cargo's bare "0.5.0" is "^0.5.0", npm's is exact;
+ * "=", "^", "~", ">=", ">", "<=", "<" and Cargo's comma-joined sets are understood. Returns null when the requirement is not one of these
+ * (a tag, a range with spaces or "||", a wildcard), so the caller can stay conservative.
+ */
+export function satisfiesRequirement(version, requirement, ecosystem) {
+  const parse = (v) => { const m = /^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-[0-9A-Za-z.-]+)?$/.exec(String(v).trim()); return m ? { parts: [Number(m[1]), m[2] === undefined ? null : Number(m[2]), m[3] === undefined ? null : Number(m[3])] } : null; };
+  const full = parse(version);
+  if (!full || full.parts.includes(null)) return null;
+  const [a, b, c] = full.parts;
+  const cmp = (x) => { const p = x.parts.map((n) => n ?? 0); return a !== p[0] ? (a < p[0] ? -1 : 1) : b !== p[1] ? (b < p[1] ? -1 : 1) : c !== p[2] ? (c < p[2] ? -1 : 1) : 0; };
+  const one = (text) => {
+    const m = /^(=|\^|~|>=|<=|>|<)?\s*v?(\S+)$/.exec(text.trim());
+    if (!m) return null;
+    const op = m[1] ?? (ecosystem === "cargo" ? "^" : "=");
+    const req = parse(m[2]);
+    if (!req) return null;
+    const [x, y, z] = req.parts;
+    if (op === "=") return a === x && (y === null || b === y) && (z === null || c === z);
+    if (op === ">=") return cmp(req) >= 0;
+    if (op === ">") return cmp(req) > 0;
+    if (op === "<=") return cmp(req) <= 0;
+    if (op === "<") return cmp(req) < 0;
+    if (op === "~") return cmp(req) >= 0 && a === x && (y === null || b === y);
+    // Caret: the left-most non-zero part is fixed.
+    if (cmp(req) < 0) return false;
+    if (x !== 0) return a === x;
+    if (y === null) return a === 0;
+    if (y !== 0) return a === 0 && b === y;
+    if (z === null) return a === 0 && b === 0;
+    return a === 0 && b === 0 && c === z;
+  };
+  const text = String(requirement ?? "").trim();
+  if (!text || /\|\||\*|\bx\b/.test(text)) return null;
+  const parts = ecosystem === "cargo" ? text.split(",") : [text];
+  if (ecosystem !== "cargo" && /\s/.test(text)) return null;
+  const results = parts.map(one);
+  return results.includes(null) ? null : results.every(Boolean);
 }
 
 /** Declared RightKit dependencies that no lock entry proves: no bundled-only fallback. */
@@ -665,7 +706,16 @@ export function evaluateRightKitFreshness(snapshot, holds, { enforce = false, de
   // `declared`: the RightKit names the app's own manifests declare (`${ecosystem}\0${name}`). A stale entry the app does not declare is a
   // transitive lock entry: only the RightKit units that depend on it can move it, so it is reported, never refused (Pulse 0.6.80: rightkit-fs
   // 0.4.19, required ^0.4 by the latest rightkit-http, -pdf and others). With no set given every entry is judged as before.
-  const isDirect = (entry) => !declared || declared.has(`${entry.ecosystem}\0${entry.name}`);
+  const isDirect = (entry) => {
+    if (!declared) return true;
+    const reqs = declared.get(`${entry.ecosystem}\0${entry.name}`);
+    if (!reqs) return false;
+    // Declared by name: direct only when its version meets one of the app's own requirements for that name (Pulse 0.6.81: it declares
+    // rightkit-fs =0.5.0, and the 0.4.19 the latest rightkit-http still pulls in is transitive). A name declared with no readable
+    // requirement (a workspace-inherited entry, an unparsed range) stays direct.
+    const verdicts = reqs.map((r) => (r === null ? null : satisfiesRequirement(entry.version, r, entry.ecosystem)));
+    return verdicts.includes(true) || verdicts.every((v) => v === null);
+  };
   const refusals = [];
   const newer = [];
   const tasks = [];
@@ -730,7 +780,13 @@ export async function prepareRightKitResolution({ root, snapshotFile = null, bou
   // so a publication after admission neither mutates nor restarts an admitted build.
   const enforce = admission && source === "resolved";
   let declared = null;
-  try { declared = new Set(declaredRightKitDependencies(root, ownedRightKitNames(versions, ownership), options.extraLocks ?? []).map((d) => `${d.ecosystem}\0${d.name}`)); } catch { declared = null; }
+  try {
+    declared = new Map();
+    for (const d of declaredRightKitDependencies(root, ownedRightKitNames(versions, ownership), options.extraLocks ?? [])) {
+      const key = `${d.ecosystem}\0${d.name}`;
+      declared.set(key, [...(declared.get(key) ?? []), d.requirement ?? null]);
+    }
+  } catch { declared = null; }
   const freshness = evaluateRightKitFreshness(snapshot, readUpdateHolds(root), { enforce, declared });
   if (freshness.refusals.length) {
     throw new RightKitRegistryError("stale-pin", `RightKit pins are behind the latest published version (build admission refused):\n${freshness.refusals.map((p) => `- ${p}`).join("\n")}`, { problems: freshness.refusals });
