@@ -112,9 +112,11 @@ fn a_killed_host_takes_chrome_with_it() {
     std::thread::spawn(move || {
         for line in BufReader::new(stdout).lines() {
             let Ok(line) = line else { break };
+            // With one test thread libtest prints "test <name> ... " with no newline before the
+            // test's own output, so the marker is not at the start of its line.
             if let Some(pid) = line
-                .strip_prefix("chrome_pid=")
-                .and_then(|value| value.trim().parse::<u32>().ok())
+                .split_once("chrome_pid=")
+                .and_then(|(_, value)| value.trim().parse::<u32>().ok())
             {
                 let _ = pid_tx.send(pid);
             }

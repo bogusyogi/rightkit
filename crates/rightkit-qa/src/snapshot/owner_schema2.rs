@@ -26,6 +26,8 @@ impl Operation {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
+// The variant names are the wire values (`cleanup_ok`, ...), so the shared prefix stays.
+#[allow(clippy::enum_variant_names)]
 pub(in crate::snapshot) enum CleanupCode {
     CleanupOk,
     CleanupIncomplete,
@@ -157,6 +159,8 @@ fn owner_request(marker: &Marker, operation: Operation) -> Result<Completion> {
 pub(in crate::snapshot) struct ManifestItem {
     set: usize,
     account: String,
+    // Part of the wire shape (`deny_unknown_fields`); not read on every host.
+    #[allow(dead_code)]
     pub(in crate::snapshot) present: bool,
 }
 
