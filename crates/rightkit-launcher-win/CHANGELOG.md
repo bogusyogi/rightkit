@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Logic moved from Pulse into this crate (bogusyogi/pulse#643): see the module docs for what each new module holds.
+
 ## 0.2.0
 
 - Breaking: the launcher panel and the handover overlay (`panel`, `spot_takeover`, the `qa-views` feature) move out of the package, with the dependencies they needed (`rightkit-overlay`, `rightkit-overlay-win`, `rightkit-win-ui`, `rightkit-child-process`). Store discovery (`store`), snippet expansion (`snippets`), launcher chat (`chat`) and type-ahead (`type_ahead`) stay; the application draws its own launcher layout, theme and copy.

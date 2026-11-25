@@ -38,6 +38,8 @@ mod report;
 mod retention;
 #[cfg(feature = "window-errors")]
 mod window;
+#[cfg(windows)]
+pub mod window_pump;
 
 pub use android::{
     record_android_exits, reduce_trace, unseen_exits, AndroidExit, AndroidExitReason,

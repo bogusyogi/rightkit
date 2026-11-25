@@ -2957,7 +2957,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-app-settings"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "rightkit-fs",
  "serde",
@@ -2967,7 +2967,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-autostart"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "objc2",
  "objc2-foundation",
@@ -2995,7 +2995,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-crash"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "rightkit-crypto",
  "rightkit-fs",
@@ -3016,7 +3016,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.9.2"
+version = "0.9.3"
 dependencies = [
  "core-foundation",
  "getrandom 0.4.3",
@@ -3073,7 +3073,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-notifications"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "block2",
  "notify-rust",

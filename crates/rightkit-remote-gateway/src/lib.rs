@@ -60,6 +60,8 @@
 //!   into the user's browser after checking the page's real address and asking the owner
 //!   (Touch ID or the PIN); the agent never sees a value. Also the owner-only secure box
 //!   (`remote.secure.put|list|remove`) and the monthly spend ledger.
+//! * `bounded`: the edge of an MCP gateway: calls bounded in time on worker threads, `busy` and exit
+//!   when calls stay stuck, and a reply measured against the tunnel's message limit.
 //! * `audit`: one line per call in `remote-activity.jsonl`, which the hub's Activity page shows.
 //!
 //! The gate around the tools is the `rightkit-agent-gateway` core's: the door ([`Origin`]), the
@@ -78,6 +80,7 @@ pub mod approvals;
 pub mod apps;
 pub mod audit;
 mod b64;
+pub mod bounded;
 // The page address of the front browser on Windows (UI Automation), read by `agent_secrets`.
 #[cfg(windows)]
 mod browser_address;
@@ -106,7 +109,8 @@ pub mod procs;
 pub mod protected_store;
 pub mod push_key;
 pub mod screen;
-#[cfg(any(target_os = "macos", windows))]
+// Pure text rules; browser_tools uses them on every platform, screen control only on macOS and Windows.
+#[cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
 mod sensitive;
 pub mod settings;
 pub mod term;
@@ -187,6 +191,36 @@ pub struct Call {
     pub caller_pid: Option<u32>,
 }
 
+/// What a host adds to the gateway's own tool table and wording. Installed once with
+/// [`set_host_tools`]; until then there are no extra tools and the neutral wording.
+#[derive(Clone, Copy)]
+pub struct HostTools {
+    /// Tools only this host runs (its own Google, browser, memory and page-read tools). Called with
+    /// the tool the gateway does not know; `None` means "not mine", and the call is refused
+    /// `not_built`. It runs after the manifest check, the door check, and the chat unlock, like
+    /// every built-in tool.
+    pub run: fn(&settings::Settings, &Call, &Value) -> Option<Result<Value>>,
+    /// Tools of the host that change this computer or send something, in addition to the gateway's
+    /// own list: refused through the gateway while `remoteReadOnly` is on.
+    pub changes_things: fn(&str) -> bool,
+    /// Where the owner finds the `remoteReadOnly` switch, as the refusal names it.
+    pub settings_place: &'static str,
+    /// The app's name in "is not built into this `<app>`".
+    pub app_name: &'static str,
+}
+
+static HOST_TOOLS: std::sync::OnceLock<HostTools> = std::sync::OnceLock::new();
+
+/// Installs the host's extra tools and wording. Only the first call takes effect; returns `false`
+/// otherwise.
+pub fn set_host_tools(tools: HostTools) -> bool {
+    HOST_TOOLS.set(tools).is_ok()
+}
+
+fn tool_changes_things(tool: &str) -> bool {
+    changes_things(tool) || HOST_TOOLS.get().is_some_and(|h| (h.changes_things)(tool))
+}
+
 /// Runs one call: manifest check, settings, the tool, then the Activity record. The record is
 /// best-effort: a call whose record cannot be written still answers.
 pub fn execute(call: &Call) -> Result<Value> {
@@ -212,10 +246,15 @@ fn run(call: &Call, args: &Value) -> Result<Value> {
     let settings = settings::Settings::load();
     if call.origin == Origin::Gateway {
         settings.require_gateway()?;
-        gate::allow_door(settings.read_only, changes_things(&call.tool)).map_err(|denied| {
+        gate::allow_door(settings.read_only, tool_changes_things(&call.tool)).map_err(|denied| {
             Refusal::new(
                 denied.code(),
-                "the ChatGPT gateway is read-only: the owner turned on remoteReadOnly in the app's settings",
+                format!(
+                    "the ChatGPT gateway is read-only: the owner turned on remoteReadOnly in {}",
+                    HOST_TOOLS
+                        .get()
+                        .map_or("the app's settings", |h| h.settings_place)
+                ),
             )
         })?;
     }
@@ -327,10 +366,19 @@ fn run(call: &Call, args: &Value) -> Result<Value> {
             call.chat.as_deref().unwrap_or_default(),
             call.limit,
         ),
-        other => Err(Refusal::new(
-            "not_built",
-            format!("{other} is not built into this the app"),
-        )),
+        other => match HOST_TOOLS
+            .get()
+            .and_then(|h| (h.run)(&settings, call, args))
+        {
+            Some(result) => result,
+            None => Err(Refusal::new(
+                "not_built",
+                format!(
+                    "{other} is not built into this {}",
+                    HOST_TOOLS.get().map_or("app", |h| h.app_name)
+                ),
+            )),
+        },
     }
 }
 

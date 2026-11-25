@@ -44,6 +44,9 @@ pub struct Entry {
 
 pub type Names = BTreeMap<String, Entry>;
 
+type NamesCache = Option<(PathBuf, SystemTime, u64, Names)>;
+static NAMES_CACHE: std::sync::Mutex<NamesCache> = std::sync::Mutex::new(None);
+
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -96,8 +99,21 @@ fn load_checked() -> Option<Names> {
     if meta.len() > FILE_MAX_BYTES {
         return None;
     }
+    // The redraw asks for every account's name and the file is one: it is read again only when
+    // its time or size changes (the cache Pulse's Windows book kept).
+    let stamp = meta.modified().ok();
+    let mut cache = NAMES_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let (Some(stamp), Some((kept, time, len, names))) = (stamp, cache.as_ref())
+        && *kept == path
+        && *time == stamp
+        && *len == meta.len()
+    {
+        return Some(names.clone());
+    }
     let doc = serde_json::from_slice::<Value>(&fs::read(&path).ok()?).ok()?;
-    Some(parse(&doc))
+    let names = parse(&doc);
+    *cache = stamp.map(|stamp| (path.clone(), stamp, meta.len(), names.clone()));
+    Some(names)
 }
 
 /// Entries from a document of the file's shape (this computer's file, or the other computer's
@@ -144,6 +160,8 @@ fn save(names: &Names) {
     if let Ok(bytes) = serde_json::to_vec(&to_json(names)) {
         let _ = crate::desktop::write_private(&path, &bytes, false);
     }
+    // A rewrite of the same size within the file clock's tick would otherwise keep the old copy.
+    *NAMES_CACHE.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
 /// Folds `remote` into `local`: per uuid the newest rename, the earliest first sighting.
@@ -230,6 +248,10 @@ pub fn rename(id: &str, name: &str) -> bool {
     let Some(mut names) = load_checked() else {
         return false;
     };
+    // A hostile copy cannot grow the file past `ACCOUNTS_MAX` through renames either.
+    if !names.contains_key(&id) && names.len() >= ACCOUNTS_MAX {
+        return false;
+    }
     let now = now_ms();
     let entry = names.entry(id).or_insert_with(|| Entry {
         seen: now,

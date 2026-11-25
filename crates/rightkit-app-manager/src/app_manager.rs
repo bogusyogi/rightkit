@@ -34,6 +34,9 @@ use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
 use crate::apps::valid_bundle_id;
 use crate::subprocess::{self, Capture, Failure, Options, UNBOUNDED};
 
+/// Saved uninstall plans: written first, claimed and applied once.
+pub mod uninstall_plan;
+
 /// Folders searched under `~/Library`, and under `/Library` for `SYSTEM_DIRS`.
 const USER_DIRS: &[&str] = &[
     "Application Support",

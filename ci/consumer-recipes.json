@@ -2129,7 +2129,7 @@
       "gateEvidence": "no assets needed; in-memory SQLite; no ci/asset-gated.json entry needed",
       "consumes": "genright-gen ledger.rs:61 (imports), :385-393 and :911-913 (reserve_on), :1541 (record_provider_reported), :1665 (reconcile_invoice), :1842-1844 and :1920-1926 (caller budget); PostRight crates/engine/Cargo.toml:43 is a comment only (RIGHTKIT-PENDING), so PostRight has no current call site",
       "files": {
-        "Cargo.toml": "7a7eef8aa24ab3beb2864d5683fbf3c673d21bba0d5280d4ff2ae9d6d39fd447",
+        "Cargo.toml": "cbf26a3c082c343ed4ed7dfcd9f25924c7bde91c977bf821f0b18464dd194762",
         "README.md": "90cb5179447ec026176499498d2eea51b7b7424dd0d14d8ae48a14f570443066",
         "src/main.rs": "5b4178fe3400a0f5dcc27525f66dafee1b971c9a40bccabe4474d0ad4d51654c"
       },
@@ -2232,7 +2232,7 @@
       "pkId": "PK04",
       "id": "ci/consumers/rightkit-app-settings/src/main.rs",
       "files": {
-        "Cargo.toml": "36b767900e85444823d53bb930e63ca114d8d48f07029d0aca61f52db3b706be",
+        "Cargo.toml": "22b5f2151f0791c5ca6b8a098f6f68b398d1f235fa41e39748e0c41135943bcf",
         "README.md": "d04715c60bc17f93254375ddff629e2acc170cd7ad46241f325943ed688152b5",
         "src/main.rs": "acb605e873cb4d2d819eee90e4047cebfbd3ac1d7f9a3095053658c522e9fcfa"
       }
@@ -2241,7 +2241,7 @@
       "pkId": "PK11",
       "id": "ci/consumers/rightkit-crash/src/main.rs",
       "files": {
-        "Cargo.toml": "07c59a244e059cc399bcd22b0101bca812e91bc82b11f345c8c74d536b36e49b",
+        "Cargo.toml": "05af38d91b66519f7a8a8ba9004d5390f4db9904c00e4ce11c02fca2bcb73e80",
         "README.md": "8d07eb390d19d32634bee0b6027c909af54e2899452222bb981a91a3ebcb6848",
         "src/main.rs": "bb1481683ba82e62333fed195b1ce4d3ee968dda19b4d757b0187898774db8cd"
       }
@@ -2433,7 +2433,7 @@
       "gateEvidence": "per-run private temp suites removed on drop; local current-user IPC to same process for PK07 R2; no TCP or real user data",
       "consumes": "PK07 named consumers per docs/plans/2026-10-20-rightkit-implementation/01-packages.md: HeardRight and ScrapeRight data-folder move; Pulse migrated_app_root() retirement (PK07-3); CutoverParticipant surface at crates/rightkit-roots/src/root_cutover.rs:231 (re-exported by rightkit-daemon since 0.8.0); PK07 R2 Service builder/local host, Client::connect_expecting, echo, method/app denial & executable mismatch",
       "files": {
-        "Cargo.toml": "cd1ebea2c98a47e43862d8a99bad6a7dd782ce7a9b9439ea4a994aad02447e74",
+        "Cargo.toml": "1e3f4606408db6428eead312b637c8a8beaf3a2301cd46d30fac545f864ed7b3",
         "README.md": "f22334339f3882d892f14678425f5bf1b4e975607ad9e181dcc01240bba7c7f0",
         "src/main.rs": "d2b85600d65982f5bb4236e90206e6e9133dc8d2031815fc3abf2e24ad1abd62"
       },
@@ -2488,7 +2488,7 @@
       "gateEvidence": "no state directory, no watcher, no home directories, no network; macOS opens an Index over a temp tree of three small files, other hosts exercise only pure helpers and typed Unsupported refusals; the Windows live backends (Windows Search, USN journal) are not opened; content feature stays off",
       "consumes": "PK01 filesystem-family consumer (reviewed recipe, named product consumers not re-read here); rightkit-fsindex public items used: Config::new, WriteBudgetConfig::new and with_max_footprint (src/config.rs), Index::open, open_with_backend, search, folder_size, children_sorted_by_size, write_budget_status, would_exceed_write_budget (src/index.rs), escape_sql_literal and like_pattern (src/backend/windows_search.rs), parse_usn_records (src/backend/windows_usn.rs), UnsupportedBackend (src/backend/windows_stub.rs)",
       "files": {
-        "Cargo.toml": "c51c9cc3c6de22727a0d7e03884e7f559f0b828748896fa91e28b6d0c3a82e2d",
+        "Cargo.toml": "cc0111b70d0a93d9377b5736ba2a75e063fdfbccdea9da9627919b60851794ae",
         "README.md": "df58743ef9db42bcd94e4f3bbc0f1ed27500437731aa8ecd1f28b90f065219b9",
         "src/main.rs": "b01208ce55d837d1186bbf48e67cb1146230350ba6a3f2a95255fc0ad0be77f6"
       },
@@ -2576,7 +2576,7 @@
       "gateEvidence": "no assets needed; deterministic, in-process; no ci/asset-gated.json entry needed",
       "consumes": "no app pins this version yet; publication unblocks adoption (recipe exercises the public API family named in its README)",
       "files": {
-        "Cargo.toml": "89af32257f6ec11f4b05a6aeb14a287fd1fb03614a192a1bd21bf1731185b061",
+        "Cargo.toml": "9ff11c8f481eb2b3062cfff31b36d54962da7da367d1c5afe5c46dc30c512fac",
         "README.md": "b7dc9f6f871480c064cf7ac33c71c736a197c7f5e40e62d918929d7a1539c93e",
         "src/main.rs": "a6bf340d00f3f9601b8ceb454807d5a76bb75d786a64214628c444c54310bb14"
       },
@@ -2763,7 +2763,7 @@
       "pkId": "PK41",
       "id": "ci/consumers/rightkit-send/src/main.rs",
       "files": {
-        "Cargo.toml": "514afe0d8e96f5f18b2af2623576d31934036e2733e2650ede8581ee6736c0bf",
+        "Cargo.toml": "8241210fd3e9a6573b83acd79d08ed8edf4de58d3e50a3cb96c45d54a06930d8",
         "README.md": "41fdf302090f38c13374ba1ec456698fd86515c5564bd11113eeafb9c992b988",
         "src/main.rs": "860359fc3cbfe1bdbe831d28841a32ac4c04b950bd0e5391875d8baa20462c58"
       }
@@ -3097,7 +3097,7 @@
       "pkId": "PK78",
       "id": "ci/consumers/rightkit-app-manager/src/main.rs",
       "files": {
-        "Cargo.toml": "b8bf9642bcaf36e2afd8f056cef06c99d70d39a75a75012bc9c4fa931b5ecec2",
+        "Cargo.toml": "aae9f87891a3c3a33442913f3c6ff44dc94e31d4bc7bb88868732d37c6036b36",
         "README.md": "f6ff78139a9a4aa99a71acfe62b3b50cca7c0c9d9abf3e51ed746d6ff0319a73",
         "src/main.rs": "0176ab600d699cc5db95e481e4958146ef2da81a38be569748b9971cda4b499e"
       }
@@ -3188,7 +3188,7 @@
       "pkId": "PK92",
       "id": "ci/consumers/rightkit-disk-cleanup/src/main.rs",
       "files": {
-        "Cargo.toml": "27e0fc5d4ecb0e3db98063d5d903f78fb020f9b8c62d01a064694001c6918b04",
+        "Cargo.toml": "c92fbd4cbad04040c3a04270c0769bfec40a4870bcaeee0f309c64fc2f4c07c4",
         "README.md": "e94e1a225da26cd1130a968bed896ca944b8262c21d9d2bfbb76055b88074922",
         "src/main.rs": "5390ebfe754fad27c388cf46ba21774cf72592521f0973af82c9c9bcf275de8c"
       }
@@ -3360,7 +3360,7 @@
       "pkId": "PK111",
       "id": "ci/consumers/rightkit-privileged-helper/src/main.rs",
       "files": {
-        "Cargo.toml": "986296c0933eac4e304326e287cb26c2daecce32656064fa47eac39ea1792ca7",
+        "Cargo.toml": "d8cdb693341f757bce3094f5d565fb61ba0a2ee27dabf0c8220c71c260ce6e8a",
         "README.md": "c45611f1e5798c9a5fa906df7f0fcc1e9695a1dea03627cc02b4f25f2e23f181",
         "src/main.rs": "0e8f83627715d0d77e78ac6c1040588098d25eb65ae91ad27982c79bb81d4814"
       }
@@ -3423,7 +3423,7 @@
       "pkId": "PK118",
       "id": "ci/consumers/rightkit-system-monitor/src/main.rs",
       "files": {
-        "Cargo.toml": "2022aff594ad7d574a97f4ad23d953912a316eb4c7fa24d43f12fb8d473d1668",
+        "Cargo.toml": "dbd3a5beb16408292eb9b03ae55a6b88e6d051fa9233b9cde941bc1a852c1288",
         "README.md": "1550b98c41d0c68b1bc44e4c91024eec4491a4e37fd8793d9bbf5d415616f341",
         "src/main.rs": "f800184518433a1c4558b84669a4998565ac73996159562f44e11d34e4cf901e"
       }
@@ -3504,7 +3504,7 @@
       "pkId": "PK130",
       "id": "ci/consumers/rightkit-ai-accounts/src/main.rs",
       "files": {
-        "Cargo.toml": "980eb0fcacdb8f0aed3f50190c754c5f6fb3ba3a6a4e893cc4e24cce70230562",
+        "Cargo.toml": "a362bfab29f2e28c206ce584205b8a26335880897b3ead9c79e0e8a5a4bd5e9d",
         "README.md": "e7c6ee9f660ff32d8aa9ee561723471aaf4b7f8c37f418c4b258f49521259bd6",
         "src/main.rs": "64a37190f3ddce227083b5c7d11926ed0e68ffcea800a366b824f28e4de55c4f"
       }
@@ -3522,7 +3522,7 @@
       "pkId": "PK131",
       "id": "ci/consumers/rightkit-app-host/src/main.rs",
       "files": {
-        "Cargo.toml": "5b904ddfa2c78eba4650e493de709184d9e51c4b2c0f336d7afd5f0879f617f5",
+        "Cargo.toml": "eef697ed2b1358c5590f414fadc04c364ad3aff093dc27314836dddcf17003a2",
         "README.md": "043c0613589ab02aede991a5f933729d7bd5426a502b5800f2b5e2bfb047616c",
         "src/main.rs": "03c138dbeb0b47d2cf9e3b440cfebe7fc4aedddcf006bc9a9dc14834f8fbc742"
       }
@@ -3823,7 +3823,7 @@
       "pkId": "PK165",
       "id": "ci/consumers/rightkit-chat-bridge/src/main.rs",
       "files": {
-        "Cargo.toml": "76fdcfac2bb316cfb569d3bbf3f2f4f325a6ad520b3590bd25169238a8910dab",
+        "Cargo.toml": "110dec047714b8213be969d3c3565847467d243fe895a3ee444226146bef100a",
         "README.md": "55704f4024119e42fc28dad9e529ce3ef1cf30f95166889d902ba765087b996b",
         "src/main.rs": "72b5d81d5ee3555eaee6746feb93cbac8930deaabd875b7391786c6db9841925"
       }
@@ -3859,7 +3859,7 @@
       "pkId": "PK169",
       "id": "ci/consumers/rightkit-remote-gateway/src/main.rs",
       "files": {
-        "Cargo.toml": "c999b33d3cbd96d5e310313524bf468ec4480ed660f4fcab40f8cde9e8e44028",
+        "Cargo.toml": "d5fd491ffc7925580f28e5c4f8b8eb2772f04c82e45a7ebea44a17d9eba1e9f9",
         "README.md": "4f2ba6787df27803fedfc399debe234343831301113534f82195c40c9c6b4f43",
         "src/main.rs": "e8075fc42b39ecb3dab23d733b4e9051b63a3961b9a929461c96179f99061451"
       }
@@ -3949,7 +3949,7 @@
       "pkId": "PK179",
       "id": "ci/consumers/rightkit-desktop-tweaks/src/main.rs",
       "files": {
-        "Cargo.toml": "f3f2ab3480192f9ca7b7524f5caea2407d4e25450ed8d7f409419bf5f1f071bb",
+        "Cargo.toml": "f142444fd91a47bfb57c7a207406cdc410d6d805bf1129d4fe24ac0a997be41d",
         "README.md": "8b41431fd46449c650e05c091b17d2aeef289cd6a297cf190ed50ae1d6a22842",
         "src/main.rs": "6f81171e0ebf42a5ea72d6e2a7e696bed3c9c61f48cf93b147e6594395291a03"
       }
@@ -4049,7 +4049,7 @@
       "pkId": "PK190",
       "id": "ci/consumers/rightkit-autostart/src/main.rs",
       "files": {
-        "Cargo.toml": "3d96e60fac9c1ff6ce012ad2576f1ab4675dbf67df008792d5f068c1838a55e3",
+        "Cargo.toml": "e71cb09a7762e0a78b595aa39a275a0dd0b8f52ec45d29a570c6baa429aa66c8",
         "README.md": "f179a715fefbf25684a4e174c39d80c7f850bfa91d9da7a8203cf09fe0e2e2f8",
         "src/main.rs": "34e67296baedde0707984ee0c299d9a9c4900493254b5359edf86c177975946e"
       }
@@ -4157,7 +4157,7 @@
       "pkId": "PK202",
       "id": "ci/consumers/rightkit-notifications/src/main.rs",
       "files": {
-        "Cargo.toml": "01683a1402f3f50120b405e080cd5ae56dd839266f8cecd08868b3c4b8333d07",
+        "Cargo.toml": "446eef084cd5d46ffb87186ba3f6ac18979a0350f581ffa2730e0abadf5786d7",
         "README.md": "aa9b226a386e6ef1596837d56bb8b576db7d0262a7f4b3135ab4b237772ad0e1",
         "src/main.rs": "1395057cf7b7f316a9eadfc317fa78a1b50973cdd5e23fa6ab7393ac1565a8d2"
       }
@@ -4256,7 +4256,7 @@
       "pkId": "PK221",
       "id": "ci/consumers/rightkit-launcher-win/src/main.rs",
       "files": {
-        "Cargo.toml": "5856bae8b1152cfcbc278d6c1a5948bbef91b7af5155f07a02f6d52a6f3729f5",
+        "Cargo.toml": "badf3a81768a324514f73b2685a2c6f9034cbb7e4d91e06577df32827ed4e0cf",
         "README.md": "41b27a805565bc568cbe169b3c36e176337b07da3a76a03ddb1fea25c35d22b0",
         "src/main.rs": "213e888bd980d06fafbfd5726338c452761e1138fbdb00d6caa15eb7e7db2493"
       }
@@ -4319,7 +4319,7 @@
       "pkId": "PK257",
       "id": "ci/consumers/rightkit-agent-task-journal/src/main.rs",
       "files": {
-        "Cargo.toml": "f8e305c37dae4a7498bff413f303a9e3b9a3eb8572443e9b3c3582442f7aaef2",
+        "Cargo.toml": "a47ef663f660532ded891272c967807c646547f358b51aac3a2285d6c11aae47",
         "README.md": "1622fd59f813d26c2c7bdebe8deb00ced1da5d1651f0ffbcaa42d85f8e31e83c",
         "src/main.rs": "e89de383e2197d2b5de8cb5e75883b6cf2625e7e789d3cfd76518d926b1333fd"
       }
@@ -4337,7 +4337,7 @@
       "pkId": "PK259",
       "id": "ci/consumers/rightkit-device-link-core/src/main.rs",
       "files": {
-        "Cargo.toml": "182a5d60124b6ca9fa9e87051971c76bcb59dc17997fe983e9c4b5f77394b383",
+        "Cargo.toml": "9894534c73631c30edceb7344cbbf447013e1cf1c2f01307f1b691545caa963a",
         "README.md": "f41fc977cf8e3f8d7d8439d35a1808bf7218df840d2318c7fe6f1ad97f487905",
         "src/main.rs": "579064d71bad94a138714ffa8b7f2f0c31461f56abae67daa6505934b04c5349"
       }

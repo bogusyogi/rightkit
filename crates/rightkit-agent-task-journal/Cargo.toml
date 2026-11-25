@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-task-journal"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "The durable agent task journal over the job store: owner epoch fencing, restart recovery, event outbox, device-link request replay and the lane workers, with the product behind host traits."

@@ -69,8 +69,10 @@ mod imp {
     }
 
     /// Parks `paths` for the trusted UI and waits for its answer: the paths it moved, or `None` when the
-    /// UI is not serving, the owner declined, no answer came in time or the helper failed.
-    fn request(app: &str, paths: &[PathBuf]) -> Option<Vec<PathBuf>> {
+    /// UI is not serving, the owner declined, no answer came in time or the helper failed. A host
+    /// whose app manager has its own elevator hook installs `move |paths| request(&app, paths)`
+    /// there; [`run`] does that for `rightkit_app_manager`'s hook.
+    pub fn request(app: &str, paths: &[PathBuf]) -> Option<Vec<PathBuf>> {
         let paths: Vec<String> = paths
             .iter()
             .map(|p| p.to_str().map(str::to_string))
@@ -190,12 +192,18 @@ mod imp {
 }
 
 #[cfg(unix)]
-pub use imp::{complete, next, run};
+pub use imp::{complete, next, request, run};
 
 /// Windows has no helper: the flag is ignored and the methods refuse.
 #[cfg(not(unix))]
 pub fn run<R>(_elevate: bool, _app: &str, work: impl FnOnce() -> R) -> R {
     work()
+}
+
+/// Windows has no helper: nothing is ever parked, so there is no answer.
+#[cfg(not(unix))]
+pub fn request(_app: &str, _paths: &[std::path::PathBuf]) -> Option<Vec<std::path::PathBuf>> {
+    None
 }
 
 #[cfg(not(unix))]

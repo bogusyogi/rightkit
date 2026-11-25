@@ -4,12 +4,15 @@
 //! [`JournalHost`]; the task types are `rightkit-agent-task-contract`'s.
 //!
 //! Modules
+//! * `claude_cli`: where the Claude Code CLI is, whether a preset still turns tools off, the widened
+//!   `PATH`, the stale-scratch sweep.
 //! * `host`: [`JournalHost`], [`KindFacts`], [`Lane`], [`FinishedTask`], [`LogLevel`].
 //! * `journal`: [`Journal`], [`RunCtl`], [`RunState`], the task types ([`TaskInput`], [`TaskError`], [`Executor`]),
 //!   and `worker` ([`JournalService`]).
 //! * `link`: the device-link replay row types and SQL.
 //! * `schema`: the storage shape, the transition hook, the metadata table and the version check.
 
+pub mod claude_cli;
 mod host;
 mod journal;
 mod link;

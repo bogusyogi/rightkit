@@ -1,6 +1,9 @@
-//! Windows launcher services for Store apps, snippet expansion, type-ahead and launcher chat.
+//! Windows launcher services for Start menu and Store apps, open windows, snippet expansion, type-ahead and launcher chat.
 //! Install the application's services through `host` and its translation and logging through
 //! rightkit-launcher. The application composes and styles its launcher.
+
+#[cfg(windows)]
+pub mod apps;
 
 #[cfg(windows)]
 pub mod chat;

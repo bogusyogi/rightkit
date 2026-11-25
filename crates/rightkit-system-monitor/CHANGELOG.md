@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2
+
+- Logic moved from Pulse into this crate (bogusyogi/pulse#643): see the module docs for what each new module holds.
+
 ## 0.3.1
 
 - Replaced unpublished history preference polling with `run(wall_ms)`, reusable `pause()` & explicit `resume()` admission; retained history/cursors survive pause, in-flight publication is suppressed & terminal `stop()` stays irreversible. Host serializes transitions & joins old or pending handles before re-arming.

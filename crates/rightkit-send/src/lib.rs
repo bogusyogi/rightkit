@@ -15,6 +15,8 @@ pub mod commands;
 #[cfg(all(feature = "multicast", not(target_os = "ios")))]
 pub mod discovery;
 mod error;
+pub mod host_info;
+pub mod job_queue;
 pub mod net;
 mod policy;
 pub mod proto;
@@ -22,6 +24,7 @@ mod receive;
 pub mod send;
 pub mod transport;
 pub mod trust;
+pub mod wake;
 mod workers;
 
 pub use error::Error;

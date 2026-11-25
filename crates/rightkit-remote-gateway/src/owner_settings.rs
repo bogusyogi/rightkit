@@ -461,7 +461,7 @@ pub const SETTINGS_PROOF_KIND: &str = "settings";
 
 /// The `action` a `settings` signature commits to: SHA-256 hex of
 /// `pulse.settings.v1\nkey:<key>\nvalue:<SHA-256 hex of the checked value's JSON text>`. `checked`
-/// is the value as [`check_shape`] returns it (a bool, a whole number, a text or a list of texts,
+/// is the value as `check_shape` returns it (a bool, a whole number, a text or a list of texts,
 /// never an object), whose compact JSON text is therefore canonical. So a signature made for one
 /// key cannot change another, and one for one value cannot set another.
 pub fn settings_action(key: &str, checked: &Value) -> String {

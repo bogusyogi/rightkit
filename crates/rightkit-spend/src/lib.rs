@@ -98,12 +98,18 @@ use rightkit_db::{migrate, MigrateOptions, Migration, VersionStorage};
 
 pub use rightkit_db::rusqlite;
 
+mod amount;
 mod approved;
 mod audit;
 mod budget;
 mod group;
 mod reconcile;
 mod scope;
+mod store_check;
+pub use amount::{
+    format_decimal_micro, length_prefixed_message, normalize_currency, parse_decimal_micro,
+    valid_report_id, valid_scope_id, MAX_WHOLE_UNITS,
+};
 pub use approved::{approval_bind, ApprovedAudit, ApprovedBudget, ReportOutcome, SealKey};
 pub use audit::CapAudit;
 pub use budget::{Budget, BudgetKind, BudgetSpend};
@@ -112,6 +118,7 @@ pub use reconcile::{
     Invoice, InvoiceInput, InvoiceLine, InvoiceReport, MatchedLine, ProviderReported, UnmatchedLine,
 };
 pub use scope::{Scope, ScopeError};
+pub use store_check::{check_store, StoreCheck};
 
 pub type Result<T> = std::result::Result<T, SpendError>;
 

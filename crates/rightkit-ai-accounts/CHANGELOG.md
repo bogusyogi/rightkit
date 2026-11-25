@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+- Logic moved from Pulse into this crate (bogusyogi/pulse#643): see the module docs for what each new module holds.
+
 ## 0.1.2
 
 - Fixed: the "is Claude Desktop running" check honours an explicit data folder. `sync::claude_running_for(root)` read the process table with a refresh that leaves out each process's executable and command line, so no process showed a `--type=` helper marker or a `--user-data-dir`, and every Desktop main process of any profile counted as using `root`. With Desktop running on the host, a check of a different folder (a test root, another profile) reported "running" and refused the sync, restore or switch. The refresh now reads the command line and the executable, as the Desktop instance listing already does, so a main process counts only when its own or its helpers' `--user-data-dir` is `root`; one that names no folder yet (still launching) still counts, and an unreadable process table still counts as running. No public signature changes. Not compiled or run here; rustfmt checked.

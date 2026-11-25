@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-device-link-core"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.98.0"
 description = "Transport-agnostic device link: pairing, the paired-device registry, the device circle, revocation, resume tickets, per-request authorization, phone policy and host helpers. No iroh, no tokio, no async runtime."

@@ -25,7 +25,7 @@ static CAPTURE_UNTIL: AtomicU64 = AtomicU64::new(0);
 static CAPTURED: Mutex<String> = Mutex::new(String::new());
 /// Virtual keys of the held presses, so their swallowing ends with the capture.
 static CAPTURED_VKS: Mutex<Vec<u32>> = Mutex::new(Vec::new());
-static HANDLER: OnceLock<HandlerId> = OnceLock::new();
+static HANDLER: Mutex<Option<HandlerId>> = Mutex::new(None);
 
 fn now_ms() -> u64 {
     static EPOCH: OnceLock<std::time::Instant> = OnceLock::new();
@@ -39,7 +39,23 @@ fn now_ms() -> u64 {
 /// Registers the type-ahead handler on the hook hub (once). Call from the panel's start, never
 /// from a hook handler.
 pub fn install() {
-    HANDLER.get_or_init(|| hub::add_key_handler(ORDER, handle));
+    let mut handler = HANDLER.lock().unwrap_or_else(PoisonError::into_inner);
+    if handler.is_none() {
+        *handler = Some(hub::add_key_handler(ORDER, handle));
+    }
+}
+
+/// Removes the handler again, so the hub can take its keyboard hook down when nothing else needs
+/// it. Any capture still open ends and its text is dropped. Never call from a hook handler.
+pub fn uninstall() {
+    let id = HANDLER
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take();
+    if let Some(id) = id {
+        hub::remove(id);
+        drop(end());
+    }
 }
 
 /// Starts holding typed characters. Called when the launcher chord is pressed to open it (it may

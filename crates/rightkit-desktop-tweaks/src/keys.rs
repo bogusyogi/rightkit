@@ -32,7 +32,7 @@ use rightkit_hotkeys::KeyEventDetail;
 use rightkit_hotkeys::windows::HookDecision;
 use rightkit_hotkeys::windows::hub::{self, HandlerId, KeyContext};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Mutex, OnceLock, PoisonError};
 use windows::Win32::Foundation::RECT;
 use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
@@ -83,6 +83,33 @@ static ON: Mutex<(Shortcuts, Option<HandlerId>)> = Mutex::new((
 ));
 static SAVE_FIND_TAB_CLOSE: AtomicBool = AtomicBool::new(false);
 static GUARDS: AtomicBool = AtomicBool::new(false);
+/// Whether the handler is registered, readable from the hook thread without a lock.
+static MAC: AtomicBool = AtomicBool::new(false);
+/// A live source for the two options that may change without [`apply`] being called again.
+static OPTIONS_SOURCE: OnceLock<fn() -> (bool, bool)> = OnceLock::new();
+
+/// Gives the layer a live source for [`Shortcuts::save_find_tab_close`] and [`Shortcuts::guards`],
+/// as `(save_find_tab_close, guards)`, read on each Alt chord instead of the values given to
+/// [`apply`] (for an application whose switches change while the layer runs). The first source
+/// wins; returns `false` when one was already set. The function runs on the hook thread and must
+/// return at once.
+pub fn set_options_source(source: fn() -> (bool, bool)) -> bool {
+    OPTIONS_SOURCE.set(source).is_ok()
+}
+
+fn save_find_tab_close_on() -> bool {
+    match OPTIONS_SOURCE.get() {
+        Some(source) => source().0,
+        None => SAVE_FIND_TAB_CLOSE.load(Ordering::Relaxed),
+    }
+}
+
+fn guards_on() -> bool {
+    match OPTIONS_SOURCE.get() {
+        Some(source) => source().1,
+        None => GUARDS.load(Ordering::Relaxed),
+    }
+}
 /// The Alt and Shift keys the user held at the last handled chord, restored after an injection.
 static LAST_ALT: AtomicU32 = AtomicU32::new(VK_LMENU);
 static LAST_SHIFT: AtomicU32 = AtomicU32::new(VK_LSHIFT);
@@ -93,6 +120,7 @@ pub fn apply(shortcuts: Shortcuts) {
     let mut on = ON.lock().unwrap_or_else(PoisonError::into_inner);
     SAVE_FIND_TAB_CLOSE.store(shortcuts.save_find_tab_close, Ordering::Relaxed);
     GUARDS.store(shortcuts.guards, Ordering::Relaxed);
+    MAC.store(shortcuts.mac, Ordering::Relaxed);
     if shortcuts.mac && on.1.is_none() {
         on.1 = Some(hub::add_key_handler(ORDER, handle));
         if !hub::keyboard_running() {
@@ -110,6 +138,33 @@ pub fn apply(shortcuts: Shortcuts) {
 /// The shortcuts in force.
 pub fn current() -> Shortcuts {
     ON.lock().unwrap_or_else(PoisonError::into_inner).0
+}
+
+/// Whether this Alt+V key-down would be replaced by a paste (Ctrl+V, or a terminal's own paste
+/// chord) by the handler now: the shortcuts are on, the left Alt is held with nothing else but
+/// no Shift, and the foreground window is not one the layer stands down for. For a handler
+/// registered before [`ORDER`] that must count such a paste first (a clipboard burst). Pure
+/// queries, safe on the hook thread.
+pub fn alt_paste_chord(event: &KeyEventDetail, cx: &KeyContext) -> bool {
+    if !event.down
+        || event.vk != VK_V
+        || !event.alt_down
+        || cx.ctrl
+        || cx.win
+        || cx.shift
+        || cx.alt_vk != VK_LMENU
+        || !MAC.load(Ordering::Relaxed)
+    {
+        return false;
+    }
+    !alt_remap_guarded() || foreground_terminal().is_some()
+}
+
+/// Injects a dummy key press so an Alt (or Alt+Shift) release that follows a swallowed chord is
+/// not a bare Alt tap: no window menu opens, no input layout switches. For a handler that swallows
+/// an Alt chord of its own.
+pub fn break_alt_tap() {
+    send(&[key(VK_DUMMY, false), key(VK_DUMMY, true)]);
 }
 
 enum Plan {
@@ -133,7 +188,7 @@ fn handle(event: &KeyEventDetail, cx: &KeyContext) -> HookDecision {
         return HookDecision::Pass;
     }
     let editing = matches!(vk, VK_A | VK_C | VK_V | VK_X | VK_Z)
-        || (matches!(vk, VK_S | VK_F | VK_T | VK_W) && SAVE_FIND_TAB_CLOSE.load(Ordering::Relaxed));
+        || (matches!(vk, VK_S | VK_F | VK_T | VK_W) && save_find_tab_close_on());
     if !editing {
         return HookDecision::Pass;
     }
@@ -203,7 +258,7 @@ fn handle(event: &KeyEventDetail, cx: &KeyContext) -> HookDecision {
 /// whole monitor, such as a full-screen program or game. Off without `Shortcuts::guards`. Runs on the
 /// hook thread for each editing chord, so it only makes a few fast window queries.
 fn alt_remap_guarded() -> bool {
-    if !GUARDS.load(Ordering::Relaxed) {
+    if !guards_on() {
         return false;
     }
     if foreground_terminal().is_some() {

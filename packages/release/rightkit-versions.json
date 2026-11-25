@@ -559,19 +559,19 @@
     "rightkit-agent-server": "0.2.0",
     "rightkit-agent-skills": "0.1.0",
     "rightkit-agent-task-contract": "0.1.2",
-    "rightkit-agent-task-journal": "0.1.0",
+    "rightkit-agent-task-journal": "0.1.1",
     "rightkit-agent-telemetry": "0.1.0",
     "rightkit-agent-tools": "0.4.4",
     "rightkit-agent-transcript": "0.1.3",
     "rightkit-agents": "0.2.8",
-    "rightkit-ai-accounts": "0.1.2",
+    "rightkit-ai-accounts": "0.1.3",
     "rightkit-ai-keys": "0.1.1",
     "rightkit-android": "0.3.2",
-    "rightkit-app-host": "0.1.2",
+    "rightkit-app-host": "0.1.3",
     "rightkit-app-icon": "0.1.0",
     "rightkit-app-lock": "0.1.0",
-    "rightkit-app-manager": "0.2.4",
-    "rightkit-app-settings": "0.4.3",
+    "rightkit-app-manager": "0.2.5",
+    "rightkit-app-settings": "0.4.4",
     "rightkit-app-update": "0.2.0",
     "rightkit-apple-ops": "0.2.0",
     "rightkit-approvals": "0.2.2",
@@ -580,7 +580,7 @@
     "rightkit-audio": "0.4.3",
     "rightkit-autoedit": "0.2.0",
     "rightkit-automation": "0.7.6",
-    "rightkit-autostart": "0.1.0",
+    "rightkit-autostart": "0.1.1",
     "rightkit-bench": "0.2.1",
     "rightkit-bot-messaging": "0.3.1",
     "rightkit-browser": "0.3.12",
@@ -588,7 +588,7 @@
     "rightkit-captions": "0.1.1",
     "rightkit-catalog": "0.1.0",
     "rightkit-channel-memory": "0.2.3",
-    "rightkit-chat-bridge": "0.2.1",
+    "rightkit-chat-bridge": "0.2.2",
     "rightkit-child-process": "0.5.17",
     "rightkit-clipboard": "0.1.0",
     "rightkit-clipboard-history": "0.4.0",
@@ -611,18 +611,18 @@
     "rightkit-context-runtime": "0.1.5",
     "rightkit-contracts": "0.1.11",
     "rightkit-contrast": "0.1.0",
-    "rightkit-crash": "0.4.2",
+    "rightkit-crash": "0.4.3",
     "rightkit-credentials": "0.5.10",
     "rightkit-crypto": "0.1.4",
-    "rightkit-daemon": "0.9.2",
+    "rightkit-daemon": "0.9.3",
     "rightkit-daemon-remote": "0.1.0",
     "rightkit-db": "0.5.11",
     "rightkit-decimal": "0.1.0",
     "rightkit-deep-link": "0.1.1",
-    "rightkit-desktop-tweaks": "0.3.0",
+    "rightkit-desktop-tweaks": "0.3.1",
     "rightkit-device": "0.5.2",
     "rightkit-device-link": "0.1.0",
-    "rightkit-device-link-core": "0.1.0",
+    "rightkit-device-link-core": "0.1.1",
     "rightkit-device-link-types": "0.1.2",
     "rightkit-dictation-app-runtime": "0.3.1",
     "rightkit-dictation-command-host": "0.3.3",
@@ -636,7 +636,7 @@
     "rightkit-dictation-tauri": "0.3.3",
     "rightkit-dictation-telemetry": "0.2.3",
     "rightkit-dictation-text-pipeline": "0.2.7",
-    "rightkit-disk-cleanup": "0.2.1",
+    "rightkit-disk-cleanup": "0.2.2",
     "rightkit-docs": "0.1.6",
     "rightkit-doctor": "0.2.0",
     "rightkit-document-workspace": "0.2.0",
@@ -654,7 +654,7 @@
     "rightkit-ffmpeg": "0.3.2",
     "rightkit-file-watch": "0.4.4",
     "rightkit-fs": "0.5.2",
-    "rightkit-fsindex": "0.6.2",
+    "rightkit-fsindex": "0.6.3",
     "rightkit-github": "0.2.0",
     "rightkit-google-apis": "0.2.3",
     "rightkit-google-identity": "0.3.0",
@@ -667,7 +667,7 @@
     "rightkit-instance": "0.2.0",
     "rightkit-job-queue": "0.6.1",
     "rightkit-launcher": "0.2.2",
-    "rightkit-launcher-win": "0.2.0",
+    "rightkit-launcher-win": "0.2.1",
     "rightkit-library": "0.3.0",
     "rightkit-license": "0.3.5",
     "rightkit-llm": "0.7.1",
@@ -692,7 +692,7 @@
     "rightkit-models": "0.7.2",
     "rightkit-motion": "0.4.0",
     "rightkit-notch-ui": "0.2.2",
-    "rightkit-notifications": "0.1.1",
+    "rightkit-notifications": "0.1.2",
     "rightkit-now-playing": "0.1.0",
     "rightkit-oauth": "0.11.1",
     "rightkit-ocr": "0.3.0",
@@ -709,15 +709,15 @@
     "rightkit-policy-rules": "0.1.1",
     "rightkit-power": "0.1.0",
     "rightkit-presence": "0.1.2",
-    "rightkit-privileged-helper": "0.2.0",
+    "rightkit-privileged-helper": "0.2.1",
     "rightkit-profile": "0.1.0",
     "rightkit-prompt-recipes": "0.2.1",
     "rightkit-pty": "0.1.3",
     "rightkit-qa": "0.10.11",
-    "rightkit-record": "0.4.0",
+    "rightkit-record": "0.4.1",
     "rightkit-reframe": "0.2.0",
     "rightkit-remote-compute": "0.2.1",
-    "rightkit-remote-gateway": "0.1.4",
+    "rightkit-remote-gateway": "0.1.5",
     "rightkit-repo-graph": "0.3.2",
     "rightkit-repo-graph-grammars": "0.1.1",
     "rightkit-research": "0.1.2",
@@ -726,7 +726,7 @@
     "rightkit-sandbox": "0.7.0",
     "rightkit-scheduler": "0.3.1",
     "rightkit-search": "0.4.6",
-    "rightkit-send": "0.4.1",
+    "rightkit-send": "0.4.2",
     "rightkit-shorts": "0.2.4",
     "rightkit-sidecar": "0.3.4",
     "rightkit-signal": "0.1.0",
@@ -734,11 +734,11 @@
     "rightkit-social-inbox": "0.3.1",
     "rightkit-social-publish": "0.2.0",
     "rightkit-speech-client": "0.5.0",
-    "rightkit-spend": "0.2.3",
+    "rightkit-spend": "0.2.4",
     "rightkit-sync": "0.4.3",
     "rightkit-sync-keys": "0.1.0",
     "rightkit-sysmem": "0.1.0",
-    "rightkit-system-monitor": "0.3.1",
+    "rightkit-system-monitor": "0.3.2",
     "rightkit-tauri-shell": "0.8.9",
     "rightkit-terminal-ui": "0.1.3",
     "rightkit-text-polish": "0.1.4",
@@ -949,7 +949,8 @@
       "0.2.7"
     ],
     "rightkit-ai-accounts": [
-      "0.1.1"
+      "0.1.1",
+      "0.1.2"
     ],
     "rightkit-ai-keys": [
       "0.1.0"
@@ -961,7 +962,8 @@
     ],
     "rightkit-app-manager": [
       "0.2.2",
-      "0.2.3"
+      "0.2.3",
+      "0.2.4"
     ],
     "rightkit-app-settings": [
       "0.2.0",
@@ -969,7 +971,8 @@
       "0.2.4",
       "0.3.0",
       "0.4.1",
-      "0.4.2"
+      "0.4.2",
+      "0.4.3"
     ],
     "rightkit-asr": [
       "0.0.2",
@@ -1030,7 +1033,8 @@
       "0.2.1"
     ],
     "rightkit-chat-bridge": [
-      "0.2.0"
+      "0.2.0",
+      "0.2.1"
     ],
     "rightkit-child-process": [
       "0.4.0",
@@ -1081,7 +1085,8 @@
       "0.3.4",
       "0.3.5",
       "0.3.6",
-      "0.4.1"
+      "0.4.1",
+      "0.4.2"
     ],
     "rightkit-credentials": [
       "0.2.0",
@@ -1107,7 +1112,8 @@
       "0.3.0",
       "0.4.0",
       "0.9.0",
-      "0.9.1"
+      "0.9.1",
+      "0.9.2"
     ],
     "rightkit-db": [
       "0.2.1",
@@ -1220,7 +1226,8 @@
       "0.2.1",
       "0.3.0",
       "0.4.1",
-      "0.5.0"
+      "0.5.0",
+      "0.6.2"
     ],
     "rightkit-google-apis": [
       "0.2.0",
@@ -1280,7 +1287,8 @@
       "0.2.0"
     ],
     "rightkit-launcher-win": [
-      "0.1.0"
+      "0.1.0",
+      "0.2.0"
     ],
     "rightkit-license": [
       "0.2.0",
@@ -1368,7 +1376,8 @@
       "0.2.1"
     ],
     "rightkit-notifications": [
-      "0.1.0"
+      "0.1.0",
+      "0.1.1"
     ],
     "rightkit-oauth": [
       "0.2.0",
@@ -1496,7 +1505,8 @@
     "rightkit-record": [
       "0.3.0",
       "0.3.2",
-      "0.3.3"
+      "0.3.3",
+      "0.4.0"
     ],
     "rightkit-review": [
       "0.2.0",
@@ -1540,7 +1550,8 @@
     "rightkit-send": [
       "0.1.0",
       "0.2.0",
-      "0.4.0"
+      "0.4.0",
+      "0.4.1"
     ],
     "rightkit-service": [
       "0.1.0",
@@ -1574,7 +1585,8 @@
     ],
     "rightkit-spend": [
       "0.1.1",
-      "0.2.0"
+      "0.2.0",
+      "0.2.3"
     ],
     "rightkit-sync": [
       "0.1.1",
@@ -1585,7 +1597,8 @@
       "0.4.2"
     ],
     "rightkit-system-monitor": [
-      "0.3.0"
+      "0.3.0",
+      "0.3.1"
     ],
     "rightkit-tauri": [
       "0.1.1"
@@ -1671,7 +1684,8 @@
       "0.1.2"
     ],
     "rightkit-remote-gateway": [
-      "0.1.3"
+      "0.1.3",
+      "0.1.4"
     ],
     "rightkit-web-session": [
       "0.1.1"
@@ -1683,6 +1697,25 @@
       "0.2.1"
     ],
     "rightkit-disk-cleanup": [
+      "0.2.0",
+      "0.2.1"
+    ],
+    "rightkit-agent-task-journal": [
+      "0.1.0"
+    ],
+    "rightkit-app-host": [
+      "0.1.2"
+    ],
+    "rightkit-autostart": [
+      "0.1.0"
+    ],
+    "rightkit-desktop-tweaks": [
+      "0.3.0"
+    ],
+    "rightkit-device-link-core": [
+      "0.1.0"
+    ],
+    "rightkit-privileged-helper": [
       "0.2.0"
     ]
   }

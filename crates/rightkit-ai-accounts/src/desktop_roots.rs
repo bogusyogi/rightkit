@@ -111,3 +111,37 @@ pub fn desktop_chat_roots() -> Vec<(PathBuf, Option<String>, bool)> {
     }
     out
 }
+
+/// Whether a resolved path has a `ClaudeProfiles` folder among its parts (matched without case on
+/// Windows, where `claudeprofiles` names the same folder). Other Claude profiles (Claude B under
+/// `~/ClaudeProfiles`) keep their own chats and are never a sync target, on any platform.
+pub fn under_profiles(path: &Path) -> bool {
+    path.components().any(|part| {
+        let name = part.as_os_str();
+        if cfg!(windows) {
+            name.eq_ignore_ascii_case("ClaudeProfiles")
+        } else {
+            name == "ClaudeProfiles"
+        }
+    })
+}
+
+/// Why [`sync_root_outside_profiles`] refused a folder.
+#[derive(Debug)]
+pub enum RootRefusal {
+    /// The folder could not be resolved (links, junctions, `..`); it is refused rather than
+    /// compared as typed.
+    Unresolvable(std::io::ErrorKind),
+    /// The resolved folder belongs to another Claude profile.
+    OtherProfile,
+}
+
+/// The resolved form of a `--root` folder a command was pointed at, when it is not inside another
+/// Claude profile's folder.
+pub fn sync_root_outside_profiles(dir: &Path) -> Result<PathBuf, RootRefusal> {
+    let resolved = std::fs::canonicalize(dir).map_err(|e| RootRefusal::Unresolvable(e.kind()))?;
+    if under_profiles(&resolved) {
+        return Err(RootRefusal::OtherProfile);
+    }
+    Ok(resolved)
+}

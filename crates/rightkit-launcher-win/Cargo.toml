@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-launcher-win"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 rust-version = "1.98.0"
 description = "Windows launcher services for Store apps, snippet expansion, type-ahead and launcher chat."
@@ -22,4 +22,4 @@ rightkit-fs = { version = "0.5.0", default-features = false, features = ["fs", "
 rightkit-hotkeys = { version = "0.1.4", path = "../rightkit-hotkeys" }
 rightkit-clipboard-history = { version = "0.4.0", path = "../rightkit-clipboard-history" }
 rightkit-automation = { version = "0.7.0", path = "../rightkit-automation" }
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_System_Com", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }

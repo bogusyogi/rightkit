@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-autostart"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Launch at login without Tauri: LaunchAgent or SMAppService on macOS, HKCU Run on Windows, XDG autostart on Linux, with migration from tauri-plugin-autostart entries."

@@ -158,6 +158,51 @@ pub fn find_tool(candidates: &[PathBuf]) -> Option<PathBuf> {
     candidates.iter().find(|path| path.is_file()).cloned()
 }
 
+/// Where smartctl is looked up for a host running from `exe`, in order: a `Helpers` folder among
+/// the executable's ancestors (a macOS app bundle's `Contents/Helpers`), then on Windows the
+/// executable's own folder, its `Helpers` subfolder and the smartmontools install folder, or on
+/// other hosts Homebrew (`/opt/homebrew/bin`, `/usr/local/bin`). Feed the result to [`find_tool`],
+/// [`refresh`] and [`report`]; a host that ships smartctl elsewhere builds its own list.
+pub fn tool_candidates(exe: Option<&Path>) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(helpers) = exe.and_then(|exe| {
+        exe.ancestors()
+            .find(|a| a.file_name().and_then(|n| n.to_str()) == Some("Helpers"))
+    }) {
+        candidates.push(helpers.join("smartctl"));
+    }
+    #[cfg(windows)]
+    {
+        if let Some(dir) = exe.and_then(Path::parent) {
+            candidates.push(dir.join("smartctl.exe"));
+            candidates.push(dir.join("Helpers").join("smartctl.exe"));
+        }
+        candidates.push(PathBuf::from(
+            r"C:\Program Files\smartmontools\bin\smartctl.exe",
+        ));
+    }
+    #[cfg(not(windows))]
+    {
+        candidates.push(PathBuf::from("/opt/homebrew/bin/smartctl"));
+        candidates.push(PathBuf::from("/usr/local/bin/smartctl"));
+    }
+    candidates
+}
+
+/// A mount worth sampling: the startup disk or a drive under `/Volumes` that is not an Apple
+/// system volume (`com.apple.`); every lettered drive on Windows.
+pub fn is_drive_mount(mount: &str) -> bool {
+    #[cfg(windows)]
+    {
+        let _ = mount;
+        true
+    }
+    #[cfg(not(windows))]
+    {
+        mount == "/" || (mount.starts_with("/Volumes/") && !mount.contains("com.apple."))
+    }
+}
+
 fn run_tool(tool: &Path, args: &[&str]) -> Option<Vec<u8>> {
     let options = RunOptions::new(TOOL_TIMEOUT)
         .stdout_cap(usize::MAX)

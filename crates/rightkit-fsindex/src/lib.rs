@@ -23,6 +23,7 @@ mod index;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod limits;
 mod names;
+pub mod policy;
 mod query;
 mod store;
 mod walk;

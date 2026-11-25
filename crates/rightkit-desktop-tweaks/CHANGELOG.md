@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+- Logic moved from Pulse into this crate (bogusyogi/pulse#643): see the module docs for what each new module holds.
+
 ## 0.3.0
 
 - Breaking for dependents: dependency requirements `rightkit-automation` 0.6 -> 0.7. 0.2.0 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.3.0 instead of changing 0.2.0 in place (#1572).

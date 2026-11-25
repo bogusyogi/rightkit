@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.3
+
+- Logic moved from Pulse into this crate (bogusyogi/pulse#643): see the module docs for what each new module holds.
+
 ## 0.9.2
 
 - Loopback host admits a verified guest-link bearer on bearer routes (`bearer_grants`); replay streams gain `EpochCursor`, `CursorHandle`, `ReconnectBackoff`, `ReplayWire` and `run_replay_stream_with`; `stop_identity` stops an incumbent from an `AdoptedIdentity` with an executable pin and a caller success condition. The loopback host's request-rate limit is per caller class (owner and everyone else), so an unauthenticated or guest flood no longer 429s the owner.

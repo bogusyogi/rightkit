@@ -401,3 +401,196 @@ pub fn compare_folders(
         reasons,
     }
 }
+
+// ---- home-scan history and the "what grew" summary (moved out of Pulse's `growth.rs`) -----------
+
+/// Folders smaller than this are not kept in a saved home snapshot. A home scan has ~250k folders,
+/// which pushed the snapshot past the store's 64 MiB cap, so nothing was saved and a previous home
+/// scan could never be shown. The scan roots always stay.
+pub const MIN_FOLDER_BYTES: u64 = 1024 * 1024;
+/// Grown folders in a [`Growth`] summary.
+pub const GROWN_SHOWN: usize = 5;
+/// Shrunk folders in a [`Growth`] summary.
+pub const SHRUNK_SHOWN: usize = 3;
+
+/// One folder's signed change in attributed bytes.
+#[derive(Serialize)]
+pub struct Change {
+    pub path: PathBuf,
+    /// Signed change in attributed bytes.
+    pub bytes: i64,
+}
+
+/// The "what grew since the last comparable scan" summary.
+#[derive(Serialize, Default)]
+pub struct Growth {
+    pub available: bool,
+    /// Unix seconds of the scan being compared against.
+    pub since: Option<u64>,
+    pub grown: Vec<Change>,
+    pub shrunk: Vec<Change>,
+    pub reason: Option<String>,
+}
+
+/// A copy of `report` fit for the history store: per-file entries are dropped (a folder
+/// comparison does not need them) and so are folders under [`MIN_FOLDER_BYTES`], except the roots.
+///
+/// The scan marks itself incomplete for any skipped link, vanished or unmeasurable entry, and a
+/// Windows home always holds junctions and symlinks that are skipped by design, so such a scan
+/// would never be comparable. When `record_complete` is true (the caller found that nothing that
+/// lowers the folder totals went wrong: no limit, budget or permission refusal) the copy is
+/// recorded as complete for comparison.
+pub fn slim_for_history(
+    report: &crate::model::ScanReport,
+    record_complete: bool,
+) -> crate::model::ScanReport {
+    let folders = report
+        .folders
+        .iter()
+        .filter(|f| {
+            f.attributed_allocation_bytes >= MIN_FOLDER_BYTES || report.roots.contains(&f.path)
+        })
+        .cloned()
+        .collect();
+    let mut slim = crate::model::ScanReport {
+        roots: report.roots.clone(),
+        entries: Vec::new(),
+        folders,
+        accounting: report.accounting.clone(),
+        volume_usage: report.volume_usage.clone(),
+        volume_deltas: report.volume_deltas.clone(),
+        inspection_errors: report.inspection_errors.clone(),
+        skipped_links: Vec::new(),
+        incomplete_reasons: report.incomplete_reasons.clone(),
+    };
+    if record_complete {
+        slim.accounting.incomplete = false;
+        slim.inspection_errors.clear();
+        slim.incomplete_reasons.clear();
+        for folder in &mut slim.folders {
+            folder.incomplete = false;
+        }
+    }
+    slim
+}
+
+/// Save `report` as a snapshot in `dir` and keep only the newest `keep` snapshots of the same roots.
+pub fn save_and_prune(
+    dir: &Path,
+    report: crate::model::ScanReport,
+    keep: usize,
+) -> Result<(), String> {
+    let roots = report.roots.clone();
+    crate::store::save(dir, &Snapshot::new(report, Vec::new())).map_err(|e| e.to_string())?;
+    let mut mine: Vec<Snapshot> = crate::store::history(dir)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter(|s| s.report.roots == roots)
+        .collect();
+    // History is ordered oldest first.
+    while mine.len() > keep {
+        let old = mine.remove(0);
+        let _ = std::fs::remove_file(dir.join(format!("{}.json", old.id)));
+    }
+    Ok(())
+}
+
+/// The newest saved scan in `dir` of exactly `root`, with its unix time. Used to show something on
+/// launch without scanning.
+pub fn latest_scan_in(dir: &Path, root: &Path) -> Option<(crate::model::ScanReport, u64)> {
+    let all = crate::store::history(dir).ok()?;
+    all.into_iter()
+        .rev()
+        .find(|s| {
+            s.report.roots.len() == 1 && s.report.roots[0] == root && !s.report.folders.is_empty()
+        })
+        .map(|s| (s.report, s.created_at))
+}
+
+/// Top grown and shrunk folders: the newest snapshot in `dir` against the latest earlier one of the
+/// same roots that [`compare_folders`] accepts as comparable. Folders under `dir` itself (the scan
+/// sees its own snapshots) and the scan roots are left out.
+pub fn growth_in(dir: &Path) -> Result<Growth, String> {
+    let all = crate::store::history(dir).map_err(|e| e.to_string())?;
+    let Some(current) = all.last() else {
+        return Ok(unavailable_growth("No saved scan yet."));
+    };
+    let mut why = String::from("No earlier scan of this folder to compare with.");
+    for previous in all[..all.len() - 1].iter().rev() {
+        if previous.report.roots != current.report.roots {
+            continue;
+        }
+        let comparison = compare_folders(previous, current, 1_000);
+        if !comparison.comparable {
+            why = comparison.reasons.first().cloned().unwrap_or(why);
+            continue;
+        }
+        let mut grown = Vec::new();
+        let mut shrunk = Vec::new();
+        for row in comparison
+            .top_growth
+            .iter()
+            .chain(&comparison.added_folders)
+            .chain(&comparison.top_shrink)
+            .chain(&comparison.removed_folders)
+        {
+            // The scan sees its own snapshots; they are not the user's data.
+            if row.path.starts_with(dir) || current.report.roots.contains(&row.path) {
+                continue;
+            }
+            let bytes = i64::try_from(row.attributed_growth_bytes).unwrap_or(0);
+            if bytes > 0 {
+                grown.push(Change {
+                    path: row.path.clone(),
+                    bytes,
+                });
+            } else if bytes < 0 {
+                shrunk.push(Change {
+                    path: row.path.clone(),
+                    bytes,
+                });
+            }
+        }
+        return Ok(Growth {
+            available: true,
+            since: Some(previous.created_at),
+            grown: pick_changes(grown, true, GROWN_SHOWN),
+            shrunk: pick_changes(shrunk, false, SHRUNK_SHOWN),
+            reason: None,
+        });
+    }
+    Ok(unavailable_growth(&why))
+}
+
+fn unavailable_growth(reason: &str) -> Growth {
+    Growth {
+        reason: Some(reason.to_string()),
+        ..Growth::default()
+    }
+}
+
+/// Largest changes first (`up`: growth; else shrinkage), without listing a folder whose change is
+/// almost entirely explained by one of its own subfolders (the subfolder is the news).
+pub fn pick_changes(mut rows: Vec<Change>, up: bool, take: usize) -> Vec<Change> {
+    rows.sort_by(|a, b| {
+        if up {
+            b.bytes.cmp(&a.bytes)
+        } else {
+            a.bytes.cmp(&b.bytes)
+        }
+    });
+    rows.dedup_by(|a, b| a.path == b.path);
+    let explained = |outer: &Change| {
+        rows.iter().any(|inner| {
+            inner.path != outer.path
+                && inner.path.starts_with(&outer.path)
+                && (inner.bytes as i128).abs() * 10 >= (outer.bytes as i128).abs() * 8
+        })
+    };
+    let keep: Vec<bool> = rows.iter().map(|r| !explained(r)).collect();
+    rows.into_iter()
+        .zip(keep)
+        .filter_map(|(r, k)| k.then_some(r))
+        .take(take)
+        .collect()
+}

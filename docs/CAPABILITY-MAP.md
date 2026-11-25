@@ -48,9 +48,9 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | agent-ui-settings | `@rightkit/agent-ui-settings` | none | declaration-only | 0 | @rightkit/agent-ui-settings: staged 0.1.1, not published |
 | agent-ui-web | `@rightkit/agent-ui-web` | none | declaration-only | 0 | @rightkit/agent-ui-web: staged 0.1.0, not published |
 | agent-ui-workbench | `@rightkit/agent-ui-workbench` | none | declaration-only | 0 | @rightkit/agent-ui-workbench: staged 0.1.1, not published |
-| ai-accounts | `rightkit-ai-accounts` | none | declaration-only | 0 | rightkit-ai-accounts: staged 0.1.2, not published |
+| ai-accounts | `rightkit-ai-accounts` | none | declaration-only | 0 | rightkit-ai-accounts: staged 0.1.3, not published |
 | android-bridge | `rightkit-android` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-android: published 0.3.0 (crates.io) |
-| app-host | `rightkit-app-host` | none | declaration-only | 0 | rightkit-app-host: staged 0.1.2, not published |
+| app-host | `rightkit-app-host` | none | declaration-only | 0 | rightkit-app-host: staged 0.1.3, not published |
 | app-manager | `rightkit-app-manager` | none | declaration-only | 0 | rightkit-app-manager: published 0.2.2 (crates.io) |
 | app-shell-ui | `@rightkit/react-shell` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/react-shell: published 0.7.7 (npm) |
 | appkit-autorelease-pool | `rightkit-ownership` | none | declaration-only | 0 | rightkit-ownership: published 0.4.2 (crates.io) |
@@ -64,7 +64,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | browser-automation | `rightkit-browser` | block | fingerprinted | 11 (5 block, 6 advise) | rightkit-browser: published 0.3.6 (crates.io) |
 | browser-qa | `@rightkit/qa-chrome` | advise | fingerprinted | 5 (0 block, 5 advise) | @rightkit/qa-chrome: published 0.1.12 (npm) |
 | channel-memory | `rightkit-channel-memory` | none | declaration-only | 0 | rightkit-channel-memory: published 0.2.1 (crates.io) |
-| chat-bridge | `rightkit-chat-bridge` | none | declaration-only | 0 | rightkit-chat-bridge: staged 0.2.1, not published |
+| chat-bridge | `rightkit-chat-bridge` | none | declaration-only | 0 | rightkit-chat-bridge: staged 0.2.2, not published |
 | cloud-sync | `rightkit-sync` | none | declaration-only | 0 | rightkit-sync: published 0.4.1 (crates.io) |
 | code-audit-provider-sdk | `rightkit-code-audit-provider-sdk` | none | declaration-only | 0 | rightkit-code-audit-provider-sdk: staged 0.1.1, not published |
 | composition-model | `rightkit-compose` | none | declaration-only | 0 | rightkit-compose: published 0.2.0 (crates.io) |
@@ -99,7 +99,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | dictation-telemetry | `rightkit-dictation-telemetry` | none | declaration-only | 0 | rightkit-dictation-telemetry: published 0.2.2 (crates.io) |
 | dictation-text-pipeline | `rightkit-dictation-text-pipeline` | none | declaration-only | 0 | rightkit-dictation-text-pipeline: published 0.2.7 (crates.io) |
 | disk-cache | `rightkit-cache` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-cache: published 0.2.3 (crates.io) |
-| disk-cleanup | `rightkit-disk-cleanup` | none | declaration-only | 0 | rightkit-disk-cleanup: staged 0.2.1, not published |
+| disk-cleanup | `rightkit-disk-cleanup` | none | declaration-only | 0 | rightkit-disk-cleanup: staged 0.2.2, not published |
 | doctor | `rightkit-doctor` | none | declaration-only | 0 | rightkit-doctor: staged 0.2.0, not published |
 | document | `rightkit-docs` | none | declaration-only | 0 | rightkit-docs: published 0.1.2 (crates.io) |
 | document-core | `@rightkit/document-core` | none | declaration-only | 0 | @rightkit/document-core: staged 0.2.0, not published |
@@ -175,10 +175,10 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | platform-rules | `rightkit-platform-rules` | none | declaration-only | 0 | rightkit-platform-rules: published 0.1.0 (crates.io) |
 | platform-ui | `@rightkit/platform-ui` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/platform-ui: published 0.4.2 (npm) |
 | policy-rules | `rightkit-policy-rules` | none | declaration-only | 0 | rightkit-policy-rules: staged 0.1.1, not published |
-| privileged-helper | `rightkit-privileged-helper` | none | declaration-only | 0 | rightkit-privileged-helper: staged 0.2.0, not published |
+| privileged-helper | `rightkit-privileged-helper` | none | declaration-only | 0 | rightkit-privileged-helper: staged 0.2.1, not published |
 | qa-evidence | `@rightkit/qa` | advise | fingerprinted | 2 (0 block, 2 advise) | @rightkit/qa: published 0.7.0 (npm) |
 | release-tooling | `@rightkit/release` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/release: published 0.6.79 (npm) |
-| remote-agent-gateway | `rightkit-remote-gateway` | none | declaration-only | 0 | rightkit-remote-gateway: staged 0.1.4, not published |
+| remote-agent-gateway | `rightkit-remote-gateway` | none | declaration-only | 0 | rightkit-remote-gateway: staged 0.1.5, not published |
 | remote-compute | `rightkit-remote-compute` | none | declaration-only | 0 | rightkit-remote-compute: staged 0.2.1, not published |
 | repo-graph | `rightkit-repo-graph` | none | declaration-only | 0 | rightkit-repo-graph: staged 0.3.2, not published |
 | repo-graph-grammars | `rightkit-repo-graph-grammars` | none | declaration-only | 0 | rightkit-repo-graph-grammars: staged 0.1.1, not published |
@@ -206,7 +206,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | structured-logging | `@rightkit/logs`, `rightkit-logs` | advise | fingerprinted | 8 (0 block, 8 advise) | @rightkit/logs: published 0.1.6 (npm); rightkit-logs: published 0.4.2 (crates.io) |
 | sync-key-management | `rightkit-sync-keys` | none | declaration-only | 0 | rightkit-sync-keys: staged 0.1.0, not published |
 | sync-worker | `@rightkit/sync-worker` | none | declaration-only | 0 | @rightkit/sync-worker: none recorded |
-| system-monitor | `rightkit-system-monitor` | none | declaration-only | 0 | rightkit-system-monitor: staged 0.3.1, not published |
+| system-monitor | `rightkit-system-monitor` | none | declaration-only | 0 | rightkit-system-monitor: staged 0.3.2, not published |
 | system-ui | `@rightkit/system-ui` | none | declaration-only | 0 | @rightkit/system-ui: staged 0.2.2, not published |
 | tauri-host-adapters | `@rightkit/tauri`, `rightkit-device` | advise | fingerprinted | 2 (0 block, 2 advise) | @rightkit/tauri: published 0.4.3 (npm); rightkit-device: published 0.5.1 (crates.io) |
 | terminal-ui | `rightkit-terminal-ui` | none | declaration-only | 0 | rightkit-terminal-ui: staged 0.1.3, not published |

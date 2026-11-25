@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.5
+
+- Logic moved from Pulse into this crate (bogusyogi/pulse#643): see the module docs for what each new module holds.
+
 ## 0.2.4
 
 - Installer and update helpers moved from Pulse's Windows host (bogusyogi/pulse#643).

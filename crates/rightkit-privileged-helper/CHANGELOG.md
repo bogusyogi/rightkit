@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Logic moved from Pulse into this crate (bogusyogi/pulse#643): see the module docs for what each new module holds.
+
 ## 0.2.0
 
 - Breaking for dependents: dependency requirements `rightkit-app-manager` 0.1 -> 0.2. 0.1.1 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.2.0 instead of changing 0.1.1 in place (#1572). No source change in this crate since 0.1.1.

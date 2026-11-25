@@ -99,6 +99,74 @@ pub fn is_owner_paired_in(registry: &Registry, device_id: &str) -> bool {
     found
 }
 
+/// Why [`verify_owner_paired_origin`] refused: a stable `code` and a sentence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OriginRefusal {
+    pub code: &'static str,
+    pub message: String,
+}
+
+/// Checks that a task's origin is a paired device the OWNER owns, read from the registry file at
+/// `registry_path` now. `what` names the request kind in the sentences (for example `agent.ask`).
+/// `is_paired_device` is whether the origin principal is the paired-device kind; `subject` is its
+/// device id and `connection` its pairing id.
+///
+/// * The origin must be the paired-device principal, else `unsupported_origin`.
+/// * No registry path known, or a registry that cannot be read: `owner_unknown` (fail closed).
+/// * The record is found by device id AND the pairing the principal carries (`connection` is the
+///   pairing id), so a device that was revoked and paired again is not the device that asked; it
+///   must be [`OwnerPairedExt::is_owner_paired`] against the folder holding the registry. Else
+///   `not_owner_paired` (a guest, a grant holder or an unknown device).
+pub fn verify_owner_paired_origin(
+    registry_path: Option<&std::path::Path>,
+    is_paired_device: bool,
+    subject: &str,
+    connection: Option<&str>,
+    what: &str,
+) -> Result<(), OriginRefusal> {
+    let refuse = |code: &'static str, message: String| Err(OriginRefusal { code, message });
+    if !is_paired_device {
+        return refuse(
+            "unsupported_origin",
+            format!("{what} is accepted only from a paired device the owner owns"),
+        );
+    }
+    let Some(path) = registry_path else {
+        return refuse(
+            "owner_unknown",
+            "the device registry is not known here, so the asking device cannot be checked; nothing was accepted"
+                .to_string(),
+        );
+    };
+    // The device-link folder: where the registry, the local revocations and the phone approval keys' state live.
+    let admin_root = path
+        .parent()
+        .map(std::path::PathBuf::from)
+        .unwrap_or_default();
+    let Ok(registry) = crate::registry::RegistryStore::new(path.to_path_buf()).load() else {
+        return refuse(
+            "owner_unknown",
+            "the device registry could not be read, so the asking device cannot be checked; nothing was accepted"
+                .to_string(),
+        );
+    };
+    let owned = registry.devices.iter().any(|d| {
+        d.device.device_id == subject
+            && connection == Some(d.pairing_id.as_str())
+            && d.is_owner_paired(&admin_root)
+    });
+    if owned {
+        Ok(())
+    } else {
+        refuse(
+            "not_owner_paired",
+            format!(
+                "{what} is accepted only from a device the owner paired (not a guest, a grant holder or an unknown device)"
+            ),
+        )
+    }
+}
+
 /// Whether the paired computer `record` may use chat here, and by which rule. Ok("owner"): the
 /// owner's own computer, one the owner check admitted (`admit`, a trusted owner-check key, an
 /// endorsement) or joined through an owner-check token (`grant_pair`), and the owner has not taken `admit` from it. Ok("grant"): an unexpired `reversible`

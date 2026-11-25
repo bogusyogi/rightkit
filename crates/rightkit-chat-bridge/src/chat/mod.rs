@@ -35,6 +35,7 @@
 //! return `Refused` (`"Chat is off on <device>"`) and keep no inbox copy.
 
 pub mod brand;
+pub mod cli;
 pub mod codex_hook;
 pub mod confirm;
 pub mod control;
@@ -54,6 +55,7 @@ pub mod receipts;
 pub mod roster;
 pub mod said;
 pub mod sendlog;
+pub mod serve;
 pub mod store;
 mod tail;
 pub mod trace;

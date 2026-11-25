@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+- Logic moved from Pulse into this crate (bogusyogi/pulse#643): see the module docs for what each new module holds.
+
 ## 0.1.2
 
 - Ships the README change below, made after 0.1.1 was published, under a new version so the repository never differs from the published 0.1.1 (#1572).

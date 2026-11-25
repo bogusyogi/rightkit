@@ -144,3 +144,53 @@ pub fn invoke(service: &Service, command: &str, args: &Value) -> Result<Value, E
         }),
     }
 }
+
+/// The JSON command files waiting in `dir`, oldest name first, as the host's other process dropped
+/// them (a webview or notch writes one file per command and wakes the host). Each file is removed
+/// as it is read, so a command runs once; a file that is not valid JSON is removed and skipped. A
+/// missing folder has none.
+pub fn drain_json_dir(dir: &std::path::Path) -> Vec<Value> {
+    let Ok(listing) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut files: Vec<PathBuf> = listing
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "json"))
+        .collect();
+    files.sort();
+    let mut commands = Vec::new();
+    for file in files {
+        let command: Option<Value> = std::fs::read(&file)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+        let _ = std::fs::remove_file(&file);
+        commands.extend(command);
+    }
+    commands
+}
+
+/// The strings of a JSON array (`value`), skipping anything else; none when it is not an array.
+pub fn string_list(value: &Value) -> Vec<String> {
+    value
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|p| p.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The items of one send from a command's `paths` and optional `text`: each path as a file or
+/// folder, then the text when it is not empty. `None` when there is nothing to send.
+pub fn send_items(paths: Vec<String>, text: Option<String>) -> Option<Vec<SendItem>> {
+    let mut items: Vec<SendItem> = paths
+        .into_iter()
+        .map(|p| SendItem::Path(PathBuf::from(p)))
+        .collect();
+    if let Some(text) = text.filter(|t| !t.is_empty()) {
+        items.push(SendItem::Text(text));
+    }
+    if items.is_empty() { None } else { Some(items) }
+}

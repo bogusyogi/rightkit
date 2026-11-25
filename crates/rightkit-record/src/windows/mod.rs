@@ -11,6 +11,8 @@ pub mod emit;
 mod gpu;
 mod mf;
 mod screen;
+pub mod snapshot;
+pub mod still;
 mod window;
 
 pub use screen::WindowsScreen;

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4
+
+- Logic moved from Pulse into this crate (bogusyogi/pulse#643): see the module docs for what each new module holds.
+
 ## 0.2.3 (unpublished)
 
 Test build (#1560): `rightkit-db` with `bundled` is a dev-dependency, so the crate's test build links on a host with no system SQLite (Windows: `LNK1181 sqlite3.lib`). The library's features are unchanged; the application still picks the SQLite backend.

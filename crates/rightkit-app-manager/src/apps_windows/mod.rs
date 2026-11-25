@@ -22,6 +22,12 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub mod appx;
 pub mod icons;
+/// Installing a downloaded MSI/MSIX: staging, signature and package facts, install and undo.
+pub mod installer;
+/// Leftover folders, registry keys and startup entries of an installed app.
+pub mod leftovers;
+/// Uninstalling an app and ending its processes.
+pub mod manage;
 pub mod running;
 pub mod updates;
 pub mod usage;

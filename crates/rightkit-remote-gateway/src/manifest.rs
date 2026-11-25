@@ -57,3 +57,17 @@ pub fn require(name: &str) -> Result<Tool> {
         Some(tool) => Ok(tool),
     }
 }
+
+/// Why a tool the ChatGPT gateway was asked for is not offered: `unknown_tool` (not in the
+/// manifest), `not_built` (in it, planned) or `not_offered` (built, but not through the gateway).
+/// `name` may be the manifest name or the gateway's underscore form.
+pub fn gateway_refusal_code(name: &str) -> &'static str {
+    let known = tools()
+        .into_iter()
+        .find(|tool| tool.name == name || tool.name.replace('.', "_") == name);
+    match known {
+        None => "unknown_tool",
+        Some(tool) if !tool.built => "not_built",
+        Some(_) => "not_offered",
+    }
+}

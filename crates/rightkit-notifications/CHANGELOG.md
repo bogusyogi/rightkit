@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- Logic moved from Pulse into this crate (bogusyogi/pulse#643): see the module docs for what each new module holds.
+
 ## 0.1.1
 
 - Adds dependencies `serde` (derive) and `serde_json` (for the approvals alert and the file token store; source in the same change). `continuous_reason` now names the 1 s and 2 s sleeps between Retry attempts. Not compiled.

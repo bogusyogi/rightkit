@@ -112,6 +112,18 @@ pub enum SmallFailure {
     Declined,
     /// Nobody answered the peer's card in time, or receiving is switched off there.
     Held,
+    /// The peer has no screen to answer a card (a headless server) and takes items without asking
+    /// only from the owner's own computers marked as such there, or from a device its owner set to
+    /// Allow. Answered at once, never after a wait. `device_id` is this computer's own device id
+    /// (the id the other computer needs to allow it), when known.
+    NoScreen { device_id: Option<String> },
+    /// The peer is a server whose received-files folder is not set up (or cannot be written), so it
+    /// takes nothing unattended. Answered at once.
+    NoInbox,
+    /// The peer would be left with less than its disk reserve free.
+    NoSpace,
+    /// The peer's hourly limit for items taken without asking is reached.
+    QuotaFull,
     /// The peer cannot read this kind of item.
     Unsupported,
     /// The connection opened but no verdict came back.
@@ -127,9 +139,29 @@ impl SmallFailure {
             SmallFailure::Unreachable { .. } => "unreachable",
             SmallFailure::Declined => "declined",
             SmallFailure::Held => "held",
+            SmallFailure::NoScreen { .. } => "no_screen",
+            SmallFailure::NoInbox => "no_inbox",
+            SmallFailure::NoSpace => "no_space",
+            SmallFailure::QuotaFull => "quota_full",
             SmallFailure::Unsupported => "unsupported",
             SmallFailure::NoAnswer => "no_answer",
             SmallFailure::Local { .. } => "local",
+        }
+    }
+
+    /// The fixed code of a failure that is a link-level problem and left nothing with the other
+    /// computer's owner, or `None` (#560). It is the allowlist for falling back to another route
+    /// (the LAN): `Unreachable` (no connection, a dial timeout, the link not running),
+    /// `Unsupported` (the receiver cannot read it) and, at the manifest stage where nobody is
+    /// asked, `NoAnswer`. A decline is not on it at any stage: a receiver's Deny and its policy
+    /// refusals answer "dropped" too, and the other route has its own, different trust. `Held`
+    /// (the owner was asked) and `Local` (refused on this computer: not paired, blocked, a relay
+    /// cap) never qualify either.
+    pub fn pre_acceptance_cause(&self, stage: SmallStage) -> Option<&'static str> {
+        match (self, stage) {
+            (SmallFailure::Unreachable { .. } | SmallFailure::Unsupported, _) => Some(self.code()),
+            (SmallFailure::NoAnswer, SmallStage::Manifest) => Some(self.code()),
+            _ => None,
         }
     }
 }

@@ -12,6 +12,8 @@
 //!   confirmations, then the host owner's explicit approval).
 //! * `join_token`: the one-line join token, a single-use secret the host keeps only a hash of,
 //!   proven inside the pairing transcript instead of a typed code.
+//! * `chat_confirm`: phone confirmation of reserved chat actions and structured operation
+//!   approvals (digests, one-shot approval, audit).
 //! * `circle`: the device circle: a signed member list for a new device, signed introductions and
 //!   removals for the other members ("added once, trusted everywhere").
 //! * `registry`: paired-device records (re-exported from `rightkit-device-link-types`) and their
@@ -19,6 +21,7 @@
 //! * `link`: the service: registry mutations, revocation, resume tickets, per-request check,
 //!   and the [`ReplayStore`] seam that makes request redelivery idempotent.
 //! * `policy`: whether a paired computer may use chat here, and by which rule.
+//! * `phone_outbox`: items an owner sent to a paired phone, waiting for the phone to pick them up.
 //! * `phone_policy`: what a paired phone may do (per-device modes, held sends, uploads, send
 //!   de-duplication), independent of the host's method table.
 //! * `host_support`: wiping secrets, refusal codes, relay files, admission state and the other
@@ -30,12 +33,14 @@
 //! Owner approvals (`rightkit-owner-approvals`) and the record types (`rightkit-device-link-types`) are
 //! separate crates.
 
+pub mod chat_confirm;
 pub mod circle;
 pub mod host_support;
 pub mod identity;
 pub mod join_token;
 pub mod link;
 pub mod pairing;
+pub mod phone_outbox;
 pub mod phone_policy;
 pub mod policy;
 pub mod registry;

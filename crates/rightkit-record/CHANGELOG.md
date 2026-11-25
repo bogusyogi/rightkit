@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1
+
+- Logic moved from Pulse into this crate (bogusyogi/pulse#643): see the module docs for what each new module holds.
+
 ## 0.4.0 (unpublished)
 
 Removed (breaking): `fake::FakeBackend`, the scripted backend that wrote placeholder media (Adrian, 2026-11-03: "no dummy data, no fucking made up shit. real data."). The recorder runs over the real macOS and Windows backends only.

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4
+
+- Logic moved from Pulse into this crate (bogusyogi/pulse#643): `published` (published state and hub envelopes) and `hub_commands` (the settings command folder and parser).
+
 ## 0.4.3
 - Added `StoreOptions::typed_flat_migration` (a typed settings struct through the flat migration) and `migrated_default`. Additive.
 

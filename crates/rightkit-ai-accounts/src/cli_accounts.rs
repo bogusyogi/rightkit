@@ -110,6 +110,43 @@ pub fn list(base: &Path) -> CliAccounts {
     }
 }
 
+/// The account list a hub's Claude row shows, as JSON: `{"active":"max","accounts":["max","team1"]}`
+/// (no `active` key without a valid active account), or `None` until an account folder exists.
+/// Only folder names are read.
+pub fn hub_json(base: &Path) -> Option<String> {
+    let listed = list(base);
+    if listed.accounts.is_empty() {
+        return None;
+    }
+    let names: Vec<&str> = listed.accounts.iter().map(|a| a.name.as_str()).collect();
+    let mut out = serde_json::json!({ "accounts": names });
+    if let Some(active) = &listed.active {
+        out["active"] = serde_json::json!(active);
+    }
+    Some(out.to_string())
+}
+
+/// The Claude Code config folder: `CLAUDE_CONFIG_DIR` when set, else `~/.claude` (`home` is the
+/// user's home folder, passed by the host: `USERPROFILE` on Windows). `None` when the result is
+/// not an absolute path.
+pub fn claude_config_dir(home: Option<&Path>) -> Option<PathBuf> {
+    let base = std::env::var_os("CLAUDE_CONFIG_DIR")
+        .map(PathBuf::from)
+        .or_else(|| home.map(|home| home.join(".claude")))?;
+    base.is_absolute().then_some(base)
+}
+
+/// `<config folder>/sessions`: a file appears there when a Claude Code session starts and goes
+/// when it ends.
+pub fn cli_sessions_dir(home: Option<&Path>) -> Option<PathBuf> {
+    claude_config_dir(home).map(|base| base.join("sessions"))
+}
+
+/// `<config folder>/plugins`, where Claude Code keeps `installed_plugins.json`.
+pub fn plugins_dir(home: Option<&Path>) -> Option<PathBuf> {
+    claude_config_dir(home).map(|base| base.join("plugins"))
+}
+
 /// Make `name` the account new terminal sessions use, creating its folder on first use.
 /// Rewrites `active`, `env.sh` and `env.ps1`; touches no process and no other file.
 pub fn use_account(base: &Path, name: &str) -> io::Result<CliAccounts> {

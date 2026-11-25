@@ -4,3 +4,7 @@
 
 pub mod autostart;
 pub mod login_item;
+/// The HKCU Run value for an installed app, written with direct registry calls, with Task Manager's
+/// Startup-tab state and the toast switches (Windows only).
+#[cfg(windows)]
+pub mod windows_run;

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.3
+
+- Logic moved from Pulse into this crate (bogusyogi/pulse#643): see the module docs for what each new module holds.
+
 ## 0.6.2 (unpublished)
 
 - **Watcher counters in `Status` (rightkit#1282).** `RootStatus::watch: WatchCounters { dropped, coalesced, overflow }` per root, cumulative since `Index::open` (reset only on restart). `dropped`: platform drop reports; `coalesced`: repeated paths inside a delivered batch plus drop reports absorbed into an already wanted rescan; `overflow`: drop reports plus must-scan-subdirectories notices. Same names and meaning as `rightkit_file_watch::WatchMetrics`; this index reads the platform feed itself and has no `rightkit-file-watch` watcher, so the counts are taken here and no dependency was added. A drop report that names no root counts on every root. `RootStatus` gains a field (struct literals outside the crate must add `watch`).

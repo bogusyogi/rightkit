@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+- Logic moved from Pulse into this crate (bogusyogi/pulse#643): see the module docs for what each new module holds.
+
 ## 0.2.1
 
 - `is_network_path` is public, so a caller can skip network drives before a duplicate scan (bogusyogi/pulse#331).

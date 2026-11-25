@@ -22,6 +22,8 @@
 //! assert_eq!(host().product_name(), "MyApp");
 //! ```
 
+pub mod qa_home;
+
 use serde_json::Value;
 use std::ffi::OsString;
 use std::path::PathBuf;

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5
+
+- Logic moved from Pulse into this crate (bogusyogi/pulse#643): see the module docs for what each new module holds.
+
 ## 0.1.4
 
 - Dependencies added: `rightkit-google-apis` 0.2.3, `rightkit-google-identity` 0.3.0 (for the `google` and `google_write` modules), `rightkit-time` 0.1.5. `rightkit-owner-approvals` requirement 0.1.3. `ring` removed (no source used it). Not added: `rightkit-web-session`, which the `web_read` module needs for `clean_site`; it would close a cycle, because `rightkit-web-session` already depends on this crate. Not compiled.

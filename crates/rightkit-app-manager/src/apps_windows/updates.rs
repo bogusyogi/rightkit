@@ -340,3 +340,177 @@ pub fn upgrade(id: &str, source: &str) -> Result<(), String> {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// The saved result, its freshness, and the policy around an upgrade
+// ---------------------------------------------------------------------------
+
+/// A saved check is reused for this long unless a forced check is asked for (six hours).
+pub const FRESH_SECS: i64 = 6 * 3600;
+
+/// The report an Apps page shows: when the check ran and the apps with an update.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct UpdateReport {
+    pub checked_at: Option<i64>,
+    pub apps: Vec<AppUpdate>,
+}
+
+/// What a host keeps between launches: the last check and its upgrade targets.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Saved {
+    pub checked_at: i64,
+    pub apps: Vec<AppUpdate>,
+    /// App path -> (winget id, winget source name).
+    pub targets: HashMap<String, (String, String)>,
+}
+
+impl From<Found> for Saved {
+    fn from(found: Found) -> Self {
+        Saved {
+            checked_at: found.checked_at,
+            apps: found.apps,
+            targets: found.targets,
+        }
+    }
+}
+
+/// The report for a saved check; an empty one, with no time, when there is none.
+pub fn report_of(saved: Option<&Saved>) -> UpdateReport {
+    match saved {
+        Some(saved) => UpdateReport {
+            checked_at: Some(saved.checked_at),
+            apps: saved.apps.clone(),
+        },
+        None => UpdateReport {
+            checked_at: None,
+            apps: Vec::new(),
+        },
+    }
+}
+
+/// True when `saved` is younger than [`FRESH_SECS`] at `now`.
+pub fn is_fresh(saved: &Saved, now: i64) -> bool {
+    now - saved.checked_at < FRESH_SECS
+}
+
+/// Why an automatic update did not run for an app (#176).
+pub const HELD: &str = "Automatic update held: no verified previous package to restore with Undo.";
+
+/// Whether a verified previous package exists for winget id `id`, so an upgrade could be undone
+/// by reinstalling it. Nothing records or tests one yet (#176 acceptance), so this is false for
+/// every app; an automatic upgrade never runs until it is built and tested. Policy follows
+/// RightKit's `@rightkit/app-update`: nothing installs on its own unless the policy says so.
+pub fn previous_package_verified(_id: &str) -> bool {
+    false
+}
+
+/// The version the app's Uninstall key shows now, when it is newer than `before` or equals
+/// `latest`. `read_version` reads the app's current version by path (a fresh inventory read);
+/// `host_name` words the refusal. Err says what to tell the person; the app is not called
+/// updated then (#176: an update is reported done only once the new version is read back).
+pub fn verify_new_version(
+    read_version: &dyn Fn(&str) -> Option<String>,
+    host_name: &str,
+    path: &str,
+    before: Option<&str>,
+    latest: Option<&str>,
+) -> Result<String, String> {
+    let now = read_version(path).ok_or_else(|| {
+        format!(
+            "winget finished, but {host_name} could not read the app's version afterwards, so it does not say it was updated."
+        )
+    })?;
+    let reached = latest.is_some_and(|l| l == now)
+        || before.is_some_and(|b| {
+            crate::apps::compare_versions(b, &now) == crate::apps::VersionComparison::Newer
+        });
+    if reached {
+        Ok(now)
+    } else {
+        Err(format!(
+            "winget finished, but the app still shows version {now}, so it is not marked updated."
+        ))
+    }
+}
+
+/// The check of an upgraded app: (package id, expected version, expected publisher) to the
+/// installed version, or why it does not match.
+pub type VerifyFn = dyn Fn(&str, Option<&str>, Option<&str>) -> Result<String, String>;
+
+/// After a check with automatic updates switched on (`enabled`): upgrades each eligible app and
+/// verifies it; every other app keeps its row with the reason it was held ([`HELD`]). Returns
+/// whether `saved` changed. `upgrade` runs one winget upgrade (id, source); `verify` is
+/// [`verify_new_version`] with the host's reader.
+pub fn auto_update(
+    saved: &mut Saved,
+    enabled: bool,
+    upgrade: &dyn Fn(&str, &str) -> Result<(), String>,
+    verify: &VerifyFn,
+) -> bool {
+    if !enabled {
+        return false;
+    }
+    let mut changed = false;
+    let mut done: Vec<String> = Vec::new();
+    for row in saved.apps.iter_mut() {
+        let Some((id, source)) = saved.targets.get(&row.path).cloned() else {
+            continue;
+        };
+        if !previous_package_verified(&id) {
+            if row.reason.as_deref() != Some(HELD) {
+                row.reason = Some(HELD.to_string());
+                changed = true;
+            }
+            continue;
+        }
+        if !safe_argument(&id) || upgrade(&id, &source).is_err() {
+            continue;
+        }
+        if verify(
+            &row.path,
+            row.installed_version.as_deref(),
+            row.latest_version.as_deref(),
+        )
+        .is_ok()
+        {
+            done.push(row.path.clone());
+        }
+    }
+    if !done.is_empty() {
+        saved.apps.retain(|row| !done.contains(&row.path));
+        for path in &done {
+            saved.targets.remove(path);
+        }
+        changed = true;
+    }
+    changed
+}
+
+/// The upgrade target and the versions around it for one app of a saved check, or what to tell
+/// the person when there is none. `Ok((id, source, before, latest))`.
+#[allow(clippy::type_complexity)]
+pub fn upgrade_target(
+    saved: Option<&Saved>,
+    path: &str,
+) -> Result<(String, String, Option<String>, Option<String>), String> {
+    let saved = saved.ok_or("Check for updates first.")?;
+    let (id, source) = saved.targets.get(path).cloned().ok_or_else(|| {
+        "winget lists no update for this app. Check for updates again.".to_string()
+    })?;
+    let (before, latest) = saved
+        .apps
+        .iter()
+        .find(|row| row.path == path)
+        .map(|row| (row.installed_version.clone(), row.latest_version.clone()))
+        .unwrap_or((None, None));
+    if !safe_argument(&id) {
+        return Err("winget gave an id that cannot be used.".into());
+    }
+    Ok((id, source, before, latest))
+}
+
+/// Drops an updated app from a saved check, so the old answer is not shown again.
+pub fn forget_updated(saved: &mut Saved, path: &str) {
+    saved.apps.retain(|row| row.path != path);
+    saved.targets.remove(path);
+}

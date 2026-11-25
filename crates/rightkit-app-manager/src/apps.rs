@@ -11,6 +11,15 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+/// One-at-a-time job flags and the icon queue behind an Apps page.
+pub mod jobs;
+/// A read-only registry view the host supplies (Windows leftovers and startup items).
+pub mod registry;
+/// The update feed of the host app itself (GitHub release JSON, https only, checksum required).
+pub mod release_feed;
+/// What starts by itself: launch agents and daemons, Run keys and Startup folders.
+pub mod startup_items;
+
 // ---------------------------------------------------------------------------
 // Inventory evidence and ownership
 // ---------------------------------------------------------------------------

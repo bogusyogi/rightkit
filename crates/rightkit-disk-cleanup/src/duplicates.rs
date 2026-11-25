@@ -917,3 +917,150 @@ impl ContentHandle for WindowsContentHandle {
         Ok(count)
     }
 }
+
+// ---- acting on a duplicate report (moved out of Pulse's `duplicates.rs`) -----------------------
+
+/// One extra copy to move to the Trash, with the copy that stays.
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct TrashItem {
+    /// The copy that stays.
+    pub kept: String,
+    /// The extra copy to move to the Trash.
+    pub path: String,
+}
+
+/// An extra copy that was moved, and the bytes it freed.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct Moved {
+    pub path: String,
+    pub bytes: u64,
+}
+
+/// An extra copy that was left where it was, and why.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct Skipped {
+    pub path: String,
+    pub reason: String,
+}
+
+/// The outcome of [`trash_extras`].
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct TrashResult {
+    pub moved: Vec<Moved>,
+    pub skipped: Vec<Skipped>,
+    pub moved_bytes: u64,
+}
+
+/// Exact-content duplicates under one folder the person picked, with the default bounds. The folder
+/// must be an absolute path to a real folder (not a file or a link) on this computer.
+pub fn scan_folder(path: &str) -> Result<DuplicateReport, String> {
+    let root = PathBuf::from(path);
+    if !root.is_absolute() {
+        return Err("Choose a folder by its full path.".into());
+    }
+    if is_network_path(&root) {
+        return Err(
+            "Duplicate scans are not run on network folders. Choose a folder on this computer."
+                .into(),
+        );
+    }
+    let metadata =
+        fs::symlink_metadata(&root).map_err(|_| "That folder is not there.".to_string())?;
+    if !metadata.is_dir() {
+        return Err("Choose a folder, not a file or a link.".into());
+    }
+    Ok(find_duplicates(&[root], &DuplicateOptions::default()))
+}
+
+/// Move each extra copy to the Trash (`trash`, the host's effect) after checking it again: it is
+/// still a regular file, not the kept file itself or a hard link to it, and still identical to the
+/// kept copy. Anything that fails a check is skipped.
+pub fn trash_extras(
+    items: Vec<TrashItem>,
+    trash: &dyn Fn(&Path) -> Result<(), String>,
+) -> TrashResult {
+    let mut result = TrashResult::default();
+    for item in items {
+        match verify_extra(&item) {
+            Ok(bytes) => match trash(Path::new(&item.path)) {
+                Ok(()) => {
+                    result.moved_bytes += bytes;
+                    result.moved.push(Moved {
+                        path: item.path.clone(),
+                        bytes,
+                    });
+                }
+                Err(reason) => result.skipped.push(Skipped {
+                    path: item.path.clone(),
+                    reason,
+                }),
+            },
+            Err(reason) => result.skipped.push(Skipped {
+                path: item.path.clone(),
+                reason,
+            }),
+        }
+    }
+    result
+}
+
+fn regular_file(path: &Path) -> Result<fs::Metadata, String> {
+    let metadata = fs::symlink_metadata(path).map_err(|_| "Already gone.".to_string())?;
+    if metadata.file_type().is_symlink() {
+        return Err("Is a link now.".into());
+    }
+    if !metadata.is_file() {
+        return Err("No longer a regular file.".into());
+    }
+    Ok(metadata)
+}
+
+/// Whether two paths are one file with two names. Windows: the same NTFS file id on the same
+/// volume serial means a hard link; a drive that gives no stable file id cannot prove two paths
+/// are different files, so the caller moves nothing.
+fn same_file(
+    a_path: &Path,
+    a: &fs::Metadata,
+    b_path: &Path,
+    b: &fs::Metadata,
+) -> Result<bool, String> {
+    let first = crate::item_actions::ids(a_path, a)?;
+    let second = crate::item_actions::ids(b_path, b)?;
+    Ok(first == second)
+}
+
+/// Bytes the extra copy occupies, when it is safe to move it now.
+fn verify_extra(item: &TrashItem) -> Result<u64, String> {
+    let kept = Path::new(&item.kept);
+    let extra = Path::new(&item.path);
+    if !kept.is_absolute() || !extra.is_absolute() {
+        return Err("Paths must be absolute.".into());
+    }
+    if kept == extra {
+        return Err("That is the copy being kept.".into());
+    }
+    let extra_metadata = regular_file(extra)?;
+    let kept_metadata = regular_file(kept)?;
+    if same_file(extra, &extra_metadata, kept, &kept_metadata)? {
+        return Err("A hard link to the kept copy; moving it frees no space.".into());
+    }
+    // Identical now, not just at scan time. Only files that can be read completely (no
+    // placeholders) are grouped, so an unreadable pair is never grouped.
+    let pair = [kept.to_path_buf(), extra.to_path_buf()];
+    let report = find_duplicates(
+        &pair,
+        &DuplicateOptions {
+            min_bytes: 0,
+            ..Default::default()
+        },
+    );
+    let together = report.groups.iter().any(|group| {
+        let mut members = vec![group.kept_path.as_path()];
+        members.extend(group.extras.iter().map(PathBuf::as_path));
+        members.contains(&kept) && members.contains(&extra)
+    });
+    if !together {
+        return Err("No longer an identical copy of the kept file.".into());
+    }
+    Ok(extra_metadata.len())
+}

@@ -10,12 +10,16 @@ pub mod drive_health;
 #[cfg(windows)]
 pub mod drive_health_windows;
 pub mod gpu_temp;
+pub mod machine_gauges;
+pub mod memory_guard;
 pub mod monitor;
 #[cfg(windows)]
 pub mod process_details_windows;
 pub mod process_inspect;
 pub mod process_sampler;
+pub mod process_window;
 pub mod processes;
+pub mod smartctl;
 mod snapshot;
 pub mod system_history;
 

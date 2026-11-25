@@ -45,6 +45,8 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+#[cfg(windows)]
+pub mod media_sound;
 mod platform;
 pub mod push;
 

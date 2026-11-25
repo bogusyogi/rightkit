@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.3
+
+- Logic moved from Pulse into this crate (bogusyogi/pulse#643): see the module docs for what each new module holds.
+
 ## 0.4.2 (unpublished)
 
 - Added bounded diagnostics ZIP export behind the existing support-bundle feature. The host supplies report metadata, filenames and limits. Native dumps require explicit opt-in.
