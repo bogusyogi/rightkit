@@ -261,8 +261,10 @@ export function checkTools({ pins, spawnFn = spawnSync, exists = fs.existsSync, 
     return r.error || r.status !== 0 ? null : String(r.stdout || r.stderr).trim().split("\n")[0];
   };
   observed.actionlint = probe("actionlint", ["-version"]);
+  // `tools.actionlint` is `{ version, linux: {...} }` since gate 0.6.89 (d8fb4d35e); a bare string is the older form.
+  const actionlintPin = typeof pins.actionlint === "string" ? pins.actionlint : pins.actionlint?.version;
   if (!observed.actionlint) problems.push("actionlint is not on PATH");
-  else if (pins.actionlint && observed.actionlint !== pins.actionlint) problems.push(`actionlint ${observed.actionlint} is not the pinned ${pins.actionlint}`);
+  else if (actionlintPin && observed.actionlint !== actionlintPin) problems.push(`actionlint ${observed.actionlint} is not the pinned ${actionlintPin}`);
   const sc = pins.shellcheck?.[platform] ?? {};
   if (!sc.path || !exists(sc.path)) problems.push(`pinned shellcheck is missing at ${sc.path ?? `(no ${platform} path pinned in ci/rk-pipeline.json)`}`);
   else {
