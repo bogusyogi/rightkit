@@ -365,7 +365,6 @@ impl CaptureSession {
                                 .try_push(CallbackStamp {
                                     epoch: admission.epoch,
                                     capture: timestamp.capture,
-                                    callback: timestamp.callback,
                                     frames: data.len() / in_chans.max(1),
                                 })
                                 .is_err()
@@ -409,7 +408,6 @@ impl CaptureSession {
                             .try_push(CallbackStamp {
                                 epoch: admission.epoch,
                                 capture: timestamp.capture,
-                                callback: timestamp.callback,
                                 frames: data.len() / in_chans.max(1),
                             })
                             .is_err()
