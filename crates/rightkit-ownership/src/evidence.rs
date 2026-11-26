@@ -203,12 +203,9 @@ pub fn create_evidence(ctx: &ScanContext, repo_root: &Path, manifest: &Value) ->
             };
             let canonical = canonical_repository_identity(&origin).map_err(ScanError::new)?;
             match crate::approval::verify_repository_registration(&trust, &json!(canonical), &[]) {
-                Ok(_) => {
-                    let entry = items(field(&trust, "repositories"))
-                        .iter()
-                        .find(|e| str_of(field(e, "repositoryIdentity")) == canonical)
-                        .cloned();
-                    Ok((canonical, entry))
+                Ok((entry, warnings)) => {
+                    diagnostics.extend(warnings);
+                    Ok((canonical, Some(entry)))
                 }
                 Err(problems) => {
                     if !pending {

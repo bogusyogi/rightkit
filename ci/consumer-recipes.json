@@ -2504,11 +2504,11 @@
       "gateEvidence": "embedded catalog only; in-memory trust loader with an unavailable checkpoint authority, so no protected trust file, key, git remote or signature is used; scans one temp directory holding one file, removed at the end; no network",
       "consumes": "PK14 quality-gate consumer (reviewed recipe, named product consumers not re-read here); rightkit-ownership public items used: catalog, catalog_value, scanner_policy_digest, SCANNER_VERSION, ownership_verdict, ownership_cache_key, is_blocking_finding, codes, canonical_repository_identity, Scanner::with_embedded_catalog (inputs, scan), ScanContext, ManualClock, keyauth::AuthorityEnv",
       "files": {
-        "Cargo.toml": "3f4f43988cb2aa5a906dd75902c9adb1902c2a18cc0c71a0aa2f2fc04e8578f6",
+        "Cargo.toml": "c914a1285283577b0a87a17952c52efcbae46cbcd0a0e70af4688be7068b77bf",
         "README.md": "ce0f6d0da5c89859187f1a6c3d00ebfe2a1f5cd1f91ed20d92c5ef481512d448",
         "src/main.rs": "4a624a85b992e1acc685765888eae0fd661495cd7fffdd73ed12d0cab488bca1"
       },
-      "aggregateSha256": "abe920e4d1715e226747fa22fc3ac5812db7c933b9b208d9f9d387d570095fd4"
+      "aggregateSha256": "c0dbf89f2cf5079daa5e3fb8fd6e79b50017a06ee6163910115b4480a074446e"
     },
     "rightkit-overlay-win": {
       "pkId": "PK08",
