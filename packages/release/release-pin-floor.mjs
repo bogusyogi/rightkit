@@ -42,3 +42,18 @@ export function releasePinFloorProblem({ packageJsonText, installedVersion = nul
   if (installedVersion !== null && compareVersions(installedVersion, floor) === -1) return { code: RELEASE_PIN_BELOW_FLOOR, message: `${RELEASE_PIN_BELOW_FLOOR}: the installed ${PACKAGE} is ${installedVersion} (${where} asks ${specs.join(", ")}), below the host gate's floor ${floor} for compile stages: its own right-release child would carry non-compiling cargo calls to the broker, which refuses them (GC-A11); ${fix}` };
   return null;
 }
+
+/**
+ * One informational line, or null: the app pins an exact @rightkit/release older than the host gate that is running. Inside a gate stage
+ * the host gate's own copy runs whatever the app pins (build-launch.mjs runs this package's own right-release for `pnpm exec right-release`),
+ * so this is never a refusal. A command typed by hand in the app runs the pinned copy, which can judge a config by older rules
+ * (Pulse, 2026-11-26: its 0.6.82 copy refused a switch class the host gate 0.6.88 accepts). A range pin or no pin says nothing.
+ */
+export function releasePinBehindHostNote({ packageJsonText, hostVersion, where = "package.json" }) {
+  let manifest;
+  try { manifest = JSON.parse(packageJsonText); } catch { return null; }
+  const pins = DEPENDENCY_TABLES.map((t) => manifest?.[t]?.[PACKAGE]).filter((v) => typeof v === "string").map(exactPinOf).filter((pin) => pin !== null);
+  const older = pins.filter((pin) => compareVersions(pin, hostVersion) === -1).sort((a, b) => compareVersions(a, b));
+  if (!older.length) return null;
+  return `${where} pins ${PACKAGE}@${older[0]}; the host gate is ${hostVersion}. The gate's stages run the host gate's copy; a command typed by hand in the app runs the pinned ${older[0]}, whose rules can differ`;
+}

@@ -47,6 +47,31 @@ export function criticalJourneyIds(manifestText, platform) {
 }
 
 /**
+ * Why the release-critical journeys of `platform` cannot pass one installed-QA run, from the manifest alone; empty when they can.
+ * The runner builds once per run (rightkit-qa journeys/run.rs plan_build): the selection is scenario journeys only, or adapter journeys
+ * that all name one adapter; and the installed stage needs every release-critical journey of the platform in the one receipt and
+ * refuses zero. Asked at the check stage so a manifest that cannot pass is refused before anything compiles.
+ */
+export function criticalJourneySelectionProblems(manifestText, platform) {
+  const os = PLATFORM_OS[platform];
+  if (!os) throw new Error(`unknown platform ${platform}`);
+  const journeys = parseToml(manifestText).journey;
+  const critical = (Array.isArray(journeys) ? journeys : []).filter((journey) => journey?.release_critical === true && Array.isArray(journey.platforms) && journey.platforms.includes(os));
+  if (!critical.length) return [`the journeys manifest declares no release-critical journey for ${os}; zero is never a pass`];
+  const problems = [];
+  const adapterJourneys = critical.filter((journey) => journey.runner === "adapter");
+  const scenarioJourneys = critical.filter((journey) => journey.runner !== "adapter");
+  if (adapterJourneys.length && scenarioJourneys.length) {
+    problems.push(`the release-critical journeys for ${os} mix adapter journeys (${adapterJourneys.map((j) => j.id).join(", ")}) and scenario journeys (${scenarioJourneys.map((j) => j.id).join(", ")}); one run builds once, so they cannot share the installed-QA run`);
+  }
+  const adapters = [...new Set(adapterJourneys.map((journey) => String(journey.adapter ?? "")))].sort();
+  if (adapters.length > 1) {
+    problems.push(`the release-critical journeys for ${os} name ${adapters.length} adapters (${adapters.join(", ")}); one run builds for exactly one adapter, and every release-critical journey must be in the one receipt: put them behind one adapter, or leave one journey release-critical`);
+  }
+  return problems;
+}
+
+/**
  * Validate a journeys receipt through the runner and against the manifest. Never throws for a refusal.
  * Returns { ok, problems, block }; `block` is the `journeys` section for the QA receipt (null when nothing readable).
  */

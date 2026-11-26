@@ -2319,7 +2319,23 @@ async function runStages(o, args, root, git, io) {
     let ok = false; const at = new Date().toISOString(); const stageStartedMs = Date.now(); let extra = {}; let directReceipt = null; let packageSigned = new Map();
     if (stage === "check") {
       { const problem = await pinFloor(false); if (problem) { o.err(`${tag} BLOCKED: ${problem.message}; no class A row ran and nothing compiled`); return 1; } }
+      // An app pinned to an older @rightkit/release than this host gate: said once, never refused (release-pin-floor.mjs releasePinBehindHostNote).
+      try {
+        const packageJsonText = appPackageJson();
+        if (packageJsonText !== null) {
+          const { releasePinBehindHostNote } = await import("../release-pin-floor.mjs");
+          const hostVersion = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
+          const note = releasePinBehindHostNote({ packageJsonText, hostVersion, where: appDir === "." ? "package.json" : `${appDir}/package.json` });
+          if (note) o.out(`${tag} [check] note: ${note}`);
+        }
+      } catch { /* informational only */ }
       ok = (await (o.runCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path] : []), ...appScope, "--rule-tier", earlyTier], { ...io, cwd: root, ...(ds ? { snapshotLock: ds.lock } : {}) })))(earlyTier)) === 0;
+      // A run that goes on to qualify: a journeys manifest whose release-critical journeys cannot pass one installed-QA run is refused here,
+      // before anything compiles (release-qa-hardening.mjs criticalJourneySelectionProblems; CodeRight 2026-11-26: four adapters, found after notarization).
+      if (ok && stages.includes("qualify") && !mobile && PLATFORMS.includes(platform)) {
+        const shape = await journeysShapeProblems({ o, git, commit, appDir, base: ds ? ds.path : root, platform });
+        if (shape.length) { for (const line of shape) o.err(`${tag} BLOCKED: [check] ${line}`); ok = false; }
+      }
       extra = { ruleTier: earlyTier };
     }
     else if (stage === "compile") {
@@ -2985,6 +3001,33 @@ export function qualifyOwedProblem({ o, git, commit, appDir = ".", base, owed })
   const declared = configs.some((f) => { try { return /\bqa\b[\s\S]*(^|[\s,{])["']?journeys["']?\s*:/m.test(o.readFile(path.join(base, f))); } catch { return false; } });
   if (declared) return [];
   return owed.map((x) => `${x.id} (${x.kind}${x.dir ? ` ${x.dir}` : ""}) is owed to qualification (${x.reason}) but no release config under ${appDir} declares qa.journeys, so nothing would run it; declare qa.journeys with a journeys.toml that covers it`);
+}
+
+/**
+ * Why the journeys manifests of the app's release configs cannot pass one installed-QA run on `platform`; empty when they can or when no
+ * config declares `qa.journeys` with a manifest. Read from `base` (the commit's bytes): the manifest path is the config's
+ * `qa.journeys.manifest`, relative to the config's directory. A manifest that cannot be read or parsed is left to the installed stage,
+ * which names that failure itself.
+ */
+export async function journeysShapeProblems({ o, git, commit, appDir = ".", base, platform }) {
+  const listed = git("ls-tree", "-r", "--name-only", "-z", commit);
+  const configs = (failed(listed) ? [] : text(listed).split("\0").filter((f) => /(^|\/)right-release\.config\.(json|mjs)$/.test(f)).filter((f) => appDir === "." || f.startsWith(`${appDir}/`)));
+  const problems = [];
+  let judge = null;
+  for (const config of configs) {
+    let body;
+    try { body = String(o.readFile(path.join(base, config))); } catch { continue; }
+    const m = /\bjourneys["']?\s*:\s*\{[^{}]*?\bmanifest["']?\s*:\s*["']([^"']+)["']/.exec(body);
+    if (!m) continue;
+    const manifestRel = path.posix.join(path.posix.dirname(config), m[1]);
+    let manifestText;
+    try { manifestText = String(o.readFile(path.join(base, manifestRel))); } catch { continue; }
+    judge ??= (await import("../release-qa-hardening.mjs")).criticalJourneySelectionProblems;
+    let found;
+    try { found = judge(manifestText, platform); } catch { continue; }
+    for (const line of found) problems.push(`${manifestRel}: ${line}`);
+  }
+  return problems;
 }
 
 /** The release configs of `commit` (under `appDir`) that declare a `web` block (`web.build` steps), read from `base`: the commit's config decides, never the checkout's. */
