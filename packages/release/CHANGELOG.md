@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.88
+
+- The installed QA stage accepts a journeys receipt of schema `rightkit.journeys.receipt/1` or `/2` (runner 0.10.14 writes `/2`), and reads the first QA run's evidence right after that run, before the journeys run. The runner keeps only the newest passing run per app and kind, so reading afterwards reported `smoke.launch: missing` for a launch that had passed (HeardRight 0.1.240, bogusyogi/rightkit#1754).
+
+- For a repository listed in the shipped `ownership-advise-only.json`, the rules that assume RightKit ownership of the app print as advice: the RightKit Cargo dependency and profile contracts, QA adoption, and the release-switch inventory gates. Names the repository declares itself are not denied in its binaries. Signing shape, hosted workflows, admission, feature closure, legal, security and the test-mode marker still bind.
+
+- The snapshot reclaim judge follows the Mac installer's agent shim (a shell script) to the runtime manifest it starts, so a Mac agent is recognised as it is on Windows.
+
+- The dependency allowlist is the union of the host's protected copy and the list shipped in the package, so a dependency added to the shipped list no longer waits on the frozen host copy. `ownership trust-refresh` is retired: it prints why and exits 2. `gate-serve stop` stops the resident gate server, for use before replacing the installed gate.
+
+- `assemble-app` and `create-mac-updater` may run inside a snapshot stage.
+
+- QA adoption does not read SwiftPM's `.build` folder.
+
+- A compile served from the result cache still names each Cargo workspace's target directory for the package stage, taken from the stored signed receipt. Before, a cached compile of an app with more than one workspace made the package stage refuse with RK_SPLIT_TARGET_UNRESOLVED (bogusyogi/rightkit#1800).
+
+- The portable Windows contract runs the app's declared `postSign` steps.
+
 ## 0.6.87
 
 - Release switches gain class S7, a handoff: a one-time value (a token, a nonce) the app sets in the environment of a child process it starts, which the child reads and removes. It stays in release builds; the entry's `handoff.setBy` and `handoff.clearedAt` lines are read from source and must show the name being set on the child and removed after the read (`handoff.nameConst` resolves a constant the code uses for the name). S1-S6 are unchanged (bogusyogi/pulse#490).

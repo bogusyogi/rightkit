@@ -5899,7 +5899,14 @@ export async function main(argv, io = {}) {
       const outputWorkspaces = (snapshotBroker ? scanResult.scans.map((r) => r.snapshotEvidence?.outputDir) : Object.values(targetDirs ?? {})).filter(Boolean).map((dir) => [dir]);
       // Each broker row's output folder with its Cargo workspace (repository-relative), so a later stage of the same door run can resolve that workspace's
       // target before its own first Cargo call (a multi-workspace app's package admission, CodeRight on the Mac 0.6.80: RK_SPLIT_TARGET_UNRESOLVED).
-      const outputsByCargoDir = snapshotBroker ? scanResult.scans.flatMap((r) => { const unit = unitByName.get(rustUnitOfScanId(r.id, known)); const dir = r.snapshotEvidence?.outputDir; return typeof unit?.cargoDir === "string" && typeof dir === "string" && dir ? [[unit.cargoDir, dir]] : []; }) : [];
+      const ranByCargoDir = snapshotBroker ? scanResult.scans.flatMap((r) => { const unit = unitByName.get(rustUnitOfScanId(r.id, known)); const dir = r.snapshotEvidence?.outputDir; return typeof unit?.cargoDir === "string" && typeof dir === "string" && dir ? [[unit.cargoDir, dir]] : []; }) : [];
+      // rightkit#1800: a compile answered wholly from the cache asked the broker nothing, so no row names the workspace's folder and the package stage's admission
+      // could not resolve its Cargo target (CodeRight on the Mac, 2026-11-26: RK_SPLIT_TARGET_UNRESOLVED after a cached compile). For a workspace none of whose rows
+      // ran, the folder its cached rows' stored signed receipts name is handed on, when it still exists. It is only the first resolution of that stage: its own
+      // build's receipt replaces it (stage-seam.mjs carriedOutputDir), and a folder the broker no longer uses is refused by the split's own target checks.
+      const ranDirs = new Set(ranByCargoDir.map(([cargoDir]) => cargoDir));
+      const cachedByCargoDir = snapshotBroker ? scanResult.scans.flatMap((r) => { const unit = unitByName.get(rustUnitOfScanId(r.id, known)); const dir = r.cachedOutputDir; return r.cached === true && typeof unit?.cargoDir === "string" && !ranDirs.has(unit.cargoDir) && typeof dir === "string" && dir && fs.existsSync(dir) ? [[unit.cargoDir, dir]] : []; }) : [];
+      const outputsByCargoDir = [...ranByCargoDir, ...cachedByCargoDir];
       o.onCompileOutputs?.(outputWorkspaces.map(([dir]) => dir), builtBins, outputsByCargoDir);
       o.out(`${tag} class B keying: ${ROW_DIGEST_STATS.misses} row digest(s) computed in ${(ROW_DIGEST_STATS.ms / 1000).toFixed(1)} s, ${ROW_DIGEST_STATS.hits} reused`);
       if (snapshotBroker) o.out(`${tag} broker compile: ${new Set(scanResult.scans.map((r) => r.snapshotEvidence?.requestId).filter(Boolean)).size} carried request(s) with verified signed receipts (${scanResult.scans.filter((r) => r.snapshotEvidence).length} scan row(s)); no direct receipt on a broker host`);

@@ -76,7 +76,7 @@ export function validateQaFloor(floor) {
     if (!journeys || typeof journeys !== "object" || Array.isArray(journeys)) problems.push("floor journeys must be an object");
     else {
       if (typeof journeys.floorId !== "string" || !QA_STAGES.every((stage) => floor.stages?.[stage]?.required?.includes?.(journeys.floorId))) problems.push("floor journeys.floorId must be a required id of every stage");
-      if (journeys.receiptSchema !== "rightkit.journeys.receipt/1") problems.push("floor journeys.receiptSchema must be rightkit.journeys.receipt/1");
+      if (!["rightkit.journeys.receipt/1", "rightkit.journeys.receipt/2"].includes(journeys.receiptSchema)) problems.push("floor journeys.receiptSchema must be rightkit.journeys.receipt/1 or /2");
       if (journeys.rule !== "all-release-critical-passed") problems.push("floor journeys.rule must be all-release-critical-passed");
     }
   }

@@ -306,7 +306,8 @@ function versionAtLeast(actual, minimum) {
 // re-pin it, is retired (Adrian, decisions.md), so no check refuses on a missing or stale pinned bundle.
 export const TRUST_SYNC_RETIRED = "right-release ownership trust-sync is retired: no release, ownership or QA check needs a human-approved policy bundle any more. The bundle is still fingerprinted; `right-release ownership trust-compare` reports drift as a warning with a semantic diff.";
 
-export const POLICY_BUNDLE_DRIFT_WARNING = "ownership policy bundle (scanner source, catalog, registry or dependency allowlist) differs from the bundle pinned in protected trust (warning only; trust-sync is retired)";
+export const TRUST_REFRESH_RETIRED = "right-release ownership trust-refresh is retired, like trust-sync: nothing needs an administrator or a refreshed host trust file. A repository registration or a dependency allowlist entry the host's protected copy lacks is read from the lists this gate ships (ownership-repositories.json, ownership-dependency-allowlist.json); add it there and release RightKit.";
+export const POLICY_BUNDLE_DRIFT_WARNING ="ownership policy bundle (scanner source, catalog, registry or dependency allowlist) differs from the bundle pinned in protected trust (warning only; trust-sync is retired)";
 export const CATALOG_DIGEST_DRIFT_WARNING = "ownership catalog digest differs from the digest pinned in protected trust (warning only; the catalog version still meets the protected minimum; trust-sync is retired)";
 export function validateOwnershipFloor(trust, { scannerVersion, catalogVersion, catalogDigest, policyBundleDigest } = {}) {
   const problems = [];

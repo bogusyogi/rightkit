@@ -25,7 +25,10 @@ import { spawnSync } from "./background-process.mjs";
 import { approvedRunnerDigests } from "./release-qa-policy.mjs";
 import { QaAdmissionError, qaCommandFor } from "./release-qa-receipt.mjs";
 
-export const JOURNEYS_RECEIPT_SCHEMA = "rightkit.journeys.receipt/1";
+// The runner writes rightkit.journeys.receipt/2 since rightkit-qa 0.10; /1 is still read from an older runner. Every field this file
+// reads has the same name and meaning in both; the runner's own `journeys validate-receipt` re-checks the rest for its schema.
+export const JOURNEYS_RECEIPT_SCHEMA = "rightkit.journeys.receipt/2";
+export const JOURNEYS_RECEIPT_SCHEMAS = Object.freeze(new Set(["rightkit.journeys.receipt/1", JOURNEYS_RECEIPT_SCHEMA]));
 export const PLATFORM_OS = Object.freeze({ mac: "macos", win: "windows" });
 export const QA_RUN_ENV = "RIGHT_RELEASE_QA_STAGE";
 const CLOCK_SKEW_MS = 60_000;
@@ -55,7 +58,7 @@ export function validateJourneysReceipt({ runnerFile, runnerSha256, receiptFile,
   try { manifestBytes = readFileSync(manifestFile); }
   catch (error) { return { ok: false, problems: [`journeys manifest is unreadable (${manifestFile}): ${error.message}`], block: null }; }
   const os = PLATFORM_OS[platform];
-  if (receipt.schema !== JOURNEYS_RECEIPT_SCHEMA) problems.push(`journeys receipt schema is ${JSON.stringify(receipt.schema)}, expected ${JOURNEYS_RECEIPT_SCHEMA}`);
+  if (!JOURNEYS_RECEIPT_SCHEMAS.has(receipt.schema)) problems.push(`journeys receipt schema is ${JSON.stringify(receipt.schema)}, expected one of ${[...JOURNEYS_RECEIPT_SCHEMAS].join(", ")}`);
   if (receipt.runner !== "rightkit-qa") problems.push("journeys receipt was not produced by the rightkit-qa runner");
   if (receipt.host?.os !== os) problems.push(`journeys receipt ran on ${receipt.host?.os}, this release is ${os}`);
   if (receipt.selection?.platform !== os) problems.push(`journeys receipt selected platform ${receipt.selection?.platform}, this release is ${os}`);
@@ -82,7 +85,7 @@ export function validateJourneysReceipt({ runnerFile, runnerSha256, receiptFile,
     else if (journey.release_critical !== true) problems.push(`release-critical journey ${id} is not marked release_critical in the receipt`);
   }
   const block = {
-    schema: JOURNEYS_RECEIPT_SCHEMA, receiptSha256: sha256Of(bytes), runId: String(receipt.run_id ?? ""), verdict: String(receipt.verdict ?? ""),
+    schema: JOURNEYS_RECEIPT_SCHEMAS.has(receipt.schema) ? receipt.schema : JOURNEYS_RECEIPT_SCHEMA, receiptSha256: sha256Of(bytes), runId: String(receipt.run_id ?? ""), verdict: String(receipt.verdict ?? ""),
     hostOs: String(receipt.host?.os ?? ""), selectionPlatform: String(receipt.selection?.platform ?? ""), tree: String(receipt.source?.tree ?? ""),
     startedAt: String(receipt.started_at ?? ""), endedAt: String(receipt.ended_at ?? ""), runnerVersion: String(receipt.runner_version ?? ""),
     validator: { runnerSha256, exitCode: run?.status ?? null, accepted },
@@ -137,7 +140,7 @@ export function hardenQaReceipt({
   const journeys = receipt.journeys;
   if (!journeys) refuse("receipt carries no journeys receipt block; run `rightkit-qa journeys run` through `right-release qa` (qa.journeys in the release config)");
   const os = PLATFORM_OS[platform];
-  if (journeys.schema !== mapping.receiptSchema) refuse(`journeys receipt schema is ${journeys.schema}`);
+  if (!JOURNEYS_RECEIPT_SCHEMAS.has(journeys.schema)) refuse(`journeys receipt schema is ${journeys.schema}`);
   if (journeys.verdict !== "passed" || journeys.validator?.accepted !== true || journeys.validator?.exitCode !== 0) refuse("the journeys receipt was not accepted by rightkit-qa journeys validate-receipt");
   if (journeys.validator?.runnerSha256 !== receipt.runner?.sha256) refuse("the journeys receipt was validated by a different runner than the one pinned");
   if (journeys.hostOs !== os || journeys.selectionPlatform !== os) refuse(`journeys receipt is for ${journeys.hostOs}/${journeys.selectionPlatform}, this is ${os}`);

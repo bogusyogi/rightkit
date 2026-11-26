@@ -194,6 +194,7 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, deps = 
     });
   }
   let run, journeysRun = null;
+  let evidenceFile = null, evidence = null, evidenceSha256 = null;
   try {
     const expand = (value) => String(value).replaceAll("{sealedDir}", sealed?.sealedDir ?? "").replaceAll("{releaseId}", releaseId)
       .replaceAll("{installedApp}", installedQa?.installedApp ?? "").replaceAll("{installedDir}", installedQa?.installedDir ?? "").replaceAll("{qaRoot}", installedQa?.qaRoot ?? "");
@@ -219,6 +220,14 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, deps = 
       cwd: runCwd, encoding: "utf8", windowsHide: true, maxBuffer: 64 * 1024 * 1024,
       env: runEnv,
     });
+    // Read the run's evidence now: the journeys run that follows can remove this run's folder (HeardRight 0.1.237, 2026-11-26: the
+    // floor read `smoke.launch: missing` after `[qa] PASS app.launch`, because the evidence file was gone by the time it was read).
+    evidenceFile = evidencePathFromOutput(run.stdout);
+    if (evidenceFile && existsSync(evidenceFile)) {
+      const bytes = readFileSync(evidenceFile);
+      evidenceSha256 = createHash("sha256").update(bytes).digest("hex");
+      evidence = JSON.parse(bytes.toString("utf8"));
+    }
     // Journeys lane: the one release proof (ADR-0001 item 10). A receipt named in the config is read as is.
     if (journeysConfig && !journeysConfig.receipt) {
       journeysRun = (deps.spawnJourneys ?? deps.spawnRunner ?? spawnSync)(runnerFile, ["journeys", "run", "--root", runCwd, ...((journeysConfig.args?.[stage] ?? []).map(expand))], {
@@ -229,13 +238,6 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, deps = 
     installedQa?.cleanup();
   }
   if (!deps.quiet) { process.stdout.write(String(run.stdout ?? "")); process.stderr.write(String(run.stderr ?? "")); }
-  const evidenceFile = evidencePathFromOutput(run.stdout);
-  let evidence = null, evidenceSha256 = null;
-  if (evidenceFile && existsSync(evidenceFile)) {
-    const bytes = readFileSync(evidenceFile);
-    evidenceSha256 = createHash("sha256").update(bytes).digest("hex");
-    evidence = JSON.parse(bytes.toString("utf8"));
-  }
   // The runner binary that produced the evidence is the one that was digested; a swap during the run is refused.
   if (sha256File(runnerFile) !== runnerSha) throw new Error("the rightkit-qa runner changed while QA was running; refusing to seal");
   let journeys = null;

@@ -67,6 +67,7 @@ import { runIosPackageRecipe } from "./ios-package-recipe.mjs";
 import { releaseSwitchInputs } from "./ios-build-context.mjs";
 import { productionBuildEnv, productionModeProblems } from "./production-mode.mjs";
 import { evaluatePrebuildGates } from "./prebuild-gates.mjs";
+import { UNBOUND_ADVICE_CHECKS, UNBOUND_ADVICE_GATES, unboundRepository } from "./unbound-repository.mjs";
 import { defaultReleaseConfigFile, importReleaseConfig, releaseConfigFieldProblems } from "./release-config.mjs";
 import { describeRegistryError, formatNotRun, runAdmission } from "./admission.mjs";
 import { sccacheRefusal } from "./admission-host.mjs";
@@ -166,7 +167,15 @@ const failedChecks = new Set();
 // their id before the text. The doctor does, as it does for every admission row: `right-release: <row>: <text>`, the text the
 // build's controller prints after `right-release build: <row>: `.
 const DOCTOR_OWNED_ROWS = new Set(["rightkit-registry", "build-inputs", "dirty-inputs"]);
+// The list entry when this release is for a repository RightKit does not bind (unbound-repository.mjs), else null. Read once, on first use.
+let unboundMemo;
+function unbound() {
+  if (unboundMemo === undefined) unboundMemo = unboundRepository({ root, source: workerSource });
+  return unboundMemo;
+}
+const adviceLine = (name, detail) => `right-release: ADVICE ${name} (this repository is not bound by RightKit's app contract; nothing is refused): ${detail}`;
 function reject(name, detail) {
+  if (UNBOUND_ADVICE_CHECKS.has(name) && unbound()) { console.error(adviceLine(name, detail)); return; }
   failedChecks.add(name);
   problems.push({ name, detail: opts.doctor && DOCTOR_OWNED_ROWS.has(name) ? `${name}: ${detail}` : detail });
 }
@@ -620,6 +629,11 @@ if (opts.doctor) {
       ? [{ name: "prebuild-gates", detail: `BLOCKED by ${blocker}` }]
       : evaluatePrebuildGates({ root, config, target, platform: opts.platform, iosSpec, nativeIos, nativeAssembly, nativeFinalizer, strict: !opts.dryRun }).findings;
   }
+  // The same rule as the build: the release-switch inventory gates are advice for an unbound repository.
+  if (unbound()) {
+    for (const finding of gateFindings.filter((entry) => UNBOUND_ADVICE_GATES.has(entry.name))) console.error(adviceLine(`gate ${finding.name}`, finding.detail));
+    gateFindings = gateFindings.filter((entry) => !UNBOUND_ADVICE_GATES.has(entry.name));
+  }
   const configProblems = problems.length;
   // The config findings (stderr, as every early refusal always was) and the gate rows (stdout) of this one run.
   printProblems();
@@ -643,9 +657,13 @@ let prePackScanned = false; // set once a pre-pack payload scan has seen a nativ
 // prebuild-gates.mjs so `doctor --gates` runs the exact same code in the same order. They read the expanded target (and the
 // iOS spec), so a failed one of those blocks them.
 const prebuildBlocker = ["target", ...(opts.platform === "ios" ? ["ios-target"] : [])].find((name) => failedChecks.has(name));
-const { findings: prebuildFindings, devtoolsAllowance, inventoryText: releaseSwitchInventoryText, presenceAccepted: releasePresenceAccepted } = prebuildBlocker
+const { findings: allPrebuildFindings, devtoolsAllowance, inventoryText: releaseSwitchInventoryText, presenceAccepted: releasePresenceAccepted } = prebuildBlocker
   ? { findings: [{ name: "prebuild-gates", detail: `BLOCKED by ${prebuildBlocker}` }], devtoolsAllowance: { mode: "denied" }, inventoryText: null }
   : evaluatePrebuildGates({ root, config, target, platform: opts.platform, iosSpec, nativeIos, nativeAssembly, nativeFinalizer, strict: !opts.dryRun });
+// The release-switch inventory gates are advice for an unbound repository; every other prebuild gate still refuses.
+const prebuildAdvice = unbound() ? allPrebuildFindings.filter((finding) => UNBOUND_ADVICE_GATES.has(finding.name)) : [];
+const prebuildFindings = allPrebuildFindings.filter((finding) => !prebuildAdvice.includes(finding));
+for (const finding of prebuildAdvice) console.error(adviceLine(`gate ${finding.name}`, finding.detail));
 if (problems.length || prebuildFindings.length) {
   printProblems();
   for (const finding of prebuildFindings) console.error(`right-release: ${finding.detail.startsWith("BLOCKED by ") ? `gate ${finding.name}: ` : ""}${finding.detail}`);
@@ -869,6 +887,13 @@ if (opts.platform === "win" && target.signingContract === WINDOWS_NSIS_SIGNING_C
   if (updaterFiles.length) await run("node", [SIGN_UPDATER, ...(opts.dryRun ? ["--dry-run"] : []), ...updaterFiles.flatMap((file) => ["--file", file])], root);
 }
 
+// The portable contract signs every executable before packaging (sign.prePackageFiles) and has no installer-signing block above, so its
+// declared postSign steps were never run on Windows: the line below this one excludes win, and only the NSIS and payload blocks run them.
+// An app that declares post-sign checks under this contract (Pulse: verify-staged and its candidate checks) had them skipped without a word.
+if (opts.platform === "win" && target.signingContract === WINDOWS_PORTABLE_SIGNING_CONTRACT && target.postSign) {
+  await runCommands(target.postSign, root);
+}
+
 if (target.postSign && opts.platform !== "win" && (opts.platform !== "mac" || runMacPhase("post-sign"))) {
   await runCommands(target.postSign, root);
 }
@@ -941,7 +966,10 @@ function assertNoQaControlBinaries(label, files, { requireBinary = false, prePac
   try {
     const stats = assertNoQaControl(files, label, { requireBinary, allowContentOnlyDevtools: devtoolsAllowance.mode === "content-only" });
     // D4 binary layer, same inputs: no test-mode marker and no S1-S4 selector name in any native binary.
-    assertNoReleaseSwitches({ binaryPaths: files, devtools: devtoolsAllowance, inventoryText: releaseSwitchInventoryText ?? undefined, appForbid: config.releaseSwitches?.forbid ?? [], requireBinary: false, presenceAccepted: releasePresenceAccepted ?? [] }, `${label} (release switches)`);
+    // An unbound repository's own inventory is advice (unbound-repository.mjs), so its declared names are not denied in its binaries;
+    // the test-mode marker and the registry's own deny names are still refused.
+    const unboundHere = unbound();
+    assertNoReleaseSwitches({ binaryPaths: files, devtools: devtoolsAllowance, inventoryText: unboundHere ? undefined : releaseSwitchInventoryText ?? undefined, appForbid: unboundHere ? [] : config.releaseSwitches?.forbid ?? [], requireBinary: false, presenceAccepted: releasePresenceAccepted ?? [] }, `${label} (release switches)`);
     if (prePack && stats.binaries > 0) prePackScanned = true;
     for (const opaque of stats.opaque) {
       console.log(`right-release: ${label}: ${opaque.kind.toUpperCase()} payload is compressed and cannot be scanned (${opaque.file}); the raw payload was scanned before packing`);

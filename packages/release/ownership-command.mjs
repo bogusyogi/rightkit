@@ -20,7 +20,7 @@ import { spawnSync } from "./background-process.mjs";
 import { main as stagedMain } from "./ownership-staged.mjs";
 import { loadTrustedExternal } from "./ownership-approval.mjs";
 import { diffPolicyBundles, runningPolicyBundle, trustComparison } from "./ownership-policy-bundle.mjs";
-import { POLICY_BUNDLE_DRIFT_WARNING, TRUST_SYNC_RETIRED } from "./ownership-approval.mjs";
+import { POLICY_BUNDLE_DRIFT_WARNING, TRUST_REFRESH_RETIRED, TRUST_SYNC_RETIRED } from "./ownership-approval.mjs";
 import { isBlockingFinding } from "./ownership-verdict.mjs";
 
 const packageRoot = path.dirname(fileURLToPath(import.meta.url));
@@ -76,7 +76,10 @@ export async function main(args, { evidenceFactory = createOwnershipEvidence, gi
   if (args[0] === "trust-compare") return trustCompare(args, { print, trustLoader });
   if (args.includes("--staged")) return stagedMain(args, { print });
   if (args[0] === "trust-sync") { print(`[right-release] ${TRUST_SYNC_RETIRED}`); return 0; }
-  if (["enroll", "approve-key", "revoke-key", "trust-refresh"].includes(args[0])) {
+  // Retired with trust-sync: no check needs the host's protected copy refreshed. A repository or an allowlist entry the host copy
+  // lacks is taken from the lists this gate ships. It exits 2 so nobody is sent to an administrator step again (2026-11-26).
+  if (args[0] === "trust-refresh") { print(`[right-release] ${TRUST_REFRESH_RETIRED}`); return 2; }
+  if (["enroll", "approve-key", "revoke-key"].includes(args[0])) {
     const { main: keyMain } = await import("./ownership-key-command.mjs");
     return keyMain(args, { runner: gitRunner, print });
   }

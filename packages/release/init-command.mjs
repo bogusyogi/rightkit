@@ -256,7 +256,7 @@ export const NEXT_STEPS = Object.freeze([
   "pnpm install                      (installs the pinned packages and, through `prepare`, the agent hook; no git hook)",
   "right-release doctor              (the build's own checks for this app, as rows)",
   "set the app's public legal host in legal-snapshot.config.json, replace legal/PRODUCT_SCHEDULE.md and legal/PRIVACY_NOTICE.md with reviewed text, then `pnpm exec legal-snapshot`",
-  "register the repository on each host: add it to packages/release/ownership-repositories.json in RightKit (and its byte copy under packages/build-control-policy), then run `right-release ownership trust-refresh` on the Mac and the Dell (a person with administrator rights; an agent cannot)",
+  "register the repository on each host: add it to packages/release/ownership-repositories.json in RightKit (and its byte copy under packages/build-control-policy), and release RightKit; the gate reads that shipped list, so no host step and no administrator is needed",
   "README.md in the template: \"Create a new app (checklist)\"",
 ]);
 

@@ -78,7 +78,9 @@ const NPM_QA = "@rightkit/qa";
 const NPM_QA_CHROME = "@rightkit/qa-chrome";
 const CARGO_QA = "rightkit-qa";
 const NPM_SECTIONS = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"];
-const SKIP_DIRS = /^(node_modules(\..*)?|target|vendor|dist|build|\.git|\.cache|\.right-release)$/;
+// `.build` is SwiftPM's build folder: its `checkouts/` hold the package.json files of fetched dependencies (a RightKit checkout among them), which are
+// not the app's manifests. CodeRight's doctor read one there and refused the app's QA adoption (2026-11-26).
+const SKIP_DIRS = /^(node_modules(\..*)?|target|vendor|dist|build|\.build|\.git|\.cache|\.right-release)$/;
 const MAX_DEPTH = 6;
 const EXEMPTION_KINDS = ["library", "tooling"];
 

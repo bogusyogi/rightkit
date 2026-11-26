@@ -167,6 +167,10 @@ export async function serve({ root, idleMs = Number(process.env.RK_GATE_SERVE_ID
     lastRequest = Date.now();
     if (req?.schema !== SCHEMA) return { ok: false, why: "schema" };
     if (req.identity !== IDENTITY) { setTimeout(() => process.exit(0), 50); return { ok: false, why: "gate code changed; the server exits" }; }
+    // `stop`: end this server now, the same way the idle timer ends it. The server of a candidate gate runs from the candidate's own
+    // folder, and on Windows that keeps `trusted-gate promote` from renaming the folder (rightkit#1778: "Access is denied" until the
+    // process was ended by hand). `node gate-serve.mjs stop` is the supported way to end it before a promote.
+    if (req.op === "stop") { setTimeout(() => process.exit(0), 50); return { ok: true, stopping: true, pid: process.pid }; }
     if (req.op === "status") return { ok: true, healthy, changeSource, root: watchedRoot, proven: [...proven].map(([k, v]) => ({ key: k, tree: v.tree })), pid: process.pid, identity: IDENTITY };
     // Answers kept for later runs (resident-answers.mjs): an opaque string under a sha256 key. The caller stores each answer with the files it
     // depends on and checks them itself before it uses one; this process only holds the bytes, in memory, oldest out first.
@@ -415,5 +419,8 @@ if (isServeEntry) {
     ask(req ?? {}, Number(b) || 3000).then((res) => { process.stdout.write(`${JSON.stringify(res)}\n`, () => process.exit(0)); });
   } else if (cmd === "status") {
     ask({ op: "status" }, 3000).then((res) => { console.log(JSON.stringify(res, null, 2)); process.exit(res.ok ? 0 : 1); });
-  } else { console.error("usage: gate-serve.mjs serve <snapshot-root> | status"); process.exit(2); }
+  } else if (cmd === "stop") {
+    // Exit 0 when a server answered and is stopping, or when none is listening (nothing to stop).
+    ask({ op: "stop" }, 3000).then((res) => { console.log(JSON.stringify(res)); process.exit(res.ok || res.unreachable === true ? 0 : 1); });
+  } else { console.error("usage: gate-serve.mjs serve <snapshot-root> | status | stop"); process.exit(2); }
 }

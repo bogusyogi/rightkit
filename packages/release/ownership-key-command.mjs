@@ -5,7 +5,7 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { spawnSync, spawnSyncInteractive, windowsPowerShellEnvironment } from "./background-process.mjs";
 import { createKeyEvent, keyFingerprint, verifyKeyLog, verifyKeyRequest } from "./ownership-key-log.mjs";
-import { canonicalRepositoryIdentity, DEFAULT_TRUST_PATH, TRUST_SYNC_RETIRED, loadTrustedExternal, resolveKeyLogTrust, __testOnly as approvalTestOnly } from "./ownership-approval.mjs";
+import { canonicalRepositoryIdentity, DEFAULT_TRUST_PATH, TRUST_REFRESH_RETIRED, TRUST_SYNC_RETIRED, loadTrustedExternal, resolveKeyLogTrust, __testOnly as approvalTestOnly } from "./ownership-approval.mjs";
 import { readCommittedKeyAuthority } from "./ownership-key-authority.mjs";
 import { buildMacInvocation, hasTerminal } from "./ownership-key-elevation.mjs";
 import { mergeRepositoriesFromInstalledRelease, prepareTrustUpdate, REPOSITORY_REGISTRY_MALFORMED_CODE } from "./ownership-key-trust.mjs";
@@ -355,6 +355,7 @@ export async function main(args, deps = {}) {
   const app = path.resolve(flag(args, "--app") ?? process.cwd());
   const root = deps.root ?? repoRoot(app, run);
   if (args[0] === "trust-sync") { print(`[right-release] ${TRUST_SYNC_RETIRED}`); return 0; }
+  if (args[0] === "trust-refresh") { print(`[right-release] ${TRUST_REFRESH_RETIRED}`); return 2; }
   try {
     if (!platform) throw new Error(`ownership key management unsupported platform: ${process.platform}`);
     const refresh = args[0] === "trust-refresh";

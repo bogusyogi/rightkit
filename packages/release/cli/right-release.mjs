@@ -75,7 +75,12 @@ const WORKTREE_COMPILES = new Set(["dev", "test", "stage-sidecar", "stage-xcfram
 // commit's objects plus the door's verified snapshot, never the checkout's HEAD, status or branch (each re-proves it through
 // assertReleaseSource). `upload` does so for the mobile platforms (the host's store upload); a desktop upload, publish and the signing
 // commands still read the checkout's HEAD and refuse under a split rather than run on the wrong bytes.
-const SPLIT_COMMANDS = new Set(["dev", "test", "stage-sidecar", "stage-xcframework", "web-build", "build", "package", "release", "qa"]);
+// assemble-app and create-mac-updater are steps an app's release config runs INSIDE a split build (targets.<p>.prePackage, package, postSign). They
+// read no HEAD, status or branch: assemble-app works on the snapshot's files, the stage-sidecar receipt and the build number the gate hands down
+// (assembled-app.mjs commitCount, GC-A28), and create-mac-updater resolves its paths through the split artifact context (loadSplitArtifactContext).
+// They were missing here, so every app that assembles its payload with assemble-app was refused at its first package step on a snapshot
+// (Pulse, 2026-11-26: RK_SOURCE_SPLIT_UNSUPPORTED), and a mac target's create-mac-updater post-sign step would have been refused the same way.
+const SPLIT_COMMANDS = new Set(["dev", "test", "stage-sidecar", "stage-xcframework", "web-build", "build", "package", "release", "qa", "assemble-app", "create-mac-updater"]);
 const MOBILE_UPLOAD = (argv) => argv.some((a, i) => (a === "--platform" && ["ios", "android"].includes(argv[i + 1])) || a === "--platform=ios" || a === "--platform=android");
 async function requireGreenCheck() {
   const { guardCommand, checkedCommandOf, checkModeFor, appDirectory } = await import("../app-check.mjs");
@@ -436,8 +441,7 @@ Commands:
                                                       Enroll one native key or create a signed-device request
   ownership approve-key <fingerprint|request.json>    Approve one pending device key from an active host
   ownership revoke-key <fingerprint>                  Revoke one active device key
-  ownership trust-sync                               Advance this host's protected trust to the committed key log
-  ownership trust-sync --check                       Read-only: say whether a sync would ask for approval, and for what (exit 3 if so)
+  ownership trust-sync | trust-refresh               Retired: no check needs the host's protected trust refreshed (prints why)
   ownership trust-compare [--json]                   Print this host's protected-trust digest (Mac is the reference)
   ownership-approval                                 Retired no-op: exceptions are plain entries in the repo exceptions file, edited directly and reviewed through git
   ownership-report --workspace <dir> [--markdown <file>] [--json-out <file>]
