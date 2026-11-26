@@ -725,7 +725,7 @@
     "rightkit-profile": "0.1.0",
     "rightkit-prompt-recipes": "0.2.1",
     "rightkit-pty": "0.1.3",
-    "rightkit-qa": "0.10.13",
+    "rightkit-qa": "0.10.14",
     "rightkit-record": "0.4.1",
     "rightkit-reframe": "0.2.1",
     "rightkit-remote-compute": "0.2.2",
@@ -1521,7 +1521,8 @@
       "0.10.8",
       "0.10.10",
       "0.10.11",
-      "0.10.12"
+      "0.10.12",
+      "0.10.13"
     ],
     "rightkit-qa-driver": [
       "0.3.0",

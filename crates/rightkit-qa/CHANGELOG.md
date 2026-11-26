@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.14
+
+- `journeys run` works from a release QA stage's source snapshot, which is not a git work tree. Outside a git work tree the run is bound to the listing the stage names in `RIGHTKIT_QA_SOURCE_LISTING` (`rightkit.qa-source-listing/1`: commit, tree, snapshot root and the SHA-256 of every committed file): the listing's commit must equal `RIGHT_RELEASE_QA_COMMIT`, the snapshot root's `.rightkit-source-identity.json` must record the same commit and tree, and `--root` must be inside that root. The source identity is that commit and tree only when every listed file is present with its listed bytes; a scenario file counts as committed only when the listing names it with the bytes it has. A missing variable, an unreadable listing or any mismatch stops the run with the reason. Before this the run stopped at `git rev-parse --show-toplevel` in every snapshot.
+- Git work trees are unchanged.
+
 ## 0.10.13
 
 - Require `rightkit-daemon` 0.9.2. The crate uses `rightkit-roots` 0.3.0, and `rightkit-daemon` 0.9.1 still used `rightkit-roots` 0.2: a consumer whose lock held daemon 0.9.1 got two `Suite` types and this crate did not compile (E0308 at every `rightkit_daemon::Client::connect` call). No code change.
