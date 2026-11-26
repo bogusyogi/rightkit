@@ -34,7 +34,11 @@ fn temp_path() -> PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or_default();
-    std::env::temp_dir().join(format!("rightkit-prompt-{}-{nanos}.md", std::process::id()))
+    std::env::temp_dir().join(format!(
+        "{}-prompt-{}-{nanos}.md",
+        super::notify::app_slug(),
+        std::process::id()
+    ))
 }
 
 fn run_editor(path: &Path) -> io::Result<()> {
@@ -74,7 +78,7 @@ fn editor_process(editor: &str, path: &Path) -> Command {
         command
             .arg("-c")
             .arg(format!("{editor} \"$1\""))
-            .arg("rightkit-editor")
+            .arg(format!("{}-editor", super::notify::app_slug()))
             .arg(path);
         command
     }

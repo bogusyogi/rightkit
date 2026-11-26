@@ -27,6 +27,7 @@
 
 pub mod allow_rule;
 pub mod approval;
+pub mod cast;
 pub mod cell;
 pub mod destructive;
 pub mod diff;

@@ -1,0 +1,45 @@
+This crate incorporates code adapted from licensed third-party projects.
+
+Codex presentation source
+Source: https://github.com/openai/codex
+Commit: 444da310e108da16aaeb18fd790b0ac464f08aca
+License: Apache License 2.0 (embedded Ratatui code retains its MIT notice)
+Donor root: codex-rs/tui/src
+
+Presentation adaptations include terminal/history & markdown renderer helpers,
+bottom_pane textarea/paste/composer helpers, history_cell, exec_cell,
+diff_render, approval_overlay, status_indicator_widget elapsed formatting,
+Tui pending-history ordering, scroll_state, list_selection_view, model_popups
+& model_popup_state. The host application retains execution, context, admission,
+repository, provider, scheduling & cancellation authorities.
+
+Pi presentation translations
+Source: https://github.com/earendil-works/pi
+Commit: 70c036211de5378508ae2456f3c7ae3cf9f8bc75
+Copyright: (c) 2025 Mario Zechner
+License: MIT
+Donor root: packages/coding-agent/src/modes/interactive/components
+References: user-message, assistant-message, tool-execution, footer,
+status-indicator, model-selector & thinking-selector.
+
+Complete donor licence grants & upstream NOTICE are in the donor
+repositories named above, at the commits named above.
+No source from proprietary Claude mirrors is incorporated.
+
+── src/transcript/markdown.rs — StreamingMarkdownBuffer ──────────────────────
+
+Source:  aaif-goose/goose (Goose CLI)
+Commit:  dbf57c81fd33e765509eb3ae383108968b9576c2
+File:    crates/goose-cli/src/session/streaming_buffer.rs
+License: Apache License 2.0
+
+The `StreamingMarkdownBuffer` type, its `ParseState`, the `INLINE_TOKEN_RE`
+tokenizer regex, and the `find_safe_end` / `process_line_start` /
+`check_code_fence` / `process_inline_token` scan logic in
+`src/transcript/markdown.rs` are adapted from Goose's
+`MarkdownBuffer` (same commit/file above) to satisfy canon atom
+REN-003 (safe streaming-markdown boundary). The type was renamed and the
+doc comments were rewritten to describe how this crate's transcript renderer
+uses it; the tokenizer regex, parse-state fields, and boundary-scanning
+algorithm are carried over materially unchanged. No other part of Goose
+(its CLI, session, or table rendering architecture) was used.

@@ -113,13 +113,13 @@ const TRUECOLOR_MARKERS: &[&str] = &["GHOSTTY_RESOURCES_DIR", "WEZTERM_PANE", "K
 /// non-UTF-8 charset opt out. Windows consoles are Unicode-capable.
 pub fn detect_unicode(env: &impl Env) -> bool {
     if env
-        .get("RIGHTKIT_ASCII")
+        .get(&super::notify::env_name("ASCII"))
         .is_some_and(|v| !v.is_empty() && v != "0")
     {
         return false;
     }
     if env
-        .get("RIGHTKIT_UNICODE")
+        .get(&super::notify::env_name("UNICODE"))
         .is_some_and(|v| !v.is_empty() && v != "0")
     {
         return true;

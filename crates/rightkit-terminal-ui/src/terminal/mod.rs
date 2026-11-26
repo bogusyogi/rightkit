@@ -12,6 +12,7 @@ pub mod history;
 pub mod hyperlinks;
 mod input_boundary;
 mod keyboard_modes;
+pub mod kitty_image;
 pub mod line_utils;
 mod link_pointer;
 pub mod notify;

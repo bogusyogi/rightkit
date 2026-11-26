@@ -30,6 +30,7 @@
 //! [`Composer::drain_file_search_requests`] for the parent's canonical file
 //! source; results come back via [`Composer::on_file_search_result`].
 
+pub(crate) mod clipboard_copy;
 pub(crate) mod command_popup;
 pub mod completion;
 pub(crate) mod completion_target;

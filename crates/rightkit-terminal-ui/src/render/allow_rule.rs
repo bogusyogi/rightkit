@@ -140,7 +140,8 @@ pub fn shell_prefix_words(command: &str) -> Option<Vec<String>> {
     if NEVER_PREFIX.contains(&base.as_str()) {
         return None;
     }
-    if SUBCOMMAND_TOOLS.contains(&base.as_str()) {
+    let host_command = crate::terminal::notify::app_slug();
+    if SUBCOMMAND_TOOLS.contains(&base.as_str()) || base == host_command {
         // Global flags before the subcommand (`git -c k=v status`) change what
         // the command does; no prefix is offered for them.
         let sub = words.next()?;

@@ -32,6 +32,7 @@ pub mod cache;
 pub mod find;
 pub mod history_pager;
 pub mod markdown;
+pub mod pacer;
 pub mod timeline;
 pub mod wrap;
 
