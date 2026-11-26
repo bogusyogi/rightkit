@@ -733,7 +733,7 @@
     "rightkit-record": "0.4.1",
     "rightkit-reframe": "0.2.1",
     "rightkit-remote-compute": "0.2.2",
-    "rightkit-remote-gateway": "0.1.5",
+    "rightkit-remote-gateway": "0.1.6",
     "rightkit-repo-graph": "0.3.3",
     "rightkit-repo-graph-grammars": "0.1.1",
     "rightkit-research": "0.1.2",
@@ -1747,7 +1747,8 @@
     ],
     "rightkit-remote-gateway": [
       "0.1.3",
-      "0.1.4"
+      "0.1.4",
+      "0.1.5"
     ],
     "rightkit-web-session": [
       "0.1.1"

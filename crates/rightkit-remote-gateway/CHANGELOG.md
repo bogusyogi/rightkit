@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.6
+
+- Fixed: the confinement deny list no longer reads `MEMBRANE_STATE_ROOT`. A release Membrane ignores that override (compiled out of its release build), and the name is a release-switch S4 selector the gate refuses in release binaries (Pulse win package scan, 2026-11-26). Membrane's own data folder (`AppDirs`, Orthic Labs/Membrane) stays protected.
+
 ## 0.1.5
 
 - Logic moved from Pulse into this crate (bogusyogi/pulse#643): see the module docs for what each new module holds.

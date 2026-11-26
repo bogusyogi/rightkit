@@ -12859,7 +12859,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-remote-gateway"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "libc 0.2.191",
  "portable-pty",
