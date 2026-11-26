@@ -558,7 +558,7 @@ pub fn create_diff_preview(
     lines
 }
 
-/// One inline-diff row for the tool ledger: `      41 - text`, tinted across
+/// One inline-diff row for the tool ledger: `    41 − text` (4 columns in), tinted across
 /// the full `width` at 256 colours or better (sign + foreground role carry the
 /// meaning below that). `text` is sanitized and clipped to the row.
 pub fn ledger_diff_row(
@@ -573,9 +573,10 @@ pub fn ledger_diff_row(
     } else {
         DiffLineKind::Delete
     };
-    let sign = if insert { '+' } else { '-' };
-    let number = number.map_or_else(|| "    ".to_string(), |n| format!("{n:>4}"));
-    let prefix = format!("      {number} {sign} ");
+    // The body starts at the 4-column gutter: number, marker, then the text.
+    let sign = if insert { '+' } else { '−' };
+    let number = number.map_or_else(|| "   ".to_string(), |n| format!("{n:>3}"));
+    let prefix = format!("    {number} {sign} ");
     let budget = width.saturating_sub(display_width(&prefix)).max(1);
     let mut body = String::new();
     let mut used = 0;

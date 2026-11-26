@@ -448,6 +448,7 @@ pub fn detect_image_protocol(env: &impl Env, multiplexer: Option<Multiplexer>) -
         || env.get("GHOSTTY_RESOURCES_DIR").is_some()
         || env.get("WEZTERM_PANE").is_some()
         || env.get("WEZTERM_EXECUTABLE").is_some()
+        || env.get("TERM").is_some_and(|term| term.contains("kitty"))
     {
         return ImageProtocol::Kitty;
     }
@@ -556,11 +557,26 @@ pub fn is_ssh_session(env: &impl Env) -> bool {
         || env.get("SSH_TTY").is_some()
 }
 
+/// `<PREFIX>_CLIPBOARD_OSC52=1` (also `true`, `yes`, `on`; the prefix is
+/// [`super::notify::env_prefix`], `RIGHTKIT` unless the host set one) forces
+/// terminal-mediated copy even when SSH is not detected, for a remote shell
+/// that hides its session variables (a container, `mosh`, a jump host). `0`,
+/// `false`, `no`, `off` and an empty value leave detection as it was.
+pub fn clipboard_osc52_forced(env: &impl Env) -> bool {
+    env.get(&super::notify::env_name("CLIPBOARD_OSC52"))
+        .is_some_and(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+}
+
 /// Classify the clipboard strategy for this environment, matching codex's
 /// clipboard_copy.rs fallback order: remote terminal copy over SSH, otherwise
 /// native clipboard first. Tmux passthrough remains part of terminal copy.
 pub fn clipboard_strategy(env: &impl Env) -> ClipboardStrategy {
-    if is_ssh_session(env) {
+    if is_ssh_session(env) || clipboard_osc52_forced(env) {
         return if detect_multiplexer(env).is_some() {
             ClipboardStrategy::Osc52Tmux
         } else {
@@ -587,27 +603,58 @@ pub fn osc52_tmux_sequence(text: &str) -> String {
     )
 }
 
+/// Make a GNU screen-wrapped OSC52 sequence: screen forwards a bare DCS
+/// (`\x1bP ... \x1b\\`) and does not understand tmux's `Ptmux;` form.
+pub fn osc52_screen_sequence(text: &str) -> String {
+    format!(
+        "\x1bP\x1b]52;c;{}\x07\x1b\\",
+        rightkit_crypto::base64_encode(text.as_bytes())
+    )
+}
+
 /// Build the correct sequence for the current environment.
 pub fn clipboard_osc52_for_env(text: &str, env: &impl Env) -> String {
-    if detect_multiplexer(env).is_some() {
-        osc52_tmux_sequence(text)
-    } else {
-        osc52_sequence(text)
+    match detect_multiplexer(env) {
+        Some(Multiplexer::Screen) => osc52_screen_sequence(text),
+        Some(_) => osc52_tmux_sequence(text),
+        None => osc52_sequence(text),
     }
 }
 
 /// Map a 24-bit colour onto the 16-colour ANSI palette.
 ///
-/// Only the coarse decision matters here: which of the eight hues, and whether
-/// the bright variant reads closer.
+/// Neutrals map by lightness (black, dark grey, light grey, white) and every
+/// other colour by its nearest hue, bright when it is light, so the result no
+/// longer depends on how large the colour's own largest channel is.
 pub fn rgb_to_ansi16(r: u8, g: u8, b: u8) -> u8 {
     let max = r.max(g).max(b);
-    if max < 40 {
-        return 0; // black
+    let min = r.min(g).min(b);
+    let chroma = i32::from(max - min);
+    if chroma < 0x20 {
+        return match max {
+            0..=0x27 => 0,
+            0x28..=0x8f => 8,
+            0x90..=0xd0 => 7,
+            _ => 15,
+        };
     }
-    let bright = max > 170;
-    let threshold = max / 2;
-    let bit = |c: u8, shift: u8| -> u8 { u8::from(c > threshold) << shift };
-    let base = bit(r, 0) | bit(g, 1) | bit(b, 2);
-    if bright { base + 8 } else { base }
+    let (r, g, b) = (i32::from(r), i32::from(g), i32::from(b));
+    let hue = if i32::from(max) == r {
+        60 * (g - b) / chroma
+    } else if i32::from(max) == g {
+        60 * (2 * chroma + b - r) / chroma
+    } else {
+        60 * (4 * chroma + r - g) / chroma
+    }
+    .rem_euclid(360);
+    // ANSI order is red, green, yellow... by bit pattern: red 1, green 2, yellow 3, blue 4, magenta 5, cyan 6.
+    let base = match (hue + 30) / 60 % 6 {
+        0 => 1,
+        1 => 3,
+        2 => 2,
+        3 => 6,
+        4 => 4,
+        _ => 5,
+    };
+    if max > 0xc0 { base + 8 } else { base }
 }

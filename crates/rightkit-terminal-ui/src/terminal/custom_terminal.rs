@@ -478,6 +478,13 @@ where
         if !updates.is_empty() && !self.hidden_cursor {
             self.hide_cursor()?;
         }
+        // Synchronized output (DEC private mode 2026): the terminal holds the
+        // frame until it is complete, so a repaint never shows half-drawn rows.
+        // A terminal that does not know the mode ignores the sequence.
+        let synchronized = !updates.is_empty();
+        if synchronized {
+            write!(self.backend, "\x1b[?2026h")?;
+        }
         self.flush_updates(updates)?;
 
         match cursor_position {
@@ -492,6 +499,9 @@ where
 
         self.swap_buffers();
 
+        if synchronized {
+            write!(self.backend, "\x1b[?2026l")?;
+        }
         Backend::flush(&mut self.backend)?;
 
         Ok(())

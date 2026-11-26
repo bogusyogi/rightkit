@@ -101,7 +101,42 @@ const NEVER_PREFIX: &[&str] = &[
     "rsync",
     "ftp",
     "telnet",
+    // Launchers and wrappers that run another program (audit 2026-11-05 TUI M1).
+    "busybox",
+    "toybox",
+    "stdbuf",
+    "setsid",
+    "chroot",
+    "strace",
+    "ltrace",
+    "wsl",
+    "pkexec",
+    "runuser",
+    "unshare",
+    "nsenter",
+    "ionice",
+    "taskset",
 ];
+
+/// Windows executable extensions that do not change which program runs.
+const EXECUTABLE_EXTENSIONS: &[&str] = &[".exe", ".cmd", ".bat", ".com"];
+
+/// The base-name spellings a denylist check must cover: the lowercased name
+/// without a Windows executable extension (`python.exe` -> `python`), and that
+/// name without a trailing version (`python3.12` -> `python`, `node18` ->
+/// `node`). Audit 2026-11-05 TUI M1.
+fn denylist_spellings(base: &str) -> (String, String) {
+    let lower = base.to_ascii_lowercase();
+    let no_ext = EXECUTABLE_EXTENSIONS
+        .iter()
+        .find_map(|ext| lower.strip_suffix(ext))
+        .unwrap_or(&lower)
+        .to_string();
+    let unversioned = no_ext
+        .trim_end_matches(|c: char| c.is_ascii_digit() || matches!(c, '.' | '-' | '_'))
+        .to_string();
+    (no_ext, unversioned)
+}
 
 /// Tools whose first argument is a subcommand: the prefix is `tool sub`.
 const SUBCOMMAND_TOOLS: &[&str] = &[
@@ -132,12 +167,11 @@ pub fn shell_prefix_words(command: &str) -> Option<Vec<String>> {
     if !plain_word(first) || first.starts_with('-') {
         return None;
     }
-    let base = first
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or(first)
-        .to_ascii_lowercase();
-    if NEVER_PREFIX.contains(&base.as_str()) {
+    let (base, unversioned) = denylist_spellings(first.rsplit(['/', '\\']).next().unwrap_or(first));
+    if [&base, &unversioned]
+        .iter()
+        .any(|spelling| !spelling.is_empty() && NEVER_PREFIX.contains(&spelling.as_str()))
+    {
         return None;
     }
     let host_command = crate::terminal::notify::app_slug();
