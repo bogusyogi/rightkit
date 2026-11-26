@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Publish the dependency requirements main already declares: `rightkit-fs` 0.5.0, where the published 0.2.0 requires 0.4.14. The 0.2.0 manifest on crates.io stays as published; this version carries the new requirements.
+
 ## 0.2.0
 
 - Requires `rightkit-http` 0.4.0 (a breaking release), so this release is breaking too.

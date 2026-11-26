@@ -7,6 +7,6 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-motion = { version = "=0.4.0", features = ["encode"] }
+rightkit-motion = { version = "=0.4.1", features = ["encode"] }
 rightkit-ffmpeg = { version = "=0.3.2" }
 rightkit-transcript = { version = "=0.4.2" }

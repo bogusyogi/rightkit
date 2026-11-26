@@ -7,5 +7,5 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-agent-orchestration = { version = "=0.1.6" }
+rightkit-agent-orchestration = { version = "=0.1.7" }
 

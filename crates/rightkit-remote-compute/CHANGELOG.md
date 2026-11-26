@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+- Publish the dependency requirements main already declares: `rightkit-fs` 0.5.0, where the published 0.2.1 requires 0.4.9. The 0.2.1 manifest on crates.io stays as published; this version carries the new requirements.
+
 ## 0.2.1
 
 Taken from GenRight's shipped `remote.rs` and `rental.rs` so it can delete its copies. Every default keeps RightKit's behaviour; the options are the host names `rightkit-media-gen` already carries.

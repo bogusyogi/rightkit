@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4
+
+- Publish the dependency requirements main already declares: `rightkit-fs` 0.5.0, where the published 0.1.3 requires 0.4.9. The 0.1.3 manifest on crates.io stays as published; this version carries the new requirements.
+
 ## 0.1.3 (2026-11-16)
 
 - Fix: a long answer written into the terminal's scrollback now wraps every row to the terminal width. A link longer than the terminal (a bare URL that carries an OSC 8 link, or a linked label) was written as one over-wide row that the terminal soft-wrapped on its own, so the row count the scrollback insert had counted was wrong and lines were pushed out of place. A list nested so deep that its continuation indent took half the terminal or more left a column or two for text and put one character on each row; such a line now continues from the left margin. Plain bare URLs without a link still stay whole so the terminal can match them as one link. Ported from the product TUI (CodeRight, Wave 25) where the fix was made first.

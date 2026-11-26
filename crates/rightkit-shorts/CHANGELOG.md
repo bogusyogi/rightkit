@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.5
+
+- Publish the dependency requirements main already declares: `rightkit-fs` 0.5.0, where the published 0.2.4 requires 0.4.9. The 0.2.4 manifest on crates.io stays as published; this version carries the new requirements.
+
 ## 0.2.4 (2026-11-16)
 
 - Requires rightkit-llm 0.7.0. No behaviour change.

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4
+
+- Publish the dependency requirements main already declares: `rightkit-fs` 0.5.0, where the published 0.2.3 requires 0.4.9; `rightkit-roots` 0.3.0, which the published 0.2.3 does not declare. The 0.2.3 manifest on crates.io stays as published; this version carries the new requirements.
+
 ## 0.2.3
 
 - Added `host::MediaHostConfig::keychain_guard` (default `true`) and `credentials::KeychainKeys`, so GenRight can drop its last in-tree keychain copy (`genright_protocol::keychain`). With the default, `host::keychain::store_for` denies every operation when `<PREFIX>_NO_KEYCHAIN` is set, as before. `keychain_guard: false` removes that guard: the store is the plain OS store, and the host environment cannot disable it (the universal guard of `rightkit-credentials` still applies, as it does in GenRight's copy). It governs `store_for`, `keychain_store`, the default (no injected source) `Context` store and `KeychainKeys`. `KeychainKeys` is a `CredentialSource` over `host::keychain::keychain_store()` (`KeychainKeys::open()`, service = the host app identifier). Every default keeps RightKit's behaviour; `MediaHostConfig` has one new public field, so a host that builds it without `..Default::default()` adds it.
