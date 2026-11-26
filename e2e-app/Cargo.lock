@@ -6219,12 +6219,13 @@ dependencies = [
 
 [[package]]
 name = "rightkit-browser"
-version = "0.3.12"
+version = "0.3.13"
 dependencies = [
  "async-tungstenite 0.35.0",
  "chromiumoxide",
  "futures",
  "getrandom 0.4.3",
+ "libc",
  "rightkit-child-process",
  "rightkit-sandbox",
  "serde",

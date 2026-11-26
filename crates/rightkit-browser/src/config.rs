@@ -705,6 +705,7 @@ pub(crate) fn validate_extra_args(args: &[String]) -> Result<()> {
         "remote-debugging-port",
         "remote-debugging-address",
         "remote-debugging-pipe",
+        "remote-debugging-io-pipes",
         "remote-allow-origins",
         "disable-web-security",
         "incognito-bypass",

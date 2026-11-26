@@ -599,7 +599,7 @@
     "rightkit-autostart": "0.1.1",
     "rightkit-bench": "0.2.1",
     "rightkit-bot-messaging": "0.3.2",
-    "rightkit-browser": "0.3.12",
+    "rightkit-browser": "0.3.13",
     "rightkit-cache": "0.2.5",
     "rightkit-captions": "0.1.1",
     "rightkit-catalog": "0.1.0",
@@ -1051,7 +1051,8 @@
       "0.3.4",
       "0.3.5",
       "0.3.6",
-      "0.3.11"
+      "0.3.11",
+      "0.3.12"
     ],
     "rightkit-cache": [
       "0.2.0",

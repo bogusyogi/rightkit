@@ -115,7 +115,7 @@ The `install` cargo feature adds `install::ensure_chrome_for_testing(&ManagedRoo
 
 ## Real session (the user's own sign-ins, with consent)
 
-`BrowserSession::attach_user_browser(consent, root, opts)` opens a visible Chrome or Edge window on a private copy of the user's consented profile, so the agent starts signed in. It never drives the live browser in place (a running profile is locked, and Chrome 136+ ignores a debugging port on the default user-data directory).
+`BrowserSession::attach_user_browser(consent, root, opts)` opens a visible Chrome or Edge window on a private copy of the user's consented profile, so the agent starts signed in. It never drives the live browser in place (a running profile is locked, and Chrome 136+ ignores remote debugging on the default user-data directory).
 
 - `default_browser()` detects the default browser; `list_profiles(kind)` feeds the consent screen.
 - `UserConsentReceipt` (browser, profile, domains, grant/expiry/revoke times) is what the app persists and shows. `ConsentRevocation` stops a running session at its next action; `purge_imported_profile` deletes the copy.

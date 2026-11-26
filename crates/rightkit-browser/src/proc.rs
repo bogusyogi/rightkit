@@ -3,12 +3,17 @@
 //! (KILL_ON_JOB_CLOSE, no breakaway), bound first to the caller's own job when one
 //! is supplied; a parent-death watchdog covers a host that dies without running
 //! destructors on Unix.
+//!
+//! Chrome opens no debugging port. Every launch passes `--remote-debugging-pipe` and a
+//! descriptor pair (Unix: Chrome reads fd 3 and writes fd 4) or an inherited handle pair
+//! (Windows: `--remote-debugging-io-pipes`). The parent's ends go to the `PipeBridge`.
 use crate::error::{BrowserError, Result};
+use crate::pipe_transport::{ParentPipes, PipeBridge};
 use rightkit_child_process::{OwnedChild, OwnedCommand};
 #[cfg(windows)]
 use rightkit_sandbox::{
     EnvPolicy, NetworkPolicy as SandboxNetworkPolicy, ResourceAuthority, ResourceProfile, Sandbox,
-    SandboxCommand, SandboxPolicy, SandboxedChild, WindowsAuxiliaryIo,
+    SandboxCommand, SandboxPolicy, SandboxedChild,
 };
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader};
@@ -28,13 +33,12 @@ pub(crate) struct ChromeProc {
     child: ChromeChild,
     /// Unix only: kills Chrome's process group when this host process vanishes.
     pub _watchdog: Option<OwnedChild>,
-    pub ws_url: String,
     /// The last lines Chrome wrote to stderr, for the detail of a failed navigation.
     pub stderr_tail: StderrTail,
-    #[cfg(windows)]
-    pipe_io: Option<WindowsAuxiliaryIo>,
-    #[cfg(windows)]
-    pipe_bridge: Option<crate::pipe_transport::PipeBridge>,
+    /// The parent's ends of Chrome's DevTools pipe pair, until the bridge adopts them.
+    pipe_parent: Option<ParentPipes>,
+    /// Declared after `child`, so Chrome is gone before the relay's ends close.
+    pipe_bridge: Option<PipeBridge>,
     /// Path of the stdio file the sandbox opens (and validates) for Chrome. No parent handle is
     /// held across the spawn: the sandbox opens it share-read-only, so a lingering write handle
     /// here would be a sharing violation. Diagnostics read it by path after the fact.
@@ -155,6 +159,8 @@ impl ChromeProc {
     /// wait up to `grace`, then SIGKILL the group. Windows: terminate the job's tree.
     /// Then stops the watchdog.
     pub(crate) fn terminate_gracefully(&mut self, grace: Duration) -> std::io::Result<()> {
+        // Stop relaying before the kill, so the end of Chrome's pipe is not a failure.
+        self.begin_transport_shutdown();
         #[cfg(unix)]
         {
             if !matches!(self.child.try_wait(), Ok(Some(_))) {
@@ -245,41 +251,270 @@ impl ChromeProc {
         )
     }
 
-    #[cfg(windows)]
-    pub(crate) fn start_fixture_pipe_bridge(
+    /// Exit status and diagnostics of a Chrome that did not answer on its DevTools pipe.
+    pub(crate) fn launch_detail(&mut self) -> String {
+        let exit = match self.child.try_wait() {
+            Ok(Some(status)) => format!("exited with {status}"),
+            Ok(None) => "still running".to_string(),
+            Err(error) => format!("status unavailable: {error}"),
+        };
+        #[cfg(windows)]
+        if self.fixture_log.is_some() {
+            return format!("process {exit}; {}", self.fixture_diagnostics());
+        }
+        format!("process {exit}; stderr: {}", self.stderr_tail.text())
+    }
+
+    /// Hand the parent's pipe ends to one loopback relay and return the secret WebSocket URL
+    /// chromiumoxide connects to. Runs inside the Tokio runtime. `handshake_deadline` bounds
+    /// waiting for the one client; `relay_deadline` bounds the whole relay (fixture lease only).
+    pub(crate) fn start_pipe_bridge(
         &mut self,
-        deadline: std::time::Instant,
+        handshake_deadline: std::time::Instant,
+        relay_deadline: Option<std::time::Instant>,
     ) -> Result<String> {
-        let io = self.pipe_io.take().ok_or_else(|| {
-            BrowserError::Launch("Windows fixture CDP pipe ownership is absent".into())
-        })?;
-        let (to_child, from_child) = io.into_parent_handles();
-        let bridge = crate::pipe_transport::PipeBridge::start(to_child, from_child, deadline)?;
+        let (to_child, from_child) = self
+            .pipe_parent
+            .take()
+            .ok_or_else(|| BrowserError::Launch("CDP pipe ownership is absent".into()))?;
+        let bridge = PipeBridge::start(to_child, from_child, handshake_deadline, relay_deadline)?;
         let url = bridge.websocket_url().to_owned();
         self.pipe_bridge = Some(bridge);
         Ok(url)
     }
 
-    #[cfg(windows)]
-    pub(crate) fn begin_fixture_transport_shutdown(&self) {
+    /// Stop the relay admitting I/O; the process kill that follows is then not a transport fault.
+    pub(crate) fn begin_transport_shutdown(&self) {
         if let Some(bridge) = &self.pipe_bridge {
             bridge.begin_shutdown();
         }
     }
 
-    #[cfg(windows)]
-    pub(crate) async fn finish_fixture_transport_shutdown(
+    /// Prove the relay inert once the browser process tree is gone.
+    pub(crate) async fn finish_transport_shutdown(
         &mut self,
         deadline: std::time::Instant,
     ) -> Result<()> {
-        let bridge = self.pipe_bridge.as_mut().ok_or_else(|| {
-            BrowserError::Launch("Windows fixture transport ownership is absent".into())
-        })?;
+        let bridge = self
+            .pipe_bridge
+            .as_mut()
+            .ok_or_else(|| BrowserError::Launch("CDP transport ownership is absent".into()))?;
         bridge.shutdown(deadline).await
     }
+}
 
-    #[cfg(not(windows))]
-    pub(crate) fn begin_fixture_transport_shutdown(&self) {}
+/// What the child's side of the DevTools pipe pair needs for the spawn only: the parent's copies
+/// of Chrome's ends (closed as soon as the spawn returns, so Chrome's exit is seen as end of
+/// file) and, on Unix, the placeholders that keep the low descriptor numbers occupied.
+struct ChildEnds {
+    #[cfg(unix)]
+    _held: Vec<std::os::fd::OwnedFd>,
+    #[cfg(windows)]
+    _held: Vec<std::os::windows::io::OwnedHandle>,
+}
+
+/// Both halves of one Chrome DevTools pipe pair.
+struct DevtoolsPipe {
+    parent: ParentPipes,
+    child: ChildEnds,
+    /// Windows: the decimal inheritable handle values `(read, write)` Chrome is told about.
+    #[cfg(windows)]
+    child_values: (u32, u32),
+    /// Unix: the parent's numbers for Chrome's ends, dup2'ed onto Chrome's fd 3 and fd 4.
+    #[cfg(unix)]
+    child_fds: (std::os::fd::RawFd, std::os::fd::RawFd),
+}
+
+/// Chrome's hard-coded DevTools pipe descriptors on Unix: it reads commands on 3, writes on 4.
+#[cfg(unix)]
+const CHROME_READ_FD: std::os::fd::RawFd = 3;
+#[cfg(unix)]
+const CHROME_WRITE_FD: std::os::fd::RawFd = 4;
+/// The parent keeps all four ends at or above this number, clear of fd 3 and fd 4.
+#[cfg(unix)]
+const FIRST_PARENT_FD: std::os::fd::RawFd = 5;
+
+#[cfg(unix)]
+fn devtools_pipe() -> Result<DevtoolsPipe> {
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+
+    fn launch(error: std::io::Error) -> BrowserError {
+        BrowserError::Launch(format!("DevTools pipe: {error}"))
+    }
+    // Moves `fd` to a number >= FIRST_PARENT_FD (the copy is close-on-exec; the original closes).
+    fn lift(fd: OwnedFd) -> Result<OwnedFd> {
+        // SAFETY: F_DUPFD_CLOEXEC on a descriptor this function owns; no memory is passed.
+        let lifted = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_DUPFD_CLOEXEC, FIRST_PARENT_FD) };
+        if lifted < 0 {
+            return Err(launch(std::io::Error::last_os_error()));
+        }
+        // SAFETY: `lifted` is a fresh descriptor nothing else owns.
+        Ok(unsafe { OwnedFd::from_raw_fd(lifted) })
+    }
+
+    // std's spawn creates its own close-on-exec exec-error pipe from the lowest free numbers.
+    // If that landed on 3 or 4, the dup2 in the child would replace it and a failed exec would
+    // go unreported. Occupying every free number below FIRST_PARENT_FD keeps it out of there.
+    let mut held = Vec::new();
+    for _ in 0..=FIRST_PARENT_FD {
+        let placeholder = OwnedFd::from(std::fs::File::open("/dev/null").map_err(launch)?);
+        let above = placeholder.as_raw_fd() >= FIRST_PARENT_FD;
+        held.push(placeholder);
+        if above {
+            break;
+        }
+    }
+    // std::io::pipe ends are close-on-exec. Pipe A carries commands (the parent writes, Chrome
+    // reads); pipe B carries replies and events (Chrome writes, the parent reads).
+    let (command_read, command_write) = std::io::pipe().map_err(launch)?;
+    let (reply_read, reply_write) = std::io::pipe().map_err(launch)?;
+    let child_read = lift(OwnedFd::from(command_read))?;
+    let to_child = lift(OwnedFd::from(command_write))?;
+    let from_child = lift(OwnedFd::from(reply_read))?;
+    let child_write = lift(OwnedFd::from(reply_write))?;
+    let child_fds = (child_read.as_raw_fd(), child_write.as_raw_fd());
+    held.push(child_read);
+    held.push(child_write);
+    Ok(DevtoolsPipe {
+        parent: (to_child, from_child),
+        child: ChildEnds { _held: held },
+        child_fds,
+    })
+}
+
+#[cfg(windows)]
+mod win32 {
+    use std::ffi::c_void;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        pub fn CreateNamedPipeW(
+            name: *const u16,
+            open_mode: u32,
+            pipe_mode: u32,
+            max_instances: u32,
+            out_buffer_size: u32,
+            in_buffer_size: u32,
+            default_timeout: u32,
+            attributes: *const c_void,
+        ) -> *mut c_void;
+        pub fn CreateFileW(
+            name: *const u16,
+            desired_access: u32,
+            share_mode: u32,
+            security: *const c_void,
+            creation_disposition: u32,
+            flags_and_attributes: u32,
+            template: *mut c_void,
+        ) -> *mut c_void;
+    }
+
+    pub const PIPE_ACCESS_INBOUND: u32 = 0x0000_0001;
+    pub const PIPE_ACCESS_OUTBOUND: u32 = 0x0000_0002;
+    pub const FILE_FLAG_OVERLAPPED: u32 = 0x4000_0000;
+    pub const FILE_FLAG_FIRST_PIPE_INSTANCE: u32 = 0x0008_0000;
+    pub const PIPE_REJECT_REMOTE_CLIENTS: u32 = 0x0000_0008;
+    pub const GENERIC_READ: u32 = 0x8000_0000;
+    pub const GENERIC_WRITE: u32 = 0x4000_0000;
+    pub const OPEN_EXISTING: u32 = 3;
+    pub const INVALID_HANDLE_VALUE: isize = -1;
+}
+
+/// One unnamed-by-anyone pipe: the parent keeps an overlapped, non-inheritable server end (ready
+/// for Tokio); Chrome gets the synchronous client end. `parent_reads` is true when Chrome writes.
+/// The name carries 128 random bits, the server allows one instance and refuses remote clients,
+/// and the client is opened before this function returns, so nothing else can connect.
+#[cfg(windows)]
+fn windows_pipe(
+    parent_reads: bool,
+) -> Result<(
+    std::os::windows::io::OwnedHandle,
+    std::os::windows::io::OwnedHandle,
+)> {
+    use std::os::windows::io::{FromRawHandle, OwnedHandle};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let mut random = [0u8; 16];
+    getrandom::fill(&mut random)
+        .map_err(|error| BrowserError::Launch(format!("DevTools pipe random source: {error}")))?;
+    let name: Vec<u16> = format!(
+        r"\\.\pipe\rightkit-browser-cdp-{}-{}-{}",
+        std::process::id(),
+        SEQUENCE.fetch_add(1, Ordering::Relaxed),
+        crate::pipe_transport::hex(&random)
+    )
+    .encode_utf16()
+    .chain(std::iter::once(0))
+    .collect();
+    let (server_access, client_access) = if parent_reads {
+        (win32::PIPE_ACCESS_INBOUND, win32::GENERIC_WRITE)
+    } else {
+        (win32::PIPE_ACCESS_OUTBOUND, win32::GENERIC_READ)
+    };
+    // SAFETY: `name` is NUL-terminated and outlives the call; no security attributes are passed,
+    // so the handle is non-inheritable.
+    let server = unsafe {
+        win32::CreateNamedPipeW(
+            name.as_ptr(),
+            server_access | win32::FILE_FLAG_OVERLAPPED | win32::FILE_FLAG_FIRST_PIPE_INSTANCE,
+            win32::PIPE_REJECT_REMOTE_CLIENTS,
+            1,
+            64 * 1024,
+            64 * 1024,
+            0,
+            std::ptr::null(),
+        )
+    };
+    if server.is_null() || server as isize == win32::INVALID_HANDLE_VALUE {
+        return Err(BrowserError::Launch(format!(
+            "DevTools pipe CreateNamedPipeW: {}",
+            std::io::Error::last_os_error()
+        )));
+    }
+    // SAFETY: `server` is a fresh handle nothing else owns; it closes on every path below.
+    let server = unsafe { OwnedHandle::from_raw_handle(server) };
+    // SAFETY: opens the unique client end of the instance just created; `name` is valid.
+    let client = unsafe {
+        win32::CreateFileW(
+            name.as_ptr(),
+            client_access,
+            0,
+            std::ptr::null(),
+            win32::OPEN_EXISTING,
+            0,
+            std::ptr::null_mut(),
+        )
+    };
+    if client.is_null() || client as isize == win32::INVALID_HANDLE_VALUE {
+        return Err(BrowserError::Launch(format!(
+            "DevTools pipe client open: {}",
+            std::io::Error::last_os_error()
+        )));
+    }
+    // SAFETY: `client` is a fresh handle nothing else owns.
+    Ok((server, unsafe { OwnedHandle::from_raw_handle(client) }))
+}
+
+#[cfg(windows)]
+fn devtools_pipe() -> Result<DevtoolsPipe> {
+    use std::os::windows::io::AsRawHandle;
+
+    // Chrome reads from the first pipe and writes to the second.
+    let (to_child, child_read) = windows_pipe(false)?;
+    let (from_child, child_write) = windows_pipe(true)?;
+    let value = |handle: &std::os::windows::io::OwnedHandle| {
+        u32::try_from(handle.as_raw_handle() as usize)
+            .map_err(|_| BrowserError::Launch("DevTools pipe handle does not fit in u32".into()))
+    };
+    let child_values = (value(&child_read)?, value(&child_write)?);
+    Ok(DevtoolsPipe {
+        parent: (to_child, from_child),
+        child: ChildEnds {
+            _held: vec![child_read, child_write],
+        },
+        child_values,
+    })
 }
 
 /// The caller's job object to bind Chrome to (Windows only).
@@ -296,17 +531,82 @@ pub(crate) fn profile_arg(path: &Path) -> OsString {
     arg
 }
 
-fn chrome_command(exe: &Path, args: &[OsString]) -> OwnedCommand {
+/// The Chrome command with its DevTools pipe pair wired in.
+///
+/// Unix: Chrome reads CDP on fd 3 and writes it on fd 4. The sweep `OwnedCommand` runs in the
+/// child (every descriptor above stderr made close-on-exec) comes after any `pre_exec` of
+/// `command_mut`, so the dup2 onto 3 and 4 is registered with `pre_exec_last`, which runs after
+/// the sweep as the last step before exec; dup2 clears close-on-exec on its target. The sources
+/// are numbered 5 or higher (see `devtools_pipe`), so neither dup2 overwrites the other's
+/// source, and they stay close-on-exec, so exactly fd 0 to 2, 3 and 4 reach Chrome.
+///
+/// Windows: only the two child handles are inherited, by handle list, and Chrome is told their
+/// values with `--remote-debugging-io-pipes`.
+fn chrome_command(exe: &Path, args: &[OsString], pipe: &DevtoolsPipe) -> OwnedCommand {
     let mut cmd = OwnedCommand::new(exe);
     cmd.windows_hide();
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     cmd.kill_on_parent_exit(true);
+    #[cfg(windows)]
+    let pipe_flag = [OsString::from(format!(
+        "--remote-debugging-io-pipes={},{}",
+        pipe.child_values.0, pipe.child_values.1
+    ))];
+    #[cfg(not(windows))]
+    let pipe_flag: [OsString; 0] = [];
     cmd.command_mut()
+        .args(pipe_flag)
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
+    #[cfg(unix)]
+    {
+        let (read_fd, write_fd) = pipe.child_fds;
+        // SAFETY: the hook calls only dup2, which is async-signal-safe; it allocates nothing and
+        // takes no lock. Its error path builds an `io::Error` from errno, which does not
+        // allocate. The descriptor numbers are plain integers copied into the closure.
+        unsafe {
+            cmd.pre_exec_last(move || {
+                dup_onto(read_fd, CHROME_READ_FD)?;
+                dup_onto(write_fd, CHROME_WRITE_FD)
+            });
+        }
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        // A std `Command` spawn cannot name the handles to inherit, so the native spawn is
+        // used: its stdio is described here (the same as the `Command` calls above).
+        cmd.windows_spawn_config(rightkit_child_process::WindowsSpawnConfig {
+            stdin: rightkit_child_process::WindowsStdio::Null,
+            stdout: rightkit_child_process::WindowsStdio::Null,
+            stderr: rightkit_child_process::WindowsStdio::Piped,
+            inherit_environment: true,
+            raw_arguments: Vec::new(),
+        });
+        let mut inherited = Vec::new();
+        for handle in &pipe.child._held {
+            inherited.push(handle.as_raw_handle());
+        }
+        cmd.inherit_handles_only(inherited);
+    }
     cmd
+}
+
+/// `dup2(from, to)` retried on `EINTR`; the result has close-on-exec cleared.
+#[cfg(unix)]
+fn dup_onto(from: std::os::fd::RawFd, to: std::os::fd::RawFd) -> std::io::Result<()> {
+    loop {
+        // SAFETY: dup2 takes two descriptor numbers and touches no memory.
+        if unsafe { libc::dup2(from, to) } >= 0 {
+            return Ok(());
+        }
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::EINTR) {
+            return Err(error);
+        }
+    }
 }
 
 /// The only place `--no-sandbox` is added. Chrome's inner sandbox cannot nest inside the
@@ -342,13 +642,10 @@ pub(crate) fn fixture_chrome_args(args: &[OsString]) -> Vec<OsString> {
     fixture_args
 }
 
-pub(crate) fn spawn_chrome(
-    exe: &Path,
-    args: &[OsString],
-    timeout: Duration,
-    job: CallerJob,
-) -> Result<ChromeProc> {
-    spawn_chrome_command(chrome_command(exe, args), timeout, job)
+pub(crate) fn spawn_chrome(exe: &Path, args: &[OsString], job: CallerJob) -> Result<ChromeProc> {
+    let pipe = devtools_pipe()?;
+    let cmd = chrome_command(exe, args, &pipe);
+    spawn_chrome_command(cmd, pipe, job)
 }
 
 /// Fixture launches require a real macOS Seatbelt profile. Other platforms fail closed at
@@ -358,7 +655,6 @@ pub(crate) fn spawn_chrome(
 pub(crate) fn spawn_chrome_fixture(
     exe: &Path,
     args: &[OsString],
-    timeout: Duration,
     profile_dir: &Path,
     proxy_addr: std::net::SocketAddr,
 ) -> Result<ChromeProc> {
@@ -376,7 +672,8 @@ pub(crate) fn spawn_chrome_fixture(
     // Chrome's own helper sandbox calls sandbox_init, which the enclosing Seatbelt profile
     // refuses; the profile confines the whole process tree instead.
     let fixture_args = fixture_chrome_args(args);
-    let mut cmd = chrome_command(exe, &fixture_args);
+    let pipe = devtools_pipe()?;
+    let mut cmd = chrome_command(exe, &fixture_args, &pipe);
     cmd.env_allowlist(std::iter::empty::<&str>());
     cmd.command_mut()
         .env("HOME", profile_dir)
@@ -389,7 +686,7 @@ pub(crate) fn spawn_chrome_fixture(
     unsafe {
         cmd.command_mut().pre_exec(move || prepared.apply());
     }
-    spawn_chrome_command(cmd, timeout, None)
+    spawn_chrome_command(cmd, pipe, None)
 }
 
 /// A unit of work for the launcher thread.
@@ -447,9 +744,14 @@ fn run_on_launcher_thread<T: Send + 'static>(
 
 fn spawn_chrome_command(
     #[cfg_attr(not(windows), allow(unused_mut))] mut cmd: OwnedCommand,
-    timeout: Duration,
+    pipe: DevtoolsPipe,
     job: CallerJob,
 ) -> Result<ChromeProc> {
+    let DevtoolsPipe {
+        parent: pipe_parent,
+        child: child_ends,
+        ..
+    } = pipe;
     #[cfg(windows)]
     if let Some(job) = &job {
         use std::os::windows::io::AsHandle;
@@ -460,14 +762,20 @@ fn spawn_chrome_command(
     let _ = job;
     // Spawned on the launcher thread: Linux PDEATHSIG (kill_on_parent_exit) is keyed to the
     // spawning thread, and a pooled blocking thread exits after its idle keep-alive.
-    let mut child = run_on_launcher_thread(move || cmd.spawn())
-        .map_err(|e| BrowserError::Launch(e.to_string()))?
-        .map_err(|e| BrowserError::Launch(e.to_string()))?;
+    // The parent's copies of Chrome's pipe ends close inside this closure, as soon as the spawn
+    // returns: a kept copy of Chrome's write end would hide Chrome's exit (no end of file on
+    // the reply pipe) and a kept copy of its read end would hide a dead Chrome from writers.
+    let mut child = run_on_launcher_thread(move || {
+        let spawned = cmd.spawn();
+        drop(child_ends);
+        spawned
+    })
+    .map_err(|e| BrowserError::Launch(e.to_string()))?
+    .map_err(|e| BrowserError::Launch(e.to_string()))?;
     let stderr = child
         .take_stderr()
         .ok_or_else(|| BrowserError::Launch("no stderr".into()))?;
-    let (tx, rx) = std::sync::mpsc::channel::<String>();
-    // Keeps draining stderr after the URL line so Chrome never blocks on a full pipe. The
+    // Keeps draining stderr for the life of Chrome so it never blocks on a full pipe. The
     // drain reads bytes, not text: a line that is not UTF-8 (Windows writes some messages in
     // the system code page) must not end it, or the pipe fills and Chrome stalls on its next
     // write.
@@ -482,39 +790,15 @@ fn spawn_chrome_command(
                 Ok(0) | Err(_) => break,
                 Ok(_) => {}
             }
-            let text = String::from_utf8_lossy(&line);
-            if let Some(u) = text.split("DevTools listening on ").nth(1) {
-                let _ = tx.send(u.trim().to_string());
-            } else {
-                tail.push(&text);
-            }
+            tail.push(&String::from_utf8_lossy(&line));
         }
     });
-    let ws_url = match rx.recv_timeout(timeout) {
-        Ok(url) => url,
-        Err(_) => {
-            // Let the stderr drain deliver Chrome's final lines before reporting them.
-            std::thread::sleep(Duration::from_millis(200));
-            let exit = match child.try_wait() {
-                Ok(Some(status)) => format!("exited with {status}"),
-                Ok(None) => "still running".to_string(),
-                Err(error) => format!("status unavailable: {error}"),
-            };
-            return Err(BrowserError::Launch(format!(
-                "chrome did not report a DevTools endpoint; process {exit}; stderr: {}",
-                stderr_tail.text()
-            )));
-        }
-    };
     let watchdog = spawn_watchdog(child.id());
     Ok(ChromeProc {
         child: ChromeChild::Owned(child),
         _watchdog: watchdog,
-        ws_url,
         stderr_tail,
-        #[cfg(windows)]
-        pipe_io: None,
-        #[cfg(windows)]
+        pipe_parent: Some(pipe_parent),
         pipe_bridge: None,
         #[cfg(windows)]
         fixture_log: None,
@@ -525,8 +809,8 @@ fn spawn_chrome_command(
     })
 }
 
-/// Windows fixture Chrome has no DevTools TCP listener & no network authority.
-/// Its sole CDP channel is a sandbox-created inherited pipe pair.
+/// Windows fixture Chrome has no network authority. Its sole CDP channel is a sandbox-created
+/// inherited pipe pair, relayed by the same bridge as every other launch.
 #[cfg(windows)]
 pub(crate) fn spawn_chrome_fixture_windows(
     exe: &Path,
@@ -588,9 +872,8 @@ pub(crate) fn spawn_chrome_fixture_windows(
     Ok(ChromeProc {
         child: ChromeChild::Confined(spawn.child),
         _watchdog: None,
-        ws_url: String::new(),
         stderr_tail: StderrTail::default(),
-        pipe_io: Some(spawn.io),
+        pipe_parent: Some(spawn.io.into_parent_handles()),
         pipe_bridge: None,
         fixture_log: Some(log_path),
         launch_params,
