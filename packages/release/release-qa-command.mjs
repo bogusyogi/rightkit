@@ -34,6 +34,7 @@ import { verifySealedRelease } from "./release-state.mjs";
 import { auditMain } from "./release-qa-audit.mjs";
 import { journeyRequiredItem, QA_RUN_ENV, relativePosix, validateJourneysReceipt } from "./release-qa-hardening.mjs";
 import { prepareInstalledArtifacts } from "./release-qa-installed.mjs";
+import { QA_SOURCE_LISTING_ENV, writeQaSourceListing } from "./qa-source-listing.mjs";
 import { main as policyMain } from "./release-qa-policy.mjs";
 import { darwinKeyFile, PROTECTED_SECRETS } from "./protected-credentials.mjs";
 import {
@@ -195,8 +196,13 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, deps = 
     const expand = (value) => String(value).replaceAll("{sealedDir}", sealed?.sealedDir ?? "").replaceAll("{releaseId}", releaseId)
       .replaceAll("{installedApp}", installedQa?.installedApp ?? "").replaceAll("{installedDir}", installedQa?.installedDir ?? "").replaceAll("{qaRoot}", installedQa?.qaRoot ?? "");
     const installedDirs = installedDirNames(config, deps.env ?? process.env);
+    // In a door source split the journeys runner's root is the git-less snapshot: it binds its build record and scenario files to the
+    // commit's committed bytes through this listing, written outside the snapshot from the checkout's object database (qa-source-listing.mjs).
+    const sourceListing = split && journeysConfig && !journeysConfig.receipt
+      ? (deps.writeSourceListing ?? writeQaSourceListing)({ source: release, dir: path.join(repoRoot, ".right-release", "qa-source"), git: gitRunner })
+      : null;
     const runEnv = {
-      ...process.env, RIGHT_RELEASE_QA_STAGE: stage, RIGHT_RELEASE_QA_COMMIT: source.commit, RIGHT_RELEASE_QA_RELEASE_ID: releaseId,
+      ...process.env, ...(sourceListing ? { [QA_SOURCE_LISTING_ENV]: sourceListing } : {}), RIGHT_RELEASE_QA_STAGE: stage, RIGHT_RELEASE_QA_COMMIT: source.commit, RIGHT_RELEASE_QA_RELEASE_ID: releaseId,
       ...(sealed ? { RIGHT_RELEASE_QA_SEALED_DIR: sealed.sealedDir } : {}), ...(installedDirs.length ? { RIGHTKIT_QA_INSTALLED_DIRS: installedDirs.join(";") } : {}), ...(installedQa?.env ?? {}),
     };
     const runCwd = appRoot;

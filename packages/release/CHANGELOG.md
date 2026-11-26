@@ -2,6 +2,7 @@
 
 ## 0.6.83
 
+- Installed QA from a door snapshot: when the release config declares a `qa.journeys` lane, the qualify stage writes the commit's committed file listing (`rightkit.qa-source-listing/1`: each regular file's path and sha256, read from the checkout's objects) outside the snapshot and passes it to the runner as `RIGHTKIT_QA_SOURCE_LISTING`, so a runner can bind its build record and scenario files to committed source in the git-less snapshot (with no listing every journeys lane failed at `git rev-parse --show-toplevel`). Needs the rightkit-qa release that reads it.
 - Class B history records each stored result as it is stored, so a run stopped part way no longer leaves cache entries the next forecast does not know; every later run of that repository stopped on RK_CACHE_DIVERGENCE (NN05) until they were moved aside (#1749; Legion and Pulse on the Dell).
 
 ## 0.6.82
