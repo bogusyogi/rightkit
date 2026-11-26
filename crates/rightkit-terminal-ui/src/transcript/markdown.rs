@@ -354,11 +354,57 @@ impl StreamingMarkdownBuffer {
             return Some(pos + 1);
         }
 
+        // A table header written without a leading pipe (`a | b`) is held until the next line says
+        // whether it is a delimiter row: the line is a header candidate while that line is missing
+        // or looks like the start of one. Rows of such a table stay held like the piped ones.
+        if !state.in_table && Self::is_table_header_candidate(remaining) {
+            state.in_table = true;
+            return None;
+        }
+        if state.in_table
+            && remaining
+                .split('\n')
+                .next()
+                .is_some_and(|line| line.contains('|'))
+        {
+            return None;
+        }
+
         if state.in_table && !remaining.starts_with('|') {
             state.in_table = false;
         }
 
         None
+    }
+
+    /// Whether the line at the start of `remaining` could be a table header whose delimiter row
+    /// has not arrived: it holds a pipe and is the last line so far, or the line after it is a
+    /// delimiter row or the beginning of one.
+    fn is_table_header_candidate(remaining: &str) -> bool {
+        let (line, rest) = match remaining.find('\n') {
+            Some(at) => (&remaining[..at], &remaining[at + 1..]),
+            None => (remaining, ""),
+        };
+        if !line.contains('|') || !table_detect::is_table_header_line(line) {
+            return false;
+        }
+        if !remaining.contains('\n') {
+            return true; // the line itself is still arriving
+        }
+        if rest.is_empty() {
+            return true; // the next line has not arrived
+        }
+        let (next, next_done) = match rest.find('\n') {
+            Some(at) => (&rest[..at], true),
+            None => (rest, false),
+        };
+        if next_done {
+            table_detect::is_table_delimiter_line(next)
+        } else {
+            // A partial next line: still a possible delimiter row while it only holds `| - :` and blanks.
+            next.chars()
+                .all(|c| matches!(c, '|' | '-' | ':' | ' ' | '\t'))
+        }
     }
 
     fn check_code_fence(&self, line: &str, state: &mut ParseState) -> Option<usize> {

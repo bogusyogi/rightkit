@@ -179,6 +179,9 @@ struct Entry {
     /// A user/assistant message that follows a settled cell (tool rows, a
     /// thought) opens with one blank row, so blocks never run together.
     lead_gap: bool,
+    /// A cell the user asked for by expanding a collapsed tool output (Ctrl+O). The fold key
+    /// (`collapse_turns`) leaves these out when the finished part of the chat is reprinted.
+    expansion: bool,
 }
 
 /// Cache key for cell entries. A pushed cell is immutable — its content
@@ -220,11 +223,8 @@ fn render_message(message: &Message, width: u16, theme: &Theme) -> Vec<RenderedL
         body.into_iter()
             .map(|line| RenderedLine::styled(line.indented(2))),
     );
-    if message.finalized {
-        out.push(RenderedLine::styled(HyperlinkLine::new(Line::from(
-            Span::styled("  copy · c", Style::default().fg(theme.color(Role::Dim))),
-        ))));
-    }
+    // No per-answer "copy · c" hint: the `c` key still copies, and the key list
+    // (F1) names it.
     // A settled answer ends with one blank row so the next prompt, tool row
     // or notice never runs into its last line.
     if message.finalized {
@@ -401,6 +401,7 @@ impl Transcript {
             body: EntryBody::Message(message),
             cache: WidthCache::new(),
             lead_gap,
+            expansion: false,
         });
         self.enforce_bounds();
     }
@@ -427,8 +428,40 @@ impl Transcript {
             }),
             cache: WidthCache::new(),
             lead_gap: false,
+            expansion: false,
         });
         self.enforce_bounds();
+    }
+
+    /// Like [`Self::push_cell`], for the rows of an expanded tool output (Ctrl+O): the fold key can
+    /// leave them out of a reprint.
+    pub fn push_expansion_cell(&mut self, cell: Box<dyn Cell>, theme: &Theme) {
+        self.push_cell(cell, theme);
+        if let Some(entry) = self.entries.last_mut() {
+            entry.expansion = true;
+        }
+    }
+
+    /// The settled (already flushed) part of the chat rendered at `width`, for repainting the
+    /// screen after a clear. With `fold` the expanded tool outputs are left out. Returns the lines
+    /// and how many expansion entries were left out.
+    pub fn reprint_lines(&mut self, width: u16, fold: bool) -> (Vec<HyperlinkLine>, usize) {
+        let theme = self.message_theme();
+        let mut lines = Vec::new();
+        let mut folded = 0;
+        let settled = self.flushed.min(self.entries.len());
+        for entry in self.entries[..settled].iter_mut() {
+            if fold && entry.expansion {
+                folded += 1;
+                continue;
+            }
+            let hash = entry.cache_key();
+            let rendered = entry.cache.get_or_compute(width, hash, || {
+                render_body(&entry.body, entry.lead_gap, width, &theme)
+            });
+            lines.extend(rendered.iter().map(|l| l.line.clone()));
+        }
+        (lines, folded)
     }
 
     fn last_is_cell(&self) -> bool {
@@ -749,6 +782,11 @@ impl Transcript {
     ) -> Vec<(Option<String>, String)> {
         self.assistant_markdown_at_line(line_index, width)
             .map_or_else(Vec::new, Self::code_blocks_for)
+    }
+
+    /// Code blocks of one Markdown message (the keyboard picker holds the message text, not an index).
+    pub fn code_blocks_of(markdown: &str) -> Vec<(Option<String>, String)> {
+        Self::code_blocks_for(markdown)
     }
 
     fn code_blocks_for(markdown: &str) -> Vec<(Option<String>, String)> {

@@ -191,6 +191,24 @@ impl FindState {
                 .current()
                 .map_or(FindOutcome::Redraw, |m| FindOutcome::Jump(m.line));
         }
+        // F3 is the other find chord: it opens the bar, and with the bar open steps to the next
+        // match (Shift+F3 the previous one).
+        if key.code == KeyCode::F(3) {
+            if !self.open {
+                self.open();
+                self.refresh(lines);
+                return self
+                    .current()
+                    .map_or(FindOutcome::Redraw, |m| FindOutcome::Jump(m.line));
+            }
+            self.mode = Mode::Navigating;
+            let line = if key.modifiers.contains(KeyModifiers::SHIFT) {
+                self.prev()
+            } else {
+                self.next_match()
+            };
+            return line.map_or(FindOutcome::Redraw, FindOutcome::Jump);
+        }
         if !self.open {
             return FindOutcome::Ignored;
         }

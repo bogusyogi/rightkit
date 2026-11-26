@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.8
+
+Additive: no public item is removed or changed and no signature moves. Stage 5 of moving CodeRight's terminal UI crate onto this one (bogusyogi/coderight#567; bogusyogi/rightkit#1791): the transcript, session picker, observability pane and timeline. New public items are listed; everything else changes how existing code behaves.
+
+- **The typed timeline is bounded.** `transcript::timeline::Timeline` keeps at most `TIMELINE_MAX_ENTRIES` (20,000) entries; past the cap plus a 1,024 slack the oldest settled entries are dropped from the front, never an entry that can still change, so a long session no longer grows without bound. `Timeline::entries()` is now the newest window; new `Timeline::evicted()` counts what was dropped and `Timeline::get(absolute)` reads by the index an entry had when pushed. A journey can lower the cap with `<PREFIX>_TIMELINE_MAX_ENTRIES` (the host's prefix from `terminal::notify::env_name`, `RIGHTKIT_` by default; read once, honoured only between 50 and the default). `latest_route()` is kept as entries are pushed instead of scanning the history.
+- **Streaming Markdown holds a table whose header has no leading pipe** (`a | b`) until the next line shows whether it is a delimiter row, and keeps the rows of such a table held, so a table is not committed half built.
+- **The answer no longer ends with a `  copy · c` line.** The `c` key still copies. A host that matched that text (a click on the line) must stop doing so.
+- **Deeply nested lists keep their text.** Once the indent of a nested block is wider than half the wrap width, leading spaces come off its prefix so the text no longer wraps one character per row.
+- **F3 is a find key** (`transcript::find::FindState`): it opens the bar, and with the bar open steps to the next match (Shift+F3 the previous one).
+- **Session picker content matches.** New `nav::NavView::set_content_matches(query, rows)` lists sessions whose message text matched a full-text search beside the title matches, marked "matches message text" with a snippet line, while the typed filter is still that query; `session_query()` reads the filter text. The query and matches are cleared when the picker opens.
+- **`transcript::Transcript`:** `push_expansion_cell` (a cell the user expanded; the fold key leaves these out of a reprint), `reprint_lines(width, fold)` (the settled part of the chat rendered for a repaint after a clear) and `code_blocks_of(markdown)`.
+- **`observability_pane`:** `ProviderRateLimit`, `parse_cache_miss_notice`, and on `ObservabilityPane` `set_rate_limit`, `rate_limit_line`, `set_cache_ttl_ms`, `cache_ttl_line`, `set_last_cache_miss`; `lines()` appends the cache-expiry, rate-limit and last-cache-miss rows when the host has set them.
+- **`scheduler`:** `RenderMetrics` and `FrameRequester` gain `record_maintenance_tick` and `record_timeline`; `RenderMetricsSnapshot` gains `maintenance_ticks`, `timeline_entries` and `timeline_evicted`.
+- **`diff_review_pane::DiffReview::take_feedback`** returns the comments as feedback text and clears them, so a second send does not repeat them.
+- Not in this version, left for 0.2.0 because it changes a public shape: the `DaemonEvent::ToolArgumentsPartial` and `RateLimit` variants and the new `Usage` fields (`completion`, `cost_billed`, `rate_limit`, `cache_ttl_ms`); `nav::SessionDetail` `unread`, `pinned` and `root` with `NavIntent::TogglePinSession`, the `*` pin key, the pinned-first order and `NavView::session_root`. CodeRight's other additions in these files are `#[allow(dead_code)]` code with no caller in its crate or bin (markdown copy serialisation, streaming code highlighter and theme override, live row builder, markdown stream collector, the status, accent and selection styles, adaptive wrapping helpers, the fence tracker, startup colour probe) and are not ported.
+
 ## 0.1.7
 
 Additive: no public item is removed or changed. Stage 4 of moving CodeRight's terminal UI crate onto this one (bogusyogi/coderight#567; bogusyogi/rightkit#1789): the composer. The one new public item is `composer::Composer::note_ctrl_c_turn_cancel`; the rest changes how the composer behaves.
