@@ -14,7 +14,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 |---|---|---|---|---|---|
 | adapt | `rightkit-adapt` | none | declaration-only | 0 | rightkit-adapt: staged 0.2.1, not published |
 | adaptive-learning | `rightkit-adapt-taste` | none | declaration-only | 0 | rightkit-adapt-taste: staged 0.1.3, not published |
-| agent-api-integrations | `rightkit-agent-engine-api-integrations` | none | declaration-only | 0 | rightkit-agent-engine-api-integrations: staged 0.1.5, not published |
+| agent-api-integrations | `rightkit-agent-engine-api-integrations` | none | declaration-only | 0 | rightkit-agent-engine-api-integrations: staged 0.1.6, not published |
 | agent-api-platform | `rightkit-agent-engine-api-platform` | none | declaration-only | 0 | rightkit-agent-engine-api-platform: staged 0.1.3, not published |
 | agent-api-sessions | `rightkit-agent-engine-api-sessions` | none | declaration-only | 0 | rightkit-agent-engine-api-sessions: staged 0.1.1, not published |
 | agent-api-workflows | `rightkit-agent-engine-api-workflows` | none | declaration-only | 0 | rightkit-agent-engine-api-workflows: staged 0.2.2, not published |

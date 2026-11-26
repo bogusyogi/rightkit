@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.6
+
+- `plugin_manifest_json` (and with it `plugin_manifest_json_with_provenance`) adds `uiSlots`: the contributions the host may show, empty for a disabled plugin or invalid slot declarations. Requires rightkit-agent-plugins 0.1.4 for `PluginManifest::active_ui_contributions`.
+
 ## 0.1.5 (2026-11-16)
 
 - Requires rightkit-agent-config 0.1.3. No behaviour change.

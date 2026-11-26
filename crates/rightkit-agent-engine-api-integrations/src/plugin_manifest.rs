@@ -36,6 +36,8 @@ pub fn plugin_manifest_json(
         "middleware": manifest.middleware,
         "sandbox": manifest.sandbox,
         "enabled": manifest.enabled,
+        // Slots the host may show: empty for a disabled plugin or invalid declarations.
+        "uiSlots": manifest.active_ui_contributions(),
     })
 }
 
