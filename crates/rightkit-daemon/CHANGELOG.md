@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.4
+
+- Added the `lan-discovery` feature (off by default; optional dependency `mdns-sd` 0.13) and the `lan_discovery` module, product-neutral: `lan_ip()`, `advertise(service_type, instance_name, host_name, ip, port, properties)` returning an `Advertisement` that keeps the service announced while it lives, and `browse(service_type, wait)` returning `Resolved` rows (full name, host name, sorted addresses, port, TXT properties with lower-cased keys). The host passes the service type. Taken from CodeRight's LAN listener so CodeRight no longer depends on `mdns-sd` itself (bogusyogi/coderight#567, #566). Additive: no existing item changes and a build without the feature is unchanged. Not compiled or run in this pass (traced against `mdns-sd` 0.13.11).
+
 ## 0.9.3
 
 - Logic moved from Pulse into this crate (bogusyogi/pulse#643): see the module docs for what each new module holds.

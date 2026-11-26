@@ -38,6 +38,7 @@ Do not use it to store keys. Keys come from a `CredentialSource`, and production
 ## Cargo features
 
 - `cli` (default off): `provider::cli`, which adds the optional dependency `rightkit-child-process`.
+- `provider-image` (default off): `provider_image::scale_image_to_max_edge`, which adds the optional dependency `image` (PNG and JPEG only). It scales a PNG or JPEG whose longest edge is over a limit the caller passes, and returns `None` when no scaling is needed, the format is another one or the image cannot be decoded.
 
 Always-on dependencies: `rightkit-http`, `serde`, `serde_json`.
 
