@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+- Publish the dependency requirements main already declares: `rightkit-fs` 0.5.0, where the published 0.3.0 requires 0.4.9. The 0.3.0 manifest on crates.io stays as published; this version carries the new requirements.
+
 ## 0.3.0
 
 - Depends on `rightkit-agent-engine-protocol` 0.4.0 (additive events and fields, see its changelog). Breaking for dependents: the crate exposes protocol types in its public API, so those types are now the 0.4 ones.

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.8
+
+- Publish the dependency requirements main already declares: `rightkit-fs` 0.5.0, where the published 0.2.7 requires 0.4.9. The 0.2.7 manifest on crates.io stays as published; this version carries the new requirements.
+
 ## 0.2.7
 
 - Keep the last configured disk settings when an open fails with a transient I/O error. A later successful read replaces the retained settings.

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.7
+
+- Publish the dependency requirements main already declares: `rightkit-sandbox` 0.7.0, where the published 0.1.6 requires 0.6.3; `rightkit-fs` 0.5.0, where the published 0.1.6 requires 0.4.9. The 0.1.6 manifest on crates.io stays as published; this version carries the new requirements.
+
 ## 0.1.6 (2026-11-16)
 
 - Breaking for a host outside this repository that relied on the implied OS keyring: the optional `rightkit-llm` dependency no longer names `agent_providers-os-keyring` and `agent_router-os-keyring`, so `coding-core`, `coding-repo-graph`, `coding-tools` and `coding` no longer link the OS credential store (`rightkit-credentials`); the coding tools' `rightkit-agent-coding-tools` dependency no longer implies it either. `coding-os-keyring` (still implies `coding`) adds `rightkit-llm`'s `agent_providers-os-keyring` and `agent_router-os-keyring` and `rightkit-agent-coding-tools/os-keyring`, and `coding-host` now implies `coding-os-keyring`, so a host that named `coding-host` or `coding-os-keyring` builds exactly as before. A host that named only `coding` and relied on the keyring adds `coding-os-keyring`. Nothing in the crate's own code needs the keyring, so no item changes.

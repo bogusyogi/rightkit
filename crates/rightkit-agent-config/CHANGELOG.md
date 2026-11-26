@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4
+
+- Publish the dependency requirements main already declares: `rightkit-roots` 0.3.0, where the published 0.1.3 requires 0.2.0; `rightkit-fs` 0.5.0, where the published 0.1.3 requires 0.4.9. The 0.1.3 manifest on crates.io stays as published; this version carries the new requirements.
+
 ## 0.1.3 (2026-11-16)
 
 - `set_workspace_trust_rule(fn(&Path) -> bool)` (once per process, returns `false` if already set): a host with no trust-store file supplies the workspace-trust decision, which replaces the persisted-store lookup in `is_workspace_trusted`. Default unchanged. `is_workspace_trusted_in` still reads the store it is given.

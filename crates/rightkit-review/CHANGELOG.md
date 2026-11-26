@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.1
+
+- Publish the dependency requirements main already declares: `rightkit-fs` 0.5.0, where the published 0.6.0 requires 0.4.9. The 0.6.0 manifest on crates.io stays as published; this version carries the new requirements.
+
 ## 0.6.0
 
 - New, additive (feature `render-qa`): `QaTools::with_critic_binary_name(name)` looks for the critic binary under `name` (executable suffix added) next to the current executable; `QaTools::with_critic_path(path)` uses an explicit path. Default unchanged: `rightkit-render-critic` next to the executable. The "critic not run" message names the binary that was looked for. CutRight ships `cutright-critic`: `QaTools::new(ffmpeg, ffprobe)?.with_critic_binary_name("cutright-critic")`.

@@ -6238,7 +6238,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-cache"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "rightkit-child-process",
  "rightkit-fs",
@@ -6276,7 +6276,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-compose"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "serde",
  "serde_json",
@@ -6576,7 +6576,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-motion"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "rightkit-transcript",
  "serde",
@@ -6704,7 +6704,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-playback"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "rightkit-child-process",
  "rightkit-ffmpeg",
@@ -6776,7 +6776,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-review"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -6996,7 +6996,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-workflow"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "blake3",
  "getrandom 0.4.3",

@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-app-icon = { version = "=0.1.0" }
+rightkit-app-icon = { version = "=0.1.1" }

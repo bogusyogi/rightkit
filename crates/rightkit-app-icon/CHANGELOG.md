@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Publish the dependency requirements main already declares: `rightkit-fs` 0.5.0, where the published 0.1.0 requires 0.4.15. The 0.1.0 manifest on crates.io stays as published; this version carries the new requirements.
+
 ## 0.1.0 (unpublished; revision 3 after the RightKit owner's hold on revision 2)
 - PNG validation now covers the compressed data: the IDAT payloads are concatenated and inflated (`miniz_oxide`, new dependency, already in the RightKit lockfile) with an output buffer of exactly the decoded length the header implies plus one byte; the decoded length must match exactly (Adam7 handled), the zlib header, deflate data and Adler-32 must be valid, nothing may follow the stream, filter bytes must be 0..=4. Applies to logos, cache files and the crate's own and the platform's output.
 - macOS: AppKit is no longer asked for a TIFF or a PNG. Representation sizes are read as properties and checked first; the crate allocates the only bitmap (at most 512 x 512), draws into it, and encodes with its own encoder. File paths over 64 MiB are refused before `iconForFile`.

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Publish the dependency requirements main already declares: `rightkit-fs` 0.5.0, where the published 0.1.0 requires 0.4.9. The 0.1.0 manifest on crates.io stays as published; this version carries the new requirements.
+
 ## 0.1.0 (unpublished)
 
 - New crate. The agent runtime telemetry (resource metrics, turn latency, round trips, SQLite op latency, wakeups, prompt overhead, context ceiling, evidence, repair counters, measurement receipts, the resource-report contract and the baseline instrument) moved here from `rightkit-logs` 0.3.10, where it was the `agent_telemetry` module behind the `agent_telemetry` feature (moved from CodeRight `coderight-telemetry`). The 2026-11-11 shape review (docs/audits/2026-11-11-shape-matrix/reports/family-foundation-runtime.md) found it is CodeRight agent product code, not logging, inside a crate every desktop app adopts.

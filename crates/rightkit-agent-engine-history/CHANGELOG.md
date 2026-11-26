@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5
+
+- Publish the dependency requirements main already declares: `rightkit-fs` 0.5.0, where the published 0.1.4 requires 0.4.9. The 0.1.4 manifest on crates.io stays as published; this version carries the new requirements.
+
 ## 0.1.4 (2026-11-16)
 
 Fixes a data-loss bug in the slot key and ports the store's safety fixes. These are the store's own behaviour, not host options; no public item is added, renamed or removed. A patch in this 0.x crate, as 0.1.3 was: dependents on `0.1` take it without a requirement change.

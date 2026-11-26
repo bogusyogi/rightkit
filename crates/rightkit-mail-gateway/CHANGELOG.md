@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Publish the dependency requirements main already declares: `rightkit-fs` 0.5.0, where the published 0.1.0 requires 0.4.7. The 0.1.0 manifest on crates.io stays as published; this version carries the new requirements.
+
 ## 0.1.0 (unpublished)
 
 - New crate: MailRight's mail verbs, moved unchanged from `rightkit-agent-gateway` 0.2.0 when that name became the gateway core (`rightkit-agent-gateway` 0.3.0). Taken on the recommended option of the 2026-11-11 shape review, pending the owner's confirmation; design note: docs/audits/2026-11-11-shape-matrix/reports/agent-platform-redraw.md.

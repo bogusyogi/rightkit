@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Publish the dependency requirements main already declares: `rightkit-fs` 0.5.0, where the published 0.1.0 requires 0.4.9. The 0.1.0 manifest on crates.io stays as published; this version carries the new requirements.
+
 ## 0.1.0 (unpublished)
 
 - New crate (#1159): the shared GPU device context Ember and CutRight both carry. `backend` (per-OS backend policy, `compute_backends(app_var)`, `window_backends(app_var)`, DX12 compiler and instance-flag policy, the crash sentinel `set_init_marker` / `begin_startup_marker` / `take_init_marker`), `exit` (`enter`, `begin_shutdown`, `shutting_down`, `wait_idle`), `MemoryBudget` (fair admission, halves on out-of-memory, grows back one sixteenth per success), `GpuContext::create(ContextOptions, on_failure)`.

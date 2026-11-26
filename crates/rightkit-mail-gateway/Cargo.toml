@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-mail-gateway"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "The mail adapter of the agent gateway: mail verbs (search, thread, draft, send with approval, forward, label, archive, move, delete, attachments) and their profiles, approvals and policy, on the rightkit-agent-gateway core."
