@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.5
+
+- Fix (bogusyogi/pulse#582): every engine call of the command line is bounded. `confirm` bounds each call to 20 s (an engine that never answers ends as unknown); the device-link lookup and the member-role lookup that `status` and `peers` make wait at most `PEERS_WAIT`.
+- Fix (bogusyogi/pulse#622): a send to an idle chat in another Claude Desktop profile reports `held` (the wake said `unsupported`, the send ended `held`), and the receipt names the release: open the chat in that profile, or `chat inbox --session <id> --ack`.
+- `chat policy list|get|set` (bogusyogi/pulse#589) is already in this crate (`cli::policy`); no change.
+
 ## 0.2.4
 
 - `test-overrides` also lets `RIGHTKIT_CODEX_BIN` name the Codex CLI, and adds `codex` on the search path to the candidates, for end-to-end journeys (bogusyogi/pulse#643). A release build reads neither.

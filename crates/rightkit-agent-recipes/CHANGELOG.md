@@ -2,7 +2,7 @@
 
 ## 0.1.3
 
-- Publish the dependency requirements main already declares: `rightkit-fs` 0.5.0, where the published 0.1.2 requires 0.4.9. The 0.1.2 manifest on crates.io stays as published; this version carries the new requirements.
+- `resolve_run_plan` refuses a plan with more than `MAX_RUN_PLAN_STEPS` (64) steps, with the error "recipe run plan exceeds 64 steps". Sub-recipe depth was already capped but breadth was not, so a catalog of repeated sub-recipe references could expand without bound. Plans of 64 steps or fewer resolve as before.
 
 ## 0.1.2
 

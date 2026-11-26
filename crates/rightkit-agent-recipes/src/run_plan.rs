@@ -8,6 +8,9 @@ use std::collections::BTreeMap;
 /// cycle check (e.g. a caller skips `validate_recipe_with_catalog` first).
 pub const MAX_SUB_RECIPE_DEPTH: usize = 8;
 
+/// Maximum total steps a run plan may contain; bounds fan-out expansion.
+pub const MAX_RUN_PLAN_STEPS: usize = 64;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecipeRunPlanError {
     pub message: String,
@@ -116,11 +119,13 @@ fn resolve_step(
             child_params.insert(key.clone(), value.clone());
         }
 
+        check_step_budget(steps)?;
         stack.push(sub_id.to_string());
         resolve_step(child, &child_params, catalog, stack, steps)?;
         stack.pop();
     }
 
+    check_step_budget(steps)?;
     let rendered = render_recipe(recipe, params)
         .map_err(|err| plan_error(format!("failed to render `{}`: {err}", stack.join(" -> "))))?;
     steps.push(RecipeRunPlanStep {
@@ -128,6 +133,15 @@ fn resolve_step(
         path: stack.clone(),
         rendered,
     });
+    Ok(())
+}
+
+fn check_step_budget(steps: &[RecipeRunPlanStep]) -> Result<(), RecipeRunPlanError> {
+    if steps.len() >= MAX_RUN_PLAN_STEPS {
+        return Err(plan_error(format!(
+            "recipe run plan exceeds {MAX_RUN_PLAN_STEPS} steps"
+        )));
+    }
     Ok(())
 }
 

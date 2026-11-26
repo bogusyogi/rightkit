@@ -792,7 +792,7 @@ fn member_roles() -> std::collections::HashMap<String, String> {
         ("device.list", "devices", None),
         ("device.guest.list", "guests", Some("guest")),
     ] {
-        let Ok(answer) = host().engine_call_quick(method, json!({})) else {
+        let Ok(answer) = host().engine_call_bounded(method, json!({}), mesh::PEERS_WAIT) else {
             continue;
         };
         for row in answer[key].as_array().into_iter().flatten() {
@@ -1569,6 +1569,9 @@ fn said_cmd(target: &str, limit: usize, machine: bool) -> Result<(), String> {
     }
 }
 
+/// The longest one engine call of `confirm` waits; the phone's answer is polled, not waited for in one call.
+const CONFIRM_CALL_WAIT: Duration = Duration::from_secs(20);
+
 /// `confirm <message-id>`: the engine decides by the sender's role whether the owner's phone must
 /// confirm, and this waits for it (`chat::confirm`). Exits with the outcome's code.
 fn confirm_cmd(message_id: &str, summary: Option<&str>, machine: bool) -> Result<(), String> {
@@ -1580,8 +1583,9 @@ fn confirm_cmd(message_id: &str, summary: Option<&str>, machine: bool) -> Result
     use EngineFailure as Failure;
     let (store, _me) = open()?;
     let call = |method: &str, params: Value| {
+        // Each call is bounded: an engine that never answers ends as an unknown outcome (#582).
         host()
-            .engine_call(method, params)
+            .engine_call_bounded(method, params, CONFIRM_CALL_WAIT)
             .map_err(|failure| match failure {
                 Failure::Unreachable(message) | Failure::Unknown(message) => confirm::CallError {
                     code: "engine".to_string(),
@@ -2024,7 +2028,7 @@ impl EngineMesh {
     /// The engine's answer, or why there is none.
     fn ask() -> Result<Vec<MeshPeer>, String> {
         use EngineFailure as Failure;
-        match host().engine_call_quick("device.chat.links", json!({})) {
+        match host().engine_call_bounded("device.chat.links", json!({}), mesh::PEERS_WAIT) {
             Ok(answer) => Ok(answer["peers"]
                 .as_array()
                 .map(|rows| {
