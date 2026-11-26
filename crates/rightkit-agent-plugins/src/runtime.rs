@@ -320,18 +320,21 @@ fn plugin_environment(
         for key in network_env_keys() {
             env.remove(&key);
         }
-        env.insert("RIGHTKIT_PLUGIN_NETWORK".into(), "disabled".into());
+        env.insert(
+            rightkit_agent_config::env_name("PLUGIN_NETWORK"),
+            "disabled".into(),
+        );
     }
     env.insert(
-        "RIGHTKIT_PLUGIN_ROOT".into(),
+        rightkit_agent_config::env_name("PLUGIN_ROOT"),
         plugin_root.display().to_string(),
     );
     env.insert(
-        "RIGHTKIT_WORKSPACE_ROOT".into(),
+        rightkit_agent_config::env_name("WORKSPACE_ROOT"),
         invocation.workspace_root.display().to_string(),
     );
     env.insert(
-        "RIGHTKIT_PLUGIN_ENV_INHERITED".into(),
+        rightkit_agent_config::env_name("PLUGIN_ENV_INHERITED"),
         if policy.inherit_env { "true" } else { "false" }.into(),
     );
     env.into_iter().collect()
