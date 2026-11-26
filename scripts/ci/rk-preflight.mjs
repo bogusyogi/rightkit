@@ -261,7 +261,7 @@ export function checkTools({ pins, spawnFn = spawnSync, exists = fs.existsSync, 
     return r.error || r.status !== 0 ? null : String(r.stdout || r.stderr).trim().split("\n")[0];
   };
   observed.actionlint = probe("actionlint", ["-version"]);
-  // `tools.actionlint` is `{ version, linux: {...} }` since gate 0.6.89 (d8fb4d35e); a bare string is the older form.
+  // `tools.actionlint` is `{ version, linux: {...} }` since 37c4f2c45 (31 Oct, rightkit#1323); a bare string is the older form.
   const actionlintPin = typeof pins.actionlint === "string" ? pins.actionlint : pins.actionlint?.version;
   if (!observed.actionlint) problems.push("actionlint is not on PATH");
   else if (actionlintPin && observed.actionlint !== actionlintPin) problems.push(`actionlint ${observed.actionlint} is not the pinned ${actionlintPin}`);
