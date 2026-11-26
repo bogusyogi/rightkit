@@ -6267,6 +6267,13 @@ mod interactive_session {
                         .filter(|cost| cost.is_finite() && *cost >= 0.0)
                         .map(|cost| (cost * 1_000_000.0).round() as i64),
                     cost_reported: true,
+                    // This host reads no output-token, billed-cost, rate-limit
+                    // or cache-lifetime figure from the wire event; none is
+                    // invented.
+                    completion: 0,
+                    cost_billed: false,
+                    rate_limit: None,
+                    cache_ttl_ms: None,
                 }
             }
             // Per-response accounting: same gauge feed as `usageUpdated`.
@@ -6289,6 +6296,10 @@ mod interactive_session {
                     prompt: number("inputTokens"),
                     cost_micros: None,
                     cost_reported: false,
+                    completion: 0,
+                    cost_billed: false,
+                    rate_limit: None,
+                    cache_ttl_ms: None,
                 }
             }
             // Live shell tail: the exec cell consumes a CUMULATIVE preview,
@@ -7188,6 +7199,10 @@ mod interactive_session {
             age: session_age_label(&field("updatedAt"), now_secs).unwrap_or_default(),
             workspace,
             preview: field("preview"),
+            // This host keeps no seen or pin store: nothing is unread or pinned.
+            unread: false,
+            pinned: false,
+            root,
         }
     }
 

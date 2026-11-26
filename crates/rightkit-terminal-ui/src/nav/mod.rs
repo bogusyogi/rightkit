@@ -136,6 +136,14 @@ impl NavView {
         self.session_details = details;
     }
 
+    /// The workspace folder a listed session ran in, when the host reported it.
+    pub fn session_root(&self, id: &SessionId) -> Option<&str> {
+        self.session_details
+            .get(&id.0)
+            .map(|detail| detail.root.as_str())
+            .filter(|root| !root.is_empty())
+    }
+
     /// The session delete awaiting confirmation, for rendering and tests.
     pub fn pending_session_delete(&self) -> Option<&SessionId> {
         self.pending_session_delete.as_ref()
@@ -243,6 +251,13 @@ impl NavView {
         if self.session_alpha_sort {
             rows.sort_by_key(|row| row.name.to_lowercase());
         }
+        // Pinned sessions first, each group keeping its own order.
+        rows.sort_by_key(|row| {
+            !self
+                .session_details
+                .get(&row.id.0)
+                .is_some_and(|detail| detail.pinned)
+        });
         rows
     }
 
@@ -475,6 +490,13 @@ impl NavView {
                 }
                 Outcome::Redraw
             }
+            KeyCode::Char('*') if self.session_query.is_empty() => {
+                if let Some(session) = self.visible_sessions().get(self.cursor) {
+                    let id = session.id.clone();
+                    self.intents.push(NavIntent::TogglePinSession(id));
+                }
+                Outcome::Redraw
+            }
             KeyCode::Char('d') | KeyCode::Delete if self.session_query.is_empty() => {
                 if let Some(session) = self.visible_sessions().get(self.cursor) {
                     self.pending_session_delete = Some(session.id.clone());
@@ -541,7 +563,12 @@ impl NavView {
             .map(|(i, s)| {
                 let marker = if i == self.cursor { "> " } else { "  " };
                 let detail = self.session_details.get(&s.id.0);
-                let mut head = format!("{marker}{}", s.name);
+                let pinned = detail.is_some_and(|d| d.pinned);
+                let mut head = format!(
+                    "{marker}{}{}",
+                    if pinned { "\u{2605} " } else { "" },
+                    s.name
+                );
                 let content = self.content_hit(&s.id);
                 if let Some(d) = detail {
                     for part in [&d.age, &d.workspace] {
@@ -550,6 +577,9 @@ impl NavView {
                             head.push_str(part);
                         }
                     }
+                }
+                if detail.is_some_and(|d| d.unread) {
+                    head.push_str(" \u{b7} unread");
                 }
                 if content.is_some() {
                     head.push_str(" \u{b7} matches message text");
@@ -579,7 +609,7 @@ impl NavView {
         let block = Block::default()
             .borders(Borders::ALL)
             .title(format!(
-                "sessions · {} · {} · type to filter · Enter resume · r rename · d delete · s sort · m actions",
+                "sessions · {} · {} · type to filter · Enter resume · r rename · * pin · d delete · s sort · m actions",
                 if self.session_alpha_sort {
                     "name"
                 } else {

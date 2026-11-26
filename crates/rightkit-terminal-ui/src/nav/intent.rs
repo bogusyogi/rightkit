@@ -28,6 +28,8 @@ pub enum NavIntent {
     /// Ask the host to start renaming this session (picker `r`). The host
     /// owns the title prompt and the durable write.
     RenameSession(SessionId),
+    /// `*` on a session row: pin it (or unpin it).
+    TogglePinSession(SessionId),
     /// Ask the host to permanently delete this session. Emitted only after
     /// the picker's explicit `[y/N]` confirmation.
     DeleteSession(SessionId),
