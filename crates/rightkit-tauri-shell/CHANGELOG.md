@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.11
+
+- Fixed: a window whose reveal is a background one (`RevealMode::Background`: a hidden QA run with `qa-probes` and `RIGHTKIT_QA_BACKGROUND=1`) is built unfocused, like a never-show host's. Built focused, WebView2 took keyboard focus as it was created and activated the window, so the QA runner's background proof failed although the reveal used `SW_SHOWNOACTIVATE` (Pulse `app.launch` and `journey.hub-sections` on Windows, bogusyogi/rightkit#1822).
+
 ## 0.8.10
 
 - Add `relaunch::install`, `RelaunchService` and the command `rightkit_relaunch_for_update`: a JS-callable PID-ordered relaunch after an update, over the existing `relaunch_self`. The command answers `unsupported` until the host calls `install`; with `ShellState` managed it applies the app-caller gate.

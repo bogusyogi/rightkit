@@ -758,7 +758,7 @@
     "rightkit-sync-keys": "0.1.0",
     "rightkit-sysmem": "0.1.0",
     "rightkit-system-monitor": "0.3.2",
-    "rightkit-tauri-shell": "0.8.10",
+    "rightkit-tauri-shell": "0.8.11",
     "rightkit-terminal-ui": "0.1.9",
     "rightkit-text-polish": "0.1.4",
     "rightkit-theme": "0.1.1",
@@ -1680,7 +1680,8 @@
       "0.6.0",
       "0.8.2",
       "0.8.7",
-      "0.8.9"
+      "0.8.9",
+      "0.8.10"
     ],
     "rightkit-text-polish": [
       "0.1.1",
