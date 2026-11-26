@@ -37,6 +37,9 @@ pub struct RenderMetricsSnapshot {
     pub slow_frames: u64,
     pub input_latency_samples: u64,
     pub input_latency_micros: u64,
+    pub maintenance_ticks: u64,
+    pub timeline_entries: u64,
+    pub timeline_evicted: u64,
 }
 
 #[derive(Debug, Default)]
@@ -48,6 +51,9 @@ pub struct RenderMetrics {
     slow_frames: AtomicU64,
     input_latency_samples: AtomicU64,
     input_latency_micros: AtomicU64,
+    maintenance_ticks: AtomicU64,
+    timeline_entries: AtomicU64,
+    timeline_evicted: AtomicU64,
 }
 
 impl RenderMetrics {
@@ -60,6 +66,9 @@ impl RenderMetrics {
             slow_frames: self.slow_frames.load(Ordering::Relaxed),
             input_latency_samples: self.input_latency_samples.load(Ordering::Relaxed),
             input_latency_micros: self.input_latency_micros.load(Ordering::Relaxed),
+            maintenance_ticks: self.maintenance_ticks.load(Ordering::Relaxed),
+            timeline_entries: self.timeline_entries.load(Ordering::Relaxed),
+            timeline_evicted: self.timeline_evicted.load(Ordering::Relaxed),
         }
     }
 
@@ -72,6 +81,17 @@ impl RenderMetrics {
 
     pub fn record_reflow(&self) {
         self.reflows.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_maintenance_tick(&self) {
+        self.maintenance_ticks.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_timeline(&self, resident: usize, evicted: usize) {
+        self.timeline_entries
+            .store(resident as u64, Ordering::Relaxed);
+        self.timeline_evicted
+            .store(evicted as u64, Ordering::Relaxed);
     }
 
     pub fn record_input_latency(&self, latency: Duration) {
@@ -173,6 +193,14 @@ impl FrameRequester {
 
     pub fn record_reflow(&self) {
         self.metrics.record_reflow();
+    }
+
+    pub fn record_maintenance_tick(&self) {
+        self.metrics.record_maintenance_tick();
+    }
+
+    pub fn record_timeline(&self, resident: usize, evicted: usize) {
+        self.metrics.record_timeline(resident, evicted);
     }
 
     pub fn record_input_latency(&self, latency: Duration) {
