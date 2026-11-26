@@ -64,6 +64,13 @@ pub enum DaemonEvent {
         name: String,
         args_preview: String,
     },
+    /// A tool call still being generated: the top-level string fields of its arguments read so
+    /// far (a JSON object). Live-only; the call itself starts with `ToolStarted`.
+    ToolArgumentsPartial {
+        call_id: String,
+        name: String,
+        arguments_json: String,
+    },
     /// A tool call's status changed (streaming output, or terminal state).
     ToolUpdated {
         call_id: String,
@@ -159,6 +166,21 @@ pub enum DaemonEvent {
     /// backoff, compaction, verification). Never a timeline entry itself:
     /// the host shows it on the working line and as one dim notice.
     Status(RunSignal),
+    /// Vendor account rate-limit telemetry (`accountRateLimited`). Never a
+    /// timeline entry: the host keeps the latest state for the footer and
+    /// prints one notice when the status changes.
+    RateLimit {
+        /// `allowed`, `allowed_warning` or `rejected`.
+        status: String,
+        /// The account label the limit applies to, when reported.
+        account: Option<String>,
+        /// The limit window (`five_hour`, `weekly`, ...), when reported.
+        window: Option<String>,
+        /// Unix seconds at which the window resets.
+        resets_at: Option<u64>,
+        /// Window utilization in permille (`0..=1000`), when reported.
+        utilization_permille: Option<u32>,
+    },
     /// Usage accounting after a provider response. Never a timeline entry:
     /// the host keeps the latest figures for the context gauge.
     Usage {
@@ -170,10 +192,19 @@ pub enum DaemonEvent {
         cache_read: i64,
         /// Prompt size of the latest request.
         prompt: i64,
+        /// Cumulative output tokens when the event is a cumulative one, else the
+        /// latest response's; the observability pane reads it only for cumulative events.
+        completion: i64,
         /// Cumulative session cost in micro-USD when canonical pricing is known.
         cost_micros: Option<i64>,
         /// True only for cumulative usage events, which can explicitly mark cost unknown.
         cost_reported: bool,
+        /// True when `cost_micros` is the provider's own charge rather than a price-table estimate.
+        cost_billed: bool,
+        /// The rate-limit budget the provider reported on this response's headers.
+        rate_limit: Option<crate::observability_pane::ProviderRateLimit>,
+        /// Milliseconds the prompt cache keeps the latest request's prefix, when the route has a lifetime.
+        cache_ttl_ms: Option<u64>,
     },
 }
 
@@ -633,6 +664,8 @@ impl TimelineReducer {
                     output_preview: String::new(),
                 });
             }
+            // A live view of a call still streaming: it adds no row, the call's own start does.
+            DaemonEvent::ToolArgumentsPartial { .. } => {}
             DaemonEvent::ToolUpdated { call_id, status, output_preview } => {
                 if let Some(TimelineEntry::Tool { status: s, output_preview: o, .. }) = timeline
                     .entries
@@ -712,6 +745,7 @@ impl TimelineReducer {
             }
             // Working-line state only; carries no transcript content.
             DaemonEvent::Status(_)
+            | DaemonEvent::RateLimit { .. }
             | DaemonEvent::Usage { .. }
             | DaemonEvent::McpElicitationRequested { .. }
             | DaemonEvent::TaskGraph { .. }

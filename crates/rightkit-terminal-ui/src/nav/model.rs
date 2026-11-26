@@ -117,4 +117,10 @@ pub struct SessionDetail {
     pub workspace: String,
     /// First user message, single line.
     pub preview: String,
+    /// The session moved since it was last open here (an `unread` tag).
+    pub unread: bool,
+    /// The user pinned it (`*`): listed first with a star.
+    pub pinned: bool,
+    /// The full workspace folder the session ran in; empty when unknown.
+    pub root: String,
 }

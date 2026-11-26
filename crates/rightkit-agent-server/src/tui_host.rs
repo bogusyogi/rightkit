@@ -1357,6 +1357,10 @@ struct SessionState {
     /// typed against the pre-modal screen can never decide the request.
     quarantine_input: bool,
     approval_input_safe: bool,
+    /// Whether the composer held unsent text after the latest key: reported
+    /// to an approval card so its letter keys stay off while the user may
+    /// still be typing.
+    composer_has_text: bool,
     pending_question: Option<PendingQuestion>,
     pending_credential: Option<PendingCredential>,
     pending_elicitation: Option<PendingElicitation>,
@@ -1697,6 +1701,7 @@ impl SessionState {
             deny_rules: None,
             quarantine_input: false,
             approval_input_safe: true,
+            composer_has_text: false,
             pending_question: None,
             pending_credential: None,
             pending_elicitation: None,
@@ -2101,7 +2106,8 @@ impl SessionState {
         self.approval_overlay.enqueue(
             ApprovalRequest::new(self.active_session.clone(), request_id, kind, options)
                 .with_policy_reason(policy_reason)
-                .with_allow_rule(allow_rule),
+                .with_allow_rule(allow_rule)
+                .with_composer_had_text(self.composer_has_text),
         );
         // Buffered keystrokes belong to the pre-modal screen: the drive
         // loop drains them before the first draw. The card itself is the
@@ -2151,6 +2157,7 @@ impl SessionState {
                 prompt,
                 cost_micros,
                 cost_reported,
+                ..
             } => {
                 self.panes.on_usage(
                     *context_size,
@@ -2341,6 +2348,12 @@ impl SessionState {
             | DaemonEvent::CredentialRequested { .. }
             | DaemonEvent::TaskGraph { .. }
             | DaemonEvent::CredentialResolved { .. } => {}
+            // A call still being generated: this host draws a tool's row from
+            // `ToolStarted`, and no producer here emits the live view.
+            DaemonEvent::ToolArgumentsPartial { .. } => {}
+            // Vendor account rate-limit telemetry: this host keeps no rate-limit
+            // footer state and no producer here emits it.
+            DaemonEvent::RateLimit { .. } => {}
             DaemonEvent::UserMessage { text } => {
                 self.swallow_interrupt_notice = false;
                 // Ctrl+O expands the latest cell of the current turn only; a
@@ -3957,6 +3970,7 @@ pub async fn drive(host: impl TurnHost) -> i32 {
                                 &mut paging,
                             )
                             .await;
+                            session.composer_has_text = !composer.is_empty();
                             if session.proj.settings_dirty {
                                 session.proj.settings = host.tui_settings();
                                 theme = Theme::new(
@@ -5997,31 +6011,6 @@ async fn handle_event(
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 if let Some((line, column)) = selection_point(session, mouse.column, mouse.row) {
-                    if session
-                        .selection_lines
-                        .get(line)
-                        .is_some_and(|text| text.contains("copy · c"))
-                    {
-                        if let (Some(markdown), blocks) = (
-                            transcript
-                                .assistant_markdown_at_line(line, surface.screen_size().0)
-                                .map(str::to_string),
-                            transcript.assistant_code_blocks_at_line(line, surface.screen_size().0),
-                        ) {
-                            if session.proj.settings.always_copy_full_response {
-                                session.notice(transcript, clipboard_copy_notice(&markdown));
-                            } else {
-                                session.copy_picker = Some(CopyPickerState {
-                                    markdown,
-                                    code_blocks: blocks,
-                                    writing_block: false,
-                                });
-                                session.notice(transcript, "Copy picker: f full response · 1–9 copy block · w then number writes block · Esc cancel.");
-                            }
-                        }
-                        requester.schedule_immediate();
-                        return;
-                    }
                     let now = Instant::now();
                     let clicks = session
                         .last_selection_click
@@ -7276,6 +7265,15 @@ async fn handle_event(
                     }
                     host.refresh_nav(nav, turn.is_some()).await;
                 }
+            }
+            // `*` on a session row. This host keeps no pin store (the picker's
+            // `pinned` and `unread` are always false), so the key is told so
+            // instead of silently doing nothing.
+            NavIntent::TogglePinSession(_) => {
+                session.notice(
+                    transcript,
+                    "Pinning sessions is not available in this host.",
+                );
             }
         }
     }
@@ -9950,6 +9948,11 @@ fn render(
                             session
                                 .approval_overlay
                                 .set_model_label(Some(footer_model(host, session)));
+                            // The card says which mode made it ask, beside "esc denies".
+                            session.approval_overlay.set_mode_label(Some(format!(
+                                "{} mode",
+                                permission_mode_footer_label(host.permission_mode())
+                            )));
                             session.approval_overlay.render(
                                 frame,
                                 Rect {

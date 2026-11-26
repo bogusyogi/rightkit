@@ -39,7 +39,7 @@ pub fn visible_row_text(row: u16, columns: u16) -> Option<String> {
     }
 }
 
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 use std::time::{Duration, Instant};
 
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
@@ -105,8 +105,9 @@ pub enum BackgroundSource {
 /// How long to wait for a terminal to answer OSC 11.
 ///
 /// Long enough for a local terminal or a responsive SSH session, short enough
-/// that a silent terminal does not visibly delay startup. The query runs on a
-/// worker thread anyway, so this bounds a background task, not the UI.
+/// that a silent terminal does not visibly delay startup: the question is
+/// asked once on the launch path, before the key reader starts, so this is the
+/// whole delay a silent terminal costs.
 pub const BACKGROUND_QUERY_TIMEOUT: Duration = Duration::from_millis(120);
 
 /// `TERM` values known never to answer OSC queries. Querying them wastes the
@@ -189,53 +190,9 @@ pub fn classify(rgb: (u8, u8, u8)) -> Background {
     }
 }
 
-/// Ask the terminal for its background colour.
-///
-/// Returns `None` if the terminal does not answer within
-/// [`BACKGROUND_QUERY_TIMEOUT`]. The caller must already have the terminal in
-/// raw mode, or the reply will be line-buffered and arrive too late.
-///
-/// Never call this on a terminal inherited in raw mode from a parent process
-/// (a resumed session): the reply races whatever the parent was reading.
-pub fn query_background(
-    out: &mut impl Write,
-    input: &mut impl Read,
-    timeout: Duration,
-) -> io::Result<Option<Background>> {
-    out.write_all(OSC11_QUERY)?;
-    out.flush()?;
-
-    let deadline = Instant::now() + timeout;
-    let mut buffer = Vec::with_capacity(64);
-    let mut chunk = [0u8; 32];
-
-    while Instant::now() < deadline {
-        match input.read(&mut chunk) {
-            Ok(0) => break,
-            Ok(n) => {
-                buffer.extend_from_slice(&chunk[..n]);
-                if let Ok(text) = std::str::from_utf8(&buffer)
-                    && let Some(rgb) = parse_osc11(text)
-                {
-                    return Ok(Some(classify(rgb)));
-                }
-                // Cap the buffer: a terminal streaming unrelated input should
-                // not grow this without bound.
-                if buffer.len() > 1024 {
-                    break;
-                }
-            }
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => continue,
-            Err(e) => return Err(e),
-        }
-    }
-    Ok(None)
-}
-
 /// Whether stdin was already in raw (non-canonical) mode when this process
 /// got it: a terminal inherited raw from a parent that is still reading it.
-/// Call it before entering raw mode. [`query_background`] and [`query_background_events`]
-/// must not run then.
+/// Call it before entering raw mode. [`query_background`] must not run then.
 pub fn stdin_inherited_raw() -> bool {
     #[cfg(unix)]
     {
@@ -379,9 +336,7 @@ pub struct BackgroundQuery {
     pub late_reply: Osc11ReplyFilter,
 }
 
-/// Ask the terminal for its background colour through crossterm's event source, keeping what the
-/// person types meanwhile and a reply that comes late (CodeRight's `query_background`; the
-/// [`Read`]-based [`query_background`] above is unchanged).
+/// Ask the terminal for its background colour.
 ///
 /// Waits at most `timeout` ([`BACKGROUND_QUERY_TIMEOUT`]) and returns as soon
 /// as a reply is complete, well-formed or not. The reply is read through
@@ -393,10 +348,7 @@ pub struct BackgroundQuery {
 /// Never call this on a terminal inherited in raw mode from a parent process
 /// (a resumed session): the reply races whatever the parent was reading. See
 /// [`stdin_inherited_raw`].
-pub fn query_background_events(
-    out: &mut impl Write,
-    timeout: Duration,
-) -> io::Result<BackgroundQuery> {
+pub fn query_background(out: &mut impl Write, timeout: Duration) -> io::Result<BackgroundQuery> {
     out.write_all(OSC11_QUERY)?;
     out.flush()?;
 

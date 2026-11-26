@@ -2,6 +2,8 @@
 
 ## 0.2.0 (unpublished)
 
+- Requires `rightkit-terminal-ui` 0.2.0 (breaking; see its changelog). The event match covers the new `ToolArgumentsPartial` and `RateLimit` variants (no row; this host emits neither), the two `Usage` literals set `completion: 0`, `cost_billed: false`, `rate_limit: None`, `cache_ttl_ms: None` (no source on the wire event here), session picker rows carry `root` with `unread` and `pinned` false, and the `*` pin key answers "Pinning sessions is not available in this host." (no pin store). Approval cards now get `with_composer_had_text` from the composer's state after each key, so the letter keys `y a s n t` decide while the composer is empty, from 400 ms after the first draw, in addition to digits, arrows with Enter, Esc and Ctrl-Y/Ctrl-N; the card names the permission mode (`Ask mode`). The dead click test for the removed `copy · c` row is gone; the `c` key still copies. Written, not compiled.
+
 - Desktop notifications raised during quiet hours are held, not dropped: the row is stored with `releaseAt` (Unix seconds, when the quiet hours end, each window read in its own zone) and the `/notifications` list leaves it out until then. `NotificationRow` gains optional `release_at`. The append now holds `lock_attention_state` across its read-modify-write. Written, not compiled.
 
 - `doctor` hooks probe: proves the destructive-command guard refuses `rm -rf /` through `rightkit_agent_policy::catastrophic_reason` and reports `block` when it does not, instead of constructing the deprecated `rightkit_hooks::agent_hooks::DestructiveGuard` and always reporting `pass` (rightkit#1687). Evidence id `destructive_guard_default` is now `destructive_guard_refuses_root_delete`.
