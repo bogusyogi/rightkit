@@ -122,6 +122,7 @@ let platform = process.platform === "win32" ? "win" : process.platform === "darw
 let dryRun = false;
 let skipChecks = false;
 let resumeFrom = null;
+let registryAdmissionOut = null;
 
 for (let i = 0; i < args.length; i += 1) {
   const arg = args[i];
@@ -130,6 +131,7 @@ for (let i = 0; i < args.length; i += 1) {
   else if (arg === "--dry-run") dryRun = true;
   else if (arg === "--skip-checks") skipChecks = true;
   else if (arg === "--resume-from") resumeFrom = args[++i];
+  else if (arg === "--registry-admission-out") registryAdmissionOut = args[++i];
   else if (arg === "--tier" || arg.startsWith("--tier=")) fail("build is tier-neutral; select patch or update only during upload");
   else if (arg === "-h" || arg === "--help") usage(0);
   else fail(`unknown argument: ${arg}`);
@@ -178,6 +180,13 @@ let requestActiveRunStop = null;
 // Admission (admission.mjs): every refusal the committed files, this host or the registries can decide is raised here, before the
 // dry-run exit, the clean-source gate, the release lock, any state file, the install, a slot or the worker. `right-release doctor`
 // runs the same rows with the same text, so the two cannot disagree (rightkit#946); a refused build leaves nothing behind.
+// Declared before its first use below: both functions that read it are called from this top-level code (a const is not hoisted).
+/** The schema of the registry admission a door run takes before any compile and hands to its own package stage. */
+const DOOR_REGISTRY_ADMISSION_SCHEMA = "rightkit.door-registry-admission/1";
+
+// The door asks for the registry rows alone, before any compile (rightkit#1754): pin freshness needs no Cargo target, while the full
+// admission's recipe rows do. The verdict and its snapshot are written for the door run that asked; nothing else is read or started.
+if (registryAdmissionOut) await registryAdmissionOnly();
 const admitted = await admit();
 
 // A dry-run is an inspection contract, not a partial build. It prints the admission rows and exits with their verdict, so it can
@@ -623,6 +632,50 @@ try {
   lock?.release();
 }
 
+// `right-release build --registry-admission-out <file>`: resolve this app's RightKit pins against the registries, refuse a pin behind the
+// settled latest exactly as the build admission does, and write the snapshot for the door run. No lock, state, cache or install.
+// The lock inventory is the build's when it can be read without a Cargo target, else the app's own; the package stage checks the
+// snapshot against its full inventory before it trusts it (prepareRightKitResolution with boundSnapshot), so a pin cannot be missed.
+async function registryAdmissionOnly() {
+  const commit = releaseSource.commit;
+  let config;
+  try { config = await importReleaseConfig(configPath, { query: `commit=${commit}` }); }
+  catch (error) { console.error(`right-release build: release config could not be loaded (${configPath}): ${error instanceof Error ? error.message : String(error)}`); process.exit(1); }
+  let extraLocks;
+  try {
+    const inputs = resolveReleaseBuildInputs({ repoRoot: sourceRoot, appRoot, configPath, config, target: config.targets?.[platform] });
+    extraLocks = rightKitLockInventory({ requiredInputs: inputs.requiredInputs, cargoLockPaths: inputs.cargoLockPaths, nativeLayout: inputs.nativeLayout, config, root: appRoot });
+  } catch { extraLocks = rightKitLockInventory({ config, root: appRoot }); }
+  let resolution;
+  try {
+    resolution = await prepareRightKitResolution({
+      root: appRoot, extraLocks,
+      versions: JSON.parse(readFileSync(path.join(TOOL_ROOT, "rightkit-versions.json"), "utf8")),
+      ownership: JSON.parse(readFileSync(path.join(TOOL_ROOT, "rightkit-ownership.json"), "utf8")),
+      releaseVersion: RELEASE_TOOL_VERSION, admission: true, cacheDir: "",
+    });
+  } catch (error) {
+    if (!(error instanceof RightKitRegistryError)) throw error;
+    console.error(`right-release build: rightkit-registry: ${error.message}`);
+    console.error("right-release build: registry admission found a blocking problem; nothing was started");
+    process.exit(1);
+  }
+  for (const line of resolution.freshness.warnings) console.error(`[right-release] WARNING ${line}`);
+  writeFileSync(path.resolve(registryAdmissionOut), `${JSON.stringify({ schema: DOOR_REGISTRY_ADMISSION_SCHEMA, commit, platform, observedAt: new Date().toISOString(), snapshot: resolution.snapshot })}\n`);
+  console.log(`right-release build: rightkit-registry: ${resolution.summary}; admitted before any compile for this door run`);
+  process.exit(0);
+}
+
+/** The registry admission this door run took before its compile (RK_DOOR_REGISTRY_ADMISSION), when it is for this commit and platform; else null. */
+function doorRegistryAdmission(commit) {
+  const file = process.env.RK_DOOR_REGISTRY_ADMISSION;
+  if (!file) return null;
+  try {
+    const record = JSON.parse(readFileSync(file, "utf8"));
+    return record?.schema === DOOR_REGISTRY_ADMISSION_SCHEMA && record.commit === commit && record.platform === platform && record.snapshot ? record : null;
+  } catch { return null; }
+}
+
 // Read the config and run the admission rows (files, this host and, for a fresh build, the registries) with no side effect: no lock,
 // state directory, cache directory, install or snapshot file. A finding is printed with its row and the process exits 1, no stack.
 async function admit() {
@@ -648,12 +701,29 @@ async function admit() {
     registry: async (ctx) => {
       const inputs = ctx.buildInputs();
       if (!inputs.ok) return undefined; // the build-inputs row reports it
-      return prepareRightKitResolution({
+      const common = {
         root: appRoot,
         extraLocks: rightKitLockInventory({ requiredInputs: inputs.value.requiredInputs, cargoLockPaths: inputs.value.cargoLockPaths, nativeLayout: inputs.value.nativeLayout, config, root: appRoot }),
         versions: JSON.parse(readFileSync(path.join(TOOL_ROOT, "rightkit-versions.json"), "utf8")),
         ownership: JSON.parse(readFileSync(path.join(TOOL_ROOT, "rightkit-ownership.json"), "utf8")),
         releaseVersion: RELEASE_TOOL_VERSION,
+      };
+      // The door run already took the registry verdict before its compile (--registry-admission-out). It is reused only when it covers
+      // this build's full lock inventory; otherwise it is dropped and the registries are asked now, as before. So the clock cannot turn
+      // a pin stale between an app's compile and its package (the 24-hour settle rule; Pulse 2026-11-26, admitted 15:31Z, refused 15:56Z).
+      const doorBound = doorRegistryAdmission(commit);
+      if (doorBound) {
+        try {
+          const bound = await prepareRightKitResolution({ ...common, boundSnapshot: doorBound.snapshot, reuse: true });
+          console.error(`right-release build: rightkit-registry: the verdict this door run took before its compile (${doorBound.observedAt}) covers this build; the registries are not asked again`);
+          return bound;
+        } catch (error) {
+          if (!(error instanceof RightKitRegistryError)) throw error;
+          console.error(`right-release build: rightkit-registry: the verdict taken before the compile does not cover this build's locks (${String(error.message).split("\n")[0]}); asking the registries now`);
+        }
+      }
+      return prepareRightKitResolution({
+        ...common,
         // Build admission: refuse every pin behind the registry's latest. A dry run asks, but keeps no cache on disk.
         admission: true,
         ...(dryRun ? { cacheDir: "" } : {}),

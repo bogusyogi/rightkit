@@ -2286,6 +2286,9 @@ async function runStages(o, args, root, git, io) {
     return releasePinFloorProblem({ packageJsonText, installedVersion, where: appDir === "." ? "package.json" : `${appDir}/package.json` });
   };
   const phaseTimings = [];
+  // The registry verdict this door run took before its compile, as a file only this process knows: a later invocation on the same commit
+  // has no such file and asks the registries itself (rightkit#1754; the binding is to the run, never to the commit).
+  let doorRegistryAdmissionFile = null;
   for (const stage of stages) {
     if (stage === "check" && publisherUploadOnly && receipt.stages.check?.ok && tierAtLeast(receipt.stages.check.ruleTier ?? "compile", earlyTier)) { o.out(`${tag} [check] already passed (${receipt.stages.check.ruleTier ?? "compile"} tier) for this exact input (commit, tree, lockfiles, gate, toolchain)`); continue; }
     if (stage === "compile" && receipt.stages.compile?.ok) {
@@ -2360,6 +2363,14 @@ async function runStages(o, args, root, git, io) {
       };
       const admissionAfterStaging = wantsAdmission && executor.kind === "broker" && Boolean(ds);
       if (wantsAdmission && !admissionAfterStaging) ok = await admissionDryRun("before any compile");
+      // On a broker host the full dry-run waits for a Cargo target; the registry rows (pin freshness) need none, so they run first.
+      // A stale pin is then refused in seconds, before the sidecars and the app compile, and the verdict is kept for this run's package stage.
+      if (ok && wantsAdmission && admissionAfterStaging) {
+        const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "rk-door-registry-")), "admission.json");
+        o.out(`${tag} [compile] registry admission for ${platform} before any compile (right-release build --platform ${platform} --registry-admission-out)`);
+        if (await rightRelease(stage, ["build", "--platform", platform, "--registry-admission-out", file])) doorRegistryAdmissionFile = file;
+        else { o.err(`${tag} BLOCKED: [compile] the registry admission (pin freshness against the registries) refused ${platform}; nothing compiled`); ok = false; }
+      }
       // On the snapshot route the sidecars are staged from the snapshot's own config and sources through right-release's source split
       // (the staged files and receipt land beside the sources the compile reads; the caches and build trees stay the checkout's), before
       // `main --all` compiles. A broker host's stage-sidecar child reaches Cargo through the stage's carrier (stage-seam.mjs).
@@ -2448,7 +2459,7 @@ async function runStages(o, args, root, git, io) {
         else if (packageMulti.note) o.out(`${tag} [package] ${packageMulti.note}`);
       }
       const packageEnv = packagePin.dir ? { CARGO_TARGET_DIR: packagePin.dir } : (packageMulti?.env ?? {});
-      ok = ok && await rightRelease(stage, ["build", "--platform", platform], packageEnv);
+      ok = ok && await rightRelease(stage, ["build", "--platform", platform], { ...packageEnv, ...(doorRegistryAdmissionFile ? { RK_DOOR_REGISTRY_ADMISSION: doorRegistryAdmissionFile } : {}) });
       const sealed = ok ? (o.sealedFor ?? sealedFor)({ root: releaseRoot, commit, platform }) : null;
       if (ok && !sealed) { o.err(`${tag} [package] the build reported success but sealed nothing for ${commit.slice(0, 8)} on ${platform}`); ok = false; }
       if (sealed) extra = { platform, sealed: sealed.id, manifestSha256: sealed.digest };
