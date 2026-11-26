@@ -411,14 +411,19 @@ pub fn ownership_verdict(report: &Value, trust: &Value) -> Decision {
     files.extend(strings_at(field(report, "findings"), "file"));
     files.extend(strings_at(field(metadata, "contentDigests"), "path"));
     if !no_registry {
-        let mut registered = match verify_repository_registration(
+        let (registration, registration_warnings) = match verify_repository_registration(
             trust,
             field(metadata, "repositoryIdentity"),
             &files,
         ) {
-            Ok(roots) => roots,
+            Ok(found) => found,
             Err(problems) => return refuse(codes::INVALID_REGISTRATION, problems),
         };
+        warnings.extend(registration_warnings);
+        let mut registered: Vec<String> = items(field(&registration, "roots"))
+            .iter()
+            .map(|root| str_of(root).to_string())
+            .collect();
         let mut scanned = scanned_roots(metadata);
         scanned.sort();
         registered.sort();

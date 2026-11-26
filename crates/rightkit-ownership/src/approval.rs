@@ -263,13 +263,46 @@ pub fn validate_trust_registry(trust: &Value) -> Vec<String> {
     problems
 }
 
+/// The registry this gate ships, embedded so the crate carries it in its published package. It is
+/// a byte copy of `packages/release/ownership-repositories.json` (#1775). The host's protected
+/// registry was written by the retired trust-sync and can no longer be refreshed, so a repository
+/// listed here but missing there takes its registration from this list.
+const SHIPPED_REPOSITORIES: &str = include_str!("ownership-repositories.json");
+
+/// A shipped entry counts only with non-empty exact roots and a `public` or `private` visibility.
+fn valid_shipped_entry(entry: &Value) -> bool {
+    let roots = items(field(entry, "roots"));
+    !roots.is_empty()
+        && roots
+            .iter()
+            .all(|root| root.as_str().is_some_and(exact_repository_path))
+        && matches!(
+            field(entry, "visibility").as_str(),
+            Some("public" | "private")
+        )
+}
+
+/// The shipped registration for `identity`; an unreadable list holds no registration.
+fn shipped_registration(identity: &str) -> Option<Value> {
+    let data: Value = serde_json::from_str(SHIPPED_REPOSITORIES).unwrap_or(Value::Null);
+    items(field(&data, "repositories"))
+        .iter()
+        .find(|entry| {
+            field(entry, "repositoryIdentity").as_str() == Some(identity)
+                && valid_shipped_entry(entry)
+        })
+        .cloned()
+}
+
 /// Verify that `repository_identity` is registered and that `files` lie inside its
-/// registered roots. `Ok` carries the registered roots; `Err` carries the problems.
+/// registered roots. `Ok` carries the registration entry and any warnings (a registration taken
+/// from the gate's shipped list rather than the host's protected registry is a warning only);
+/// `Err` carries the problems.
 pub fn verify_repository_registration(
     trust: &Value,
     repository_identity: &Value,
     files: &[String],
-) -> Result<Vec<String>, Vec<String>> {
+) -> Result<(Value, Vec<String>), Vec<String>> {
     let validation = validate_trust_registry(trust);
     if !validation.is_empty() {
         return Err(validation);
@@ -277,13 +310,23 @@ pub fn verify_repository_registration(
     // Node reports every identity failure as the same problem, whatever the parse error.
     let identity = canonical_repository_identity(repository_identity)
         .map_err(|_| vec!["invalid repository identity".to_string()])?;
-    let registration = items(field(trust, "repositories"))
+    let host_registration = items(field(trust, "repositories"))
         .iter()
-        .find(|entry| field(entry, "repositoryIdentity").as_str() == Some(identity.as_str()))
-        .ok_or_else(|| vec!["repository is not registered in protected trust".to_string()])?;
-    let roots: Vec<String> = items(field(registration, "roots"))
+        .find(|entry| field(entry, "repositoryIdentity").as_str() == Some(identity.as_str()));
+    let mut warnings: Vec<String> = Vec::new();
+    let registration = match host_registration {
+        Some(entry) => entry.clone(),
+        None => {
+            let shipped = shipped_registration(&identity).ok_or_else(|| {
+                vec!["repository is not registered in protected trust".to_string()]
+            })?;
+            warnings.push(format!("repository registration for {identity} comes from this gate's shipped list; this host's protected registry does not have it (warning only)"));
+            shipped
+        }
+    };
+    let roots: Vec<&str> = items(field(&registration, "roots"))
         .iter()
-        .map(|r| str_of(r).to_string())
+        .map(str_of)
         .collect();
     let problems: Vec<String> = files
         .iter()
@@ -293,7 +336,7 @@ pub fn verify_repository_registration(
         .map(|file| format!("path outside registered repository roots or malformed: {file}"))
         .collect();
     if problems.is_empty() {
-        Ok(roots)
+        Ok((registration, warnings))
     } else {
         Err(problems)
     }
