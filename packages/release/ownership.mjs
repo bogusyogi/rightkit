@@ -695,12 +695,26 @@ function shippedAllowlist() {
  * Which allowlist applies and how hard. The protected trust copy governs every repository
  * registered in trust and blocks. When no trust copy applies, or while approval enrollment is pending, the shipped proposal
  * is advisory and only for repositories it has a baseline for.
+ *
+ * The host's protected copy cannot be refreshed (trust-sync is retired), so an entry RightKit admitted after that copy was written
+ * was refused on that host for good (CodeRight, cargo:image and cargo:mdns-sd, admitted in rightkit#1752, refused on the Mac). The
+ * list a registered repository is judged against is therefore the union of the host copy and the list this gate ships: every
+ * entry either one admits is admitted. Nothing the host copy admits is lost, and the tier rules are unchanged.
  */
+export function mergedAllowlist(host, shipped) {
+  if (!shipped) return host;
+  const union = (a = [], b = []) => [...new Set([...a, ...b])];
+  const byIdentity = new Map();
+  for (const entry of [...(host.repositories ?? []), ...(shipped.repositories ?? [])]) {
+    byIdentity.set(entry.repositoryIdentity, union(byIdentity.get(entry.repositoryIdentity), entry.dependencies));
+  }
+  return { schema: 1, global: union(host.global, shipped.global), repositories: [...byIdentity].map(([repositoryIdentity, dependencies]) => ({ repositoryIdentity, dependencies })) };
+}
 export function dependencyAllowlistPolicy(trust, repositoryIdentity, { pending = false, shipped } = {}) {
   if (!repositoryIdentity) return null;
   const trusted = trust?.dependencyAllowlist && validateAllowlist(trust.dependencyAllowlist).ok ? trust.dependencyAllowlist : null;
-  if (trusted && trust.repositories?.some((entry) => entry.repositoryIdentity === repositoryIdentity)) return { allowlist: trusted, tier: pending ? "advise" : "block", source: "protected-trust" };
   const proposal = shipped === undefined ? shippedAllowlist() : shipped;
+  if (trusted && trust.repositories?.some((entry) => entry.repositoryIdentity === repositoryIdentity)) return { allowlist: mergedAllowlist(trusted, proposal), tier: pending ? "advise" : "block", source: proposal ? "protected-trust+shipped" : "protected-trust" };
   if (proposal?.repositories?.some((entry) => entry.repositoryIdentity === repositoryIdentity)) return { allowlist: proposal, tier: "advise", source: "shipped-proposal" };
   return null;
 }

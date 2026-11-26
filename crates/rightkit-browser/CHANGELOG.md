@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.14
+
+Behaviour change for builds that relied on the environment (bogusyogi/rightkit#1805, CodeRight #567). Written, not compiled by its author; the gate compiles it.
+
+- **Changed: the two environment overrides of Chrome resolution are behind the new off-by-default cargo feature `host-env`.** `RIGHTKIT_CHROME_FOR_TESTING` (an executable) and `RIGHTKIT_CHROME_FOR_TESTING_ROOT` (the managed root) are class S3 release-switch selectors: the release gate refuses any binary whose bytes contain the name (CodeRight Mac package, rule `release-switch-names`). A default build now resolves `LaunchOptions::chrome_path`, then the managed `current` folder at the default root, then app installs and caches, and reads neither variable; the install hint no longer names them. With `host-env` the behaviour is exactly 0.3.13.
+- **Changed: `CHROME_FOR_TESTING_ENV` and `CHROME_FOR_TESTING_ROOT_ENV` exist only with `host-env`.** No crate in this repository, and no Pulse, CodeRight or HeardRight source, uses either constant (only the literal names appear, in scripts and test code), so no consumer breaks; it stays a patch release for that reason. A tool or test that still sets the variables enables `host-env` (the R2 consumer `ci/consumers/rightkit-browser` does).
+- Unchanged and not S3 selectors this release removes: `PUPPETEER_CACHE_DIR`, `PLAYWRIGHT_BROWSERS_PATH` (cache locations), `CHROME` (system Chrome, only with `system_chrome`), `RIGHTKIT_CHROME_HEADLESS_SHELL` (Windows fixture only).
+- Tests (`tests/devtools_pipe_e2e.rs`, `tests/kill_on_parent_exit_e2e.rs`) now read the two names themselves and pass the executable explicitly, so they run the same in the default, all-features and per-feature rounds.
+
+## 0.3.13
+
+Additive (bogusyogi/rightkit#1802, CodeRight #567). Written, not compiled by its author; the gate compiles it.
+
+- **Changed: Chrome opens no debugging port on any platform.** Every launch (`BrowserSession::launch`, `attach_user_browser` and `attach_user_browser_revocable`, and the macOS and Windows fixtures) passes the DevTools pipe switch and talks CDP over a descriptor or handle pair it hands to Chrome. On macOS and Linux Chrome reads commands on fd 3 and writes replies on fd 4; the parent's copies of Chrome's two ends are closed as soon as the spawn returns, and no other descriptor above stderr reaches Chrome. On Windows an ordinary launch passes an inherited handle pair with `--remote-debugging-io-pipes`, the way the fixture already did. Security effect: before, Chrome listened on `127.0.0.1:<random port>` with no authentication for the life of the session, so any local process could drive the browser (cookies, pages). Now the browser has no listener at all.
+- **Changed: one loopback relay for every launch.** chromiumoxide connects only to a WebSocket URL, so the Windows `PipeBridge` is now the relay on every platform, with the restrictions it already had: the URL path is a 256-bit random secret (never in argv or the environment), the handshake must be a `GET` upgrade on exactly that path with no `Origin` header, the peer must be 127.0.0.1, and the listener is dropped as soon as the first authenticated client is accepted, before any pipe traffic. The secret is never put in an error message. An ordinary session relays until it stops or Chrome's pipe closes; a fixture relay is still bound to its lease.
+- **Changed: launch readiness is a real answer from Chrome.** Pipe-mode Chrome prints no "DevTools listening" line, so `launch` now returns only after Chrome answers `Browser.getVersion` over the pipe, within `launch_timeout` (it used to bound the wait for that stderr line). A Chrome that does not answer is killed and the launch fails with its exit status and stderr tail.
+- **Changed: `validate_extra_args` also refuses `--remote-debugging-io-pipes`**, which would redirect Chrome's pipe pair.
+- No public type or function changed. Needs `libc` on Unix; `async-tungstenite` and `getrandom` are now dependencies on every platform (they were Windows only). New end-to-end test `tests/devtools_pipe_e2e.rs` (Linux and macOS): a real Chrome launched with the defaults answers a page script, runs with the pipe switch and no debugging port switch, listens on no TCP port, and is gone after `shutdown`.
+
 ## 0.3.12
 
 - Fixed: on macOS and Linux Chrome is tied to the host (`kill_on_parent_exit`, spawned from a dedicated launcher thread), so a crashed or SIGKILLed host no longer leaves Chrome running (CodeRight #470).

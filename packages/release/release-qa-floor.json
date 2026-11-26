@@ -7,7 +7,7 @@
   },
   "journeys": {
     "floorId": "journey",
-    "receiptSchema": "rightkit.journeys.receipt/1",
+    "receiptSchema": "rightkit.journeys.receipt/2",
     "rule": "all-release-critical-passed"
   }
 }

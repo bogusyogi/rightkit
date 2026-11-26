@@ -245,10 +245,15 @@ pub(crate) fn validate_profile_name(name: &str) -> Result<()> {
     }
 }
 
-/// Environment variable naming an explicit Chrome for Testing executable.
+/// Environment variable naming an explicit Chrome for Testing executable. Present, and read,
+/// only with the cargo feature `host-env`: a default build reads no environment variable that
+/// selects an executable (release-switch class S3).
+#[cfg(feature = "host-env")]
 pub const CHROME_FOR_TESTING_ENV: &str = "RIGHTKIT_CHROME_FOR_TESTING";
 
 /// Override the RightKit-managed Chrome for Testing root (the folder that holds `current`).
+/// Present, and read, only with the cargo feature `host-env`.
+#[cfg(feature = "host-env")]
 pub const CHROME_FOR_TESTING_ROOT_ENV: &str = "RIGHTKIT_CHROME_FOR_TESTING_ROOT";
 
 /// Folder name of the one managed install inside the managed root.
@@ -259,7 +264,18 @@ pub const MANAGED_PREVIOUS_DIR: &str = "current.previous";
 #[cfg_attr(not(feature = "install"), allow(dead_code))]
 pub const MANAGED_STAGING_DIR: &str = "current.staging";
 
-/// How to get Chrome for Testing; part of [`BrowserError::ChromeForTestingNotFound`].
+/// How to get Chrome for Testing; part of [`BrowserError::ChromeForTestingNotFound`]. The text
+/// names the environment override only in a build with the cargo feature `host-env`.
+#[cfg(not(feature = "host-env"))]
+pub const CHROME_FOR_TESTING_INSTALL_HINT: &str = "Chrome for Testing is put in place by the app's installer or updater step, which calls \
+rightkit_browser::install::ensure_chrome_for_testing (cargo feature `install`; pinned version, SHA-256 checked) \
+into <app data>/Orthic Labs/shared/chrome-for-testing/current. For development, run \
+`rightkit-qa-chrome install` from @rightkit/qa-chrome. Regular Google Chrome is used only with \
+LaunchOptions::system_chrome(): on macOS each killed instance leaks a code-sign clone.";
+
+/// How to get Chrome for Testing; part of [`BrowserError::ChromeForTestingNotFound`]. The text
+/// names the environment override only in a build with the cargo feature `host-env`.
+#[cfg(feature = "host-env")]
 pub const CHROME_FOR_TESTING_INSTALL_HINT: &str = "Chrome for Testing is put in place by the app's installer or updater step, which calls \
 rightkit_browser::install::ensure_chrome_for_testing (cargo feature `install`; pinned version, SHA-256 checked) \
 into <app data>/Orthic Labs/shared/chrome-for-testing/current. For development, point \
@@ -277,8 +293,8 @@ pub struct ManagedRoot {
 
 #[cfg_attr(not(feature = "install"), allow(dead_code))]
 impl ManagedRoot {
-    /// The suite-wide root (`<app data>/Orthic Labs/shared/chrome-for-testing`), or
-    /// `RIGHTKIT_CHROME_FOR_TESTING_ROOT` when set.
+    /// The suite-wide root (`<app data>/Orthic Labs/shared/chrome-for-testing`); with the cargo
+    /// feature `host-env`, the folder named by the managed-root environment override when set.
     pub fn resolve() -> Self {
         let home = home_dir().unwrap_or_default();
         let env_path = |k: &str| {
@@ -378,11 +394,45 @@ fn versioned_children(root: &Path, prefixes: &[&str]) -> Vec<PathBuf> {
     names.into_iter().map(|n| root.join(n)).collect()
 }
 
+/// The managed-root environment override. Compiled only with the cargo feature `host-env`.
+#[cfg(feature = "host-env")]
+fn managed_root_override(env_path: &impl Fn(&str) -> Option<PathBuf>) -> Option<PathBuf> {
+    env_path(CHROME_FOR_TESTING_ROOT_ENV)
+}
+
+/// Without `host-env` the managed root is never taken from the environment.
+#[cfg(not(feature = "host-env"))]
+fn managed_root_override(_env_path: &impl Fn(&str) -> Option<PathBuf>) -> Option<PathBuf> {
+    None
+}
+
+/// The Chrome for Testing executable named by the environment, `None` when unset. Compiled only
+/// with the cargo feature `host-env`.
+#[cfg(feature = "host-env")]
+fn executable_from_env(missing: &impl Fn(String) -> BrowserError) -> Option<Result<PathBuf>> {
+    let p = std::env::var_os(CHROME_FOR_TESTING_ENV).filter(|v| !v.is_empty())?;
+    let p = PathBuf::from(p);
+    Some(if p.exists() {
+        Ok(p)
+    } else {
+        Err(missing(format!(
+            "{CHROME_FOR_TESTING_ENV} points at a missing file: {}",
+            p.display()
+        )))
+    })
+}
+
+/// Without `host-env` no environment variable selects the executable.
+#[cfg(not(feature = "host-env"))]
+fn executable_from_env(_missing: &impl Fn(String) -> BrowserError) -> Option<Result<PathBuf>> {
+    None
+}
+
 fn managed_chrome_for_testing_root(
     home: &Path,
     env_path: &impl Fn(&str) -> Option<PathBuf>,
 ) -> PathBuf {
-    if let Some(root) = env_path(CHROME_FOR_TESTING_ROOT_ENV) {
+    if let Some(root) = managed_root_override(env_path) {
         return root;
     }
     let app_data = if cfg!(target_os = "macos") {
@@ -442,8 +492,7 @@ const HEADLESS_SHELL_WIN64: &str = "chrome-headless-shell-win64/chrome-headless-
 /// Candidate `chrome-headless-shell.exe` paths for the Windows fixture, in resolution order: the
 /// sibling of the resolved Chrome (`<version>/chrome-win64/chrome.exe` ->
 /// `<dir>/chrome-headless-shell-win64/`), then the managed `current` and `current.previous`, then
-/// each legacy managed version, newest first (`RIGHTKIT_CHROME_FOR_TESTING_ROOT` overrides the
-/// root, as for Chrome).
+/// each legacy managed version, newest first (the managed root is the one Chrome uses).
 #[cfg(windows)]
 fn chrome_headless_shell_candidates(chrome: &Path, managed_root: &Path) -> Vec<PathBuf> {
     let managed = ManagedRoot::at(managed_root);
@@ -506,8 +555,8 @@ pub(crate) fn chrome_headless_shell_path(chrome: &Path) -> Result<PathBuf> {
 }
 
 /// Known Chrome for Testing install locations, in resolution order: the RightKit-managed
-/// `current` (then `current.previous`, then legacy per-version folders;
-/// `RIGHTKIT_CHROME_FOR_TESTING_ROOT` overrides the root), app installs, then
+/// `current` (then `current.previous`, then legacy per-version folders; the cargo feature
+/// `host-env` lets the environment override the root), app installs, then
 /// Puppeteer's cache (`PUPPETEER_CACHE_DIR`), then Playwright's (`PLAYWRIGHT_BROWSERS_PATH`),
 /// newest version first within each cache.
 pub fn chrome_for_testing_candidates() -> Vec<PathBuf> {
@@ -565,9 +614,9 @@ pub fn chrome_for_testing_candidates() -> Vec<PathBuf> {
     out
 }
 
-/// Resolve Chrome for Testing: `explicit`, then `RIGHTKIT_CHROME_FOR_TESTING`, then
-/// [`chrome_for_testing_candidates`]. Errors with install instructions; never returns
-/// regular Chrome.
+/// Resolve Chrome for Testing: `explicit`, then (only with the cargo feature `host-env`) the
+/// executable named by the environment, then [`chrome_for_testing_candidates`]. Errors with
+/// install instructions; never returns regular Chrome.
 pub fn chrome_for_testing_path(explicit: Option<&Path>) -> Result<PathBuf> {
     let missing = |what: String| {
         BrowserError::ChromeForTestingNotFound(format!("{what}\n{CHROME_FOR_TESTING_INSTALL_HINT}"))
@@ -582,16 +631,8 @@ pub fn chrome_for_testing_path(explicit: Option<&Path>) -> Result<PathBuf> {
             )))
         };
     }
-    if let Some(p) = std::env::var_os(CHROME_FOR_TESTING_ENV).filter(|v| !v.is_empty()) {
-        let p = PathBuf::from(p);
-        return if p.exists() {
-            Ok(p)
-        } else {
-            Err(missing(format!(
-                "{CHROME_FOR_TESTING_ENV} points at a missing file: {}",
-                p.display()
-            )))
-        };
+    if let Some(found) = executable_from_env(&missing) {
+        return found;
     }
     let candidates = chrome_for_testing_candidates();
     if let Some(p) = candidates.iter().find(|p| p.exists()) {
@@ -705,6 +746,7 @@ pub(crate) fn validate_extra_args(args: &[String]) -> Result<()> {
         "remote-debugging-port",
         "remote-debugging-address",
         "remote-debugging-pipe",
+        "remote-debugging-io-pipes",
         "remote-allow-origins",
         "disable-web-security",
         "incognito-bypass",

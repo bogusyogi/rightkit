@@ -10837,12 +10837,13 @@ dependencies = [
 
 [[package]]
 name = "rightkit-browser"
-version = "0.3.12"
+version = "0.3.14"
 dependencies = [
  "async-tungstenite 0.35.0",
  "chromiumoxide",
  "futures",
  "getrandom 0.4.3",
+ "libc 0.2.191",
  "rightkit-child-process",
  "rightkit-credentials",
  "rightkit-crypto",
@@ -12859,7 +12860,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-remote-gateway"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "libc 0.2.191",
  "portable-pty",

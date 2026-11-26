@@ -139,6 +139,19 @@ export function socketProblem(endpoint, o = {}) {
   } catch (error) { return `cannot connect to the broker at ${endpoint} (${error?.code ?? error?.message ?? error})`; }
 }
 
+/**
+ * The absolute client path a RustRight POSIX agent shim starts, or null when `text` is not that shim. The shim is the installer's own
+ * file: it carries the marker line `# rustright.build-control.agent-shims.install.v<N>` and ends in `exec '<absolute path>' "$@"`.
+ * A native executable read as text, a file over 4 KiB, or a script without both lines is not a shim.
+ */
+export function posixAgentShimTarget(text) {
+  if (typeof text !== "string" || text.length > 4096 || !text.startsWith("#!")) return null;
+  const lines = text.split(/\r?\n/);
+  if (!lines.some((line) => /^# rustright\.build-control\.agent-shims\.install\.v\d+$/.test(line.trim()))) return null;
+  const exec = lines.map((line) => /^exec '(\/[^']+)' "\$@"$/.exec(line.trim())).find(Boolean);
+  return exec ? exec[1] : null;
+}
+
 export function brokerControlTarget(o, { client = o?.client } = {}) {
   const platform = o?.platform ?? process.platform;
   const env = o?.env ?? process.env;
@@ -148,6 +161,15 @@ export function brokerControlTarget(o, { client = o?.client } = {}) {
   try { exe = resolveBrokerClient(client, { platform, readFile: read }).file; } catch (error) { return { ok: false, problem: `the RustRight client cannot be resolved (${error.message})` }; }
   let real = exe;
   if (platform !== "win32") { try { real = (o?.realpath ?? fs.realpathSync.native)(exe); } catch { real = exe; } }
+  // The installer's POSIX agent shim (a short sh script in the managed agent-bin that execs the runtime's client) is not a symlink, so
+  // its real path is itself and the manifest was looked for in agent-bin, where there is none: no dead holder's snapshot lock could be
+  // reclaimed on the Mac (2026-11-26). Follow the shim to the client it starts; the manifest sits beside that.
+  if (platform !== "win32") {
+    let shimText = null;
+    try { shimText = read(real); } catch { shimText = null; }
+    const target = posixAgentShimTarget(shimText);
+    if (target) real = target;
+  }
   const paths = platform === "win32" ? path.win32 : path.posix;
   const manifest = paths.join(paths.dirname(real), RUNTIME_MANIFEST_FILE);
   let text;

@@ -49,7 +49,7 @@
     "@rightkit/qa": "0.7.0",
     "@rightkit/qa-chrome": "0.1.12",
     "@rightkit/react-shell": "0.7.9",
-    "@rightkit/release": "0.6.87",
+    "@rightkit/release": "0.6.88",
     "@rightkit/send-ui": "0.1.0",
     "@rightkit/settings-ui": "0.7.7",
     "@rightkit/social-ui": "0.2.1",
@@ -453,7 +453,8 @@
       "0.6.83",
       "0.6.84",
       "0.6.85",
-      "0.6.86"
+      "0.6.86",
+      "0.6.87"
     ],
     "@rightkit/settings-ui": [
       "0.1.0",
@@ -600,7 +601,7 @@
     "rightkit-autostart": "0.1.1",
     "rightkit-bench": "0.2.1",
     "rightkit-bot-messaging": "0.3.2",
-    "rightkit-browser": "0.3.12",
+    "rightkit-browser": "0.3.14",
     "rightkit-cache": "0.2.5",
     "rightkit-captions": "0.1.1",
     "rightkit-catalog": "0.1.0",
@@ -734,7 +735,7 @@
     "rightkit-record": "0.4.1",
     "rightkit-reframe": "0.2.1",
     "rightkit-remote-compute": "0.2.2",
-    "rightkit-remote-gateway": "0.1.5",
+    "rightkit-remote-gateway": "0.1.6",
     "rightkit-repo-graph": "0.3.3",
     "rightkit-repo-graph-grammars": "0.1.1",
     "rightkit-research": "0.1.2",
@@ -921,7 +922,7 @@
       "@rightkit/qa": "0.7.0",
       "@rightkit/qa-chrome": "0.1.12",
       "@rightkit/react-shell": "0.7.7",
-      "@rightkit/release": "0.6.86",
+      "@rightkit/release": "0.6.87",
       "@rightkit/settings-ui": "0.7.4",
       "@rightkit/shell": "0.1.1",
       "@rightkit/tauri": "0.4.3",
@@ -1052,7 +1053,9 @@
       "0.3.4",
       "0.3.5",
       "0.3.6",
-      "0.3.11"
+      "0.3.11",
+      "0.3.12",
+      "0.3.13"
     ],
     "rightkit-cache": [
       "0.2.0",
@@ -1748,7 +1751,8 @@
     ],
     "rightkit-remote-gateway": [
       "0.1.3",
-      "0.1.4"
+      "0.1.4",
+      "0.1.5"
     ],
     "rightkit-web-session": [
       "0.1.1"

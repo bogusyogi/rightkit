@@ -57,7 +57,6 @@ mod fixture_server;
 pub mod install;
 mod keys;
 mod page;
-#[cfg(windows)]
 mod pipe_transport;
 mod policy;
 mod proc;
@@ -88,9 +87,10 @@ pub use cdp_ext::{
 };
 pub use config::{
     chrome_for_testing_candidates, chrome_for_testing_path, find_chrome, LaunchOptions,
-    ManagedRoot, ProfileSpec, CHROME_FOR_TESTING_ENV, CHROME_FOR_TESTING_INSTALL_HINT,
-    CHROME_FOR_TESTING_ROOT_ENV,
+    ManagedRoot, ProfileSpec, CHROME_FOR_TESTING_INSTALL_HINT,
 };
+#[cfg(feature = "host-env")]
+pub use config::{CHROME_FOR_TESTING_ENV, CHROME_FOR_TESTING_ROOT_ENV};
 #[cfg(feature = "cookie-export")]
 pub use cookie_export::{ClearOutcome, CookieExport, CookieExportError, ExportReport};
 pub use cookies::{

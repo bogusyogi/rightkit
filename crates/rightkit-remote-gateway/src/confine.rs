@@ -179,14 +179,10 @@ fn canonical_with_tail(path: &Path) -> Option<PathBuf> {
 /// Membrane's data folder as Membrane resolves it (`<data dir>/Orthic Labs/Membrane`, which holds
 /// `state/`), through the same `AppDirs` the host app's own state folder uses: `%LOCALAPPDATA%\Orthic
 /// Labs\Membrane` on Windows, `~/Library/Application Support/Orthic Labs/Membrane` on the Mac, the
-/// XDG data folder on Linux. A pinned `MEMBRANE_STATE_ROOT` (tests, operators) is protected too.
+/// XDG data folder on Linux. A release Membrane ignores `MEMBRANE_STATE_ROOT` (its QA override is
+/// compiled out), so a release host never reads that name either: it is a release-switch selector.
 fn membrane_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
-    if let Some(pinned) =
-        rightkit_app_host::env_var("MEMBRANE_STATE_ROOT").filter(|d| !d.is_empty())
-    {
-        dirs.push(PathBuf::from(pinned));
-    }
     if let Ok(found) = rightkit_fs::AppDirs::resolve_with(
         &rightkit_fs::AppId::new("Membrane", Some("Orthic Labs")),
         &rightkit_fs::AppDirsOptions::new(rightkit_fs::AppDirsOs::current()),
