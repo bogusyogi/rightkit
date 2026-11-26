@@ -597,7 +597,7 @@
     "rightkit-automation": "0.7.6",
     "rightkit-autostart": "0.1.1",
     "rightkit-bench": "0.2.1",
-    "rightkit-bot-messaging": "0.3.1",
+    "rightkit-bot-messaging": "0.3.2",
     "rightkit-browser": "0.3.12",
     "rightkit-cache": "0.2.5",
     "rightkit-captions": "0.1.1",
@@ -1036,6 +1036,9 @@
       "0.7.2",
       "0.7.3",
       "0.7.4"
+    ],
+    "rightkit-bot-messaging": [
+      "0.3.1"
     ],
     "rightkit-browser": [
       "0.2.0",

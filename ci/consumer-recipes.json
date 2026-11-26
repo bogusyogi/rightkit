@@ -3115,7 +3115,7 @@
       "pkId": "PK81",
       "id": "ci/consumers/rightkit-bot-messaging/src/main.rs",
       "files": {
-        "Cargo.toml": "7185b4e6a5211d775f568943813b2784de2ae117693848de578e638017255c31",
+        "Cargo.toml": "af90d2d84470df390ddd2310c0ed7670e2677784d79c1b6a10be3d4c9a41f7b6",
         "README.md": "c8d1c29165a7352f1eac04ecb15cac3eec7c6b796a40598a1ea9a060af2b6d6a",
         "src/main.rs": "cf4576f8915937d402d51eb0ea51eb5959e716a1b96a9e0e7824413138bbfcc0"
       }
