@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-llm"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Brand-neutral BYOK LLM clients: Anthropic Messages and OpenAI-compatible chat, streaming, tool use, route failover with circuit breaker, pricing, and prompt-cache discipline, plus an opt-in provider for installed command-line assistants."
@@ -19,6 +19,8 @@ agent_providers-os-keyring = ["agent_providers", "dep:rightkit-credentials", "ri
 agent_providers-host-env = ["agent_providers", "rightkit-agent-config/host-env"]
 agent_providers-replay-record = ["agent_providers", "agent_providers-host-env"]
 tokens = ["dep:tiktoken-rs"]
+# `provider_image::scale_image_to_max_edge`: scale a PNG or JPEG to a provider's longest-edge limit.
+provider-image = ["dep:image"]
 agent_providers = ["dep:rightkit-logs", "dep:rightkit-agent-engine-protocol", "dep:rightkit-agent-policy", "dep:rightkit-agent-config", "dep:thiserror", "dep:tokio", "dep:futures", "dep:rightkit-oauth", "rightkit-http/untrusted", "rightkit-http/async", "dep:rightkit-crypto", "dep:rightkit-fs", "dep:rightkit-time", "dep:url", "dep:bytes", "dep:async-stream", "dep:toml", "dep:dirs", "dep:tiktoken-rs"]
 agent_router-os-keyring = ["agent_router", "agent_providers-os-keyring"]
 agent_router = ["agent_providers", "dep:thiserror", "dep:toml"]
@@ -46,6 +48,7 @@ async-stream = {version = "0.3", optional = true}
 toml = {version = "1.1", optional = true}
 dirs = {version = "7", optional = true}
 tiktoken-rs = {version = "0.12", optional = true}
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"], optional = true }
 
 [package.metadata.rightkit]
 continuous = false

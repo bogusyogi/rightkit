@@ -59,6 +59,10 @@ mod host_identity;
 mod incumbent;
 pub mod inflight;
 pub mod install;
+/// LAN service discovery over multicast DNS: the machine's network address, announcing a service
+/// and browsing for one (`lan-discovery` feature).
+#[cfg(feature = "lan-discovery")]
+pub mod lan_discovery;
 pub mod lifecycle;
 /// Loopback-only HTTP host with a bearer token (`remote-loopback` feature). The remote HTTPS host
 /// is the `rightkit-daemon-remote` crate.

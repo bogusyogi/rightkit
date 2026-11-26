@@ -6179,7 +6179,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-audio"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "block2",
  "cpal",
@@ -6329,7 +6329,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "core-foundation 0.10.1",
  "getrandom 0.4.3",
@@ -6523,7 +6523,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-llm"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "rightkit-http",
  "serde",

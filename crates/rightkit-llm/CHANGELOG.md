@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.2
+
+- Added the `provider-image` feature (off by default; optional dependency `image` 0.25 with PNG and JPEG only) and `provider_image::scale_image_to_max_edge(bytes, mime, width, height, max_edge)`, re-exported at the crate root: scales a PNG or JPEG whose longest edge is over `max_edge` to fit it and re-encodes it in the same format, or returns `None` (no scaling needed, another format, or undecodable). Taken from CodeRight's file reader, with the limit passed in, so CodeRight no longer depends on `image` itself (bogusyogi/coderight#567, #566). `lib.rs` now names the `image` module as `crate::image` where it re-exports `Frame` and `ImageSource`, so the optional `image` crate is never ambiguous with it. Additive: a build without the feature is unchanged. Not compiled or run in this pass.
+
 ## 0.7.1
 
 - Add opt-in thinking-block binding (beta `thinking-binding-controls-2026-08-01`, drop only foreign-model thinking, 400 matcher, `input_transformations` logger) and a host-set Codex originator header.

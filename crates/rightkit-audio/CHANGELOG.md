@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.5
+
+- Exact capture no longer rejects every recording on microphones whose packet timestamps jitter. A packet's capture time may now be later than the callback time (on WASAPI the callback time is the audio clock's last update, up to one device period behind), and consecutive packets may differ from their nominal spacing by up to half of the shorter packet instead of one frame. A lost packet, a regression, a missing timestamp, an overflow and a stream error still fail the seal. Measured on a Dell built-in microphone array (Intel Smart Sound, 48 kHz, 480-frame packets): capture later than callback on 247 of 799 packets, spacing off by more than one frame on 397 of 799, largest 17 frames; before this every dictation there ended in `precise capture invalid or missing timestamp`.
+
 ## 0.4.4
 
 - Add `setup::calibration_result`: turns a calibration `Outcome` into the result a renderer shows. `settle` maps each outcome to status, failure code, route and WER with the host's own codes (`SetupCodes`); `SetupStarted`, `SetupProgress` and `SetupResult` are the wire shapes for started, progress and result; `CalibrationSummary` reads what the mapping needs from a host's result type; `start_error_message`, `cancel_accepted` and `resident_failure_text` cover the start, cancel and resident-failure paths. All wording stays with the host.

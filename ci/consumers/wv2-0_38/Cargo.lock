@@ -3016,7 +3016,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "core-foundation",
  "getrandom 0.4.3",

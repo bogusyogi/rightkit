@@ -6,7 +6,9 @@
 //!   DeepSeek, Together, Mistral, xAI, Gemini endpoint, Ollama, LM Studio, llama.cpp server).
 //! - [`tools::ToolExecutor`]: runs a model tool-use loop under a gate and a budget, with result
 //!   re-entry.
-//! - Image and video-frame input: [`ContentBlock::Image`], [`image::Frame`].
+//! - Image and video-frame input: [`ContentBlock::Image`], [`crate::image::Frame`].
+//! - `provider-image` feature: `provider_image::scale_image_to_max_edge` scales a PNG or JPEG
+//!   to a provider's longest-edge limit.
 //! - Streaming with cancellation, tool use, forced-tool structured output.
 //! - [`failover::FailoverChain`]: retryable-only route failover by default (configurable
 //!   with [`failover::FailoverOn`]), first-token timeout, circuit breaker.
@@ -44,6 +46,8 @@ pub mod openai;
 pub mod presets;
 pub mod pricing;
 pub mod provider;
+#[cfg(feature = "provider-image")]
+pub mod provider_image;
 pub mod raw;
 pub mod reassembler;
 #[cfg(feature = "tokens")]
@@ -51,6 +55,7 @@ pub mod tokens;
 pub mod tools;
 pub mod types;
 
+pub use crate::image::{Frame, ImageSource};
 pub use attempt::{separate_budget_retry, AttemptNotice, SubmissionReceipt};
 pub use catalogue::{
     CatalogueError, CatalogueRow, PriceCatalogue, PriceComponent, PriceKind, PriceUnit,
@@ -60,9 +65,10 @@ pub use credentials::{CredentialSource, SecretStoreCredentials, StaticCredential
 pub use error::{Attempt, LlmError};
 pub use failover::{FailoverChain, FailoverEvent, FailoverOn, FailoverPolicy, Route};
 pub use generation::{classify_image_error, ImageFailure, ImageFailureClass};
-pub use image::{Frame, ImageSource};
 pub use pricing::{Match as PriceMatch, ModelPrice, PriceError, PriceOverride, PriceTable};
 pub use provider::Provider;
+#[cfg(feature = "provider-image")]
+pub use provider_image::scale_image_to_max_edge;
 pub use raw::{RawExchange, RawHandle};
 /// The HTTP client this crate's providers are built on, re-exported so a host can build a
 /// [`Client`] (timeout, retry, proxy, redaction, address policy) without a direct
