@@ -109,6 +109,10 @@ struct RootRecord {
     /// folder holding that file under its own name.
     #[serde(default)]
     file: bool,
+    /// Paths under this root (relative, `/`-separated) the snapshot neither copies nor restores
+    /// (`[snapshot] exclude`): live state other processes keep writing during a run.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    exclude: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -409,13 +413,28 @@ fn kind_of(md: &fs::Metadata) -> &'static str {
 /// Every entry under `root`, sorted by `rel` (a parent always sorts before its children). Never
 /// follows a symlink.
 fn scan(root: &Path) -> Result<Vec<Entry>> {
+    scan_excluding(root, &[])
+}
+
+/// [`scan`] without the excluded paths (and everything under them).
+fn scan_excluding(root: &Path, exclude: &[String]) -> Result<Vec<Entry>> {
     let mut out = Vec::new();
-    scan_dir(root, "", &mut out)?;
+    scan_dir(root, "", exclude, &mut out)?;
     out.sort_by(|a, b| a.rel.cmp(&b.rel));
     Ok(out)
 }
 
-fn scan_dir(dir: &Path, prefix: &str, out: &mut Vec<Entry>) -> Result<()> {
+/// Whether `rel` is an excluded path or lies under one.
+fn excluded(rel: &str, exclude: &[String]) -> bool {
+    exclude.iter().any(|e| {
+        rel == e
+            || rel
+                .strip_prefix(e.as_str())
+                .is_some_and(|rest| rest.starts_with('/'))
+    })
+}
+
+fn scan_dir(dir: &Path, prefix: &str, exclude: &[String], out: &mut Vec<Entry>) -> Result<()> {
     for item in ctx(fs::read_dir(dir), "cannot read", dir)? {
         let item = ctx(item, "cannot read", dir)?;
         let path = item.path();
@@ -431,6 +450,9 @@ fn scan_dir(dir: &Path, prefix: &str, out: &mut Vec<Entry>) -> Result<()> {
         } else {
             format!("{prefix}/{name}")
         };
+        if excluded(&rel, exclude) {
+            continue;
+        }
         let md = ctx(fs::symlink_metadata(&path), "cannot stat", &path)?;
         refuse_reparse(&path, &md)?;
         let kind = kind_of(&md);
@@ -456,7 +478,7 @@ fn scan_dir(dir: &Path, prefix: &str, out: &mut Vec<Entry>) -> Result<()> {
                     target: None,
                     mode: mode_of(&md),
                 });
-                scan_dir(&path, &rel, out)?;
+                scan_dir(&path, &rel, exclude, out)?;
             }
             "file" => {
                 let sha = ctx(
@@ -563,7 +585,12 @@ fn restore_file(from: &Path, to: &Path) -> Result<()> {
 }
 
 /// Delete everything under `dir` that the manifest does not list (children before parents).
-fn prune_extras(dir: &Path, prefix: &str, expected: &BTreeMap<&str, &Entry>) -> Result<()> {
+fn prune_extras(
+    dir: &Path,
+    prefix: &str,
+    expected: &BTreeMap<&str, &Entry>,
+    exclude: &[String],
+) -> Result<()> {
     for item in ctx(fs::read_dir(dir), "cannot read", dir)? {
         let item = ctx(item, "cannot read", dir)?;
         let path = item.path();
@@ -573,6 +600,9 @@ fn prune_extras(dir: &Path, prefix: &str, expected: &BTreeMap<&str, &Entry>) -> 
         } else {
             format!("{prefix}/{name}")
         };
+        if excluded(&rel, exclude) {
+            continue;
+        }
         let md = ctx(fs::symlink_metadata(&path), "cannot stat", &path)?;
         let keep = expected
             .get(rel.as_str())
@@ -580,7 +610,7 @@ fn prune_extras(dir: &Path, prefix: &str, expected: &BTreeMap<&str, &Entry>) -> 
         if !keep {
             remove_any(&path, &md)?;
         } else if md.is_dir() && !md.file_type().is_symlink() {
-            prune_extras(&path, &rel, expected)?;
+            prune_extras(&path, &rel, expected, exclude)?;
         }
     }
     Ok(())
@@ -689,7 +719,13 @@ fn restore_file_root(
     Ok(())
 }
 
-fn restore_root(live: &Path, snap_root: &Path, existed: bool, entries: &[Entry]) -> Result<()> {
+fn restore_root(
+    live: &Path,
+    snap_root: &Path,
+    existed: bool,
+    entries: &[Entry],
+    exclude: &[String],
+) -> Result<()> {
     if !existed {
         // The folder did not exist when the snapshot was taken: whatever is there now was made
         // during the run.
@@ -753,10 +789,10 @@ fn restore_root(live: &Path, snap_root: &Path, existed: bool, entries: &[Entry])
         .filter(|e| e.kind != "other")
         .map(|e| (e.rel.as_str(), e))
         .collect();
-    prune_extras(live, "", &expected)?;
+    prune_extras(live, "", &expected, exclude)?;
     // C: modes, then D: verify against the manifest.
     apply_modes(live, entries)?;
-    let after = scan(live)?;
+    let after = scan_excluding(live, exclude)?;
     let problems = diff(entries, &after, true);
     if !problems.is_empty() {
         return err(format!(
@@ -1265,6 +1301,55 @@ fn resolve_roots(cfg: &SnapshotConfig, managed: &Path) -> Result<Vec<(PathBuf, b
     Ok(resolved)
 }
 
+/// How long a run waits for a named process to exit on its own before refusing: a short-lived
+/// helper (a CLI call from a hook) is not a running app.
+const RUNNING_GRACE: Duration = Duration::from_secs(10);
+
+/// The named processes still running after [`RUNNING_GRACE`]; empty as soon as none runs.
+fn running_until_quiet(names: &[String]) -> Result<Vec<String>> {
+    let deadline = std::time::Instant::now() + RUNNING_GRACE;
+    loop {
+        let running = running_processes(names)?;
+        if running.is_empty() || std::time::Instant::now() >= deadline {
+            return Ok(running);
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+}
+
+/// Each root's `[snapshot] exclude` entries, as `/`-separated paths relative to it. An entry under
+/// no folder root is ignored (the other platform's spelling); one that is a root or holds a root
+/// is refused, since excluding a whole root is leaving it out of `[snapshot]`.
+fn resolve_excludes(cfg: &SnapshotConfig, roots: &[(PathBuf, bool)]) -> Result<Vec<Vec<String>>> {
+    let mut out = vec![Vec::new(); roots.len()];
+    for raw in &cfg.exclude {
+        let (p, _) = extra_entry(raw)?;
+        let p = crate::util::canonical_plain(&p).unwrap_or(p);
+        for (i, (root, file)) in roots.iter().enumerate() {
+            if root.starts_with(&p) {
+                return err(format!(
+                    "[snapshot].exclude entry {raw:?} is or holds the data root {}; leave that root out instead",
+                    root.display()
+                ));
+            }
+            if *file {
+                continue;
+            }
+            if let Ok(rest) = p.strip_prefix(root) {
+                let parts: Option<Vec<&str>> =
+                    rest.components().map(|c| c.as_os_str().to_str()).collect();
+                let parts = parts.ok_or_else(|| {
+                    Error(format!(
+                        "[snapshot].exclude entry {raw:?} is not valid UTF-8"
+                    ))
+                })?;
+                out[i].push(parts.join("/"));
+            }
+        }
+    }
+    Ok(out)
+}
+
 // ------------------------------------------------------------------------------------ marker
 
 fn write_marker(path: &Path, m: &Marker) -> Result<()> {
@@ -1480,7 +1565,7 @@ fn arm_with_protocol(
     let running = if cfg.process_names.iter().all(|n| n.trim().is_empty()) {
         Vec::new()
     } else {
-        running_processes(&cfg.process_names)?
+        running_until_quiet(&cfg.process_names)?
     };
     if !running.is_empty() {
         return err(format!(
@@ -1489,6 +1574,7 @@ fn arm_with_protocol(
         ));
     }
     let roots = resolve_roots(cfg, managed_root)?;
+    let excludes = resolve_excludes(cfg, &roots)?;
     let creds: Vec<CredRecord> = cfg
         .credentials
         .iter()
@@ -1516,6 +1602,7 @@ fn arm_with_protocol(
             live_path: utf8(p)?.to_string(),
             existed: if *file { p.is_file() } else { p.is_dir() },
             file: *file,
+            exclude: excludes[index].clone(),
         });
     }
     let credential_owner = credential_owner
@@ -1612,7 +1699,7 @@ fn build_snapshot(
                 ));
             }
         } else if r.existed {
-            entries = scan(live)?;
+            entries = scan_excluding(live, &r.exclude)?;
             let dst = snap_dir.join(ROOTS_DIR).join(r.index.to_string());
             copy_tree(live, &dst, &entries)?;
             let copied = scan(&dst)?;
@@ -1625,7 +1712,7 @@ fn build_snapshot(
                 ));
             }
             // The source must not have changed while it was copied.
-            let again = scan(live)?;
+            let again = scan_excluding(live, &r.exclude)?;
             let moved = diff(&entries, &again, true);
             if !moved.is_empty() {
                 return err(format!(
@@ -1839,7 +1926,13 @@ fn restore_marker(marker_path: &Path, marker: &mut Marker) -> Result<RestoreRepo
         if r.file {
             restore_file_root(Path::new(&r.live_path), &snap_root, r.existed, entries)?;
         } else {
-            restore_root(Path::new(&r.live_path), &snap_root, r.existed, entries)?;
+            restore_root(
+                Path::new(&r.live_path),
+                &snap_root,
+                r.existed,
+                entries,
+                &r.exclude,
+            )?;
         }
         report.roots_restored += 1;
     }
@@ -1999,5 +2092,49 @@ mod credential_validation_tests {
                 .unwrap()
                 .replacen("\"set\":0", "\"set\":0,\"set\":0", 1);
         assert!(parse_credentials(text.as_bytes(), &sets()).is_err());
+    }
+}
+
+#[cfg(test)]
+mod exclude_tests {
+    use super::*;
+
+    #[test]
+    fn excluded_matches_the_path_and_what_is_under_it_only() {
+        let ex = vec!["chat".to_string(), "a/b".to_string()];
+        assert!(excluded("chat", &ex));
+        assert!(excluded("chat/trace.sqlite3", &ex));
+        assert!(excluded("a/b/c", &ex));
+        assert!(!excluded("chatter", &ex));
+        assert!(!excluded("a", &ex));
+        assert!(!excluded("a/bc", &ex));
+    }
+
+    #[test]
+    fn restore_keeps_excluded_live_state_and_restores_the_rest() {
+        let tmp =
+            std::env::temp_dir().join(format!("rkqa-exclude-{}-{}", std::process::id(), new_id()));
+        let live = tmp.join("live");
+        let snap = tmp.join("snap");
+        fs::create_dir_all(live.join("chat")).unwrap();
+        fs::write(live.join("settings.json"), b"before").unwrap();
+        fs::write(live.join("chat").join("route.json"), b"r1").unwrap();
+        let ex = vec!["chat".to_string()];
+        let entries = scan_excluding(&live, &ex).unwrap();
+        assert!(entries.iter().all(|e| !e.rel.starts_with("chat")));
+        copy_tree(&live, &snap, &entries).unwrap();
+        // The run changes owned data; another process rewrites and removes chat files meanwhile.
+        fs::write(live.join("settings.json"), b"after").unwrap();
+        fs::write(live.join("added.txt"), b"x").unwrap();
+        fs::remove_file(live.join("chat").join("route.json")).unwrap();
+        fs::write(live.join("chat").join("route2.json"), b"r2").unwrap();
+        restore_root(&live, &snap, true, &entries, &ex).unwrap();
+        assert_eq!(fs::read(live.join("settings.json")).unwrap(), b"before");
+        assert!(!live.join("added.txt").exists());
+        assert_eq!(
+            fs::read(live.join("chat").join("route2.json")).unwrap(),
+            b"r2"
+        );
+        let _ = fs::remove_dir_all(&tmp);
     }
 }

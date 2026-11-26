@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.16
+
+- Snapshot: `[snapshot] exclude` names paths inside a snapshotted folder that the run neither copies nor restores (absolute or `~/...`; an entry under no snapshotted folder is ignored, one that is or holds a root is refused). For live state other processes keep writing during a run: Pulse's chat transport writes routes and traces into its own data folder whenever any agent chat sends, which failed the snapshot (`cannot copy ...chat/reply-routes/...`, `... differs chat/trace.sqlite3`). Each root's excludes are kept in the restore marker.
+- Snapshot: a named process still running is waited out for up to 10 s before the run refuses, so a short-lived helper (a CLI call from a hook) is not mistaken for the running app.
+
 ## 0.10.15
 
 - macOS launch: the staged bundle is canonicalized before the launched app's pid is looked up, so the `ps` needle and the focus monitor's executable identity use the bundle's on-disk spelling. On a case-insensitive volume an earlier staging of the same app under another case (a bare-binary smoke lane's `coderight/` before a `.app` journey lane's `CodeRight/`) keeps its folder name, `ps` prints that spelling, and the case-sensitive prefix match never found the app (`launched app pid not found`).
