@@ -2102,7 +2102,7 @@
       "pkId": "PK12",
       "id": "ci/consumers/rightkit-browser/src/main.rs",
       "files": {
-        "Cargo.toml": "e9a1f5658e4287a64648e8f62aaac9d55c95f03b90cfd9b3d258142770cc4caa",
+        "Cargo.toml": "7f54e880bc3be61ddf88c297081b59e63f61292c3d54037a87b01e355cc49683",
         "README.md": "8515f8481c8a4fb81582afc0acfa1638aaafe61364656e050bd1e5abb920bc82",
         "src/main.rs": "18b0feb7034a4c35791b30d0e2360ab5ad0a448a83959cb9229d4494eeffaa27"
       },

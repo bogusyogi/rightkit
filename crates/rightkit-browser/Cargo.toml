@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-browser"
-version = "0.3.12"
+version = "0.3.13"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared Chrome DevTools Protocol browser runtime for Right Suite: multi-page sessions, named profiles, real CDP input, observations with stale-ref checks."
@@ -20,6 +20,9 @@ tempfile = "3"
 thiserror = "2"
 tokio = { version = "1", features = ["rt", "sync", "time", "net", "io-util", "macros"] }
 url = "2"
+# The loopback relay between chromiumoxide and Chrome's DevTools pipe (every platform).
+async-tungstenite = { version = "0.35", default-features = false, features = ["tokio-runtime"] }
+getrandom = "0.4"
 rightkit-child-process = { path = "../rightkit-child-process", version = "0.5.15" }
 sha2 = "0.11"
 # Installer (feature `install`): vetted download via rightkit-models, SHA-256 + lock via rightkit-fs, zip extraction.
@@ -33,9 +36,8 @@ rightkit-crypto = { path = "../rightkit-crypto", version = "0.1.2", optional = t
 [target.'cfg(any(target_os = "macos", windows))'.dependencies]
 rightkit-sandbox = { path = "../rightkit-sandbox", version = "0.7.0", default-features = false }
 
-[target.'cfg(windows)'.dependencies]
-async-tungstenite = { version = "0.35", default-features = false, features = ["tokio-runtime"] }
-getrandom = "0.4"
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [features]
 default = []
@@ -79,7 +81,7 @@ release = "BrowserSession Drop (abort_pumps) or close_inner"
 api = "ChromeProc"
 file = "src/proc.rs"
 holds = ["child", "thread"]
-scale = "one Chrome child, one stderr-drain thread that ends when Chrome closes stderr, and on Unix one /bin/sh watchdog child that exits by itself once Chrome or the host process is gone; stderr is kept as a 30-line tail of at most 300 characters per line"
+scale = "one Chrome child, one stderr-drain thread that ends when Chrome closes stderr, two pipe descriptors or handles (the parent ends of the DevTools pipe pair, owned by the PipeBridge once it starts), and on Unix one /bin/sh watchdog child that exits by itself once Chrome or the host process is gone; stderr is kept as a 30-line tail of at most 300 characters per line"
 release = "Drop"
 
 [[package.metadata.rightkit.resources]]
@@ -100,7 +102,7 @@ release = "Drop (signals shutdown and aborts the supervisor, whose JoinSet abort
 api = "PipeBridge"
 file = "src/pipe_transport.rs"
 holds = ["listener", "task"]
-scale = "Windows only: one loopback TCP listener and one relay task between Chrome's inherited DevTools pipe pair and the browser connection, bound to a deadline; fixed per Chrome launch"
+scale = "one loopback TCP listener (dropped after the first authenticated client) and one relay task between Chrome's DevTools pipe pair and the browser connection; the listener waits at most launch_timeout, and a fixture relay is bound to its lease deadline; fixed per Chrome launch"
 release = "Drop"
 
 [[package.metadata.rightkit.resources]]

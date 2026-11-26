@@ -1,8 +1,19 @@
-//! Windows-only trusted CDP transport.
+//! Trusted CDP transport for every Chrome launch.
 //!
-//! The sandbox worker creates both named-pipe servers with an owned security
-//! descriptor, `FILE_FLAG_OVERLAPPED`, & non-inheritable handles. This bridge
-//! only adopts those handles; it never names or creates a pipe endpoint.
+//! Chrome opens no debugging port: it speaks the DevTools pipe protocol (NUL-terminated JSON)
+//! over a descriptor pair (Unix: fd 3 read, fd 4 write) or an inherited handle pair (Windows).
+//! chromiumoxide only connects to a WebSocket URL, so this bridge is the one private loopback
+//! endpoint between the two. It adopts the parent's ends of the pipe pair; it never names or
+//! creates a pipe endpoint, and every restriction below applies on every platform.
+//!
+//! Who may use the endpoint: the URL path is a 256-bit random secret (never in argv or the
+//! environment), the handshake must be a `GET` upgrade on exactly that path with no `Origin`
+//! header, and the peer must be 127.0.0.1. A failed handshake keeps the listener open; the
+//! listener is dropped as soon as the first authenticated client is accepted, before any
+//! pipe traffic.
+//!
+//! On Windows the sandbox worker (fixture) or this crate's launcher (ordinary launch) creates
+//! both named-pipe servers as `FILE_FLAG_OVERLAPPED`, non-inheritable handles.
 
 use crate::error::{BrowserError, Result};
 use async_tungstenite::tokio::accept_hdr_async_with_config;
@@ -12,21 +23,50 @@ use async_tungstenite::tungstenite::{
     protocol::{Message, WebSocketConfig},
 };
 use futures::StreamExt;
+#[cfg(windows)]
 use std::ffi::c_void;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, TcpListener as StdTcpListener};
+#[cfg(unix)]
+use std::os::fd::OwnedFd;
+#[cfg(windows)]
 use std::os::windows::io::{AsRawHandle, IntoRawHandle, OwnedHandle, RawHandle};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{windows::named_pipe::NamedPipeServer, TcpListener};
+#[cfg(unix)]
+use tokio::net::unix::pipe::{Receiver, Sender};
+#[cfg(windows)]
+use tokio::net::windows::named_pipe::NamedPipeServer;
+use tokio::net::TcpListener;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 const MAX_JSON_BYTES: usize = 24 * 1024 * 1024;
 const WS_BUFFER_BYTES: usize = 64 * 1024;
+#[cfg(windows)]
 const ERROR_NOT_FOUND: i32 = 1168;
+#[cfg(windows)]
 const ERROR_PIPE_NOT_CONNECTED: i32 = 233;
+
+/// The parent's end of one DevTools pipe: an owned descriptor on Unix, an owned overlapped
+/// named-pipe server handle on Windows.
+#[cfg(unix)]
+pub(crate) type ParentEnd = OwnedFd;
+#[cfg(windows)]
+pub(crate) type ParentEnd = OwnedHandle;
+
+/// The parent's two ends, ordered `(to_child, from_child)`.
+pub(crate) type ParentPipes = (ParentEnd, ParentEnd);
+
+#[cfg(unix)]
+type ToChild = Sender;
+#[cfg(unix)]
+type FromChild = Receiver;
+#[cfg(windows)]
+type ToChild = NamedPipeServer;
+#[cfg(windows)]
+type FromChild = NamedPipeServer;
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum ShutdownPhase {
@@ -35,6 +75,7 @@ enum ShutdownPhase {
     Finalizing,
 }
 
+#[cfg(windows)]
 #[link(name = "kernel32")]
 extern "system" {
     fn CancelIoEx(handle: *mut c_void, overlapped: *mut c_void) -> i32;
@@ -52,7 +93,7 @@ type TokioWebSocketReceiver = async_tungstenite::WebSocketReceiver<
 >;
 
 /// The private loopback endpoint which connects chromiumoxide to Chrome's
-/// inherited DevTools pipe pair.
+/// DevTools pipe pair.
 pub(crate) struct PipeBridge {
     websocket_url: String,
     failure: Arc<Mutex<Option<String>>>,
@@ -61,18 +102,21 @@ pub(crate) struct PipeBridge {
 }
 
 impl PipeBridge {
-    /// Adopt the sandbox-created pipe servers & start one trusted loopback
-    /// WebSocket relay. `to_child` carries client-to-Chrome JSON; `from_child`
-    /// carries Chrome-to-client JSON.
+    /// Adopt the parent's pipe ends & start one trusted loopback WebSocket relay.
+    /// `to_child` carries client-to-Chrome JSON; `from_child` carries Chrome-to-client
+    /// JSON. `handshake_deadline` bounds waiting for the one authenticated client.
+    /// `relay_deadline` bounds the whole relay when `Some` (a fixture lease); an ordinary
+    /// session passes `None` and relays until shutdown or Chrome's end of the pipe closes.
+    ///
+    /// Must run inside a Tokio runtime: the ends are registered with its reactor.
     pub(crate) fn start(
-        to_child: OwnedHandle,
-        from_child: OwnedHandle,
-        deadline: Instant,
+        to_child: ParentEnd,
+        from_child: ParentEnd,
+        handshake_deadline: Instant,
+        relay_deadline: Option<Instant>,
     ) -> Result<Self> {
-        if Instant::now() >= deadline {
-            return Err(BrowserError::Timeout(
-                "Windows CDP pipe bridge startup".into(),
-            ));
+        if Instant::now() >= handshake_deadline {
+            return Err(BrowserError::Timeout("CDP pipe bridge startup".into()));
         }
 
         let listener = StdTcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
@@ -87,19 +131,36 @@ impl PipeBridge {
         let path = format!("/{secret}");
         let websocket_url = format!("ws://127.0.0.1:{port}{path}");
 
-        // SAFETY: sandbox worker guarantees these are owned, overlapped named-pipe
+        #[cfg(windows)]
+        // SAFETY: the creator guarantees these are owned, overlapped named-pipe
         // server handles. `into_raw_handle` transfers each close obligation exactly
         // once to Tokio; this bridge has no authority to create alternate endpoints.
         let to_child = unsafe { NamedPipeServer::from_raw_handle(to_child.into_raw_handle()) }?;
-        // SAFETY: same worker guarantee as `to_child` above.
+        #[cfg(windows)]
+        // SAFETY: same creator guarantee as `to_child` above.
         let from_child = unsafe { NamedPipeServer::from_raw_handle(from_child.into_raw_handle()) }?;
+        // Unix: `from_owned_fd` checks each end is a pipe with the right access mode and makes
+        // it non-blocking. These are the parent's own open file descriptions, separate from the
+        // ends Chrome holds, so Chrome's blocking reads are unaffected.
+        #[cfg(unix)]
+        let to_child = Sender::from_owned_fd(to_child)?;
+        #[cfg(unix)]
+        let from_child = Receiver::from_owned_fd(from_child)?;
 
         let failure = Arc::new(Mutex::new(None));
         let (shutdown, shutdown_rx) = watch::channel(ShutdownPhase::Running);
         let task_failure = failure.clone();
         let task = tokio::spawn(async move {
-            if let Err(reason) =
-                run_bridge(listener, to_child, from_child, path, deadline, shutdown_rx).await
+            if let Err(reason) = run_bridge(
+                listener,
+                to_child,
+                from_child,
+                path,
+                handshake_deadline,
+                relay_deadline,
+                shutdown_rx,
+            )
+            .await
             {
                 remember_failure(&task_failure, reason);
             }
@@ -127,14 +188,15 @@ impl PipeBridge {
             .clone()
     }
 
-    /// Stop admitting bridge I/O. Integration must prove its Job empty before
-    /// calling `shutdown`, which cancels endpoint I/O while task ownership holds.
+    /// Stop admitting bridge I/O. Integration must prove the browser process tree gone before
+    /// calling `shutdown`, which finalizes endpoint I/O while task ownership holds.
     pub(crate) fn begin_shutdown(&self) {
         let _ = self.shutdown.send(ShutdownPhase::Quiescing);
     }
 
-    /// Cancel endpoint I/O, then join its owner before `deadline`. Success
-    /// proves transport inertness; Tokio may finish inert native callbacks later.
+    /// Finalize endpoint I/O (Windows: cancel and disconnect; Unix: close the parent's ends),
+    /// then join its owner before `deadline`. Success proves transport inertness; Tokio may
+    /// finish inert native callbacks later.
     pub(crate) async fn shutdown(&mut self, deadline: Instant) -> Result<()> {
         self.begin_shutdown();
         let _ = self.shutdown.send(ShutdownPhase::Finalizing);
@@ -177,12 +239,14 @@ impl Drop for PipeBridge {
 
 async fn run_bridge(
     listener: TcpListener,
-    mut to_child: NamedPipeServer,
-    mut from_child: NamedPipeServer,
+    mut to_child: ToChild,
+    mut from_child: FromChild,
     expected_path: String,
-    deadline: Instant,
+    handshake_deadline: Instant,
+    relay_deadline: Option<Instant>,
     mut shutdown: watch::Receiver<ShutdownPhase>,
 ) -> std::result::Result<(), String> {
+    let deadline = handshake_deadline;
     let websocket = loop {
         if is_stopping(&shutdown) {
             break None;
@@ -273,7 +337,7 @@ async fn run_bridge(
             websocket,
             &mut to_child,
             &mut from_child,
-            deadline,
+            relay_deadline,
             shutdown.clone(),
         )
         .await?;
@@ -285,9 +349,9 @@ async fn run_bridge(
 
 async fn relay(
     websocket: TokioWebSocket,
-    to_child: &mut NamedPipeServer,
-    from_child: &mut NamedPipeServer,
-    deadline: Instant,
+    to_child: &mut ToChild,
+    from_child: &mut FromChild,
+    deadline: Option<Instant>,
     shutdown: watch::Receiver<ShutdownPhase>,
 ) -> std::result::Result<(), String> {
     let (websocket_out, websocket_in) = websocket.split();
@@ -311,8 +375,8 @@ async fn relay(
 
 async fn relay_websocket_to_pipe(
     mut websocket_in: TokioWebSocketReceiver,
-    to_child: &mut NamedPipeServer,
-    deadline: Instant,
+    to_child: &mut ToChild,
+    deadline: Option<Instant>,
     mut shutdown: watch::Receiver<ShutdownPhase>,
 ) -> std::result::Result<(), String> {
     loop {
@@ -321,7 +385,7 @@ async fn relay_websocket_to_pipe(
                 let _ = changed;
                 return Ok(());
             }
-            _ = tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)) => {
+            _ = relay_expired(deadline) => {
                 return Err("deadline expired during CDP relay".into());
             }
             incoming = websocket_in.next() => {
@@ -350,9 +414,9 @@ async fn relay_websocket_to_pipe(
 }
 
 async fn relay_pipe_to_websocket(
-    from_child: &mut NamedPipeServer,
+    from_child: &mut FromChild,
     mut websocket_out: TokioWebSocketSender,
-    deadline: Instant,
+    deadline: Option<Instant>,
     mut shutdown: watch::Receiver<ShutdownPhase>,
 ) -> std::result::Result<(), String> {
     let mut pipe_buffer = Vec::with_capacity(WS_BUFFER_BYTES);
@@ -362,7 +426,7 @@ async fn relay_pipe_to_websocket(
                 let _ = changed;
                 return Ok(());
             }
-            _ = tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)) => {
+            _ = relay_expired(deadline) => {
                 return Err("deadline expired during CDP relay".into());
             }
             outgoing = read_pipe_message(from_child, &mut pipe_buffer) => {
@@ -378,7 +442,7 @@ async fn relay_pipe_to_websocket(
                         let _ = changed;
                         return Ok(());
                     }
-                    result = tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), &mut send) => {
+                    result = bounded(deadline, &mut send) => {
                         result
                             .map_err(|_| "deadline expired writing CDP WebSocket".to_string())?
                             .map_err(|error| format!("CDP WebSocket write failed: {error}"))?;
@@ -407,6 +471,7 @@ async fn await_finalization(
     }
 }
 
+#[cfg(windows)]
 fn cancel_and_disconnect(
     to_child: &NamedPipeServer,
     from_child: &NamedPipeServer,
@@ -425,6 +490,17 @@ fn cancel_and_disconnect(
     failure.map_or(Ok(()), Err)
 }
 
+/// Unix: there is no overlapped I/O to cancel. Returning drops the parent's ends, which closes
+/// them; Chrome also exits by itself when its read end (fd 3) reaches end of file.
+#[cfg(unix)]
+fn cancel_and_disconnect(
+    _to_child: &ToChild,
+    _from_child: &FromChild,
+) -> std::result::Result<(), String> {
+    Ok(())
+}
+
+#[cfg(windows)]
 fn cancel_pipe_io(handle: RawHandle) -> std::result::Result<(), String> {
     // SAFETY: `run_bridge` owns each NamedPipeServer until this function
     // returns, so each raw handle remains valid for CancelIoEx.
@@ -440,6 +516,7 @@ fn cancel_pipe_io(handle: RawHandle) -> std::result::Result<(), String> {
     }
 }
 
+#[cfg(windows)]
 fn disconnect_pipe(handle: RawHandle) -> std::result::Result<(), String> {
     // SAFETY: `run_bridge` owns each NamedPipeServer until this function
     // returns, so each raw handle remains valid for DisconnectNamedPipe.
@@ -464,10 +541,31 @@ fn websocket_config() -> WebSocketConfig {
         .max_frame_size(Some(MAX_JSON_BYTES))
 }
 
+/// Resolves when `deadline` passes; never when there is none.
+async fn relay_expired(deadline: Option<Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await,
+        None => std::future::pending::<()>().await,
+    }
+}
+
+/// `future`, bounded by `deadline` when there is one.
+async fn bounded<F: std::future::Future>(
+    deadline: Option<Instant>,
+    future: F,
+) -> std::result::Result<F::Output, tokio::time::error::Elapsed> {
+    match deadline {
+        Some(deadline) => {
+            tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), future).await
+        }
+        None => Ok(future.await),
+    }
+}
+
 async fn write_pipe_message(
-    pipe: &mut NamedPipeServer,
+    pipe: &mut ToChild,
     json: &[u8],
-    deadline: Instant,
+    deadline: Option<Instant>,
 ) -> std::result::Result<(), String> {
     if json.len() > MAX_JSON_BYTES {
         return Err("CDP JSON message exceeds 24 MiB".into());
@@ -476,14 +574,14 @@ async fn write_pipe_message(
         pipe.write_all(json).await?;
         pipe.write_all(&[0]).await
     };
-    tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), write)
+    bounded(deadline, write)
         .await
         .map_err(|_| "deadline expired writing CDP pipe".to_string())?
         .map_err(|error| format!("CDP pipe write failed: {error}"))
 }
 
 async fn read_pipe_message(
-    pipe: &mut NamedPipeServer,
+    pipe: &mut FromChild,
     buffered: &mut Vec<u8>,
 ) -> std::result::Result<String, String> {
     loop {
@@ -536,10 +634,10 @@ fn remember_failure(failure: &Arc<Mutex<Option<String>>>, reason: String) {
 }
 
 fn bridge_error(reason: &str) -> BrowserError {
-    BrowserError::Cdp(format!("Windows CDP pipe bridge: {reason}"))
+    BrowserError::Cdp(format!("CDP pipe bridge: {reason}"))
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut out = String::with_capacity(bytes.len() * 2);
     for byte in bytes {

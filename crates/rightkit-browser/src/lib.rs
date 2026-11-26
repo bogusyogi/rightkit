@@ -57,7 +57,6 @@ mod fixture_server;
 pub mod install;
 mod keys;
 mod page;
-#[cfg(windows)]
 mod pipe_transport;
 mod policy;
 mod proc;
