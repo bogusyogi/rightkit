@@ -2,7 +2,7 @@
 
 ## 0.3.3
 
-- **The rust-hybrid `sign-existing` verify step fits the gate's own run-script limit.** The step rendered to 3896 bytes, over the 3800 bytes the gate allows an inline `run:` script while actionlint 1.7.12 is pinned (rhysd/actionlint#702), so every repository with that lane failed Class A on its own managed workflow, and one that moved the step into a script (Legion) was then refused as not the protected shape. The step now renders to 3626 bytes: the same checks in the same order and the same `source-verification.json`, with one-letter jq argument names. A repository with the `sign-existing` lane re-syncs (`right-git sync`) after it pins 0.3.3 (bogusyogi/rightkit#1754).
+- **The rust-hybrid `sign-existing` verify step fits the gate's own run-script limit.** The step rendered to 3897 bytes (measured by the gate's own `oversizedRunScripts`), over the 3800 bytes the gate allows an inline `run:` script while actionlint 1.7.12 is pinned (rhysd/actionlint#702), so every repository with that lane failed Class A on its own managed workflow, and one that moved the step into a script (Legion) was then refused as not the protected shape. The step now renders to 3787 bytes, 13 under the limit; the step text is fixed and takes nothing from a repository's configuration, so every repository renders the same size: the same checks in the same order and the same `source-verification.json`, with one-letter jq argument names. A repository with the `sign-existing` lane re-syncs (`right-git sync`) after it pins 0.3.3 (bogusyogi/rightkit#1754).
 
 ## 0.3.2
 
