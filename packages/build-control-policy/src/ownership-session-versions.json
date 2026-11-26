@@ -755,7 +755,7 @@
     "rightkit-sysmem": "0.1.0",
     "rightkit-system-monitor": "0.3.2",
     "rightkit-tauri-shell": "0.8.10",
-    "rightkit-terminal-ui": "0.1.8",
+    "rightkit-terminal-ui": "0.1.9",
     "rightkit-text-polish": "0.1.4",
     "rightkit-theme": "0.1.1",
     "rightkit-time": "0.1.5",
@@ -1890,7 +1890,8 @@
       "0.1.4",
       "0.1.5",
       "0.1.6",
-      "0.1.7"
+      "0.1.7",
+      "0.1.8"
     ],
     "rightkit-timeline": [
       "0.1.1"
