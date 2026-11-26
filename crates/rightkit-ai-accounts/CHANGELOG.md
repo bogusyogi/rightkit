@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4
+
+- Fixed: `sync::claude_running_for(root)` counted a Claude Desktop that names no data folder as using every `root`. Such a Desktop runs on the platform default folder (account slots are always started with `--user-data-dir`), so it now counts only when `root` is that default; with no platform default it still counts. With Desktop open on the host, `claude restore` into any other folder refused with `claude_running` (Pulse's `claude_accounts_cli_journey` on the Mac, bogusyogi/pulse#643).
+
 ## 0.1.3
 
 - Logic moved from Pulse into this crate (bogusyogi/pulse#643): see the module docs for what each new module holds.

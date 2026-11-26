@@ -141,8 +141,9 @@ pub(crate) fn is_helper(cmd: &[std::ffi::OsString]) -> bool {
 }
 
 /// The Claude Desktop instances that use `root` as their data folder. A main process names its
-/// folder through its own `--user-data-dir` or its helpers'. One whose folder is unknown (no
-/// helper yet, just launching) counts as using `root`: sync never writes into a folder that a
+/// folder through its own `--user-data-dir` or its helpers'. One that names none runs on the platform
+/// default folder (account slots are always started with `--user-data-dir`), so it counts only when
+/// `root` is that default; with no platform default it counts, so sync never writes into a folder a
 /// running Desktop might own.
 /// `None` when the process table cannot be read: unknown is not "not running".
 fn instances_for(root: &Path) -> Option<Vec<u32>> {
@@ -159,6 +160,7 @@ fn instances_for(root: &Path) -> Option<Vec<u32>> {
     );
     let procs = system.processes();
     let wanted = data_dir_key(root);
+    let default_key = default_location().map(|path| data_dir_key(&path));
     let claude = |p: &sysinfo::Process| {
         p.exe()
             .is_some_and(|exe| is_claude_exe(&exe.to_string_lossy()))
@@ -194,7 +196,18 @@ fn instances_for(root: &Path) -> Option<Vec<u32>> {
             }
             i += 1;
         }
-        let ours = dirs.is_empty() || dirs.contains(&wanted);
+        // A Desktop that names no folder (its own `--user-data-dir` and its helpers' are absent) runs on
+        // the platform default: every account slot is started with `--user-data-dir`. It counts for
+        // `root` only when `root` is that default, so a running Desktop no longer refuses a restore into
+        // a different folder (a test root, another profile). Where the platform has no default it still
+        // counts, as before.
+        let ours = if dirs.is_empty() {
+            default_key
+                .as_ref()
+                .is_none_or(|default| *default == wanted)
+        } else {
+            dirs.contains(&wanted)
+        };
         if ours {
             found.push(main);
         }
