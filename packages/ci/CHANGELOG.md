@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.3.2 (unpublished staging)
+## 0.3.3
+
+- **The rust-hybrid `sign-existing` verify step fits the gate's own run-script limit.** The step rendered to 3897 bytes (measured by the gate's own `oversizedRunScripts`), over the 3800 bytes the gate allows an inline `run:` script while actionlint 1.7.12 is pinned (rhysd/actionlint#702), so every repository with that lane failed Class A on its own managed workflow, and one that moved the step into a script (Legion) was then refused as not the protected shape. The step now renders to 3787 bytes, 13 under the limit; the step text is fixed and takes nothing from a repository's configuration, so every repository renders the same size: the same checks in the same order and the same `source-verification.json`, with one-letter jq argument names. A repository with the `sign-existing` lane re-syncs (`right-git sync`) after it pins 0.3.3 (bogusyogi/rightkit#1754).
+
+## 0.3.2
 
 - **One door in app CI.** The rust-hybrid `ci` job and the `regenerate` re-check run `rightkit-gate --to compile` (class A, then every compile, lint and test scan), never the repository's gate script; `gate.path` is only the Rust-change filter. `gate.shards` and `gate.quick` are refused. The `check` job provisions class A's pinned tools (cargo-deny 0.20.2, cargo-audit 0.22.2, actionlint 1.7.12) so `rightkit-gate check` runs class A in full; a missing tool fails the check. Pins in `render.test.mjs` were retaken deliberately; the consumer recipe's shard scenario now asserts the refusal and its sha256 is re-pinned.
 

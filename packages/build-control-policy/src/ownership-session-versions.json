@@ -23,7 +23,7 @@
     "@rightkit/app-update": "0.4.7",
     "@rightkit/ax": "0.3.2",
     "@rightkit/blender-worker": "0.1.1",
-    "@rightkit/ci": "0.3.2",
+    "@rightkit/ci": "0.3.3",
     "@rightkit/config": "0.1.1",
     "@rightkit/doc-render": "0.2.2",
     "@rightkit/document-core": "0.2.0",
@@ -97,7 +97,8 @@
       "0.2.45",
       "0.2.49",
       "0.3.0",
-      "0.3.1"
+      "0.3.1",
+      "0.3.2"
     ],
     "@rightkit/doc-render": [
       "0.1.0",
@@ -902,7 +903,7 @@
       "@rightkit/app-shell": "0.6.2",
       "@rightkit/app-update": "0.4.4",
       "@rightkit/ax": "0.3.2",
-      "@rightkit/ci": "0.3.1",
+      "@rightkit/ci": "0.3.2",
       "@rightkit/doc-render": "0.2.1",
       "@rightkit/git": "0.2.42",
       "@rightkit/hooks": "0.1.2",

@@ -1427,7 +1427,7 @@ ${pm.setup ? `${pm.setup}\n` : ""}      - run: ${pm.installCommand}${ownershipSt
           git cat-file -e "$head_sha^{commit}" 2>/dev/null || fail "source commit $head_sha is not in this repository's history"
           git merge-base --is-ancestor "$head_sha" "$GITHUB_SHA" || fail "source commit $head_sha is not an ancestor of the signing revision $GITHUB_SHA"
           mkdir -p "$RUNNER_TEMP/dev-signed"
-          jq -n --arg repo "$GITHUB_REPOSITORY" --arg run "$run_id" --argjson artifactId "$artifact_id" --arg artifactName "$artifact_name" --arg sourceSha "$head_sha" --arg requested "$INPUT_SOURCE_SHA" --arg signingRevision "$GITHUB_SHA" '{schema: 1, repository: $repo, runId: $run, artifactId: $artifactId, artifactName: $artifactName, sourceSha: $sourceSha, requestedSourceSha: $requested, signingRevision: $signingRevision}' > "$RUNNER_TEMP/dev-signed/source-verification.json"
+          jq -n --arg r "$GITHUB_REPOSITORY" --arg n "$run_id" --argjson a "$artifact_id" --arg m "$artifact_name" --arg s "$head_sha" --arg q "$INPUT_SOURCE_SHA" --arg g "$GITHUB_SHA" '{schema: 1, repository: $r, runId: $n, artifactId: $a, artifactName: $m, sourceSha: $s, requestedSourceSha: $q, signingRevision: $g}' > "$RUNNER_TEMP/dev-signed/source-verification.json"
           {
             printf 'run_id=%s\\n' "$run_id"
             printf 'artifact_id=%s\\n' "$artifact_id"
