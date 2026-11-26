@@ -545,7 +545,7 @@
     "rightkit-agent-daemon": "0.2.0",
     "rightkit-agent-demo": "0.2.0",
     "rightkit-agent-engine": "0.2.0",
-    "rightkit-agent-engine-api-integrations": "0.1.5",
+    "rightkit-agent-engine-api-integrations": "0.1.6",
     "rightkit-agent-engine-api-platform": "0.1.3",
     "rightkit-agent-engine-api-sessions": "0.1.1",
     "rightkit-agent-engine-api-workflows": "0.2.2",
@@ -927,6 +927,9 @@
     }
   },
   "legacyCargo": {
+    "rightkit-agent-engine-api-integrations": [
+      "0.1.5"
+    ],
     "rightkit-agent-engine-attention": [
       "0.1.3",
       "0.2.0"
