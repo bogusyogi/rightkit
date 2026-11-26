@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.6.89
+
+- A run that goes to package asks the registries about the app's RightKit pins before anything compiles, and that verdict is kept for the run's own package stage. Before, an app with several Cargo workspaces was first judged at package, after the compile, and the 24-hour settle rule could turn a pin stale between the two (Pulse, 26 November: admitted at 15:31 UTC and refused at 15:56 UTC with the same pins). The package stage reuses the verdict only when it covers the build's full lock inventory; a later run on the same commit asks again.
+
+- The check stage of a run that goes to qualify refuses a journeys manifest whose release-critical journeys cannot pass one installed-QA run: none for the platform, adapter and scenario journeys mixed, or more than one adapter. The QA runner builds once per run and the installed stage needs every release-critical journey in the one receipt.
+
+- New check rule `qa-stash-ignored` (release tier): an app with a QA lane must ignore the runner's `.rightkit-qa-bin/` and `.rightkit-qa-app-binary` (or its `ui.pointer_file`) under the app root. An unignored stash made the snapshot stop being the commit's tree during installed QA, so qualification failed after package, signing and notarization.
+
+- macOS release signing refuses entitlements it would drop in silence: a per-path `sign.entitlements` key that names the bundle, its main executable, or no nested code; and a string `sign.entitlements` when no `sign.prePackageFiles` entry carries entitlements. Set the app's entitlements on its `sign.prePackageFiles` entry.
+
+- The switch inventory's source walk reads what git knows in a checkout (tracked files, and untracked files not ignored) and no longer every folder on disk, so a doctor run by hand no longer reads agent worktrees or ignored backup folders. A snapshot is walked as before.
+
+- A content check of the RightKit repository (`check` without `--full-a`) no longer runs the exports import probe on a snapshot with no dependencies installed; it says the probe was not run (bogusyogi/rightkit#1808).
+
+- The offline store check explains its two metadata codes (`ERR_PNPM_NO_OFFLINE_META`, `ERR_PNPM_META_FETCH_FAIL`): the store lacks metadata for a version the lockfile names, from an install not done after a lockfile change or from pnpm's minimum-release-age rule.
+
+- The Windows dev install adds an `installed` map to the dev marker with the hash of each file after signing; `files` still lists the payload as assembled.
+
+- A unit's report carries its test counts (executed, skipped, ignored) and `publish-local cargo` prints them, so a skipped asset-gated test is visible.
+
+- The check stage prints one note when the app pins an older `@rightkit/release` than the host gate: the gate's stages run the host gate's copy; a command typed by hand in the app runs the pinned one.
+
 ## 0.6.88
 
 - The installed QA stage accepts a journeys receipt of schema `rightkit.journeys.receipt/1` or `/2` (runner 0.10.14 writes `/2`), and reads the first QA run's evidence right after that run, before the journeys run. The runner keeps only the newest passing run per app and kind, so reading afterwards reported `smoke.launch: missing` for a launch that had passed (HeardRight 0.1.240, bogusyogi/rightkit#1754).

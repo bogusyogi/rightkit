@@ -777,7 +777,7 @@ export async function compileLocalUnit(kind, argv, { env = process.env, source =
     if (step.done || step.value?.stage !== "compile") refuse("unit compile did not complete");
     assertUnitDoor(parsed.workspaceRoot, "compile", env, identity, source);
     const state = Object.freeze({});
-    unitStages.set(state, { runner, parsed, identity, source, stage: "compile", compileRequests: [...(step.value.brokerRequests ?? [])] });
+    unitStages.set(state, { runner, parsed, identity, source, stage: "compile", compileRequests: [...(step.value.brokerRequests ?? [])], tests: step.value.tests ?? null });
     return state;
   } catch (error) { await runner.return(); throw error; }
 }
@@ -801,6 +801,8 @@ export const packageLocalUnit = (state, { env = process.env } = {}) => advanceLo
 export const qualifyLocalUnit = (state, { env = process.env } = {}) => advanceLocalUnit(state, "package", "qualify", env);
 /** The broker request ids of this process's completed compile stage (the package stage's ride on its result). */
 export const localUnitCompileRequests = (state) => [...(unitStages.get(state)?.compileRequests ?? [])];
+/** The compile stage's test counts ({ executed, skipped, ignored, assetGated }), or null when the unit ran no test step that reported any. */
+export const localUnitCompileTests = (state) => unitStages.get(state)?.tests ?? null;
 export async function closeLocalUnit(state) {
   const entry = unitStages.get(state);
   if (entry) { unitStages.delete(state); await entry.runner.return(); }
@@ -962,7 +964,9 @@ async function* publishUnitStages(parsed, deps, batch) {
   const verdict = judgeUnit({ name: unit, steps: steps.map((s) => ({ ...s, unit: plan.id })), allowNoTests: true, allowIgnored: ignoredAllowed ? [unit] : [], allowMissingAssets: isAssetGated ? [unit] : [] });
   if (verdict.status === "fail" || steps.some((s) => s.failed > 0)) refuse(`${plan.id} not qualified: ${verdict.problems.join("; ") || "failed tests reported"}`);
   log(`[right-release] ${plan.id}: ${verdict.executed} passed, 0 failed, ${verdict.skipped} skipped, ${verdict.ignored} ignored${isAssetGated ? " (asset-gated: RIGHTKIT_REQUIRE_ASSETS=0, skips recorded)" : ""}`);
-  const packageEnv = yield { stage: "compile", kind, name: unit, version, commit: head, brokerRequests: brokerRequests.splice(0) };
+  // The test counts travel with the compile result (rightkit#1754): `skipped` counts SKIP marker lines, so a unit whose asset-gated tests
+  // returned early is told from one whose tests ran.
+  const packageEnv = yield { stage: "compile", kind, name: unit, version, commit: head, brokerRequests: brokerRequests.splice(0), tests: { executed: verdict.executed, skipped: verdict.skipped, ignored: verdict.ignored, assetGated: Boolean(isAssetGated) } };
   if (packageEnv) Object.assign(env, testEnv({ env: packageEnv }, isAssetGated));
 
   // Availability is a publication/qualification precondition, not a compile precondition.

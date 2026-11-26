@@ -2286,6 +2286,9 @@ async function runStages(o, args, root, git, io) {
     return releasePinFloorProblem({ packageJsonText, installedVersion, where: appDir === "." ? "package.json" : `${appDir}/package.json` });
   };
   const phaseTimings = [];
+  // The registry verdict this door run took before its compile, as a file only this process knows: a later invocation on the same commit
+  // has no such file and asks the registries itself (rightkit#1754; the binding is to the run, never to the commit).
+  let doorRegistryAdmissionFile = null;
   for (const stage of stages) {
     if (stage === "check" && publisherUploadOnly && receipt.stages.check?.ok && tierAtLeast(receipt.stages.check.ruleTier ?? "compile", earlyTier)) { o.out(`${tag} [check] already passed (${receipt.stages.check.ruleTier ?? "compile"} tier) for this exact input (commit, tree, lockfiles, gate, toolchain)`); continue; }
     if (stage === "compile" && receipt.stages.compile?.ok) {
@@ -2319,7 +2322,23 @@ async function runStages(o, args, root, git, io) {
     let ok = false; const at = new Date().toISOString(); const stageStartedMs = Date.now(); let extra = {}; let directReceipt = null; let packageSigned = new Map();
     if (stage === "check") {
       { const problem = await pinFloor(false); if (problem) { o.err(`${tag} BLOCKED: ${problem.message}; no class A row ran and nothing compiled`); return 1; } }
+      // An app pinned to an older @rightkit/release than this host gate: said once, never refused (release-pin-floor.mjs releasePinBehindHostNote).
+      try {
+        const packageJsonText = appPackageJson();
+        if (packageJsonText !== null) {
+          const { releasePinBehindHostNote } = await import("../release-pin-floor.mjs");
+          const hostVersion = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
+          const note = releasePinBehindHostNote({ packageJsonText, hostVersion, where: appDir === "." ? "package.json" : `${appDir}/package.json` });
+          if (note) o.out(`${tag} [check] note: ${note}`);
+        }
+      } catch { /* informational only */ }
       ok = (await (o.runCheck ?? (() => main(["check", "--commit", ds ? commit : "HEAD", "--full-a", ...(ds ? ["--snapshot", ds.path] : []), ...appScope, "--rule-tier", earlyTier], { ...io, cwd: root, ...(ds ? { snapshotLock: ds.lock } : {}) })))(earlyTier)) === 0;
+      // A run that goes on to qualify: a journeys manifest whose release-critical journeys cannot pass one installed-QA run is refused here,
+      // before anything compiles (release-qa-hardening.mjs criticalJourneySelectionProblems; CodeRight 2026-11-26: four adapters, found after notarization).
+      if (ok && stages.includes("qualify") && !mobile && PLATFORMS.includes(platform)) {
+        const shape = await journeysShapeProblems({ o, git, commit, appDir, base: ds ? ds.path : root, platform });
+        if (shape.length) { for (const line of shape) o.err(`${tag} BLOCKED: [check] ${line}`); ok = false; }
+      }
       extra = { ruleTier: earlyTier };
     }
     else if (stage === "compile") {
@@ -2344,6 +2363,14 @@ async function runStages(o, args, root, git, io) {
       };
       const admissionAfterStaging = wantsAdmission && executor.kind === "broker" && Boolean(ds);
       if (wantsAdmission && !admissionAfterStaging) ok = await admissionDryRun("before any compile");
+      // On a broker host the full dry-run waits for a Cargo target; the registry rows (pin freshness) need none, so they run first.
+      // A stale pin is then refused in seconds, before the sidecars and the app compile, and the verdict is kept for this run's package stage.
+      if (ok && wantsAdmission && admissionAfterStaging) {
+        const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "rk-door-registry-")), "admission.json");
+        o.out(`${tag} [compile] registry admission for ${platform} before any compile (right-release build --platform ${platform} --registry-admission-out)`);
+        if (await rightRelease(stage, ["build", "--platform", platform, "--registry-admission-out", file])) doorRegistryAdmissionFile = file;
+        else { o.err(`${tag} BLOCKED: [compile] the registry admission (pin freshness against the registries) refused ${platform}; nothing compiled`); ok = false; }
+      }
       // On the snapshot route the sidecars are staged from the snapshot's own config and sources through right-release's source split
       // (the staged files and receipt land beside the sources the compile reads; the caches and build trees stay the checkout's), before
       // `main --all` compiles. A broker host's stage-sidecar child reaches Cargo through the stage's carrier (stage-seam.mjs).
@@ -2432,7 +2459,7 @@ async function runStages(o, args, root, git, io) {
         else if (packageMulti.note) o.out(`${tag} [package] ${packageMulti.note}`);
       }
       const packageEnv = packagePin.dir ? { CARGO_TARGET_DIR: packagePin.dir } : (packageMulti?.env ?? {});
-      ok = ok && await rightRelease(stage, ["build", "--platform", platform], packageEnv);
+      ok = ok && await rightRelease(stage, ["build", "--platform", platform], { ...packageEnv, ...(doorRegistryAdmissionFile ? { RK_DOOR_REGISTRY_ADMISSION: doorRegistryAdmissionFile } : {}) });
       const sealed = ok ? (o.sealedFor ?? sealedFor)({ root: releaseRoot, commit, platform }) : null;
       if (ok && !sealed) { o.err(`${tag} [package] the build reported success but sealed nothing for ${commit.slice(0, 8)} on ${platform}`); ok = false; }
       if (sealed) extra = { platform, sealed: sealed.id, manifestSha256: sealed.digest };
@@ -2985,6 +3012,33 @@ export function qualifyOwedProblem({ o, git, commit, appDir = ".", base, owed })
   const declared = configs.some((f) => { try { return /\bqa\b[\s\S]*(^|[\s,{])["']?journeys["']?\s*:/m.test(o.readFile(path.join(base, f))); } catch { return false; } });
   if (declared) return [];
   return owed.map((x) => `${x.id} (${x.kind}${x.dir ? ` ${x.dir}` : ""}) is owed to qualification (${x.reason}) but no release config under ${appDir} declares qa.journeys, so nothing would run it; declare qa.journeys with a journeys.toml that covers it`);
+}
+
+/**
+ * Why the journeys manifests of the app's release configs cannot pass one installed-QA run on `platform`; empty when they can or when no
+ * config declares `qa.journeys` with a manifest. Read from `base` (the commit's bytes): the manifest path is the config's
+ * `qa.journeys.manifest`, relative to the config's directory. A manifest that cannot be read or parsed is left to the installed stage,
+ * which names that failure itself.
+ */
+export async function journeysShapeProblems({ o, git, commit, appDir = ".", base, platform }) {
+  const listed = git("ls-tree", "-r", "--name-only", "-z", commit);
+  const configs = (failed(listed) ? [] : text(listed).split("\0").filter((f) => /(^|\/)right-release\.config\.(json|mjs)$/.test(f)).filter((f) => appDir === "." || f.startsWith(`${appDir}/`)));
+  const problems = [];
+  let judge = null;
+  for (const config of configs) {
+    let body;
+    try { body = String(o.readFile(path.join(base, config))); } catch { continue; }
+    const m = /\bjourneys["']?\s*:\s*\{[^{}]*?\bmanifest["']?\s*:\s*["']([^"']+)["']/.exec(body);
+    if (!m) continue;
+    const manifestRel = path.posix.join(path.posix.dirname(config), m[1]);
+    let manifestText;
+    try { manifestText = String(o.readFile(path.join(base, manifestRel))); } catch { continue; }
+    judge ??= (await import("../release-qa-hardening.mjs")).criticalJourneySelectionProblems;
+    let found;
+    try { found = judge(manifestText, platform); } catch { continue; }
+    for (const line of found) problems.push(`${manifestRel}: ${line}`);
+  }
+  return problems;
 }
 
 /** The release configs of `commit` (under `appDir`) that declare a `web` block (`web.build` steps), read from `base`: the commit's config decides, never the checkout's. */
@@ -4566,13 +4620,20 @@ export async function main(argv, io = {}) {
       // GC-A24: RightKit's own preflight and exports probe execute the commit's code with its installed dependencies; a pass is reused
       // for the same commit tree, installed-dependency bytes, node and platform (and scope), and only a pass.
       const effects = path.join(snapshotDir, "scripts", "ci", "exports-import-effects.mjs");
+      // rightkit#1808: the exports probe imports every exported module from the snapshot, so it needs the snapshot's dependencies. Only a
+      // full admission (--full-a) installs them; a content check installs nothing. The probe therefore runs only on a full admission, and
+      // whether it ran is part of the cache key, so a content check's pass is never reused as a probed one.
+      const probes = o.exists(effects) && scopeForward.length === 0 && fullAdmission;
       let selfKey = null;
-      if (ruleCache) { try { selfKey = ruleCache.key({ rule: "rightkit-self-rules", tree: snapshotCommit.tree, scope: scopeForward, installed: installedDependencyDigest({ root: snapshotDir, files: sc.commitFiles(snapshotCheckout, snapshotCommit.commit, o.spawn).files, includeCaches: false }), effects: o.exists(effects) }); } catch { selfKey = null; } }
+      if (ruleCache) { try { selfKey = ruleCache.key({ rule: "rightkit-self-rules", tree: snapshotCommit.tree, scope: scopeForward, installed: installedDependencyDigest({ root: snapshotDir, files: sc.commitFiles(snapshotCheckout, snapshotCommit.commit, o.spawn).files, includeCaches: false }), effects: probes }); } catch { selfKey = null; } }
       const selfCached = Boolean(selfKey && ruleCache.passed(selfKey));
       if (selfCached) o.out(`preflight: ${snapshotCommit.commit.slice(0, 12)} cached pass (tree ${snapshotCommit.tree.slice(0, 12)}, same installed dependencies)`);
       const r = selfCached ? { status: 0 } : launch(process.execPath, [path.join(snapshotDir, "scripts", "preflight.mjs"), "--repo", root, "--commit", snapshotCommit.commit], { cwd: root, env: o.env });
       selfRules = r.status === 0 ? 0 : 1;
-      if (!selfCached && selfRules === 0 && o.exists(effects) && scopeForward.length === 0) {
+      if (!selfCached && selfRules === 0 && o.exists(effects) && scopeForward.length === 0 && !fullAdmission) {
+        o.out("exports-import-effects: not run by this content check (it installs no dependencies into the snapshot); run the check with --full-a, or any --to stage, to probe the exports");
+      }
+      if (!selfCached && selfRules === 0 && probes) {
         const common = o.spawn("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: root });
         const report = path.join(failed(common) ? path.join(root, ".git") : text(common).trim(), "rightkit-gate", "import-effects", `snapshot-${snapshotCommit.commit}.json`);
         const e = launch(process.execPath, [effects, "--root", snapshotDir, "--no-export", "--report", report], { cwd: snapshotDir, env: o.env });

@@ -452,7 +452,14 @@ export function verifySnapshotStore({ checkout, snapshot, commit, tree, ledger, 
       const message = miss && missingName
         ? `root ${root}: ${missingName} is missing from the store ${storeDir} (offline, no network fallback); install the checkout's dependencies so the store holds it, then run the check again`
         : `root ${root}: the offline store check failed (store ${storeDir}): ${diagnostic.codes.join(", ") || `exit ${Number.isInteger(r?.status) ? r.status : "unknown"}`}`;
-      throw new CheckError(`${message}; ${diagnostic.detail}`);
+      // pnpm's own text is never printed (it can carry registry addresses; rightkit#1505 keeps codes and a hash only). The two metadata codes
+      // say little on their own, so their meaning on an OFFLINE check is spelled out (Pulse, 2026-11-26: the cause behind them was pnpm's
+      // minimum-release-age rule holding back a package published an hour earlier, which this command's output never named).
+      const metadataMiss = !(miss && missingName) && diagnostic.codes.some((code) => code === "ERR_PNPM_NO_OFFLINE_META" || code === "ERR_PNPM_META_FETCH_FAIL");
+      const meaning = metadataMiss
+        ? "; on this offline check those codes mean the store has no metadata for a version the lockfile names: either the checkout's dependencies were not installed after the lockfile changed (install them, then run the check again), or pnpm's minimum-release-age rule is holding back a version published within its window (see minimumReleaseAge and minimumReleaseAgeExclude in the root's pnpm settings)"
+        : "";
+      throw new CheckError(`${message}${meaning}; ${diagnostic.detail}`);
     }
     records.push({ root, storeDir, storeSource: source, pnpm: version, pinned: pin, lockfileSha256: crypto.createHash("sha256").update(fs.readFileSync(path.join(dir, "pnpm-lock.yaml"))).digest("hex"), ms });
   }

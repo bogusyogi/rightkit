@@ -454,6 +454,13 @@ if (!rejectBlocked("target-checks", ["target"], "the target checks (signed, medi
   if (opts.platform === "mac") {
     if (target.signingContract !== MACOS_PORTABLE_SIGNING_CONTRACT) reject("mac-signing-contract", `${app} mac must declare signingContract: ${MACOS_PORTABLE_SIGNING_CONTRACT}`);
     if (!target.prePackage?.cmd) reject("mac-prepackage", `${app} mac must declare prePackage to materialize Developer ID signing files`);
+    // A string sign.entitlements is the development-signing form (development-signing.mjs reads it for the dev install). Release signing never
+    // reads it. With no sign.prePackageFiles entry carrying entitlements the app would be signed hardened with none and nothing would say so
+    // (CodeRight until 5603d8560). That combination is refused here, before anything builds; the string beside an entry that does carry
+    // entitlements is the dev route's setting and stays allowed.
+    if (typeof target.sign?.entitlements === "string" && !(target.sign.prePackageFiles ?? []).some((entry) => entry && typeof entry === "object" && typeof entry.entitlements === "string" && entry.entitlements.trim())) {
+      reject("mac-sign-entitlements-string", `${app} mac sign.entitlements is a string, which only development signing reads: release signing would sign the app with no entitlements. Set them on the bundle's sign.prePackageFiles entry ({ file, entitlements })`);
+    }
     if (!target.sign?.prePackageFiles?.length) reject("mac-sign-prepackage-files", `${app} mac must declare at least one sign.prePackageFiles`);
     else if (!rejectBlocked("mac-signing", ["media-sidecar", "external-bin"], `${app} mac signing config validation (it reads the sidecar and externalBin configs)`)) {
       await check("mac-signing", [], () => {

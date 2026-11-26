@@ -394,7 +394,7 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
   const runtime = hash(runtimeFiles.map((file) => `${path.relative(runtimeDir, file)}\0${hash(fs.readFileSync(file))}`).join("\n"));
   const report = { schema: "rightkit.unit-gate-report/1", unit, commit, tree, runtime, executor: executor.kind, stages: {} };
   const save = () => { if (writeReport) writeReport(report); };
-  let state, owner, artifact, currentStage, checkTier = null;
+  let state, owner, artifact, currentStage, checkTier = null, compileTests = null;
   // A broker-host run that reaches the qualify stage (--to qualify, or --to release) has its compile and package jobs attested: a pnpm job
   // is sent the stage nonce, a carried Cargo call a nonce derived from it, both bound to this commit, tree, unit and stage, so each job's
   // signed receipt can be verified hosted for exactly that and nothing else. `--to qualify` is the sanctioned no-upload route to that
@@ -466,6 +466,7 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
         const before = ledgerIds();
         state = await stageEnv(stage, (runEnv) => owner.compileLocalUnit(unit.kind, argv, { env: runEnv, ...(source ? { source } : {}) }));
         collectReceipts(stage, owner.localUnitCompileRequests?.(state), before);
+        compileTests = owner.localUnitCompileTests?.(state) ?? null;
       } else if (stage === "package") {
         const before = ledgerIds();
         artifact = await stageEnv(stage, (runEnv) => owner.packageLocalUnit(state, { env: runEnv }));
@@ -503,7 +504,7 @@ export async function runUnitGate({ selector, to, root, commonDir, commit, tree,
         try { command = (stageCommands({ unit, root, platform })[stage] ?? []).map(describeCommand).join("; ") || command; } catch { /* the stage name alone identifies the command */ }
         directStages[stage] = directStageEvidence({ stage, commit, tree, command, ...(stage === "package" ? { outputSha256: artifact.artifactSha256 } : {}) });
       }
-      report.stages[stage] = { ok: true, ...(stage === "package" || stage === "qualify" ? { artifactFile: artifact.artifactFile, artifactSha256: artifact.artifactSha256, ...(artifact.contentSha256 ? { contentSha256: artifact.contentSha256 } : {}) } : {}), ...(receipts[stage] ? { receipts: receipts[stage] } : {}), ...(released ?? {}) };
+      report.stages[stage] = { ok: true, ...(stage === "compile" && compileTests ? { tests: compileTests } : {}), ...(stage === "package" || stage === "qualify" ? { artifactFile: artifact.artifactFile, artifactSha256: artifact.artifactSha256, ...(artifact.contentSha256 ? { contentSha256: artifact.contentSha256 } : {}) } : {}), ...(receipts[stage] ? { receipts: receipts[stage] } : {}), ...(released ?? {}) };
       save();
       out(`rightkit-gate: [${stage}] ${unit.kind}:${unit.name} passed`);
     }

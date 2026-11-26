@@ -439,7 +439,32 @@ const DYNAMIC_READS = [
 // Builtins every JS runtime sets; they select nothing and are not part of the inventory.
 const JS_BUILTINS = new Set(["MODE", "DEV", "PROD", "BASE_URL", "SSR", "NODE_ENV"]);
 
+// In a git checkout the walk reads what git knows: tracked files, and untracked files the checkout's ignore rules do not ignore (a new source
+// file not yet committed is still judged). It does not descend into nested repositories, so the agent worktrees under `.claude/worktrees`
+// (each a whole copy of the repository) and ignored backup folders are not read. A gate stage's snapshot has no git directory and is walked
+// on disk as before; it holds only the commit's files. Before this, a doctor run in a primary checkout reported 228 findings where the
+// snapshot had 2 (Pulse 0d781b61, 2026-11-26). Returns paths relative to `root` with `/`, or null when `root` is not in a git work tree.
+function gitListedFiles(root) {
+  let r;
+  try { r = spawnSync("git", ["-C", root, "ls-files", "-z", "--cached", "--others", "--exclude-standard"], { encoding: "utf8", maxBuffer: 1 << 28, windowsHide: true }); } catch { return null; }
+  if (!r || r.error || r.status !== 0) return null;
+  return String(r.stdout ?? "").split("\0").filter(Boolean);
+}
+function* listedSource(root, skipAbs, listed, wanted) {
+  const skipped = [...skipAbs];
+  for (const rel of listed) {
+    const parts = rel.split("/");
+    const name = parts.pop();
+    if (parts.some(skipDir)) continue;
+    const full = path.join(root, ...parts, name);
+    if (skipped.some((dir) => full === dir || full.startsWith(dir + path.sep))) continue;
+    if (!wanted(name)) continue;
+    try { if (lstatSync(full).isFile()) yield full; } catch { /* listed by git and gone from disk: nothing to read */ }
+  }
+}
 function* walkSource(root, skipAbs = new Set()) {
+  const listed = gitListedFiles(root);
+  if (listed) { yield* listedSource(root, skipAbs, listed, (name) => SOURCE_EXT.has(path.extname(name)) && !TEST_FILE.test(name)); return; }
   const stack = [root];
   while (stack.length) {
     const dir = stack.pop();
@@ -471,6 +496,8 @@ export function envHelperPatterns(envHelpers, problems = []) {
 
 // Xcode and SwiftPM project files, for the Swift Release-configuration check.
 function* walkProjectFiles(root, skipAbs = new Set()) {
+  const listed = gitListedFiles(root);
+  if (listed) { yield* listedSource(root, skipAbs, listed, (name) => name === "project.pbxproj" || name === "Package.swift" || /\.xcconfig$/.test(name)); return; }
   const stack = [root];
   while (stack.length) {
     const dir = stack.pop();
