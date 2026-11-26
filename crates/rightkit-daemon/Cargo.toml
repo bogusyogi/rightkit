@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-daemon"
-version = "0.9.3"
+version = "0.9.4"
 edition = "2021"
 rust-version = "1.98.0"
 description = "One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist."
@@ -21,6 +21,8 @@ rightkit-roots = { version = "0.3.0", path = "../rightkit-roots" }
 # Private per-run child service (`private`): constant-time secret check and the secret itself.
 subtle = "2.6"
 getrandom = "0.4"
+# LAN service discovery (`lan-discovery`): multicast DNS announce and browse.
+mdns-sd = { version = "0.13", optional = true }
 
 # Peer code-signature check (`peer_signature`, rightkit#1319): Security.framework on macOS,
 # WinVerifyTrust on Windows.
@@ -52,6 +54,11 @@ local = []
 # rustls, no device state. The remote HTTPS host, the device link client and the relay (the
 # `remote`, `link` and `relay` features until 0.7.0) are the `rightkit-daemon-remote` crate.
 remote-loopback = []
+# Announce a service on the local network and browse for one over multicast DNS (`lan_discovery`):
+# the machine's network address, `advertise` and `browse`. Product-neutral: the host passes the
+# service type. Off by default; it brings in `mdns-sd`, which runs one background thread per
+# announcement.
+lan-discovery = ["dep:mdns-sd"]
 
 [[bench]]
 name = "budget"

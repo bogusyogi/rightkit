@@ -422,7 +422,6 @@ pub struct CaptureCutToken {
 pub(super) struct CallbackStamp {
     pub epoch: u64,
     pub capture: StreamInstant,
-    pub callback: StreamInstant,
     pub frames: usize,
 }
 pub(super) struct PreciseEpoch {
@@ -460,10 +459,10 @@ impl PreciseEpoch {
             if stamp.epoch != self.epoch || stamp.epoch != cut.epoch {
                 return Err(anyhow!("precise capture wrong timestamp epoch"));
             }
-            // `callback` is not an upper bound for `capture`. On WASAPI it is the QPC value of the
-            // audio clock's last position update, which trails a packet's own capture time by up
-            // to one device period (Dell built-in microphone array: 247 of 799 packets). Only the
-            // capture time selects samples, so only it is required.
+            // The host's callback time is not kept: it is no upper bound for the capture time. On
+            // WASAPI it is the QPC value of the audio clock's last position update, which trails
+            // a packet's own capture time by up to one device period (Dell built-in microphone
+            // array: 247 of 799 packets). Only the capture time selects samples.
             if stamp.frames == 0 || stamp.capture == StreamInstant::ZERO {
                 return Err(anyhow!("precise capture invalid or missing timestamp"));
             }
@@ -538,7 +537,6 @@ mod tests {
         CallbackStamp {
             epoch,
             capture: StreamInstant::from_millis(millis),
-            callback: StreamInstant::from_millis(millis + 100),
             frames,
         }
     }

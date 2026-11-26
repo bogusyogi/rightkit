@@ -630,7 +630,7 @@
     "rightkit-crash": "0.4.3",
     "rightkit-credentials": "0.5.10",
     "rightkit-crypto": "0.1.4",
-    "rightkit-daemon": "0.9.3",
+    "rightkit-daemon": "0.9.4",
     "rightkit-daemon-remote": "0.1.0",
     "rightkit-db": "0.5.11",
     "rightkit-decimal": "0.1.0",
@@ -686,7 +686,7 @@
     "rightkit-launcher-win": "0.2.1",
     "rightkit-library": "0.3.1",
     "rightkit-license": "0.3.5",
-    "rightkit-llm": "0.7.1",
+    "rightkit-llm": "0.7.2",
     "rightkit-local-gen": "0.1.4",
     "rightkit-logs": "0.4.5",
     "rightkit-mail": "0.1.2",
@@ -1148,7 +1148,8 @@
       "0.4.0",
       "0.9.0",
       "0.9.1",
-      "0.9.2"
+      "0.9.2",
+      "0.9.3"
     ],
     "rightkit-db": [
       "0.2.1",
@@ -1352,7 +1353,8 @@
       "0.2.1",
       "0.3.0",
       "0.3.1",
-      "0.7.0"
+      "0.7.0",
+      "0.7.1"
     ],
     "rightkit-logs": [
       "0.2.0",
