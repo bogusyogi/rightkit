@@ -206,13 +206,13 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, deps = 
     // The journeys runner builds with `rustright cargo` in the app root, not through the seam, so the broker checks the stage's Class A
     // verdict against that directory (its workspace is the cwd relative to the snapshot). Hand it the verdict for that directory, derived
     // from the stage's root verdict exactly as the seam derives one for each of its own calls (seam-broker.mjs verdictForCwd).
+    const runCwd = appRoot;
     const stageEnv = deps.env ?? process.env;
     const classAForRoot = sourceListing && stageEnv[CLASS_A_ENV] ? (deps.verdictForCwd ?? verdictForCwd)(stageEnv, runCwd) : null;
     const runEnv = {
       ...process.env, ...(sourceListing ? { [QA_SOURCE_LISTING_ENV]: sourceListing } : {}), ...(classAForRoot ? { [CLASS_A_ENV]: classAForRoot } : {}), RIGHT_RELEASE_QA_STAGE: stage, RIGHT_RELEASE_QA_COMMIT: source.commit, RIGHT_RELEASE_QA_RELEASE_ID: releaseId,
       ...(sealed ? { RIGHT_RELEASE_QA_SEALED_DIR: sealed.sealedDir } : {}), ...(installedDirs.length ? { RIGHTKIT_QA_INSTALLED_DIRS: installedDirs.join(";") } : {}), ...(installedQa?.env ?? {}),
     };
-    const runCwd = appRoot;
     const args = ["run", "--config", qaConfig, ...((config.qa.args?.[stage] ?? []).map(expand))];
     run = (deps.spawnRunner ?? spawnSync)(runnerFile, args, {
       cwd: runCwd, encoding: "utf8", windowsHide: true, maxBuffer: 64 * 1024 * 1024,
