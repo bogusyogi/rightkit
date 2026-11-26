@@ -17,6 +17,36 @@ use std::time::{Duration, Instant};
 const ROLE: &str = "RK_BROWSER_PARENT_DEATH_ROLE";
 const TEST_NAME: &str = "a_killed_host_takes_chrome_with_it";
 
+/// The Chrome for Testing the host names: the executable in `RIGHTKIT_CHROME_FOR_TESTING`, else
+/// the one in the managed root `RIGHTKIT_CHROME_FOR_TESTING_ROOT` when it holds an install. The
+/// crate reads these names only with its `host-env` feature, so the test reads them itself and
+/// passes the result as the explicit executable: the proof runs the same in every feature round.
+fn host_chrome() -> Option<std::path::PathBuf> {
+    let non_empty = |name: &str| {
+        std::env::var_os(name)
+            .filter(|value| !value.is_empty())
+            .map(std::path::PathBuf::from)
+    };
+    non_empty("RIGHTKIT_CHROME_FOR_TESTING").or_else(|| {
+        non_empty("RIGHTKIT_CHROME_FOR_TESTING_ROOT")
+            .map(|root| rightkit_browser::ManagedRoot::at(root).executable())
+            .filter(|executable| executable.exists())
+    })
+}
+
+/// Chrome for Testing as the launches below resolve it.
+fn resolve_chrome() -> rightkit_browser::Result<std::path::PathBuf> {
+    rightkit_browser::chrome_for_testing_path(host_chrome().as_deref())
+}
+
+/// Default launch options with the host's Chrome for Testing as the explicit executable.
+#[allow(clippy::field_reassign_with_default)]
+fn launch_options() -> rightkit_browser::LaunchOptions {
+    let mut options = rightkit_browser::LaunchOptions::default();
+    options.chrome_path = host_chrome();
+    options
+}
+
 /// True while the process exists and is not a zombie.
 fn alive(pid: u32) -> bool {
     let output = Command::new("ps")
@@ -42,7 +72,7 @@ fn group_members_remain(pgid: u32) -> bool {
 /// True when Chrome for Testing resolves the way the supervisor's default launch resolves it.
 /// Otherwise prints the reason on stdout and returns false, so the test skips.
 fn chrome_for_testing_or_skip() -> bool {
-    match rightkit_browser::chrome_for_testing_path(None) {
+    match resolve_chrome() {
         Ok(_) => true,
         Err(error) => {
             println!(
@@ -63,16 +93,14 @@ fn a_killed_host_takes_chrome_with_it() {
             .enable_all()
             .build()
             .expect("current-thread runtime");
-        // The same resolver the default launch below uses. `find_chrome` would also accept a
+        // The same resolver the launch below uses. `find_chrome` would also accept a
         // regular Google Chrome, which `LaunchOptions::default()` never launches, so checking it
         // here would refuse a host that has Chrome for Testing but no regular Chrome.
-        if let Err(error) = rightkit_browser::chrome_for_testing_path(None) {
+        if let Err(error) = resolve_chrome() {
             panic!("Chrome for Testing is not available here, so the proof cannot run: {error}");
         }
         let session = runtime
-            .block_on(rightkit_browser::BrowserSession::launch(
-                rightkit_browser::LaunchOptions::default(),
-            ))
+            .block_on(rightkit_browser::BrowserSession::launch(launch_options()))
             .unwrap_or_else(|error| panic!("supervisor could not launch Chrome: {error}"));
         let pid = session
             .process_id()

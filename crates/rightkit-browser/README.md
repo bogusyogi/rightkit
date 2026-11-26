@@ -28,6 +28,8 @@ Do not use it to drive Safari or Firefox, or desktop apps (see `rightkit-automat
 
 `profile-vault` (off by default): `ProfileVault` and `ProfileSpec::Encrypted`; pulls `rightkit-credentials` and `rightkit-crypto`. See "Encrypted profile".
 
+`host-env` (off by default): the two environment overrides of Chrome resolution, `RIGHTKIT_CHROME_FOR_TESTING` (an executable) and `RIGHTKIT_CHROME_FOR_TESTING_ROOT` (the managed root), and the public names `CHROME_FOR_TESTING_ENV` and `CHROME_FOR_TESTING_ROOT_ENV`. Without it no environment variable selects the Chrome executable or its managed folder, and neither name is in the compiled code or in `CHROME_FOR_TESTING_INSTALL_HINT`: a release binary carries no S3 selector from this crate. Tests, QA runners and development tools enable it; a shipped app does not.
+
 `axe` (off by default): compiles in the vendored axe-core 4.14.0 for `capture` (see "Capture").
 
 ## Usage
@@ -67,7 +69,7 @@ Loopback fixtures are blocked by default. `tests/e2e.rs` opts in for a local tes
 
 ## Chrome resolution
 
-Launch resolves Chrome for Testing (`chrome_for_testing_path`) in this order: `LaunchOptions::chrome_path`, then the `RIGHTKIT_CHROME_FOR_TESTING` environment variable, then the RightKit-managed `current` folder (one fixed path, with a single `current.previous` kept for rollback; legacy per-version folders are tried after it, newest first), app installs, and the newest Puppeteer or Playwright cache builds.
+Launch resolves Chrome for Testing (`chrome_for_testing_path`) in this order: `LaunchOptions::chrome_path`, then (feature `host-env` only) the `RIGHTKIT_CHROME_FOR_TESTING` environment variable, then the RightKit-managed `current` folder (one fixed path, with a single `current.previous` kept for rollback; legacy per-version folders are tried after it, newest first), app installs, and the newest Puppeteer or Playwright cache builds.
 
 | Platform | Managed executable |
 |---|---|
@@ -78,7 +80,7 @@ Launch resolves Chrome for Testing (`chrome_for_testing_path`) in this order: `L
 
 The `install` cargo feature adds `install::ensure_chrome_for_testing(&ManagedRoot, &PinnedChrome)` for an app's installer or updater step: it downloads through rightkit-models, checks the pinned SHA-256 before extracting, extracts to `current.staging`, swaps into `current` and keeps `current.previous`. A pin whose digest is `Sha256Pin::Todo` is refused.
 
-- `RIGHTKIT_CHROME_FOR_TESTING_ROOT` overrides only the managed root. An explicit executable override keeps priority.
+- With feature `host-env`, `RIGHTKIT_CHROME_FOR_TESTING_ROOT` overrides only the managed root; without it the managed root is always the suite-wide default. An explicit executable override keeps priority.
 - If Chrome for Testing is missing, launch returns `BrowserError::ChromeForTestingNotFound` with install instructions.
 - `LaunchOptions::system_chrome()` keeps the Chrome for Testing preference and falls back to `find_chrome()` only when that resolution fails.
 - `LaunchOptions::system_chrome_only()` resolves only through `find_chrome()`, including its `CHROME` override. It ignores `chrome_path` and Chrome for Testing discovery. If no system Chrome, Chromium or Edge exists, it returns `BrowserError::ChromeNotFound`.
