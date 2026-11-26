@@ -1524,7 +1524,8 @@ const _: () =
 /// (the link `claude_chats::reopen` uses) shows the chat, and Desktop starts its CLI with
 /// `--resume` without sending it anything. Once its registry file appears the message goes the
 /// normal way, and the receipt says the chat was woken. A chat in another Desktop profile cannot
-/// be reached by that link: it is `unsupported`, so the message waits in the chat's inbox.
+/// be reached by that link: the message is `held` in the chat's inbox until the chat is opened there
+/// or `@cli@ chat inbox --ack` releases it.
 fn wake_idle_desktop(
     session: &LocalSession,
     env: &Envelope,
@@ -1612,9 +1613,11 @@ fn wake_idle_desktop_for_inner(
             "chat.wake.unsupported",
             json!({ "harness": "claude", "reason": "other_profile" }),
         );
-        return Ok(shim::unsupported(&super::brand::branded(
-            "This idle chat is in another Claude Desktop profile, which @product@ cannot wake. The message is kept in its Chat inbox and is handed to the chat when someone opens it in that profile; nothing else wakes it (check later with `@cli@ chat receipt <message id>`).",
-        )));
+        // Kept in the chat inbox, so the state is `held` (what the send ends with), not `unsupported`.
+        return Ok(shim::held(&super::brand::branded(&format!(
+            "This idle chat is in another Claude Desktop profile, which @product@ cannot wake, so the message is held in its Chat inbox. To release it, open the chat in that profile (its hook hands the message over), or have the chat run `@cli@ chat inbox --session {} --ack`. Check later with `@cli@ chat receipt <message id>`.",
+            session.id
+        ))));
     }
     let Some(host) = session.raw["hostSessionId"].as_str() else {
         super::sendlog::event(

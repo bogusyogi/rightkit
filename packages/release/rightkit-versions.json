@@ -600,7 +600,7 @@
     "rightkit-captions": "0.1.1",
     "rightkit-catalog": "0.1.0",
     "rightkit-channel-memory": "0.2.3",
-    "rightkit-chat-bridge": "0.2.4",
+    "rightkit-chat-bridge": "0.2.5",
     "rightkit-child-process": "0.5.17",
     "rightkit-clipboard": "0.1.0",
     "rightkit-clipboard-history": "0.4.0",
@@ -1054,7 +1054,8 @@
       "0.2.0",
       "0.2.1",
       "0.2.2",
-      "0.2.3"
+      "0.2.3",
+      "0.2.4"
     ],
     "rightkit-child-process": [
       "0.4.0",
