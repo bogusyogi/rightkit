@@ -125,7 +125,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | generation-pipeline | `rightkit-pipeline` | none | declaration-only | 0 | rightkit-pipeline: staged 0.2.0, not published |
 | generative-media | `rightkit-media-gen` | none | declaration-only | 0 | rightkit-media-gen: staged 0.2.4, not published |
 | github | `rightkit-github` | none | declaration-only | 0 | rightkit-github: staged 0.2.1, not published |
-| github-workflows | `@rightkit/ci` | none | declaration-only | 0 | @rightkit/ci: published 0.3.1 (npm) |
+| github-workflows | `@rightkit/ci` | none | declaration-only | 0 | @rightkit/ci: published 0.3.2 (npm) |
 | global-hotkeys | `rightkit-hotkeys` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-hotkeys: published 0.1.6 (crates.io) |
 | google-identity | `rightkit-google-identity` | none | declaration-only | 0 | rightkit-google-identity: published 0.2.0 (crates.io) |
 | google-workspace-apis | `rightkit-google-apis` | none | declaration-only | 0 | rightkit-google-apis: published 0.2.1 (crates.io) |
