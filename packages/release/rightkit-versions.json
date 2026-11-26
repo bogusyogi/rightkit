@@ -593,7 +593,7 @@
     "rightkit-approvals": "0.2.2",
     "rightkit-asr": "0.5.2",
     "rightkit-assist": "0.1.1",
-    "rightkit-audio": "0.4.4",
+    "rightkit-audio": "0.4.5",
     "rightkit-autoedit": "0.2.1",
     "rightkit-automation": "0.7.6",
     "rightkit-autostart": "0.1.1",
@@ -1022,7 +1022,8 @@
       "0.3.9",
       "0.4.0",
       "0.4.1",
-      "0.4.3"
+      "0.4.3",
+      "0.4.4"
     ],
     "rightkit-automation": [
       "0.3.0",

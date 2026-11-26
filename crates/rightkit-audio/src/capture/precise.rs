@@ -460,10 +460,11 @@ impl PreciseEpoch {
             if stamp.epoch != self.epoch || stamp.epoch != cut.epoch {
                 return Err(anyhow!("precise capture wrong timestamp epoch"));
             }
-            if stamp.frames == 0
-                || stamp.capture == StreamInstant::ZERO
-                || stamp.capture > stamp.callback
-            {
+            // `callback` is not an upper bound for `capture`. On WASAPI it is the QPC value of the
+            // audio clock's last position update, which trails a packet's own capture time by up
+            // to one device period (Dell built-in microphone array: 247 of 799 packets). Only the
+            // capture time selects samples, so only it is required.
+            if stamp.frames == 0 || stamp.capture == StreamInstant::ZERO {
                 return Err(anyhow!("precise capture invalid or missing timestamp"));
             }
             if let Some((prior_capture, prior_frames)) = previous {
@@ -485,10 +486,14 @@ impl PreciseEpoch {
                 {
                     return Err(anyhow!("precise capture timestamp regression"));
                 }
-                // One native frame tolerates reported timestamp quantization.
-                // A gap/overlap wholly before start or after cut is discarded;
-                // any larger discontinuity touching requested audio fails.
-                if packet_start.abs_diff(prior_end) > 1_000_000_000
+                // Half of the shorter packet tolerates the jitter of reported packet
+                // timestamps: a driver stamps each packet from its own clock read, and on the
+                // Dell built-in microphone array consecutive 480-frame packets differ from
+                // their nominal spacing by up to 17 frames with nothing lost. A lost packet
+                // moves the next one by at least a whole packet, which still fails. A
+                // gap/overlap wholly before start or after cut is discarded.
+                let tolerance = (prior_frames.min(stamp.frames) as u128 / 2).max(1) * 1_000_000_000;
+                if packet_start.abs_diff(prior_end) > tolerance
                     && intersects(packet_start.min(prior_end), packet_start.max(prior_end))
                 {
                     return Err(anyhow!("precise capture timestamp discontinuity"));
@@ -689,7 +694,7 @@ mod tests {
         let gate = Arc::new(ProducerGate::default());
         let token = cut(&gate, 50);
         assert!(
-            epoch(vec![0.0; 960], vec![stamp(1, 10, 480), stamp(1, 21, 480)])
+            epoch(vec![0.0; 960], vec![stamp(1, 10, 480), stamp(1, 26, 480)])
                 .selected_native(&token, 48000)
                 .is_err()
         );
