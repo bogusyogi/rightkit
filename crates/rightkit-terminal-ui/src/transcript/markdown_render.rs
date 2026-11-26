@@ -2498,6 +2498,35 @@ impl<'a, 'policy> Writer<'a, 'policy> {
             prefix.extend(ctx.prefix.iter().cloned());
         }
 
+        self.cap_prefix_width(prefix)
+    }
+
+    /// Keep the indent of a deeply nested block from using up the row (#534). A list nested twelve deep asks for
+    /// 46 columns of indent; on a 40-column terminal that leaves no room, and the text was drawn one character per
+    /// row. Once the prefix is wider than half the wrap width, leading spaces are taken off its spans until it
+    /// fits, so deeper levels stop moving right and the marker row and its continuation rows stay aligned (both go
+    /// through here). Markers, quote bars and other visible characters are never removed. Without a wrap width
+    /// nothing is capped.
+    fn cap_prefix_width(&self, mut prefix: Vec<Span<'static>>) -> Vec<Span<'static>> {
+        let Some(width) = self.wrap_width else {
+            return prefix;
+        };
+        let mut excess = Self::spans_display_width(&prefix).saturating_sub(width / 2);
+        for span in &mut prefix {
+            if excess == 0 {
+                break;
+            }
+            let cut = span
+                .content
+                .bytes()
+                .take_while(|byte| *byte == b' ')
+                .count()
+                .min(excess);
+            if cut > 0 {
+                span.content = span.content[cut..].to_string().into();
+                excess -= cut;
+            }
+        }
         prefix
     }
 }

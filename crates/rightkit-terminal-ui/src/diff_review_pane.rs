@@ -210,6 +210,17 @@ impl DiffReview {
         (!out.is_empty()).then_some(out)
     }
 
+    /// The comments as feedback text, removed so a second send does not repeat them.
+    pub fn take_feedback(&mut self) -> Option<String> {
+        let text = self.feedback();
+        for f in &mut self.files {
+            for h in &mut f.hunks {
+                h.comments.clear();
+            }
+        }
+        text
+    }
+
     pub fn lines(&self) -> Vec<Line<'static>> {
         let mut out = Vec::new();
         for (fi, f) in self.files.iter().enumerate() {

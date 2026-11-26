@@ -386,29 +386,105 @@ impl fmt::Display for TimelineEntry {
     }
 }
 
-/// Ordered, append-only typed history. Deliberately unbounded here -- the
-/// bounding/eviction discipline `Transcript` implements (P2-5's strict
-/// live cap) is a rendering-memory concern for whichever component ends up
-/// drawing this; this module is only the data model and the reducer that
-/// fills it.
+/// Entries kept resident; older settled entries are dropped from the front (the durable store still holds them).
+pub const TIMELINE_MAX_ENTRIES: usize = 20_000;
+/// Eviction runs in chunks, not on every push.
+const TIMELINE_EVICT_SLACK: usize = 1_024;
+
+/// The resident cap and the eviction chunk. A journey lowers the cap with
+/// `<PREFIX>_TIMELINE_MAX_ENTRIES` (the host's prefix from `terminal::notify::env_name`, `RIGHTKIT_`
+/// by default; read once; unset, empty or not a number above 50 leaves the default), because
+/// 20,000 entries cannot be produced through a real stream in a test run.
+fn timeline_limits() -> (usize, usize) {
+    static LIMITS: std::sync::OnceLock<(usize, usize)> = std::sync::OnceLock::new();
+    *LIMITS.get_or_init(|| {
+        match std::env::var(crate::terminal::notify::env_name("TIMELINE_MAX_ENTRIES"))
+            .ok()
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .filter(|cap| *cap >= 50 && *cap < TIMELINE_MAX_ENTRIES)
+        {
+            Some(cap) => (cap, (cap / 4).min(TIMELINE_EVICT_SLACK)),
+            None => (TIMELINE_MAX_ENTRIES, TIMELINE_EVICT_SLACK),
+        }
+    })
+}
+
+/// Ordered typed history. Appended to by the reducer and bounded: once more than [`TIMELINE_MAX_ENTRIES`] are
+/// resident, the oldest settled entries are dropped from the front. `base` counts what was dropped, so an absolute
+/// index (the position the entry had when it was pushed) stays valid: resident position = absolute - `base`.
 #[derive(Debug, Default)]
 pub struct Timeline {
     entries: Vec<TimelineEntry>,
+    /// Number of entries evicted from the front so far.
+    base: usize,
+    /// The newest route entry, kept as it is pushed so the strip never scans the whole history.
+    latest_route: Option<(String, String, String)>,
 }
 
 impl Timeline {
     pub fn new() -> Self {
         Self {
             entries: Vec::new(),
+            base: 0,
+            latest_route: None,
         }
     }
 
     pub fn push(&mut self, entry: TimelineEntry) {
+        if let TimelineEntry::Route {
+            project,
+            model,
+            actor,
+        } = &entry
+        {
+            self.latest_route = Some((project.clone(), model.clone(), actor.clone()));
+        }
         self.entries.push(entry);
+        let (cap, slack) = timeline_limits();
+        if self.entries.len() > cap + slack {
+            self.evict_oldest_settled();
+        }
     }
 
+    /// Drop settled entries from the front down to the cap. Stops at the first entry that can still change, so
+    /// every kept entry keeps its absolute index. A streaming entry that something newer was pushed after is
+    /// superseded, not open (the turn-end settle closes it).
+    fn evict_oldest_settled(&mut self) {
+        let excess = self.entries.len().saturating_sub(timeline_limits().0);
+        let last = self.entries.len().saturating_sub(1);
+        let drop = self
+            .entries
+            .iter()
+            .enumerate()
+            .take(excess)
+            .take_while(|(index, entry)| {
+                !entry.is_open()
+                    || (*index < last
+                        && matches!(
+                            entry,
+                            TimelineEntry::Assistant { .. } | TimelineEntry::Reasoning { .. }
+                        ))
+            })
+            .count();
+        self.entries.drain(..drop);
+        self.base += drop;
+    }
+
+    /// The resident entries (the newest window); the first one has absolute index [`Self::evicted`].
     pub fn entries(&self) -> &[TimelineEntry] {
         &self.entries
+    }
+
+    /// How many entries were evicted from the front.
+    pub fn evicted(&self) -> usize {
+        self.base
+    }
+
+    /// The entry at an absolute index, or `None` when it was evicted or never existed.
+    pub fn get(&self, absolute: usize) -> Option<&TimelineEntry> {
+        absolute
+            .checked_sub(self.base)
+            .and_then(|index| self.entries.get(index))
     }
 
     pub fn len(&self) -> usize {
@@ -475,18 +551,15 @@ impl Timeline {
     /// Most recent route decision, if any (S:I6's identity strip reads
     /// this for its attribution fields).
     pub fn latest_route(&self) -> Option<(&str, &str, &str)> {
-        self.entries.iter().rev().find_map(|e| match e {
-            TimelineEntry::Route {
-                project,
-                model,
-                actor,
-            } => Some((project.as_str(), model.as_str(), actor.as_str())),
-            _ => None,
-        })
+        self.latest_route
+            .as_ref()
+            .map(|(project, model, actor)| (project.as_str(), model.as_str(), actor.as_str()))
     }
 
     pub fn clear(&mut self) {
         self.entries.clear();
+        self.base = 0;
+        self.latest_route = None;
     }
 }
 

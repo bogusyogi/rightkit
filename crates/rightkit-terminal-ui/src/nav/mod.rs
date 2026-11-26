@@ -76,6 +76,10 @@ pub struct NavView {
     session_query: String,
     session_searching: bool,
     session_alpha_sort: bool,
+    /// Sessions whose message text matched `content_query` (the host's full-text search), with a snippet. Shown only
+    /// while the typed filter is still that query.
+    content_matches: Vec<(SessionSummary, String)>,
+    content_query: String,
     /// Row metadata (age, workspace, first-message preview) by session id.
     session_details: std::collections::HashMap<String, SessionDetail>,
     /// A session delete awaiting `[y/N]` confirmation.
@@ -104,6 +108,8 @@ impl NavView {
             session_query: String::new(),
             session_searching: false,
             session_alpha_sort: false,
+            content_matches: Vec::new(),
+            content_query: String::new(),
             session_details: std::collections::HashMap::new(),
             pending_session_delete: None,
             pending_stop: None,
@@ -157,6 +163,8 @@ impl NavView {
         self.picker = Some(PickerKind::Sessions);
         self.cursor = 0;
         self.session_query.clear();
+        self.content_matches.clear();
+        self.content_query.clear();
         self.session_searching = false;
         self.intents.push(NavIntent::OpenSessions);
     }
@@ -191,6 +199,26 @@ impl NavView {
             .flatten()
     }
 
+    /// The text typed into the session filter.
+    pub fn session_query(&self) -> &str {
+        &self.session_query
+    }
+
+    /// Feed the sessions whose message text matched `query` (a full-text search the host ran). They are listed
+    /// beside the title matches, marked as content matches, while the typed filter is still `query`.
+    pub fn set_content_matches(&mut self, query: &str, matches: Vec<(SessionSummary, String)>) {
+        self.content_query = query.to_lowercase();
+        self.content_matches = matches;
+    }
+
+    fn content_hit(&self, id: &SessionId) -> Option<&str> {
+        let query = self.session_query.to_lowercase();
+        (!query.is_empty() && self.content_query == query)
+            .then(|| self.content_matches.iter().find(|(row, _)| row.id == *id))
+            .flatten()
+            .map(|(_, snippet)| snippet.as_str())
+    }
+
     fn visible_sessions(&self) -> Vec<&SessionSummary> {
         let query = self.session_query.to_lowercase();
         let mut rows: Vec<_> = self
@@ -205,6 +233,13 @@ impl NavView {
                     })
             })
             .collect();
+        if !query.is_empty() && self.content_query == query {
+            for (row, _) in &self.content_matches {
+                if !rows.iter().any(|seen| seen.id == row.id) {
+                    rows.push(row);
+                }
+            }
+        }
         if self.session_alpha_sort {
             rows.sort_by_key(|row| row.name.to_lowercase());
         }
@@ -507,6 +542,7 @@ impl NavView {
                 let marker = if i == self.cursor { "> " } else { "  " };
                 let detail = self.session_details.get(&s.id.0);
                 let mut head = format!("{marker}{}", s.name);
+                let content = self.content_hit(&s.id);
                 if let Some(d) = detail {
                     for part in [&d.age, &d.workspace] {
                         if !part.is_empty() {
@@ -515,8 +551,16 @@ impl NavView {
                         }
                     }
                 }
+                if content.is_some() {
+                    head.push_str(" \u{b7} matches message text");
+                }
                 let mut lines = vec![Line::from(Span::raw(head))];
-                if let Some(d) = detail.filter(|d| !d.preview.is_empty()) {
+                if let Some(snippet) = content.filter(|snippet| !snippet.is_empty()) {
+                    lines.push(Line::from(Span::styled(
+                        format!("    {snippet}"),
+                        Style::default().fg(theme.color(Role::Border)),
+                    )));
+                } else if let Some(d) = detail.filter(|d| !d.preview.is_empty()) {
                     lines.push(Line::from(Span::styled(
                         format!("    {}", d.preview),
                         Style::default().fg(theme.color(Role::Border)),
