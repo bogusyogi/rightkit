@@ -3823,7 +3823,7 @@
       "pkId": "PK165",
       "id": "ci/consumers/rightkit-chat-bridge/src/main.rs",
       "files": {
-        "Cargo.toml": "6e526b882ace071d3e723f9e85fa0a0cd2dc109e1ea2cdff7a530927df4df2b0",
+        "Cargo.toml": "e7086014772160e99af93d4430c210dcd0fe1e2f358d22808d94cf45b77386a0",
         "README.md": "55704f4024119e42fc28dad9e529ce3ef1cf30f95166889d902ba765087b996b",
         "src/main.rs": "72b5d81d5ee3555eaee6746feb93cbac8930deaabd875b7391786c6db9841925"
       }
