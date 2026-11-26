@@ -3,13 +3,12 @@
     {
       "result": {
         "mode": "report",
-        "admit": true,
-        "code": "RK_OWNERSHIP_CLEAN",
-        "problems": [],
-        "warnings": [
-          "repository is not registered in protected trust (warning only; registering needed the retired trust-sync)"
+        "admit": false,
+        "code": "RK_OWNERSHIP_INVALID_REGISTRATION",
+        "problems": [
+          "repository is not registered in protected trust"
         ],
-        "outcome": "clean",
+        "outcome": "invalid-registration",
         "violations": [],
         "scanRoot": "/fixture/repo",
         "scanMs": 0,

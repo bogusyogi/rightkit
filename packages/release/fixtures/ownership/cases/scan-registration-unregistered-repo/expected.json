@@ -38,137 +38,45 @@
         }
       }
     },
-    "report": {
-      "ok": true,
-      "findings": [],
-      "violations": [],
-      "problems": [],
-      "rows": [
+    "complete": true,
+    "enrollmentPending": false,
+    "metadata": {
+      "repositoryIdentity": "https://github.com/test/unregistered",
+      "scannerVersion": "2.6.0",
+      "catalogVersion": "1",
+      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
+      "coverage": [],
+      "roots": [
         {
-          "capability": "http-client",
-          "owner": "rightkit-http",
-          "uses": false,
-          "status": "not-detected",
-          "count": 0,
-          "root": "."
-        },
-        {
-          "capability": "logging",
-          "owner": "rightkit-log",
-          "uses": false,
-          "status": "not-detected",
-          "count": 0,
-          "root": "."
-        },
-        {
-          "capability": "sandbox-exec",
-          "owner": "rightkit-sandbox",
-          "uses": false,
-          "status": "not-detected",
-          "count": 0,
-          "root": "."
-        },
-        {
-          "capability": "ui-shell",
-          "owner": "rightkit-ui",
-          "uses": false,
-          "status": "not-detected",
-          "count": 0,
           "root": "."
         }
-      ],
-      "covered": [],
-      "warnings": [
-        "repository is not registered in protected trust (warning only; the requested root is scanned)"
-      ],
+      ]
+    },
+    "report": {
+      "ok": false,
+      "enrollmentPending": false,
+      "violations": [],
+      "problems": [],
       "coverage": [],
       "metadata": {
         "repositoryIdentity": "https://github.com/test/unregistered",
-        "commit": "852cb093ae9d3cd3001ce7668dd6f8448c436681",
-        "tree": "dd73638b79762e6216b60956e2c15242f23d9d9a",
+        "scannerVersion": "2.6.0",
+        "catalogVersion": "1",
         "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
-        "contentDigests": [
-          {
-            "path": "Cargo.lock",
-            "digest": "bba11463dca4f93d990490cbc8840bddc2f2c3f7ddb6033ff96f2a52000436e8"
-          },
-          {
-            "path": "Cargo.toml",
-            "digest": "git:dddd8b1f8db379a7a22f47719b48333ce1c14f56"
-          },
-          {
-            "path": "src/main.rs",
-            "digest": "git:f328e4d9d04c31d0d70d16d21a07d1613be9d577"
-          }
-        ],
         "coverage": [],
-        "pathBase": "repository",
-        "pathPrefix": "",
         "roots": [
           {
-            "root": ".",
-            "metadata": {
-              "repositoryIdentity": "https://github.com/test/unregistered",
-              "commit": "852cb093ae9d3cd3001ce7668dd6f8448c436681",
-              "tree": "dd73638b79762e6216b60956e2c15242f23d9d9a",
-              "host": "fixture-host/fixture-os",
-              "scannedAt": "2026-10-09T00:00:00.000Z",
-              "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
-              "catalogVersion": "1",
-              "scannerVersion": "2.6.0",
-              "contentDigests": [
-                {
-                  "path": "Cargo.lock",
-                  "digest": "bba11463dca4f93d990490cbc8840bddc2f2c3f7ddb6033ff96f2a52000436e8"
-                },
-                {
-                  "path": "Cargo.toml",
-                  "digest": "git:dddd8b1f8db379a7a22f47719b48333ce1c14f56"
-                },
-                {
-                  "path": "src/main.rs",
-                  "digest": "git:f328e4d9d04c31d0d70d16d21a07d1613be9d577"
-                }
-              ],
-              "coverage": [],
-              "pathBase": "repository",
-              "pathPrefix": "",
-              "provenance": [],
-              "exceptionDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-              "source": "committed-git-tree"
-            }
+            "root": "."
           }
-        ],
-        "scannerVersion": "2.6.0",
-        "catalogVersion": "1"
-      },
-      "enrollmentPending": false
+        ]
+      }
     },
     "verdict": {
-      "admit": true,
-      "code": "RK_OWNERSHIP_CLEAN",
-      "problems": [],
-      "warnings": [
-        "repository is not registered in protected trust (warning only; registering needed the retired trust-sync)"
+      "admit": false,
+      "code": "RK_OWNERSHIP_INVALID_REGISTRATION",
+      "problems": [
+        "repository is not registered in protected trust"
       ]
-    },
-    "evidence": {
-      "schema": 1,
-      "repositoryIdentity": "https://github.com/test/unregistered",
-      "source": "committed-git-tree",
-      "commit": "852cb093ae9d3cd3001ce7668dd6f8448c436681",
-      "tree": "dd73638b79762e6216b60956e2c15242f23d9d9a",
-      "catalogDigest": "4436b109338625758968393eda8afa4b69a3fa131e66ab48fb79e53d8b0f81fb",
-      "catalogVersion": "1",
-      "scannerVersion": "2.6.0",
-      "approvalsDigest": "c674d42e4ce7a3d8d8ea3a97f0ebd435e70c2268e1a7e47a2c33f8800fe2c5f3",
-      "trustEnrolled": true,
-      "floorOk": true,
-      "visibility": null,
-      "registrationDigest": null,
-      "registeredRoots": [],
-      "contentDigest": "322a58071698e1372947e77915cb7c678a9ee026de8c685c07b42963c0fcdf24",
-      "checkedAt": "2026-10-09T00:00:00.000Z"
     }
   },
   "inputsMode": {

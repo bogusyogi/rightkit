@@ -1,9 +1,9 @@
 {
   "verdict": {
     "admit": false,
-    "code": "RK_OWNERSHIP_POLICY_DOWNGRADE",
+    "code": "RK_OWNERSHIP_INVALID_REGISTRATION",
     "problems": [
-      "scanner version missing, malformed, or below protected minimum"
+      "repository is not registered in protected trust"
     ]
   }
 }

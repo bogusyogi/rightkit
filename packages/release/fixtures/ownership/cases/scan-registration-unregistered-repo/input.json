@@ -1,7 +1,7 @@
 {
   "kind": "scan",
-  "description": "Origin is not in the registry: the requested root '.' is scanned and a clean scan is admitted with a warning (#1775).",
-  "expectCode": "RK_OWNERSHIP_CLEAN",
+  "description": "Origin is not in the registry: roots default to ['.'] and the verdict refuses.",
+  "expectCode": "RK_OWNERSHIP_INVALID_REGISTRATION",
   "harness": {
     "now": "2026-10-09T00:00:00.000Z",
     "origin": "https://github.com/test/unregistered",

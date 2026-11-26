@@ -1,7 +1,7 @@
 {
   "kind": "verdict",
-  "description": "Registry with no repositories: the repository is unregistered, admitted with a warning (#1775).",
-  "expectCode": "RK_OWNERSHIP_CLEAN",
+  "description": "Registry with no repositories.",
+  "expectCode": "RK_OWNERSHIP_INVALID_REGISTRATION",
   "report": {
     "ok": true,
     "enrollmentPending": false,

@@ -230,17 +230,31 @@ export function resolveKeyLogTrust(trust, logBytes) {
   const enrollmentComplete = REQUIRED_HOSTS.every((platform) => completedPlatforms.has(platform));
   return { ok: true, trust: { ...trust, ownershipKeys: verified.keys, ownershipAllKeys: verified.allKeys, enrollmentComplete, revokedKeyIds: [...new Set([...(trust.revokedKeyIds ?? []), ...verified.revokedKeyIds])] }, keyLogDigest: logDigest, checkpoint: verified.checkpoint };
 }
-export function verifyRepositoryRegistration(trust, repositoryIdentity, { files = [] } = {}) {
+// The registry this gate ships (ownership-repositories.json). The host's protected copy was written by the retired
+// trust-sync and can no longer be refreshed, so a repository registered here but missing there (a renamed origin, a new
+// app) takes its registration from the shipped list (#1775). A repository in neither is still refused.
+let shippedRegistry;
+export function shippedRepositories() {
+  if (shippedRegistry === undefined) {
+    try {
+      const data = JSON.parse(readFileSync(new URL("./ownership-repositories.json", import.meta.url), "utf8"));
+      shippedRegistry = Array.isArray(data?.repositories) ? data.repositories : [];
+    } catch { shippedRegistry = []; }
+  }
+  return shippedRegistry;
+}
+const validShippedEntry = (entry) => entry && Array.isArray(entry.roots) && entry.roots.length > 0 && entry.roots.every((root) => exactRepositoryPath(root)) && ["public", "private"].includes(entry.visibility);
+export function verifyRepositoryRegistration(trust, repositoryIdentity, { files = [], shipped = shippedRepositories() } = {}) {
   const validation = validateTrustRegistry(trust);
   if (!validation.ok) return { ok: false, problems: validation.problems };
   let identity;
   try { identity = canonicalRepositoryIdentity(repositoryIdentity); } catch { return { ok: false, problems: ["invalid repository identity"] }; }
-  const registration = trust.repositories.find((entry) => entry.repositoryIdentity === identity);
-  // `unregistered` lets ownership evidence and verdicts treat a missing registration as a warning (#1775): registering a
-  // repository needed the retired trust-sync, so its absence is not a refusal. Provenance still requires one.
-  if (!registration) return { ok: false, unregistered: true, problems: ["repository is not registered in protected trust"] };
+  const hostRegistration = trust.repositories.find((entry) => entry.repositoryIdentity === identity);
+  const shippedRegistration = hostRegistration ? null : shipped.find((entry) => entry?.repositoryIdentity === identity && validShippedEntry(entry));
+  const registration = hostRegistration ?? shippedRegistration;
+  if (!registration) return { ok: false, problems: ["repository is not registered in protected trust"] };
   const problems = files.filter((file) => !exactRepositoryPath(file) || !registration.roots.some((root) => withinRoot(file, root))).map((file) => `path outside registered repository roots or malformed: ${file}`);
-  return { ok: problems.length === 0, problems, registration };
+  return { ok: problems.length === 0, problems, registration, ...(shippedRegistration ? { warnings: [`repository registration for ${identity} comes from this gate's shipped list; this host's protected registry does not have it (warning only)`] } : {}) };
 }
 export function provenanceContentDigest(files) {
   return sha256([...files].map(({ path: file, content }) => ({ path: file, sha256: createHash("sha256").update(content).digest("hex") })).sort((a, b) => a.path.localeCompare(b.path)));

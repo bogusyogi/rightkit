@@ -2,7 +2,7 @@
 
 ## 0.6.85
 
-- Ownership no longer refuses a repository that is missing from the host's protected trust registry: registering one needed the retired trust-sync, so a missing registration is now a reported warning in both the evidence scan and the verdict. The requested root is scanned and every finding, coverage and floor gate still applies. A registered repository keeps its exact-roots check (#1775).
+- Ownership takes a repository's registration from the list this gate ships (`ownership-repositories.json`) when the host's protected registry does not have it, and reports that as a warning. The host copy was written by the retired trust-sync and cannot be refreshed, so a renamed origin (bogusyogi/pulse) was refused on a host that still listed the old name. The registered roots are enforced exactly as before, and a repository in neither list is still refused (#1775).
 
 - `publish-local npm --archive` reads the packed manifest by file name from the archive's own folder, so it works when GNU tar is first on PATH (Git Bash on Windows read a `D:\` path as a remote host and refused the archive) (#1775).
 
