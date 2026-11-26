@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.86
+
+- A repository RightKit does not bind gets every ownership finding as advice. It is listed in the shipped `ownership-advise-only.json` with the owner's ruling in `ratifiedBy`; the scan reports each finding in full with tier `advise` and no finding refuses a build, package or release. Coverage gaps and scan problems still refuse. Legion is the first such repository (Adrian, 2026-11-26: it may use RightKit packages but owes none) (#1754).
+
+- `publish-local npm` no longer reports that the registry never served a version it has: when the per-version address answers a cached 404, it reads the package document before calling the version absent (#1754).
+
+- The qualify stage no longer stops with `Cannot access 'runCwd' before initialization` (shipped in 0.6.85, #1780); listed here because 0.6.85's notes missed it.
+
 ## 0.6.85
 
 - Ownership takes a repository's registration from the list this gate ships (`ownership-repositories.json`) when the host's protected registry does not have it, and reports that as a warning. The host copy was written by the retired trust-sync and cannot be refreshed, so a renamed origin (bogusyogi/pulse) was refused on a host that still listed the old name. The registered roots are enforced exactly as before, and a repository in neither list is still refused (#1775).

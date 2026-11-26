@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "description": "Repositories RightKit does not bind: each may use RightKit packages but owes none, so every finding of its ownership scan is advice. An entry needs the owner's ruling, quoted, in ratifiedBy. Read by ownership.mjs (adviseOnlyFindings).",
+  "repositories": [
+    {
+      "repositoryIdentity": "https://github.com/orthic-labs/legion",
+      "issue": "bogusyogi/rightkit#1754",
+      "ratifiedBy": "Adrian, 2026-11-26 06:28 UTC, typed in the Legion chat (pulse chat said; Orthic-Labs/legion#149): \"Legion can use a few Rk packages and crates but no mandatory and doesn't have to.\""
+    }
+  ]
+}

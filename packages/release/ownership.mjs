@@ -793,6 +793,26 @@ export function exceptionMatches(entry, finding) {
   if (entry.path !== undefined && !(finding.file === entry.path || finding.file?.startsWith(`${entry.path.replace(/\/$/, "")}/`))) return false;
   return true;
 }
+/**
+ * A repository RightKit does not bind (listed in the shipped ownership-advise-only.json with the owner's ruling in `ratifiedBy`): it
+ * may use RightKit packages but owes none, so every finding of its scan is advice. Violations lose their
+ * blocking tier and any `banned` policy; they are still reported in full. Coverage gaps and scan problems are not findings and still refuse.
+ */
+let adviseOnlyList;
+function adviseOnlyRepositories() {
+  if (adviseOnlyList === undefined) {
+    try { const data = JSON.parse(readFileSync(new URL("./ownership-advise-only.json", import.meta.url), "utf8")); adviseOnlyList = Array.isArray(data?.repositories) ? data.repositories : []; }
+    catch { adviseOnlyList = []; }
+  }
+  return adviseOnlyList;
+}
+export function adviseOnlyFindings(result, repositoryIdentity, registry = adviseOnlyRepositories()) {
+  const entry = repositoryIdentity ? registry.find((e) => e?.repositoryIdentity === repositoryIdentity && typeof e.ratifiedBy === "string" && e.ratifiedBy.trim()) : null;
+  if (!entry) return result;
+  const advise = ({ policy, ...finding }) => ({ ...finding, tier: "advise" });
+  return { ...result, violations: result.violations.map(advise), warnings: [...(result.warnings ?? []), `ownership findings are advice for ${repositoryIdentity}: ${entry.ratifiedBy}`] };
+}
+
 export function evaluate(findings, exceptions, options = {}) {
   const problems = [], covered = [], violations = [], warnings = [];
   for (const e of exceptions) {
@@ -846,7 +866,7 @@ function checkAppInternal(appRoot, manifest, options, readAuthority) {
   const scanned = scanInternal(appRoot, manifest, { inventory: fileInventory(appRoot, trust, location.prefix, location.root), trust, repositoryIdentity, repositoryRoot: location.root, pathPrefix: location.prefix, allowlistPolicy: dependencyAllowlistPolicy(trust, repositoryIdentity, { pending: enrollmentPending(trust, enrollment), shipped: options.shippedAllowlist }) });
   const metadata = { ...scanMetadata(appRoot, manifest, scanned.coverage, scanned.contentDigests, repositoryIdentity, location.commit), pathBase: location.pathBase, pathPrefix: location.prefix, provenance: scanned.provenance, ...Object.fromEntries(Object.entries(resolved).filter(([key]) => key !== "trust")) };
   if (trust?.rootFingerprint && Array.isArray(trust.ownershipKeys) && !trust.ownershipKeys.length) throw new Error("protected ownership key log has no active approval keys");
-  const result = evaluate(scanned.findings, loadExceptions(appRoot), { ...options, manifest, trust, trustEnrollment: enrollment, metadata });
+  const result = adviseOnlyFindings(evaluate(scanned.findings, loadExceptions(appRoot), { ...options, manifest, trust, trustEnrollment: enrollment, metadata }), repositoryIdentity);
   const coverage = [...new Map(metadata.coverage.map((x) => [`${x.path}\0${x.reason}`, x])).values()];
   const rows = capabilityTable(manifest, scanned.deps, { ...result, coverage });
   return { ok: !result.violations.some(isBlockingFinding) && !result.problems.length && !coverage.length, rows, ...result, findings: scanned.findings, coverage, metadata };
@@ -927,9 +947,9 @@ function checkCommitted(appRoot, manifest, options, acquire, readAuthority = rea
     ...(scope ? { ownershipScopeClosed: scope } : {}),
     source: "committed-git-tree", ...(keyLogDigest ? { keyLogDigest, keyCheckpoint, rootFingerprint: trust.rootFingerprint, ...(keyAuthorityBinding ? { keyAuthority: keyAuthorityBinding } : {}) } : {}),
   };
-  const result = evaluate(scanned.findings, exceptions, { ...options, manifest, trust, trustEnrollment: trust?.rootFingerprint
+  const result = adviseOnlyFindings(evaluate(scanned.findings, exceptions, { ...options, manifest, trust, trustEnrollment: trust?.rootFingerprint
     ? { enrolled: trust.enrollmentComplete === true, pending: trust.enrollmentComplete !== true }
-    : trustState?.pending !== undefined || trustState?.enrolled !== undefined ? trustState : undefined, metadata });
+    : trustState?.pending !== undefined || trustState?.enrolled !== undefined ? trustState : undefined, metadata }), repositoryIdentity);
   const coverage = [...new Map(metadata.coverage.map((x) => [`${x.path}\0${x.reason}`, x])).values()];
   const rows = capabilityTable(manifest, scanned.deps, { ...result, coverage });
   return { ok: !result.violations.some(isBlockingFinding) && !result.problems.length && !coverage.length, rows, ...result, findings: scanned.findings, coverage, metadata };

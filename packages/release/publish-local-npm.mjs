@@ -44,8 +44,19 @@ export function fetchVersionDocument(run, name, version) {
   const cut = text.lastIndexOf("\n");
   const status = Number(text.slice(cut + 1).trim());
   if (!Number.isInteger(status) || status === 0) return { status: 0, error: "curl returned no HTTP status" };
-  if (status !== 200) return { status, error: `HTTP ${status}` };
-  try { return { status, body: JSON.parse(text.slice(0, cut)) }; } catch (e) { return { status, error: `HTTP 200 with an unreadable body: ${e.message}` }; }
+  if (status === 200) {
+    try { return { status, body: JSON.parse(text.slice(0, cut)) }; } catch (e) { return { status, error: `HTTP 200 with an unreadable body: ${e.message}` }; }
+  }
+  // The per-version address can keep answering a cached 404 for minutes after the registry has the version (seen on 0.6.84 and
+  // 0.6.85: 20 tries of 404 while the package document already listed it). Ask the package document before calling it absent.
+  const all = run("curl", ["-sS", "--max-time", "30", "-H", "cache-control: no-cache", "-H", "pragma: no-cache", "-H", "accept: application/vnd.npm.install-v1+json", `${REGISTRY}${name.replace("/", "%2f")}`], { encoding: "utf8", maxBuffer: 1 << 26 });
+  if (!all.error && all.status === 0) {
+    try {
+      const listed = JSON.parse(String(all.stdout ?? ""))?.versions?.[version];
+      if (listed?.dist) return { status: 200, body: listed };
+    } catch { /* not a package document: the version address's answer stands */ }
+  }
+  return { status, error: `HTTP ${status}` };
 }
 
 /** The pnpm store the checkout installed from (`storeDir` in its node_modules/.modules.yaml, e.g. /Volumes/D/.pnpm-store/v11), as a `--store-dir` value (its parent). */
