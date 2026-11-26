@@ -2,6 +2,7 @@
 
 ## 0.6.84
 
+- Installed QA journeys build: the runner calls `rustright cargo` from the app root directly, not through the seam, so the broker refused the stage's root Class A verdict there (`RK_CLASS_A_INVALID`, workspace differs). release-qa now hands the runner the verdict for the app root, derived from the stage's root verdict the way the seam derives one for each of its own calls (#1768).
 - Windows signing no longer refuses a sign-in for the last minutes of every hourly token: Azure CLI serves its cached token until about five minutes before expiry, so a token found with under ten minutes left now waits for that refresh window and asks once more (at most the margin) instead of failing with SIGN_WINDOWS_TOKEN_UNAVAILABLE. A sign-in that is gone still fails at once.
 
 ## 0.6.83
