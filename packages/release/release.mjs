@@ -887,6 +887,13 @@ if (opts.platform === "win" && target.signingContract === WINDOWS_NSIS_SIGNING_C
   if (updaterFiles.length) await run("node", [SIGN_UPDATER, ...(opts.dryRun ? ["--dry-run"] : []), ...updaterFiles.flatMap((file) => ["--file", file])], root);
 }
 
+// The portable contract signs every executable before packaging (sign.prePackageFiles) and has no installer-signing block above, so its
+// declared postSign steps were never run on Windows: the line below this one excludes win, and only the NSIS and payload blocks run them.
+// An app that declares post-sign checks under this contract (Pulse: verify-staged and its candidate checks) had them skipped without a word.
+if (opts.platform === "win" && target.signingContract === WINDOWS_PORTABLE_SIGNING_CONTRACT && target.postSign) {
+  await runCommands(target.postSign, root);
+}
+
 if (target.postSign && opts.platform !== "win" && (opts.platform !== "mac" || runMacPhase("post-sign"))) {
   await runCommands(target.postSign, root);
 }
