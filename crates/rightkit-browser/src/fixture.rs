@@ -489,8 +489,8 @@ async fn cleanup_resources(
         match browser.stop_fixture_process().await {
             Ok(()) => {
                 state.browser_stopped = true;
-                // Windows only reports browser stop after Job-empty plus bridge
-                // quiesce/finalize succeeds; macOS has no separate pipe transport.
+                // The browser stop is reported only after the process tree is gone and the
+                // DevTools pipe bridge has quiesced and finalized, on every platform.
                 state.transport_stopped = true;
                 *evidence.lock().unwrap_or_else(|error| error.into_inner()) = state.clone();
             }

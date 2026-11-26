@@ -152,7 +152,7 @@ impl FixtureLaunchState {
         let spawn_status = *complete.borrow();
         let process_stopped = match (spawn_status, process) {
             (_, Some(mut process)) => {
-                process.begin_fixture_transport_shutdown();
+                process.begin_transport_shutdown();
                 let terminated = tokio::task::spawn_blocking(move || {
                     let result = process.terminate_fixture_tree();
                     (process, result)
@@ -168,25 +168,18 @@ impl FixtureLaunchState {
                         .unwrap_or_else(|error| error.into_inner()) = Some(process);
                     false
                 } else {
-                    #[cfg(windows)]
+                    let mut process = process;
+                    if process
+                        .finish_transport_shutdown(Instant::now() + GRACE)
+                        .await
+                        .is_err()
                     {
-                        let mut process = process;
-                        if process
-                            .finish_fixture_transport_shutdown(Instant::now() + GRACE)
-                            .await
-                            .is_err()
-                        {
-                            *self
-                                .process
-                                .lock()
-                                .unwrap_or_else(|error| error.into_inner()) = Some(process);
-                            false
-                        } else {
-                            true
-                        }
-                    }
-                    #[cfg(not(windows))]
-                    {
+                        *self
+                            .process
+                            .lock()
+                            .unwrap_or_else(|error| error.into_inner()) = Some(process);
+                        false
+                    } else {
                         true
                     }
                 }
@@ -447,8 +440,10 @@ pub struct StopReport {
 }
 
 /// Flags every session launch starts from, before profile, viewport, proxy and caller flags.
+/// CDP runs over the DevTools pipe only (the descriptor or handle pair `proc` wires in): Chrome
+/// opens no debugging port.
 const BASE_CHROME_ARGS: &[&str] = &[
-    "--remote-debugging-port=0",
+    "--remote-debugging-pipe",
     "--no-first-run",
     "--no-default-browser-check",
     "--disable-background-networking",
@@ -486,12 +481,13 @@ impl BrowserSession {
 
     /// Start a visible session that reuses the user's own browser sign-ins, with consent.
     ///
-    /// Chrome 136+ ignores a debugging port on the browser's default user-data directory and a
+    /// Chrome 136+ ignores remote debugging on the browser's default user-data directory and a
     /// profile in use is locked, so the user's running browser is not driven in place: the
     /// consented profile's sign-in files are copied into a private RightKit profile under `root`
     /// and the same browser (same executable, so its sign-in key applies) is launched on that
-    /// copy over a debugging pipe. The consented domains confine every action, passwords are
-    /// refused, and `consent` is checked at launch and before each action.
+    /// copy over the DevTools pipe (no debugging port is opened). The consented domains confine
+    /// every action, passwords are refused, and `consent` is checked at launch and before each
+    /// action.
     ///
     /// Chromium-family browsers only (Chrome, Edge, Brave, Chromium); Safari and Firefox return
     /// [`BrowserError::Unsupported`]. `opts` supplies timeouts, network policy and the admission
@@ -769,11 +765,6 @@ impl BrowserSession {
             let spawned = if fixture_profile_dir.is_some() && windows_fixture {
                 #[cfg(windows)]
                 {
-                    args.retain(|arg| {
-                        !arg.to_string_lossy()
-                            .starts_with("--remote-debugging-port=")
-                    });
-                    args.push("--remote-debugging-pipe".into());
                     // Chrome's browser process always starts the crashpad handler, which cannot
                     // create its pipe in an AppContainer; the fixture runs the headless shell.
                     crate::config::chrome_headless_shell_path(&exe).and_then(|shell| {
@@ -791,13 +782,7 @@ impl BrowserSession {
             {
                 #[cfg(target_os = "macos")]
                 {
-                    crate::proc::spawn_chrome_fixture(
-                        &exe,
-                        &args,
-                        launch_timeout,
-                        profile,
-                        proxy_addr,
-                    )
+                    crate::proc::spawn_chrome_fixture(&exe, &args, profile, proxy_addr)
                 }
                 #[cfg(not(target_os = "macos"))]
                 {
@@ -807,16 +792,16 @@ impl BrowserSession {
                     ))
                 }
             } else {
-                crate::proc::spawn_chrome(&exe, &args, launch_timeout, job)
+                crate::proc::spawn_chrome(&exe, &args, job)
             };
             match spawned {
                 Ok(process) => {
-                    let info = (process.id(), process.ws_url.clone());
+                    let pid = process.id();
                     *spawn_proc_slot
                         .lock()
                         .unwrap_or_else(|error| error.into_inner()) = Some(process);
                     completion.result = 1;
-                    Ok(info)
+                    Ok(pid)
                 }
                 Err(error) => {
                     completion.result = 2;
@@ -825,8 +810,8 @@ impl BrowserSession {
             }
         })
         .await;
-        let spawn_info = match spawn_proc {
-            Ok(Ok(info)) => info,
+        let spawn_pid = match spawn_proc {
+            Ok(Ok(pid)) => pid,
             Ok(Err(error)) => return Err(error),
             Err(error) => {
                 if let Some(owner) = &fixture_owner {
@@ -835,29 +820,33 @@ impl BrowserSession {
                 return Err(BrowserError::Launch(error.to_string()));
             }
         };
-        let pid = Some(spawn_info.0);
-        #[cfg(windows)]
-        let connect_url = if windows_fixture {
+        let pid = Some(spawn_pid);
+        // Chrome has no debugging port. The one WebSocket endpoint chromiumoxide can use is the
+        // private loopback relay to Chrome's pipe pair; a fixture also bounds the relay by its
+        // lease, an ordinary session relays until it stops.
+        let connect_url = {
             let deadline = Instant::now() + launch_timeout;
             let mut process = proc.lock().unwrap_or_else(|error| error.into_inner());
             process
                 .as_mut()
-                .ok_or_else(|| {
-                    BrowserError::Launch("Windows fixture process ownership is absent".into())
-                })?
-                .start_fixture_pipe_bridge(deadline)?
-        } else {
-            spawn_info.1
+                .ok_or_else(|| BrowserError::Launch("browser process ownership is absent".into()))?
+                .start_pipe_bridge(deadline, fixture_mode.then_some(deadline))?
         };
-        #[cfg(not(windows))]
-        let connect_url = spawn_info.1;
         let config = HandlerConfig {
             request_timeout,
             ..HandlerConfig::default()
         };
-        let (browser, mut handler) = Browser::connect_with_config(connect_url, config)
-            .await
-            .map_err(|e| {
+        // The relay accepts the connection whether or not Chrome has started, so this proves
+        // nothing about Chrome: readiness is the probe below. The error text is fixed: the URL
+        // carries the relay's secret and a connection error may quote it.
+        let connected = tokio::time::timeout(
+            launch_timeout,
+            Browser::connect_with_config(connect_url, config),
+        )
+        .await;
+        let (browser, mut handler) = match connected {
+            Ok(Ok(connected)) => connected,
+            _ => {
                 #[cfg(windows)]
                 if windows_fixture {
                     let diagnostics = proc
@@ -868,12 +857,15 @@ impl BrowserSession {
                         .unwrap_or_else(|| {
                             "windows fixture diagnostic process ownership absent".into()
                         });
-                    return BrowserError::Launch(format!(
-                        "Windows fixture CDP connection failed: {e}; {diagnostics}"
-                    ));
+                    return Err(BrowserError::Launch(format!(
+                        "Windows fixture CDP relay connection failed; {diagnostics}"
+                    )));
                 }
-                BrowserError::Launch(e.to_string())
-            })?;
+                return Err(BrowserError::Launch(
+                    "could not connect to the DevTools pipe relay".into(),
+                ));
+            }
+        };
         let (fixture_stop_status, _) = tokio::sync::watch::channel(0u8);
         let stopping = Arc::new(AtomicBool::new(false));
         let crashed = Arc::new(AtomicBool::new(false));
@@ -984,6 +976,38 @@ impl BrowserSession {
             #[cfg(windows)]
             fixture_backend,
         };
+        // Readiness. Pipe-mode Chrome prints nothing when its DevTools handler is up, so the only
+        // proof is an answer: `Browser.getVersion` goes through the relay and the pipe to
+        // Chrome, and success needs Chrome's own reply to parse. A command sent before Chrome
+        // reads its pipe waits in the kernel buffer, it is not lost. No reply within
+        // `launch_timeout`, or any error, kills Chrome and fails the launch.
+        let probe = tokio::time::timeout(launch_timeout, async {
+            session.browser.lock().await.version().await
+        })
+        .await;
+        let probe_failure = match probe {
+            Ok(Ok(_)) => None,
+            Ok(Err(error)) => Some(error.to_string()),
+            Err(_) => Some("no reply before the launch timeout".to_string()),
+        };
+        if let Some(reason) = probe_failure {
+            // Let the stderr drain deliver Chrome's final lines before reporting them.
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            let detail = session
+                .proc
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .as_mut()
+                .map(ChromeProc::launch_detail)
+                .unwrap_or_default();
+            if !fixture_mode {
+                let _ = session.stop(true).await;
+            }
+            return Err(BrowserError::Launch(format!(
+                "chrome did not respond on the DevTools pipe: {reason}; {detail}"
+            )));
+        }
+
         if !fixture_mode {
             let download_setup = session
                 .browser
@@ -1347,7 +1371,7 @@ impl BrowserSession {
                             "browser process ownership is absent without a stop receipt".into(),
                         ));
                     };
-                    process.begin_fixture_transport_shutdown();
+                    process.begin_transport_shutdown();
                     // This transaction owns Chrome until it publishes a terminal
                     // receipt. The caller can time out or cancel during terminal
                     // fencing without abandoning status=1 or the process handle.
@@ -1386,23 +1410,19 @@ impl BrowserSession {
                                 .unwrap_or_else(|error| error.into_inner()) = Some(process);
                             return;
                         }
-                        #[cfg(windows)]
+                        let mut process = process;
+                        if let Err(error) = process
+                            .finish_transport_shutdown(Instant::now() + GRACE)
+                            .await
                         {
-                            let mut process = process;
-                            if let Err(error) = process
-                                .finish_fixture_transport_shutdown(Instant::now() + GRACE)
-                                .await
-                            {
-                                *failure_slot
-                                    .lock()
-                                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(
-                                    format!("fixture CDP bridge finalization failed: {error}"),
-                                );
-                                *process_slot
-                                    .lock()
-                                    .unwrap_or_else(|error| error.into_inner()) = Some(process);
-                                return;
-                            }
+                            *failure_slot
+                                .lock()
+                                .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                                Some(format!("fixture CDP bridge finalization failed: {error}"));
+                            *process_slot
+                                .lock()
+                                .unwrap_or_else(|error| error.into_inner()) = Some(process);
+                            return;
                         }
                         completion.stopped();
                     });
