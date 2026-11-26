@@ -131,6 +131,9 @@ const RUNNING_HINT: &str = "⏎ queue · ⇥ push now";
 /// submit. Verbatim donor constant (`chat_composer.rs`).
 pub(crate) const LARGE_PASTE_CHAR_THRESHOLD: usize = 1000;
 
+const MAX_PLAIN_UNDO_STEPS: usize = 64;
+const MAX_PLAIN_UNDO_BYTES: usize = 256 * 1024;
+
 /// Outcome of a composer key dispatch — internal analogue of the donor
 /// `InputResult`, reduced to what the host app's intent boundary produces.
 #[derive(Clone, Debug, PartialEq)]
@@ -175,6 +178,9 @@ pub struct Composer {
     /// Bounded draft snapshots backing Vim undo/redo (active only when the
     /// parent enables Vim editing).
     vim_history: VimHistory,
+    /// Draft snapshots for Ctrl+_ undo when Vim editing is off.
+    plain_undo: VecDeque<ComposerDraft>,
+    plain_undo_typing: bool,
     /// `/`-command and `@`-file popup lifecycle.
     popups: PopupState,
     /// Stable popup instance so `completion()` can always return a reference
@@ -194,6 +200,8 @@ pub struct Composer {
     vim_normal_keymap: keymap::VimNormalKeymap,
 
     last_ctrl_c: Option<Instant>,
+    /// When a Ctrl-C last cancelled a running turn; see `handle_ctrl_c`.
+    turn_cancelled_at: Option<Instant>,
     last_escape: Option<Instant>,
 
     /// Host-reported state driving the Escape priority chain. The composer
@@ -232,6 +240,8 @@ impl Default for Composer {
             history: ChatComposerHistory::new(),
             history_search: None,
             vim_history: VimHistory::default(),
+            plain_undo: VecDeque::new(),
+            plain_undo_typing: false,
             popups: PopupState::default(),
             idle_popup: CompletionPopup::new(),
             completion_catalog: default_completion_catalog(),
@@ -241,6 +251,7 @@ impl Default for Composer {
             editor_keymap: std::sync::Arc::clone(&runtime_keymap.editor),
             vim_normal_keymap: runtime_keymap.vim_normal.clone(),
             last_ctrl_c: None,
+            turn_cancelled_at: None,
             last_escape: None,
             streaming: false,
             placeholder_override: None,
@@ -283,7 +294,16 @@ impl Composer {
         self.streaming = streaming;
         if streaming {
             self.placeholder_override = None;
+            self.turn_cancelled_at = None;
         }
+    }
+
+    /// The host cancelled the running turn on a Ctrl-C it handled itself.
+    /// Starts the post-cancel window `handle_ctrl_c` uses for the next press;
+    /// the cancel never arms the double-tap quit on its own.
+    pub fn note_ctrl_c_turn_cancel(&mut self) {
+        self.turn_cancelled_at = Some(Instant::now());
+        self.last_ctrl_c = None;
     }
 
     /// One-shot empty-buffer placeholder (e.g. "Tell `<model>` what to do
@@ -800,6 +820,18 @@ impl Composer {
             self.apply_paste(pasted);
         }
 
+        // A backslash before the cursor turns Enter into a newline, for terminals that cannot
+        // send Shift+Enter; the backslash is dropped. Backslash then space is sent as typed.
+        if !should_queue && !self.draft.textarea.is_vim_normal_mode() {
+            let cursor = self.draft.textarea.cursor();
+            let text = self.draft.textarea.text();
+            if cursor > 0 && text.is_char_boundary(cursor) && text[..cursor].ends_with('\\') {
+                self.draft.textarea.replace_range(cursor - 1..cursor, "\n");
+                self.sync_popups();
+                return (InputResult::None, true);
+            }
+        }
+
         let original_input = self.current_text();
         let original_text_elements = self.current_text_elements();
         let original_pending_pastes = self.draft.pending_pastes.clone();
@@ -903,7 +935,11 @@ impl Composer {
         // the host app intents that must preempt the donor pipeline.
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         match key.code {
-            KeyCode::Char('c') | KeyCode::Char('C') if ctrl => return self.handle_ctrl_c(),
+            // While Ctrl+R search is open, Ctrl+C belongs to the search handler,
+            // which restores the saved draft and closes the search.
+            KeyCode::Char('c') | KeyCode::Char('C') if ctrl && self.history_search.is_none() => {
+                return self.handle_ctrl_c();
+            }
             // ctrl+x removes the last queued message, but only from an empty
             // prompt: with text it keeps its editor meaning.
             KeyCode::Char('x') | KeyCode::Char('X')
@@ -924,6 +960,10 @@ impl Composer {
             KeyCode::Char('g') | KeyCode::Char('G')
                 if ctrl && !key.modifiers.contains(KeyModifiers::ALT) && !self.popup_active() =>
             {
+                // L2: held burst text belongs to the draft the editor edits.
+                if let Some(pasted) = self.draft.paste_burst.flush_before_modified_input() {
+                    self.apply_paste(pasted);
+                }
                 let text = self.current_text_expanded();
                 self.intents.push(Intent::OpenExternalEditor(text));
                 return Outcome::Consumed;
@@ -938,7 +978,25 @@ impl Composer {
             }
             _ => {}
         }
+        // Linear undo outside Vim mode (Vim keeps its own transactions).
+        let track_undo = !self.draft.textarea.is_vim_enabled() && self.history_search.is_none();
+        if track_undo && Self::is_plain_undo_key(key) {
+            self.flush_pending_input();
+            return if self.undo_plain_edit() {
+                Outcome::Redraw
+            } else {
+                Outcome::Consumed
+            };
+        }
+        let before = if track_undo {
+            self.plain_undo_snapshot(key)
+        } else {
+            None
+        };
         let (_result, redraw) = self.handle_key_event_inner(*key);
+        if let Some(before) = before {
+            self.record_plain_undo(before, key, _result == InputResult::Submitted);
+        }
         // Keep `is_in_paste_burst` Enter suppression visible to the host.
         if _result == InputResult::Submitted {
             self.reset_vim_mode();
@@ -1039,6 +1097,11 @@ impl Composer {
     fn handle_escape_chain(&mut self, key_event: KeyEvent) -> Option<(InputResult, bool)> {
         if key_event.code != KeyCode::Esc {
             return None;
+        }
+        // L2: text still held by the paste-burst detector is typed text; the
+        // empty-prompt checks below must see it.
+        if let Some(pasted) = self.draft.paste_burst.flush_before_modified_input() {
+            self.apply_paste(pasted);
         }
         if self.streaming {
             // Esc cancels only from an empty prompt. With text it does
@@ -1269,7 +1332,7 @@ impl Composer {
     }
 
     /// Handle key events when no popup is visible — donor
-    /// `handle_key_event_without_popup` reduced at the the host app seams:
+    /// `handle_key_event_without_popup` reduced at the host app seams:
     /// submit keys emit intents, Up/Down drive local history recall, and the
     /// escape priority chain is the host app's.
     fn handle_key_event_without_popup(&mut self, key_event: KeyEvent) -> (InputResult, bool) {
@@ -2057,8 +2120,19 @@ impl Composer {
 
     // -- quit/copy entry points ----------------------------------------------
 
+    /// Ctrl-C rule. Idle composer (unchanged): a press clears the draft into
+    /// recall history and arms the quit; a second press within 500 ms quits.
+    /// From a running turn: press 1 cancels the turn (the draft and the
+    /// queued messages are kept) and does not arm the quit. Press 2 within
+    /// 500 ms of that cancel never quits, draft or not: it keeps the draft
+    /// (the cancel promised to) and only arms the quit, so press 3 within
+    /// 500 ms quits. Press 2 after the window is an ordinary idle press.
     fn handle_ctrl_c(&mut self) -> Outcome {
         let now = Instant::now();
+        let after_cancel = self
+            .turn_cancelled_at
+            .take()
+            .is_some_and(|at| now.duration_since(at) <= DOUBLE_TAP_WINDOW);
         if let Some(last) = self.last_ctrl_c
             && now.duration_since(last) <= DOUBLE_TAP_WINDOW
         {
@@ -2067,9 +2141,18 @@ impl Composer {
             return Outcome::Consumed;
         }
         // A running turn is cancelled first, text or no text; the draft is
-        // kept so nothing the user typed is lost with the turn.
+        // kept so nothing the user typed is lost with the turn. The cancel
+        // does not arm the double-tap quit: an impatient second press must
+        // not quit and drop the queued messages, which the cancel keeps.
         if self.streaming {
             self.intents.push(Intent::CancelStreamingTurn);
+            self.turn_cancelled_at = Some(now);
+            return Outcome::Redraw;
+        }
+        if after_cancel && !self.shell_running {
+            // An impatient second press right after a cancel must not quit (and drop the queued messages
+            // the cancel kept): it only arms the quit, so a third press within the window quits. The draft
+            // is left alone for this press.
             self.last_ctrl_c = Some(now);
             return Outcome::Redraw;
         }
@@ -2079,6 +2162,18 @@ impl Composer {
             return Outcome::Redraw;
         }
         self.flush_pending_input();
+        // Keep the discarded draft recallable (Up / Ctrl+R) as one plain-text
+        // entry with paste placeholders expanded, in this session only: a
+        // discarded draft (e.g. a pasted secret) never reaches the on-disk
+        // history store. It is persisted only if it is recalled and submitted.
+        let discarded = self.current_text_expanded();
+        if !discarded.trim().is_empty() {
+            self.history.record_local_submission(HistoryEntry {
+                text: discarded,
+                text_elements: Vec::new(),
+                pending_pastes: Vec::new(),
+            });
+        }
         self.clear_draft();
         self.last_ctrl_c = Some(now);
         Outcome::Redraw
@@ -2132,6 +2227,73 @@ impl Composer {
     /// compatibility; equivalent to pressing Enter.
     pub fn submit_with_command_effects(&mut self) {
         self.handle_submission(false, Instant::now());
+    }
+
+    /// Readline's undo: Ctrl+_ arrives as byte 0x1f, which crossterm reports as Ctrl+8
+    /// (and Ctrl+/ or Ctrl+7 on terminals that map it so). Ctrl+Z stays suspend.
+    fn is_plain_undo_key(key: &KeyEvent) -> bool {
+        key.modifiers.contains(KeyModifiers::CONTROL)
+            && !key.modifiers.contains(KeyModifiers::ALT)
+            && matches!(key.code, KeyCode::Char('_' | '8' | '7' | '/'))
+    }
+
+    /// The draft as it stands before `key`, when `key` could edit it. Text held back by the
+    /// paste detector is let into the draft first for keys that cannot be part of a paste, so
+    /// an undo never drops it.
+    fn plain_undo_snapshot(&mut self, key: &KeyEvent) -> Option<ComposerDraft> {
+        if key.kind == KeyEventKind::Release {
+            return None;
+        }
+        // Ctrl+J and Ctrl+M are how some terminals deliver a pasted line break; they stay in the burst.
+        if (key.modifiers.contains(KeyModifiers::CONTROL)
+            && !matches!(key.code, KeyCode::Char('j' | 'm'))
+            || matches!(key.code, KeyCode::Backspace | KeyCode::Delete))
+            && self.draft.paste_burst.is_active()
+        {
+            self.flush_pending_input();
+        }
+        let snapshot = self.snapshot_draft();
+        (snapshot.vim_history_bytes() <= MAX_PLAIN_UNDO_BYTES).then_some(snapshot)
+    }
+
+    /// Keep `before` as an undo step when `key` changed the text. A run of plain typing is
+    /// one step; a submission empties the buffer and ends the history.
+    fn record_plain_undo(&mut self, before: ComposerDraft, key: &KeyEvent, submitted: bool) {
+        if submitted {
+            self.plain_undo.clear();
+            self.plain_undo_typing = false;
+            return;
+        }
+        if before.text == self.current_text() && before.pending_pastes == self.draft.pending_pastes
+        {
+            if !matches!(key.code, KeyCode::Char(_))
+                || key.modifiers.contains(KeyModifiers::CONTROL)
+            {
+                self.plain_undo_typing = false;
+            }
+            return;
+        }
+        let typing = matches!(key.code, KeyCode::Char(_))
+            && !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
+        if typing && self.plain_undo_typing {
+            return;
+        }
+        self.plain_undo_typing = typing;
+        self.plain_undo.push_back(before);
+        while self.plain_undo.len() > MAX_PLAIN_UNDO_STEPS {
+            self.plain_undo.pop_front();
+        }
+    }
+
+    fn undo_plain_edit(&mut self) -> bool {
+        self.plain_undo_typing = false;
+        let Some(snapshot) = self.plain_undo.pop_back() else {
+            return false;
+        };
+        self.restore_draft_snapshot(snapshot);
+        true
     }
 
     /// Undo the last composer edit. Active only while the parent's Vim edit

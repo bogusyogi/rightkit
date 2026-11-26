@@ -7,6 +7,7 @@
 //! it is supposedly next to -- "shearing" -- on emoji, tabs, or paste
 //! markers.
 
+use unicode_width::UnicodeWidthChar;
 use unicode_width::UnicodeWidthStr;
 
 /// Columns a tab advances the cursor by. Terminals disagree on real tab
@@ -43,6 +44,15 @@ pub(crate) fn display_width(text: &str) -> usize {
             .chars()
             .filter(|ch| matches!(ch, '\u{FF9E}' | '\u{FF9F}'))
             .count()
+}
+
+/// Returns a scalar's terminal width, treating halfwidth sound marks as visible cells.
+pub(crate) fn char_width(ch: char) -> usize {
+    if matches!(ch, '\u{FF9E}' | '\u{FF9F}') {
+        1
+    } else {
+        UnicodeWidthChar::width(ch).unwrap_or(0)
+    }
 }
 
 fn single_char(g: &str) -> Option<char> {

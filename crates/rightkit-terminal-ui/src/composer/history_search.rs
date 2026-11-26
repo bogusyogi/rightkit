@@ -413,7 +413,17 @@ impl Composer {
         area: ratatui::layout::Rect,
     ) -> Option<(u16, u16)> {
         let session = self.history_search.as_ref()?;
-        let col = "reverse-i-search: ".len() + session.display_query().len();
-        (area.width > col as u16).then_some((area.x + col as u16, area.y))
+        let col = history_search_query_column(&session.display_query(), area.width)?;
+        Some((area.x.saturating_add(col), area.y))
     }
+}
+
+/// Terminal column right after the footer's `reverse-i-search: <query>`, measured in display
+/// cells (not bytes, so a non-ASCII query keeps the cursor on its glyph). `None` when it does
+/// not fit in `width`.
+fn history_search_query_column(display_query: &str, width: u16) -> Option<u16> {
+    use unicode_width::UnicodeWidthStr;
+    let col = UnicodeWidthStr::width("reverse-i-search: ") + UnicodeWidthStr::width(display_query);
+    let col = u16::try_from(col).ok()?;
+    (width > col).then_some(col)
 }

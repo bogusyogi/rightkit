@@ -13,14 +13,176 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use ratatui::style::Modifier;
+use ratatui::style::Style;
+use ratatui::text::Line;
+use ratatui::text::Span;
+use ratatui::widgets::Widget;
 use ratatui::widgets::WidgetRef;
 
-use super::popup_rows::GenericDisplayRow;
 use super::popup_rows::MAX_POPUP_ROWS;
-use super::popup_rows::render_rows_single_line;
-use super::popup_rows::selection_style;
 use super::scroll_state::ScrollState;
+use super::width::char_width;
+use super::width::display_width;
 use crate::composer::completion::CompletionCandidate;
+
+/// Group labels for the bare `/` list, in display order. The last is the
+/// catch-all for commands the table below does not name.
+const GROUP_LABELS: [&str; 6] = ["session", "review", "model", "policy", "info", "other"];
+const OTHER_GROUP: usize = 5;
+/// Commands the bare `/` list shows per group (12 in all); typing reaches the rest.
+const GROUP_CAPS: [usize; 6] = [3, 2, 2, 2, 2, 1];
+/// Display order within a group, and which group a command belongs to.
+const KNOWN_COMMANDS: &[(&str, usize)] = &[
+    ("new", 0),
+    ("resume", 0),
+    ("rewind", 0),
+    ("compact", 0),
+    ("undo", 0),
+    ("redo", 0),
+    ("reset", 0),
+    ("fork", 0),
+    ("clear", 0),
+    ("tree", 0),
+    ("session", 0),
+    ("rename", 0),
+    ("archive", 0),
+    ("delete", 0),
+    ("copy", 0),
+    ("quit", 0),
+    ("diff", 1),
+    ("review", 1),
+    ("audit", 1),
+    ("commit", 1),
+    ("summary", 1),
+    ("architect", 1),
+    ("blueprint", 1),
+    ("model", 2),
+    ("providers", 2),
+    ("effort", 2),
+    ("models", 2),
+    ("mode", 3),
+    ("trust", 3),
+    ("permissions", 3),
+    ("plan", 3),
+    ("ask", 3),
+    ("accept-edits", 3),
+    ("auto", 3),
+    ("yolo", 3),
+    ("status", 4),
+    ("help", 4),
+    ("doctor", 4),
+    ("usage", 4),
+    ("context", 4),
+    ("logs", 4),
+    ("insights", 4),
+    ("caps", 4),
+];
+/// Width of the group-label column in the grouped list.
+const GROUP_LABEL_COLS: usize = 9;
+/// Below this width the grouped list is one column.
+const TWO_COLUMN_MIN_WIDTH: u16 = 72;
+/// Longest description shown in a list row, in columns.
+const DESCRIPTION_COLS: usize = 40;
+
+fn group_of(name: &str) -> usize {
+    KNOWN_COMMANDS
+        .iter()
+        .find(|(known, _)| *known == name)
+        .map_or(OTHER_GROUP, |(_, group)| *group)
+}
+
+/// Position in the display order; unknown commands keep catalog order after
+/// the known ones (the sort is stable).
+fn rank_of(name: &str) -> usize {
+    KNOWN_COMMANDS
+        .iter()
+        .position(|(known, _)| *known == name)
+        .unwrap_or(usize::MAX)
+}
+
+/// `text` cut to `cols` display columns, ending in `…` when cut.
+fn clip_cols(text: &str, cols: usize) -> String {
+    if display_width(text) <= cols {
+        return text.to_string();
+    }
+    let mut out = String::new();
+    let mut used = 0usize;
+    for ch in text.chars() {
+        let w = char_width(ch);
+        if used + w + 1 > cols {
+            break;
+        }
+        out.push(ch);
+        used += w;
+    }
+    out.push('…');
+    out
+}
+
+/// Display-only shortening of a registry description: up to the first
+/// sentence end, comma or `DESCRIPTION_COLS` columns, whichever is first.
+/// The registry text itself is never changed (other surfaces read it).
+/// Short phrases for the commands people reach for most. The registry keeps
+/// its full sentences (help and other surfaces read those); the list shows a
+/// phrase so a row is read at a glance instead of ending in an ellipsis.
+const DISPLAY_PHRASES: &[(&str, &str)] = &[
+    ("new", "start fresh"),
+    ("resume", "pick up an earlier chat"),
+    ("rewind", "back to an earlier turn"),
+    ("compact", "shrink the context"),
+    ("undo", "undo the last change"),
+    ("redo", "redo what was undone"),
+    ("reset", "stop, drop pending edits"),
+    ("fork", "branch this chat"),
+    ("clear", "start a new session"),
+    ("diff", "what changed this turn"),
+    ("review", "review the working tree"),
+    ("commit", "commit the changes"),
+    ("model", "switch model or effort"),
+    ("providers", "sign in, add keys"),
+    ("effort", "set reasoning effort"),
+    ("mode", "ask, auto, plan"),
+    ("trust", "trust this folder"),
+    ("permissions", "rules and allowances"),
+    ("status", "what is running"),
+    ("help", "keys and commands"),
+    ("doctor", "check the install"),
+    ("quit", "leave"),
+];
+
+/// The description the list shows for `name`: its phrase when it has one,
+/// else the registry text cut short.
+fn display_description(name: &str, description: &str) -> String {
+    match DISPLAY_PHRASES.iter().find(|(command, _)| *command == name) {
+        Some((_, phrase)) => (*phrase).to_string(),
+        None => short_description(description),
+    }
+}
+
+fn short_description(description: &str) -> String {
+    let text = description.trim();
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let mut cut = text.len();
+    for (k, (at, ch)) in chars.iter().enumerate() {
+        let sentence_end = *ch == '.'
+            && chars
+                .get(k + 1)
+                .is_none_or(|(_, next)| next.is_whitespace());
+        if *ch == ',' || sentence_end {
+            cut = *at;
+            break;
+        }
+    }
+    clip_cols(text[..cut].trim_end(), DESCRIPTION_COLS)
+}
+
+/// One row of the grouped list: the position in the filtered list, and the
+/// group label when this row opens its group.
+struct GroupedRow {
+    position: usize,
+    label: Option<&'static str>,
+}
 
 /// Popup open/closed state, its full candidate catalog, the current filtered
 /// view, and the selected row. Internally this is the donor `CommandPopup`:
@@ -40,7 +202,7 @@ impl CompletionPopup {
     /// Replace the full candidate catalog (called by the host whenever the
     /// shared command registry's contents could have changed). Preserves the
     /// selection by canonical command name across the swap, matching the
-    /// previous the host app behavior hosts rely on.
+    /// previous behavior hosts rely on.
     pub fn set_catalog(&mut self, catalog: Vec<CompletionCandidate>) {
         let selected_name = self.selected_candidate().map(|c| c.name.clone());
         self.catalog = catalog;
@@ -80,10 +242,24 @@ impl CompletionPopup {
             .ensure_visible(matches_len, MAX_POPUP_ROWS.min(matches_len));
     }
 
-    /// Preferred height for the popup at `width`: one line per visible row
-    /// (the reduced single-line row path) plus the window cap.
-    pub(crate) fn calculate_required_height(&self, _width: u16) -> u16 {
-        self.filtered_items().len().clamp(1, MAX_POPUP_ROWS) as u16 + 1
+    /// Preferred height for the popup at `width`: the rows of the grouped or
+    /// filtered list (capped), plus one row for the count.
+    pub(crate) fn calculate_required_height(&self, width: u16) -> u16 {
+        let list = self.filtered();
+        let rows = if list.is_empty() {
+            1
+        } else if self.is_grouped() {
+            self.grouped_columns(&list, width)
+                .iter()
+                .map(Vec::len)
+                .max()
+                .unwrap_or(1)
+                .max(1)
+        } else {
+            list.len().min(MAX_POPUP_ROWS)
+        };
+        // One more row for the count.
+        rows as u16 + 1
     }
 
     /// Compute exact/prefix matches over the catalog, paired with optional
@@ -93,7 +269,7 @@ impl CompletionPopup {
         let filter = self.command_filter.trim();
         let mut out: Vec<(usize, Option<Vec<usize>>)> = Vec::new();
         if filter.is_empty() {
-            return (0..self.catalog.len()).map(|i| (i, None)).collect();
+            return self.curated();
         }
 
         let filter_lower = filter.to_lowercase();
@@ -144,7 +320,11 @@ impl CompletionPopup {
         if filter_chars >= 3 {
             let needles = description_needles(&filter_lower);
             for (index, candidate) in self.catalog.iter().enumerate() {
-                if !seen.contains(&index) && description_matches(&candidate.description, &needles) {
+                // Unavailable commands surface only by name, never through prose.
+                if !seen.contains(&index)
+                    && candidate.disabled_reason.is_none()
+                    && description_matches(&candidate.description, &needles)
+                {
                     seen.insert(index);
                     out.push((index, None));
                 }
@@ -160,49 +340,273 @@ impl CompletionPopup {
             .collect()
     }
 
-    /// Render-ready rows — donor `rows_from_matches` reduced to the
-    /// single-line row model, keeping the `>` selection prefix, match
-    /// highlighting, and disabled-reason treatment.
-    fn rows_from_matches(
+    /// The bare `/` view: available commands grouped (session, review, model,
+    /// policy, info, other), a few per group; unavailable ones stay hidden
+    /// until their name is typed.
+    fn curated(&self) -> Vec<(usize, Option<Vec<usize>>)> {
+        let mut by_group: Vec<Vec<usize>> = vec![Vec::new(); GROUP_LABELS.len()];
+        for (index, candidate) in self.catalog.iter().enumerate() {
+            if candidate.disabled_reason.is_none() {
+                by_group[group_of(&candidate.name)].push(index);
+            }
+        }
+        let mut out = Vec::new();
+        for (group, mut members) in by_group.into_iter().enumerate() {
+            members.sort_by_key(|index| rank_of(&self.catalog[*index].name));
+            out.extend(
+                members
+                    .into_iter()
+                    .take(GROUP_CAPS[group])
+                    .map(|i| (i, None)),
+            );
+        }
+        out
+    }
+
+    /// Commands that can run now: the denominator of the count.
+    fn available_count(&self) -> usize {
+        self.catalog
+            .iter()
+            .filter(|candidate| candidate.disabled_reason.is_none())
+            .count()
+    }
+
+    /// First row of a `win`-row window over `len` rows that keeps the
+    /// selection visible (same rule as the shared popup rows).
+    fn window_start(&self, len: usize, win: usize) -> usize {
+        if len == 0 || win == 0 {
+            return 0;
+        }
+        let mut start = self.state.scroll_top.min(len - 1);
+        if let Some(selected) = self.state.selected_idx {
+            if selected < start {
+                start = selected;
+            } else if selected >= start + win {
+                start = selected + 1 - win;
+            }
+        }
+        start.min(len.saturating_sub(win))
+    }
+
+    /// The grouped view as columns of rows: two columns split on a group
+    /// boundary when the width allows (selection runs down the first column,
+    /// then the second), else one column that scrolls.
+    fn grouped_columns(
         &self,
-        matches: Vec<(usize, Option<Vec<usize>>)>,
-    ) -> Vec<GenericDisplayRow> {
-        matches
-            .into_iter()
+        list: &[(usize, Option<Vec<usize>>)],
+        width: u16,
+    ) -> Vec<Vec<GroupedRow>> {
+        let two = width >= TWO_COLUMN_MIN_WIDTH;
+        let (start, end) = if two {
+            (0, list.len())
+        } else {
+            let win = MAX_POPUP_ROWS.min(list.len());
+            let start = self.window_start(list.len(), win);
+            (start, start + win)
+        };
+        let mut rows: Vec<GroupedRow> = Vec::new();
+        let mut previous = None;
+        for (position, entry) in list.iter().enumerate().take(end).skip(start) {
+            let group = group_of(&self.catalog[entry.0].name);
+            let label = if previous == Some(group) {
+                None
+            } else {
+                Some(GROUP_LABELS[group])
+            };
+            previous = Some(group);
+            rows.push(GroupedRow { position, label });
+        }
+        if !two {
+            return vec![rows];
+        }
+        let half = rows.len().div_ceil(2);
+        let split = rows
+            .iter()
             .enumerate()
-            .map(|(index, (catalog_index, indices))| {
-                let candidate = &self.catalog[catalog_index];
-                // One command, several names: when the typed prefix matches
-                // an alias rather than the canonical name, label the row with
-                // that alias and bracket the canonical action.
-                let alias_label = self.matched_alias(candidate);
-                let (name, description) = match alias_label {
-                    Some(alias) => (
-                        format!("/{alias}  ({})", candidate.name),
-                        format!("\u{b7} {}", candidate.description),
-                    ),
-                    None => (
-                        format!("/{}", candidate.name),
-                        candidate.description.clone(),
-                    ),
-                };
-                GenericDisplayRow {
-                    category_tag: None,
-                    name,
-                    name_prefix_spans: vec![if self.state.selected_idx == Some(index) {
-                        "> ".into()
-                    } else {
-                        "  ".into()
-                    }],
-                    selection_style: Some(selection_style()),
-                    match_indices: indices.map(|v| v.into_iter().map(|i| i + 1).collect()),
-                    display_shortcut: None,
-                    description: Some(description),
-                    is_disabled: candidate.disabled_reason.is_some(),
-                    disabled_reason: candidate.disabled_reason.clone(),
+            .skip(1)
+            .filter(|(_, row)| row.label.is_some())
+            .map(|(i, _)| i)
+            .find(|i| *i >= half)
+            .unwrap_or(rows.len());
+        let right = rows.split_off(split);
+        vec![rows, right]
+    }
+
+    fn is_grouped(&self) -> bool {
+        self.command_filter.trim().is_empty()
+    }
+
+    /// One grouped row: dim label, command name, dim short description.
+    fn grouped_line(
+        &self,
+        row: &GroupedRow,
+        candidate: &CompletionCandidate,
+        name_cols: usize,
+        cols: usize,
+    ) -> Line<'static> {
+        let dim = Style::default().add_modifier(Modifier::DIM);
+        let label_cols = GROUP_LABEL_COLS;
+        let selected = self.state.selected_idx == Some(row.position);
+        let pill = if selected {
+            Style::default().add_modifier(Modifier::REVERSED)
+        } else {
+            Style::default()
+        };
+        let remaining = cols.saturating_sub(GROUP_LABEL_COLS + name_cols);
+        let mut description = clip_cols(
+            &display_description(&candidate.name, &candidate.description),
+            remaining,
+        );
+        if selected {
+            description = format!("{description:<remaining$}");
+        }
+        Line::from(vec![
+            Span::styled(format!("{:<label_cols$}", row.label.unwrap_or("")), dim),
+            Span::styled(
+                format!("{:<name_cols$}", format!("/{}", candidate.name)),
+                pill.add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(description, if selected { pill } else { dim }),
+        ])
+    }
+
+    fn render_grouped(
+        &self,
+        area: Rect,
+        buf: &mut Buffer,
+        list: &[(usize, Option<Vec<usize>>)],
+        body_rows: u16,
+    ) {
+        let columns = self.grouped_columns(list, area.width);
+        let gap = 2u16;
+        let col_w = if columns.len() == 2 {
+            area.width.saturating_sub(gap) / 2
+        } else {
+            area.width
+        };
+        let name_cols = list
+            .iter()
+            .map(|(index, _)| display_width(&self.catalog[*index].name) + 1)
+            .max()
+            .unwrap_or(0)
+            + 2;
+        for (c, rows) in columns.iter().enumerate() {
+            let x = area.x + (c as u16) * (col_w + gap);
+            for (r, row) in rows.iter().enumerate() {
+                if r as u16 >= body_rows {
+                    break;
+                }
+                let candidate = &self.catalog[list[row.position].0];
+                self.grouped_line(row, candidate, name_cols, col_w as usize)
+                    .render(
+                        Rect {
+                            x,
+                            y: area.y + r as u16,
+                            width: col_w,
+                            height: 1,
+                        },
+                        buf,
+                    );
+            }
+        }
+    }
+
+    /// The typed view: one column, best match first, the typed prefix bold;
+    /// an unavailable command shows dim with its reason.
+    fn render_filtered(
+        &self,
+        area: Rect,
+        buf: &mut Buffer,
+        list: &[(usize, Option<Vec<usize>>)],
+        body_rows: u16,
+    ) {
+        let win = (body_rows as usize).min(MAX_POPUP_ROWS).min(list.len());
+        let start = self.window_start(list.len(), win);
+        let dim = Style::default().add_modifier(Modifier::DIM);
+        let names: Vec<String> = list
+            .iter()
+            .map(|(index, _)| {
+                let candidate = &self.catalog[*index];
+                match self.matched_alias(candidate) {
+                    Some(alias) => format!("/{alias}  ({})", candidate.name),
+                    None => format!("/{}", candidate.name),
                 }
             })
-            .collect()
+            .collect();
+        let name_cols = names[start..start + win]
+            .iter()
+            .map(|name| display_width(name))
+            .max()
+            .unwrap_or(0)
+            + 2;
+        for (offset, position) in (start..start + win).enumerate() {
+            let (index, indices) = &list[position];
+            let candidate = &self.catalog[*index];
+            let disabled = candidate.disabled_reason.is_some();
+            let selected = self.state.selected_idx == Some(position) && !disabled;
+            let base = if selected {
+                Style::default().add_modifier(Modifier::REVERSED)
+            } else if disabled {
+                dim
+            } else {
+                Style::default()
+            };
+            // Match offsets count from the name after its `/`.
+            let matched: Vec<usize> = indices
+                .as_ref()
+                .map(|v| v.iter().map(|i| i + 1).collect())
+                .unwrap_or_default();
+            let mut spans: Vec<Span<'static>> = vec![Span::raw(" ")];
+            let mut run = String::new();
+            let mut run_matched = false;
+            for (at, ch) in names[position].chars().enumerate() {
+                let is_match = matched.contains(&at);
+                if is_match != run_matched && !run.is_empty() {
+                    let style = if run_matched {
+                        base.add_modifier(Modifier::BOLD)
+                    } else {
+                        base
+                    };
+                    spans.push(Span::styled(std::mem::take(&mut run), style));
+                }
+                run_matched = is_match;
+                run.push(ch);
+            }
+            if !run.is_empty() {
+                let style = if run_matched {
+                    base.add_modifier(Modifier::BOLD)
+                } else {
+                    base
+                };
+                spans.push(Span::styled(run, style));
+            }
+            let used = display_width(&names[position]);
+            let remaining = (area.width as usize).saturating_sub(1 + name_cols);
+            let description = match &candidate.disabled_reason {
+                Some(reason) => format!("unavailable: {reason}"),
+                None => display_description(&candidate.name, &candidate.description),
+            };
+            let description = clip_cols(&description, remaining);
+            let description = if selected {
+                format!("{description:<remaining$}")
+            } else {
+                description
+            };
+            spans.push(Span::styled(
+                " ".repeat(name_cols.saturating_sub(used)),
+                base,
+            ));
+            spans.push(Span::styled(description, if selected { base } else { dim }));
+            Line::from(spans).render(
+                Rect {
+                    x: area.x,
+                    y: area.y + offset as u16,
+                    width: area.width,
+                    height: 1,
+                },
+                buf,
+            );
+        }
     }
 
     /// The alias the typed filter selects, when it matches an alias but not
@@ -313,7 +717,50 @@ fn description_matches(description: &str, needles: &[String]) -> bool {
 
 impl WidgetRef for CompletionPopup {
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
-        let rows = self.rows_from_matches(self.filtered());
-        render_rows_single_line(area, buf, &rows, &self.state, MAX_POPUP_ROWS, "no matches");
+        if area.width == 0 || area.height == 0 {
+            return;
+        }
+        let list = self.filtered();
+        let dim = Style::default().add_modifier(Modifier::DIM);
+        // The last row carries the count; the rows above carry the list.
+        let body_rows = if area.height >= 2 {
+            area.height - 1
+        } else {
+            area.height
+        };
+        if list.is_empty() {
+            Line::from(Span::styled(
+                "no matches",
+                dim.add_modifier(Modifier::ITALIC),
+            ))
+            .render(Rect { height: 1, ..area }, buf);
+        } else if self.is_grouped() {
+            self.render_grouped(area, buf, &list, body_rows);
+        } else {
+            self.render_filtered(area, buf, &list, body_rows);
+        }
+        if area.height >= 2 {
+            let total = self.available_count();
+            let text = if self.is_grouped() {
+                format!("{} of {total} \u{b7} type to filter", list.len())
+            } else if list.is_empty() {
+                format!("0 of {total} \u{b7} esc closes")
+            } else {
+                format!(
+                    "{} of {total} \u{b7} \u{23ce} runs \u{b7} esc closes",
+                    list.len()
+                )
+            };
+            let width = display_width(&text).min(area.width as usize) as u16;
+            Line::from(Span::styled(text, dim)).render(
+                Rect {
+                    x: area.right() - width,
+                    y: area.bottom() - 1,
+                    width,
+                    height: 1,
+                },
+                buf,
+            );
+        }
     }
 }
