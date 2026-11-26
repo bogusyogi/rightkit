@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.85
+
+- Ownership takes a repository's registration from the list this gate ships (`ownership-repositories.json`) when the host's protected registry does not have it, and reports that as a warning. The host copy was written by the retired trust-sync and cannot be refreshed, so a renamed origin (bogusyogi/pulse) was refused on a host that still listed the old name. The registered roots are enforced exactly as before, and a repository in neither list is still refused (#1775).
+
+- `publish-local npm --archive` reads the packed manifest by file name from the archive's own folder, so it works when GNU tar is first on PATH (Git Bash on Windows read a `D:\` path as a remote host and refused the archive) (#1775).
+
 ## 0.6.84
 
 - Installed QA journeys build: the runner calls `rustright cargo` from the app root directly, not through the seam, so the broker refused the stage's root Class A verdict there (`RK_CLASS_A_INVALID`, workspace differs). release-qa now hands the runner the verdict for the app root, derived from the stage's root verdict the way the seam derives one for each of its own calls (#1768).

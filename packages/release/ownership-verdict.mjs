@@ -52,6 +52,7 @@ export function ownershipVerdict(report, trust) {
     ] });
   } catch { return refuse("RK_OWNERSHIP_INVALID_REGISTRATION", ["protected repository registry is missing or malformed"]); }
   if (!noRegistry && !registration.ok) return refuse("RK_OWNERSHIP_INVALID_REGISTRATION", registration.problems);
+  if (!noRegistry) warnings.push(...(registration.warnings ?? []));
   const scannedRoots = report.metadata.roots?.map((entry) => entry.root) ?? [report.metadata.pathPrefix?.replace(/\/$/, "") || "."];
   if (!noRegistry && (new Set(scannedRoots).size !== scannedRoots.length || sha256([...scannedRoots].sort()) !== sha256([...registration.registration.roots].sort())))
     return refuse("RK_OWNERSHIP_INVALID_REGISTRATION", ["scan roots do not exactly cover protected repository registration"]);

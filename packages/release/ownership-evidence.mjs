@@ -125,6 +125,7 @@ function createEvidence(repoRoot, {
       const origin = useCommittedSource ? source.origin : git(root, ["remote", "get-url", "origin"], gitRunner);
       repositoryIdentity = canonicalRepositoryIdentity(origin);
       registrationCheck = verifyRepositoryRegistration(trustState.trust, repositoryIdentity);
+      evidenceDiagnostics.push(...(registrationCheck.warnings ?? []));
       if (!registrationCheck.ok) {
         if (!enrollmentPending) throw new Error(registrationCheck.problems.join("; "));
         evidenceDiagnostics.push(...registrationCheck.problems);
