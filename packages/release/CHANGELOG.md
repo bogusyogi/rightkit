@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- A dependency-resolution failure is never cached as a deterministic failure (`deterministic-failure/4`): cargo's "failed to select a version for", "no matching package named", "location searched:" and "candidate versions found which didn't match" mean the host's registry index lacks a version the lock names, which is the host, not the inputs. Such a run is still red; the next run compiles again. The bump retires every failure stored under `/3` once (Pulse's Mac compile of 97de4c70 was refused four times by a stored "failed to select a version for rightkit-tauri-shell =0.8.11" after the index caught up). Passes are unaffected.
+
 ## 0.6.89
 
 - A run that goes to package asks the registries about the app's RightKit pins before anything compiles, and that verdict is kept for the run's own package stage. Before, an app with several Cargo workspaces was first judged at package, after the compile, and the 24-hour settle rule could turn a pin stale between the two (Pulse, 26 November: admitted at 15:31 UTC and refused at 15:56 UTC with the same pins). The package stage reuses the verdict only when it covers the build's full lock inventory; a later run on the same commit asks again.
