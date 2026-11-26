@@ -20,8 +20,9 @@ use crate::component::{Event, Outcome};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use std::time::{Duration, Instant};
 
-/// Detach chord: Ctrl+] (byte 0x1d), the telnet/ssh-style escape. It is never
-/// forwarded to the child.
+/// Detach chord: Ctrl+] (byte 0x1d), the telnet/ssh-style escape; a terminal
+/// without the keyboard-enhancement protocol reports the same byte as Ctrl+5,
+/// which detaches too. It is never forwarded to the child.
 pub const DETACH_BYTE: u8 = 0x1d;
 /// Raw output tail kept for overlap detection between snapshots.
 const OVERLAP_PROBE: usize = 128;
@@ -313,7 +314,11 @@ impl PtyAttach {
         if key.kind == KeyEventKind::Release {
             return Outcome::Consumed;
         }
-        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char(']') {
+        // A terminal without the keyboard-enhancement protocol sends Ctrl+] as the single byte 0x1d,
+        // which the input reader reports as Ctrl+5 (the control bytes 0x1c to 0x1f map to Ctrl+4 to Ctrl+7).
+        if key.modifiers.contains(KeyModifiers::CONTROL)
+            && matches!(key.code, KeyCode::Char(']' | '5'))
+        {
             self.intents.push(PtyIntent::Detach);
             return Outcome::Consumed;
         }

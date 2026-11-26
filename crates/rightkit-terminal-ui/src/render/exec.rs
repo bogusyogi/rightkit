@@ -426,6 +426,9 @@ pub struct ExecCall {
     pub duration: Option<Duration>,
     /// Input sent to a background terminal (Interaction source only).
     pub interaction_input: Option<String>,
+    /// How the permission settled (`allowed once`, `denied`, ...), shown as a
+    /// dim field on the action row instead of a separate row.
+    pub permission: Option<String>,
     /// The tool's own name and JSON arguments, for the aligned ledger row.
     /// `None` for argv-style commands, which keep the codex block shape.
     tool: Option<(String, String)>,
@@ -444,6 +447,7 @@ impl ExecCall {
             active: true,
             duration: None,
             interaction_input: None,
+            permission: None,
             tool: None,
             started: None,
         }
@@ -567,6 +571,15 @@ impl ExecCell {
         call.output = Some(output);
         call.duration = Some(duration);
         call.active = false;
+        true
+    }
+
+    /// Record how the permission for `call_id` settled. False on an unknown id.
+    pub fn set_permission(&mut self, call_id: &str, label: &str) -> bool {
+        let Some(call) = self.calls.iter_mut().rev().find(|c| c.call_id == call_id) else {
+            return false;
+        };
+        call.permission = Some(sanitize(label));
         true
     }
 

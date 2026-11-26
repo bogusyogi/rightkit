@@ -85,20 +85,15 @@ pub(super) fn foreground(
     })
 }
 
+/// WCAG 2.x contrast ratio of two terminal colours (`rightkit_theme::color`).
 fn ratio(a: (u8, u8, u8), b: (u8, u8, u8)) -> f64 {
-    let a = luminance(a);
-    let b = luminance(b);
-    (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    rightkit_theme::color::contrast_ratio(rgb(a), rgb(b))
 }
 
-fn luminance(rgb: (u8, u8, u8)) -> f64 {
-    let [r, g, b] = [rgb.0, rgb.1, rgb.2].map(|channel| {
-        let value = f64::from(channel) / 255.0;
-        if value <= 0.04045 {
-            value / 12.92
-        } else {
-            ((value + 0.055) / 1.055).powf(/*n*/ 2.4)
-        }
-    });
-    0.2126 * r + 0.7152 * g + 0.0722 * b
+fn rgb((r, g, b): (u8, u8, u8)) -> rightkit_theme::color::Rgb {
+    rightkit_theme::color::Rgb {
+        r: f64::from(r),
+        g: f64::from(g),
+        b: f64::from(b),
+    }
 }

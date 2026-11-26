@@ -420,7 +420,11 @@ pub(super) fn ledger_lines(
     // Right column: result, then time.
     let mut result = String::new();
     let mut result_style = dim;
-    if failed {
+    let denied = call.permission.as_deref() == Some("denied");
+    if failed && denied {
+        // The `denied` field already says why; no second word for it.
+        result_style = Style::default().fg(theme.color(Role::Failure));
+    } else if failed {
         result = "failed".to_string();
         result_style = Style::default().fg(theme.color(Role::Failure));
     } else if !call.active {
@@ -456,24 +460,34 @@ pub(super) fn ledger_lines(
 
     let verb = format!("{:<width$}", entry.verb, width = VERB_WIDTH);
     let fixed_left = display_width(INDENT) + 2 + display_width(&verb) + 1;
-    let join = |result: &str, time: &str| match (result.is_empty(), time.is_empty()) {
-        (true, true) => String::new(),
-        (false, true) => result.to_string(),
-        (true, false) => time.to_string(),
-        (false, false) => format!("{result}  {time}"),
+    // The permission outcome is a dim field before the measures, on the same
+    // row: the action is one line, not an "allowed" row plus a tool row.
+    let permission = call.permission.clone().unwrap_or_default();
+    let join = |parts: [&str; 3]| {
+        parts
+            .iter()
+            .filter(|p| !p.is_empty())
+            .copied()
+            .collect::<Vec<_>>()
+            .join("  ")
     };
-    // Narrow terminals shed the result first, then the time, never the target.
+    // Narrow terminals shed the result first, then the time, then the
+    // permission, never the target.
     let min_target = 12.min(width.saturating_sub(fixed_left));
     let fits = |text: &str| fixed_left + min_target + display_width(text) + 2 <= width;
+    let mut shown_perm = permission.clone();
     let mut shown_result = result.clone();
     let mut shown_time = time.clone();
-    if !fits(&join(&shown_result, &shown_time)) {
+    if !fits(&join([&shown_perm, &shown_result, &shown_time])) {
         shown_result.clear();
-        if !fits(&join(&shown_result, &shown_time)) {
+        if !fits(&join([&shown_perm, &shown_result, &shown_time])) {
             shown_time.clear();
+            if !fits(&join([&shown_perm, &shown_result, &shown_time])) {
+                shown_perm.clear();
+            }
         }
     }
-    let right_w = display_width(&join(&shown_result, &shown_time));
+    let right_w = display_width(&join([&shown_perm, &shown_result, &shown_time]));
     let target_budget = width
         .saturating_sub(fixed_left + right_w + if right_w > 0 { 2 } else { 0 })
         .max(1);
@@ -493,13 +507,25 @@ pub(super) fn ledger_lines(
     ];
     if right_w > 0 {
         spans.push(Span::raw(" ".repeat(gap)));
-        if !shown_result.is_empty() {
-            let sep = if shown_time.is_empty() { "" } else { "  " };
-            spans.push(Span::styled(shown_result.clone(), result_style));
-            spans.push(Span::styled(format!("{sep}{shown_time}"), dim));
+        let perm_style = if denied {
+            Style::default().fg(theme.color(Role::Failure))
         } else {
-            spans.push(Span::styled(shown_time.clone(), dim));
-        }
+            dim
+        };
+        let mut first = true;
+        let mut push = |text: &str, style: Style, spans: &mut Vec<Span<'static>>| {
+            if text.is_empty() {
+                return;
+            }
+            if !first {
+                spans.push(Span::styled("  ".to_string(), dim));
+            }
+            first = false;
+            spans.push(Span::styled(text.to_string(), style));
+        };
+        push(&shown_perm, perm_style, &mut spans);
+        push(&shown_result, result_style, &mut spans);
+        push(&shown_time, dim, &mut spans);
     }
     let mut lines = vec![Line::from(spans)];
 
@@ -523,7 +549,7 @@ pub(super) fn ledger_lines(
                 format!("{total} line{}", if total == 1 { "" } else { "s" })
             };
             lines.push(gutter_row("╰", &footer, width, theme));
-        } else if failed && !all.is_empty() {
+        } else if failed && !denied && !all.is_empty() {
             let start = first_error_index(&all);
             let end = (start + ERROR_ROWS).min(all.len());
             for text in &all[start..end] {

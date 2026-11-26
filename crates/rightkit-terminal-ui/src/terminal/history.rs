@@ -187,7 +187,12 @@ pub fn insert(
     let (wrapped, wrapped_rows) = wrap_history_hyperlink_lines(lines, wrap_width, wrap_policy);
     let wrapped_lines = wrapped_rows as u16;
 
-    match mode {
+    // Held as one synchronized-output frame (never nested inside a draw) so
+    // scrollback text and the scroll it causes land together, not torn. The
+    // end of the frame is written on the error path too, so a failed insert
+    // never leaves the terminal holding its screen.
+    writer.write_all(b"\x1b[?2026h")?;
+    let slid = match mode {
         InsertMode::ScrollRegion => insert_scroll_region(
             writer,
             viewport,
@@ -198,8 +203,8 @@ pub fn insert(
             restore_cursor,
         ),
         InsertMode::MultiplexerSafe => {
-            insert_multiplexer_safe(writer, viewport, &wrapped, wrap_width, restore_cursor)?;
-            Ok(0)
+            insert_multiplexer_safe(writer, viewport, &wrapped, wrap_width, restore_cursor)
+                .map(|()| 0)
         }
         InsertMode::FullScreen => insert_full_screen(
             writer,
@@ -210,7 +215,9 @@ pub fn insert(
             wrap_width,
             restore_cursor,
         ),
-    }
+    };
+    writer.write_all(b"\x1b[?2026l")?;
+    slid
 }
 
 /// Donor `InsertHistoryMode::Standard`: scroll-region insertion.
