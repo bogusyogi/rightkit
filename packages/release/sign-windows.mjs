@@ -93,15 +93,28 @@ export function windowsSigningContext({ processEnv = process.env, run = spawnSyn
     const stdout = String(result.stdout ?? "").trim();
     if (!EXPIRY.test(stdout)) return { ok: false, detail: `az printed something other than an expiry (not shown, ${stdout.length} chars)` };
     const expires = new Date(stdout.replace(" ", "T")).getTime();
-    if (!Number.isFinite(expires) || expires < now + minMinutes * 60000) return { ok: false, detail: `the token expires at ${stdout} (local), under ${minMinutes} minutes from now` };
+    if (!Number.isFinite(expires)) return { ok: false, detail: `the token expiry ${stdout} (local) cannot be read` };
+    if (expires < now + minMinutes * 60000) return { ok: false, detail: `the token expires at ${stdout} (local), under ${minMinutes} minutes from now`, expires };
     return { ok: true, detail: stdout };
   };
   return { env, platform, exists, findFirst, signtoolCandidates, run: runTool, checkToken };
 }
 
 /** Before any copy, temp file or output: the signer's Azure CLI sign-in must yield a silent token. */
-export function requireSignerToken(ctx = windowsSigningContext({ quiet: true })) {
-  const state = ctx.checkToken();
+// Azure CLI (MSAL) hands back its cached access token until about five minutes before it expires and refreshes it only then, so a
+// token found with less than the margin left is not a dead sign-in: asked again inside MSAL's refresh window, az returns a fresh one.
+// Refusing there made every hourly token unusable for its last ten minutes. Wait for that window (at most the margin) and ask once more.
+export const MSAL_REFRESH_WINDOW_MS = 4.5 * 60000;
+const sleepSync = (ms) => { if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); };
+export function requireSignerToken(ctx = windowsSigningContext({ quiet: true }), { now = () => Date.now(), sleep = sleepSync, log = (line) => process.stderr.write(`${line}
+`) } = {}) {
+  let state = ctx.checkToken();
+  if (!state.ok && Number.isFinite(state.expires) && state.expires > now()) {
+    const wait = Math.max(0, state.expires - MSAL_REFRESH_WINDOW_MS - now());
+    log(`[sign-windows] ${state.detail}; az refreshes a cached token only near its expiry, so waiting ${Math.ceil(wait / 1000)} s and asking again`);
+    sleep(wait);
+    state = ctx.checkToken();
+  }
   if (!state.ok) throw new WindowsSigningTokenError(state.detail);
 }
 
