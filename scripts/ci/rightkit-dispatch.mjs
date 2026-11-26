@@ -334,7 +334,7 @@ export function reserveClaim({ gh, env, repo, identity, requestId, discover, ver
 }
 
 // Broker pins this adapter. Pin its admission implementation too: importing mutable helpers would defeat that pin.
-const PREFLIGHT_SHA256 = "0d97c37787f0b17052992fa24bc1b70fd50689478908c5e469d9cfeb0de14d8c";
+const PREFLIGHT_SHA256 = "8b739b96ae89fdc474689ce4bfdbe02f2e4301464d9ab1090a56f4ac7d352d23";
 const NPM_PREFLIGHT_SHA256 = "9107430ee98fe4fdbce202991afcb73c59f80a216499f4ca1cfc52feb7cc9ecb";
 const NPM_SELECT_SHA256 = "4841ec5c01f6e03b6d0fc2a414793ca0082b31fc71a77fd8a9bc5e05ea028755";
 // rk-npm-preflight.mjs imports this module (its version-pin plan-check); a pinned importer that trusts an unpinned module is not pinned.
