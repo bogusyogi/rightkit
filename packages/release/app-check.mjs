@@ -110,6 +110,7 @@ import { CONSUMER_CONTRACT_RULES } from "./consumer-contracts.mjs";
 import { OWNERSHIP_CLASS_RULES } from "./ownership-class-rules.mjs";
 import { SOURCE_CLOSURE_RULES } from "./source-closure-rules.mjs";
 import { SHELL_CONTRACT_RULES } from "./shell-contract.mjs";
+import { neutralIgnored } from "./stage-ledger.mjs";
 import { CONSUMER_SOURCE_RULES } from "./consumer-source-contracts.mjs";
 import { CONSUMER_POLICY_RULES } from "./consumer-policy.mjs";
 import { engineRecordStore, suiteKeyLiteral, suiteUpdaterKey } from "./suite-trust-roots.mjs";
@@ -1307,8 +1308,33 @@ function trustPolicyExclude({ root, files }) {
   return out;
 }
 
+// G29: the QA runner keeps a stash of the app binary and a pointer file under the app root (rightkit-qa binary.rs STASH_DIR, POINTER_FILE;
+// `[ui] pointer_file` renames the pointer). Its first run of an installed-QA stage writes them into the snapshot. A commit that does not
+// ignore them then has a snapshot that is no longer its tree: the broker fails the journeys build on its post-check (the client exits 125),
+// and the stage ledger refuses the file at the end of qualify, after package, signing and notarization (Pulse 1386c633 and CodeRight
+// 7622df951, 2026-11-26). The app root is the directory that holds both a release config and the runner's rightkit-qa.toml.
+function qaStashIgnored({ root, files }) {
+  const out = [];
+  const configDirs = new Set(configFiles(files).map(dirOf));
+  for (const file of files.filter((f) => /(^|\/)rightkit-qa\.toml$/.test(f) && scanned(f) && configDirs.has(dirOf(f)))) {
+    const dir = dirOf(file);
+    const text = readText(root, file) ?? "";
+    const pointer = /^\s*pointer_file\s*=\s*"([^"]+)"/m.exec(text)?.[1] ?? ".rightkit-qa-app-binary";
+    const under = (name) => (dir === "." ? name : `${dir}/${name}`);
+    const wanted = [[under(".rightkit-qa-bin/host/app"), under(".rightkit-qa-bin/")], [under(pointer), under(pointer)]];
+    let ignored;
+    try { ignored = neutralIgnored({ dir: root, paths: wanted.map(([probe]) => probe) }); } catch { continue; } // git cannot answer here: the stage ledger still guards at the end
+    for (const [probe, line] of wanted) {
+      if (ignored.has(probe)) continue;
+      out.push({ file, subject: line, problem: `${line} is not ignored by the commit's own ignore rules; the QA runner writes it under the app root during installed QA, so the snapshot stops being the commit's tree and qualification fails after the package stage`, fix: `add "${line}" to the commit's .gitignore` });
+    }
+  }
+  return out;
+}
+
 export const RULES = Object.freeze([
   { id: "eol-policy", gap: "G04", run: eolPolicy },
+  { id: "qa-stash-ignored", gap: "G29", run: qaStashIgnored },
   { id: "file-url", gap: "G12", run: fileUrls },
   { id: "retired-alias", gap: "P11", run: retiredAlias },
   { id: "qa-platform", gap: "G13", run: qaPlatform },
