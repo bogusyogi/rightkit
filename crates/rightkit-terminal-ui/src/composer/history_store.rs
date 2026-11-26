@@ -1,6 +1,6 @@
 //! Cross-session prompt history file.
 //!
-//! One JSON string per line (`"text"`), oldest first, kept under the the host app
+//! One JSON string per line (`"text"`), oldest first, kept under the host app
 //! home (`<state root>/history.jsonl`) --
 //! never inside a repository. Appends are single `write` calls on an
 //! `O_APPEND` handle, so concurrent sessions interleave whole lines. The file
@@ -60,6 +60,16 @@ impl HistoryStore {
         if let Some(parent) = self.path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
+        // Appends and compaction of every session share one lock, so a line
+        // appended by another process cannot land between compaction's load
+        // and its rename (and vanish). Without the lock the line is still
+        // appended; only compaction is skipped until a later append holds it.
+        let lock = rightkit_fs::FileLock::try_lock_with(
+            &self.path.with_extension("jsonl.lock"),
+            rightkit_fs::LockKind::default(),
+            std::time::Duration::from_secs(1),
+        )
+        .ok();
         if rightkit_fs::append_record(
             &self.path,
             line.as_bytes(),
@@ -69,7 +79,9 @@ impl HistoryStore {
         {
             return;
         }
-        self.compact_if_needed();
+        if lock.is_some() {
+            self.compact_if_needed();
+        }
     }
 
     fn compact_if_needed(&self) {
