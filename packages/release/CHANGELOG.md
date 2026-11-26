@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.85
+
+- Ownership no longer refuses a repository that is missing from the host's protected trust registry: registering one needed the retired trust-sync, so a missing registration is now a reported warning in both the evidence scan and the verdict. The requested root is scanned and every finding, coverage and floor gate still applies. A registered repository keeps its exact-roots check (#1775).
+
+- `publish-local npm --archive` reads the packed manifest by file name from the archive's own folder, so it works when GNU tar is first on PATH (Git Bash on Windows read a `D:\` path as a remote host and refused the archive) (#1775).
+
 ## 0.6.84
 
 - Installed QA journeys build: the runner calls `rustright cargo` from the app root directly, not through the seam, so the broker refused the stage's root Class A verdict there (`RK_CLASS_A_INVALID`, workspace differs). release-qa now hands the runner the verdict for the app root, derived from the stage's root verdict the way the seam derives one for each of its own calls (#1768).

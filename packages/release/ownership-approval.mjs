@@ -236,7 +236,9 @@ export function verifyRepositoryRegistration(trust, repositoryIdentity, { files 
   let identity;
   try { identity = canonicalRepositoryIdentity(repositoryIdentity); } catch { return { ok: false, problems: ["invalid repository identity"] }; }
   const registration = trust.repositories.find((entry) => entry.repositoryIdentity === identity);
-  if (!registration) return { ok: false, problems: ["repository is not registered in protected trust"] };
+  // `unregistered` lets ownership evidence and verdicts treat a missing registration as a warning (#1775): registering a
+  // repository needed the retired trust-sync, so its absence is not a refusal. Provenance still requires one.
+  if (!registration) return { ok: false, unregistered: true, problems: ["repository is not registered in protected trust"] };
   const problems = files.filter((file) => !exactRepositoryPath(file) || !registration.roots.some((root) => withinRoot(file, root))).map((file) => `path outside registered repository roots or malformed: ${file}`);
   return { ok: problems.length === 0, problems, registration };
 }

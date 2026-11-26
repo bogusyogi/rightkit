@@ -1,7 +1,7 @@
 {
   "kind": "verdict",
-  "description": "Repository identity not in protected registry.",
-  "expectCode": "RK_OWNERSHIP_INVALID_REGISTRATION",
+  "description": "Repository identity not in protected registry: admitted with a warning (registering needed the retired trust-sync, #1775); every finding gate still applies.",
+  "expectCode": "RK_OWNERSHIP_CLEAN",
   "report": {
     "ok": true,
     "enrollmentPending": false,

@@ -1,7 +1,7 @@
 {
   "kind": "verdict",
-  "description": "Registration outranks floor check.",
-  "expectCode": "RK_OWNERSHIP_INVALID_REGISTRATION",
+  "description": "An unregistered repository is only a warning, so the floor check still refuses it (#1775).",
+  "expectCode": "RK_OWNERSHIP_POLICY_DOWNGRADE",
   "report": {
     "ok": true,
     "enrollmentPending": false,

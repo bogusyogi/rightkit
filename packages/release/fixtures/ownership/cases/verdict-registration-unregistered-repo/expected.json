@@ -1,9 +1,10 @@
 {
   "verdict": {
-    "admit": false,
-    "code": "RK_OWNERSHIP_INVALID_REGISTRATION",
-    "problems": [
-      "repository is not registered in protected trust"
+    "admit": true,
+    "code": "RK_OWNERSHIP_CLEAN",
+    "problems": [],
+    "warnings": [
+      "repository is not registered in protected trust (warning only; registering needed the retired trust-sync)"
     ]
   }
 }

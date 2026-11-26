@@ -51,9 +51,12 @@ export function ownershipVerdict(report, trust) {
       ...(report.metadata.contentDigests ?? []).map((entry) => entry.path),
     ] });
   } catch { return refuse("RK_OWNERSHIP_INVALID_REGISTRATION", ["protected repository registry is missing or malformed"]); }
-  if (!noRegistry && !registration.ok) return refuse("RK_OWNERSHIP_INVALID_REGISTRATION", registration.problems);
+  // An unregistered repository is a warning (#1775); its scan covers the requested root and every finding gate below applies.
+  const unregistered = !noRegistry && registration.unregistered === true;
+  if (unregistered) warnings.push(`${registration.problems.join("; ")} (warning only; registering needed the retired trust-sync)`);
+  if (!noRegistry && !unregistered && !registration.ok) return refuse("RK_OWNERSHIP_INVALID_REGISTRATION", registration.problems);
   const scannedRoots = report.metadata.roots?.map((entry) => entry.root) ?? [report.metadata.pathPrefix?.replace(/\/$/, "") || "."];
-  if (!noRegistry && (new Set(scannedRoots).size !== scannedRoots.length || sha256([...scannedRoots].sort()) !== sha256([...registration.registration.roots].sort())))
+  if (!noRegistry && !unregistered && (new Set(scannedRoots).size !== scannedRoots.length || sha256([...scannedRoots].sort()) !== sha256([...registration.registration.roots].sort())))
     return refuse("RK_OWNERSHIP_INVALID_REGISTRATION", ["scan roots do not exactly cover protected repository registration"]);
   const floor = noRegistry ? { ok: true, problems: [], warnings: [] } : validateOwnershipFloor(trust, report.metadata);
   if (!floor.ok) return refuse("RK_OWNERSHIP_POLICY_DOWNGRADE", floor.problems);

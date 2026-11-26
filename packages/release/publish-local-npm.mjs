@@ -121,7 +121,8 @@ export function publishLocalNpm(argv, { run = spawnSync, log = console.log, plat
       if (!fs.existsSync(o.archive)) fail(`--archive ${o.archive} does not exist`);
       tgzFile = path.join(work, path.basename(o.archive));
       fs.copyFileSync(o.archive, tgzFile, fs.constants.COPYFILE_EXCL);
-      const inner = run("tar", ["-xzOf", tgzFile, "package/package.json"], { encoding: "utf8", maxBuffer: 1 << 24 });
+      // By name from its own folder: GNU tar (first on PATH under Git Bash) reads a drive-letter path such as D:\x.tgz as a remote host.
+      const inner = run("tar", ["-xzOf", path.basename(tgzFile), "package/package.json"], { cwd: work, encoding: "utf8", maxBuffer: 1 << 24 });
       let packedManifest = null;
       try { packedManifest = inner.status === 0 ? JSON.parse(String(inner.stdout ?? "")) : null; } catch { packedManifest = null; }
       if (!packedManifest) fail(`--archive ${o.archive} has no readable package/package.json`);

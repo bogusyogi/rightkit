@@ -125,7 +125,11 @@ function createEvidence(repoRoot, {
       const origin = useCommittedSource ? source.origin : git(root, ["remote", "get-url", "origin"], gitRunner);
       repositoryIdentity = canonicalRepositoryIdentity(origin);
       registrationCheck = verifyRepositoryRegistration(trustState.trust, repositoryIdentity);
-      if (!registrationCheck.ok) {
+      if (registrationCheck.unregistered) {
+        // No registration is a warning (#1775): the requested root is scanned and every finding gate still applies.
+        evidenceDiagnostics.push(`${registrationCheck.problems.join("; ")} (warning only; the requested root is scanned)`);
+        registrationCheck = null;
+      } else if (!registrationCheck.ok) {
         if (!enrollmentPending) throw new Error(registrationCheck.problems.join("; "));
         evidenceDiagnostics.push(...registrationCheck.problems);
       }
