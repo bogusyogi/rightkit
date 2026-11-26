@@ -94,7 +94,7 @@ export function toolCommand(command, args, platform = process.platform, comspec 
   return [command, args];
 }
 
-export function publishLocalNpm(argv, { run = spawnSync, log = console.log, platform = process.platform, readToken = () => readKeychainToken(run), npmrc = accountNpmrc, exists = fs.existsSync, verifyTries = 20, verifyDelaySeconds = 15 } = {}) {
+export function publishLocalNpm(argv, { run = spawnSync, log = console.log, platform = process.platform, readToken = () => readKeychainToken(run), npmrc = accountNpmrc, exists = fs.existsSync, verifyTries = 60, verifyDelaySeconds = 15 } = {}) {
   const o = parseArgs(argv);
   if (platform !== "darwin" && platform !== "win32") fail(`publish-local npm runs on the Mac (the token is the Keychain item ${NPM_KEYCHAIN_SERVICE}) or Windows (the account's own npm sign-in); this host is ${platform}`);
   const userNpmrc = platform === "win32" ? npmrc() : null;

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.87
+
+- Release switches gain class S7, a handoff: a one-time value (a token, a nonce) the app sets in the environment of a child process it starts, which the child reads and removes. It stays in release builds; the entry's `handoff.setBy` and `handoff.clearedAt` lines are read from source and must show the name being set on the child and removed after the read (`handoff.nameConst` resolves a constant the code uses for the name). S1-S6 are unchanged (bogusyogi/pulse#490).
+
+- `publish-local npm` waits up to fifteen minutes (60 tries) for the registry to serve a published version, up from five. The registry took just over five minutes for 0.6.84, 0.6.85 and 0.6.86, so each publish reported failure seconds before the version appeared; the package-document read added in 0.6.86 did not help, because that document was as late as the version address (bogusyogi/pulse#490).
+
 ## 0.6.86
 
 - The installed QA stage hands the journeys runner the Class A verdict for the directory `rustright cargo` selects for the journeys build: the directory of the build's `--manifest-path` in the journeys manifest, or the app root when the build names none. 0.6.85 handed the verdict for the app root, so a journeys build with `--manifest-path qa-e2e/Cargo.toml` was refused with `RK_CLASS_A_INVALID` (#1727).
