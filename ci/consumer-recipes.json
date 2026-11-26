@@ -3495,7 +3495,7 @@
       "pkId": "PK128",
       "id": "ci/consumers/rightkit-agent-recipes/src/main.rs",
       "files": {
-        "Cargo.toml": "4f97b50c21d2b7f2180e6a210de848e4dc68a542c5b566de7be8f536ea6bf7b2",
+        "Cargo.toml": "91405a935c9dc09d72a4f182a1d2a49abd93fe4002fd591f61b9a3c8b84dc60b",
         "README.md": "bc49ee8ffc96de6fcbf291160474319b2b3a710ef5a0950e54b32cfe3bce7b49",
         "src/main.rs": "deaa105e400b0db63aa6f22fcaaa69fe1fc7b859987eb0b9b31b2ef4c382d688"
       }
