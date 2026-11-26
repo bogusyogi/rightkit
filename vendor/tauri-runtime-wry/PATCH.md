@@ -40,8 +40,9 @@ runner `Rc` drop crashes (HeardRight 0.1.214).
    WebDriver automation of the webview in a shipped app. The first RightKit patch gated the read on
    `cfg(debug_assertions)`, which a dev profile or a release profile with debug assertions on still enabled. Now no
    build profile selects it: without the feature this crate does not read the variable and does not contain its name
-   (`@rightkit/release` release switch rule, class S1). A QA or dev build enables it through the `tauri` and
-   `rightkit-tauri-shell` features that forward `tauri-runtime-wry/webview-automation`; a release build never does
+   (`@rightkit/release` release switch rule, class S1). A QA or dev build enables it by depending on `tauri-runtime-wry`
+   directly with the `webview-automation` feature: upstream `tauri` (2.12.5) has no feature that forwards it and no
+   RightKit crate forwards it either; a release build never does
    (Adrian, 2026-11-03: "make sure no debug assertions in their respective apps/ repos").
 5. Windows-only regression module `rightkit_windows_context_tests` with
    `worker_handle_clone_drop_preserves_live_event_loop_context`: 8 workers x 100,000 handle clone/drop cycles plus
