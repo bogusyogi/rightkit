@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-dictation-inference"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Dictation inference: Parakeet TDT on CoreML and ONNX Runtime, Whisper, keyword spotting, VAD, calibration, file transcription and the ASR timeline, for a push-to-talk dictation engine."

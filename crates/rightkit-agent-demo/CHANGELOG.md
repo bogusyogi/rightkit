@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Publish the dependency requirements main already declares: `rightkit-roots` 0.3.0, where the published 0.2.0 requires 0.2.0; `rightkit-fs` 0.5.0, where the published 0.2.0 requires 0.4.9. The 0.2.0 manifest on crates.io stays as published; this version carries the new requirements.
+
 ## 0.2.0
 
 - Breaking for dependents: dependency requirements `rightkit-automation` 0.6 -> 0.7, `rightkit-daemon` 0.5 -> 0.8, `rightkit-logs` 0.3 -> 0.4, `rightkit-tauri-shell` 0.7 -> 0.8. 0.1.0 was published before these requirements were raised; a semver-breaking dependency is a breaking change, so they ship as 0.2.0 instead of changing 0.1.0 in place (#1572). No source change in this crate since 0.1.0.

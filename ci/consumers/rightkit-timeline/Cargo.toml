@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-timeline = { version = "=0.1.1" }
+rightkit-timeline = { version = "=0.1.2" }

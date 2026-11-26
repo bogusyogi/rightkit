@@ -541,9 +541,9 @@
     "rightkit-adapt": "0.2.1",
     "rightkit-adapt-taste": "0.1.3",
     "rightkit-agent-coding-tools": "0.1.9",
-    "rightkit-agent-config": "0.1.3",
+    "rightkit-agent-config": "0.1.4",
     "rightkit-agent-daemon": "0.2.0",
-    "rightkit-agent-demo": "0.2.0",
+    "rightkit-agent-demo": "0.2.1",
     "rightkit-agent-engine": "0.2.0",
     "rightkit-agent-engine-api-integrations": "0.1.5",
     "rightkit-agent-engine-api-platform": "0.1.3",
@@ -552,27 +552,27 @@
     "rightkit-agent-engine-attention": "0.2.1",
     "rightkit-agent-engine-cli": "0.1.1",
     "rightkit-agent-engine-core": "0.1.4",
-    "rightkit-agent-engine-history": "0.1.4",
+    "rightkit-agent-engine-history": "0.1.5",
     "rightkit-agent-engine-mobile-runtime": "0.1.1",
     "rightkit-agent-engine-protocol": "0.4.1",
     "rightkit-agent-engine-runtime-middleware": "0.1.4",
-    "rightkit-agent-engine-runtime-resources": "0.1.1",
-    "rightkit-agent-engine-storage": "0.3.0",
+    "rightkit-agent-engine-runtime-resources": "0.1.2",
+    "rightkit-agent-engine-storage": "0.3.1",
     "rightkit-agent-engine-tasks": "0.3.0",
-    "rightkit-agent-gateway": "0.3.0",
+    "rightkit-agent-gateway": "0.3.1",
     "rightkit-agent-host-traits": "0.1.3",
     "rightkit-agent-learning": "0.1.2",
     "rightkit-agent-local-models": "0.1.3",
-    "rightkit-agent-orchestration": "0.1.6",
+    "rightkit-agent-orchestration": "0.1.7",
     "rightkit-agent-orchestration-handoff": "0.1.2",
     "rightkit-agent-plugins": "0.1.3",
     "rightkit-agent-policy": "0.2.4",
-    "rightkit-agent-recipes": "0.1.2",
+    "rightkit-agent-recipes": "0.1.3",
     "rightkit-agent-server": "0.2.0",
     "rightkit-agent-skills": "0.1.0",
     "rightkit-agent-task-contract": "0.1.2",
     "rightkit-agent-task-journal": "0.1.1",
-    "rightkit-agent-telemetry": "0.1.0",
+    "rightkit-agent-telemetry": "0.1.1",
     "rightkit-agent-tools": "0.4.4",
     "rightkit-agent-transcript": "0.1.4",
     "rightkit-agents": "0.2.8",
@@ -580,23 +580,23 @@
     "rightkit-ai-keys": "0.1.1",
     "rightkit-android": "0.3.3",
     "rightkit-app-host": "0.1.3",
-    "rightkit-app-icon": "0.1.0",
+    "rightkit-app-icon": "0.1.1",
     "rightkit-app-lock": "0.1.1",
     "rightkit-app-manager": "0.2.5",
     "rightkit-app-settings": "0.4.4",
-    "rightkit-app-update": "0.2.0",
+    "rightkit-app-update": "0.2.1",
     "rightkit-apple-ops": "0.2.0",
     "rightkit-approvals": "0.2.2",
     "rightkit-asr": "0.5.2",
     "rightkit-assist": "0.1.1",
     "rightkit-audio": "0.4.4",
-    "rightkit-autoedit": "0.2.0",
+    "rightkit-autoedit": "0.2.1",
     "rightkit-automation": "0.7.6",
     "rightkit-autostart": "0.1.1",
     "rightkit-bench": "0.2.1",
     "rightkit-bot-messaging": "0.3.1",
     "rightkit-browser": "0.3.12",
-    "rightkit-cache": "0.2.4",
+    "rightkit-cache": "0.2.5",
     "rightkit-captions": "0.1.1",
     "rightkit-catalog": "0.1.0",
     "rightkit-channel-memory": "0.2.3",
@@ -608,13 +608,13 @@
     "rightkit-code-audit-engine": "0.2.0",
     "rightkit-code-audit-provider-sdk": "0.1.1",
     "rightkit-code-audit-qualification": "0.2.0",
-    "rightkit-color": "0.1.1",
-    "rightkit-compose": "0.2.3",
+    "rightkit-color": "0.1.2",
+    "rightkit-compose": "0.2.4",
     "rightkit-compositor": "0.2.1",
     "rightkit-connector-gen": "0.1.0",
-    "rightkit-content-plan": "0.2.1",
+    "rightkit-content-plan": "0.2.2",
     "rightkit-content-proof": "0.1.1",
-    "rightkit-context": "0.2.0",
+    "rightkit-context": "0.2.1",
     "rightkit-context-client": "0.2.0",
     "rightkit-context-core": "0.2.0",
     "rightkit-context-federation": "0.2.1",
@@ -636,22 +636,22 @@
     "rightkit-device-link": "0.1.0",
     "rightkit-device-link-core": "0.1.1",
     "rightkit-device-link-types": "0.1.2",
-    "rightkit-dictation-app-runtime": "0.3.1",
+    "rightkit-dictation-app-runtime": "0.3.2",
     "rightkit-dictation-command-host": "0.3.4",
     "rightkit-dictation-core": "0.3.7",
     "rightkit-dictation-engine": "0.2.1",
     "rightkit-dictation-ffi": "0.2.1",
-    "rightkit-dictation-inference": "0.2.4",
+    "rightkit-dictation-inference": "0.2.5",
     "rightkit-dictation-models": "0.3.3",
     "rightkit-dictation-pill": "0.1.2",
     "rightkit-dictation-runtime": "0.2.7",
     "rightkit-dictation-tauri": "0.3.4",
     "rightkit-dictation-telemetry": "0.2.4",
-    "rightkit-dictation-text-pipeline": "0.2.7",
+    "rightkit-dictation-text-pipeline": "0.2.8",
     "rightkit-disk-cleanup": "0.2.2",
     "rightkit-docs": "0.1.6",
     "rightkit-doctor": "0.2.0",
-    "rightkit-document-workspace": "0.2.0",
+    "rightkit-document-workspace": "0.2.1",
     "rightkit-embed": "0.7.1",
     "rightkit-engine-host": "0.2.1",
     "rightkit-evidence": "0.1.1",
@@ -659,7 +659,7 @@
     "rightkit-evidence-commands": "0.2.0",
     "rightkit-evidence-contracts": "0.1.1",
     "rightkit-evidence-decisions": "0.1.1",
-    "rightkit-evidence-effects": "0.1.1",
+    "rightkit-evidence-effects": "0.1.2",
     "rightkit-evidence-governance": "0.1.1",
     "rightkit-evidence-report": "0.1.1",
     "rightkit-feed": "0.1.0",
@@ -667,10 +667,10 @@
     "rightkit-file-watch": "0.4.4",
     "rightkit-fs": "0.5.2",
     "rightkit-fsindex": "0.6.3",
-    "rightkit-github": "0.2.0",
+    "rightkit-github": "0.2.1",
     "rightkit-google-apis": "0.2.3",
     "rightkit-google-identity": "0.3.0",
-    "rightkit-gpu": "0.1.0",
+    "rightkit-gpu": "0.1.1",
     "rightkit-hooks": "0.3.0",
     "rightkit-hotkeys": "0.1.8",
     "rightkit-http": "0.4.1",
@@ -680,20 +680,20 @@
     "rightkit-job-queue": "0.6.2",
     "rightkit-launcher": "0.2.2",
     "rightkit-launcher-win": "0.2.1",
-    "rightkit-library": "0.3.0",
+    "rightkit-library": "0.3.1",
     "rightkit-license": "0.3.5",
     "rightkit-llm": "0.7.1",
-    "rightkit-local-gen": "0.1.3",
+    "rightkit-local-gen": "0.1.4",
     "rightkit-logs": "0.4.5",
     "rightkit-mail": "0.1.2",
-    "rightkit-mail-gateway": "0.1.0",
-    "rightkit-mail-store": "0.2.1",
+    "rightkit-mail-gateway": "0.1.1",
+    "rightkit-mail-store": "0.2.2",
     "rightkit-mcp": "0.10.1",
     "rightkit-media-control": "0.1.2",
-    "rightkit-media-fetch": "0.2.0",
-    "rightkit-media-gen": "0.2.3",
+    "rightkit-media-fetch": "0.2.1",
+    "rightkit-media-gen": "0.2.4",
     "rightkit-media-gen-approvals": "0.1.2",
-    "rightkit-media-gen-client": "0.1.0",
+    "rightkit-media-gen-client": "0.1.1",
     "rightkit-media-gen-models": "0.1.1",
     "rightkit-media-pipeline": "0.2.2",
     "rightkit-memory": "0.3.1",
@@ -702,7 +702,7 @@
     "rightkit-memory-store": "0.2.2",
     "rightkit-mesh": "0.2.3",
     "rightkit-models": "0.7.3",
-    "rightkit-motion": "0.4.0",
+    "rightkit-motion": "0.4.1",
     "rightkit-notch-ui": "0.2.3",
     "rightkit-notifications": "0.1.2",
     "rightkit-now-playing": "0.1.0",
@@ -717,7 +717,7 @@
     "rightkit-pdf": "0.3.6",
     "rightkit-pipeline": "0.2.0",
     "rightkit-platform-rules": "0.1.1",
-    "rightkit-playback": "0.3.1",
+    "rightkit-playback": "0.3.2",
     "rightkit-policy-rules": "0.1.1",
     "rightkit-power": "0.1.0",
     "rightkit-presence": "0.1.2",
@@ -727,24 +727,24 @@
     "rightkit-pty": "0.1.3",
     "rightkit-qa": "0.10.13",
     "rightkit-record": "0.4.1",
-    "rightkit-reframe": "0.2.0",
-    "rightkit-remote-compute": "0.2.1",
+    "rightkit-reframe": "0.2.1",
+    "rightkit-remote-compute": "0.2.2",
     "rightkit-remote-gateway": "0.1.5",
     "rightkit-repo-graph": "0.3.3",
     "rightkit-repo-graph-grammars": "0.1.1",
     "rightkit-research": "0.1.2",
-    "rightkit-review": "0.6.0",
+    "rightkit-review": "0.6.1",
     "rightkit-roots": "0.3.0",
     "rightkit-sandbox": "0.7.0",
     "rightkit-scheduler": "0.3.1",
     "rightkit-search": "0.4.6",
     "rightkit-send": "0.4.2",
-    "rightkit-shorts": "0.2.4",
+    "rightkit-shorts": "0.2.5",
     "rightkit-sidecar": "0.3.4",
     "rightkit-signal": "0.1.0",
-    "rightkit-social-analytics": "0.3.0",
+    "rightkit-social-analytics": "0.3.1",
     "rightkit-social-inbox": "0.3.1",
-    "rightkit-social-publish": "0.2.0",
+    "rightkit-social-publish": "0.2.1",
     "rightkit-speech-client": "0.5.0",
     "rightkit-spend": "0.2.4",
     "rightkit-sync": "0.4.4",
@@ -752,11 +752,11 @@
     "rightkit-sysmem": "0.1.0",
     "rightkit-system-monitor": "0.3.2",
     "rightkit-tauri-shell": "0.8.10",
-    "rightkit-terminal-ui": "0.1.3",
+    "rightkit-terminal-ui": "0.1.4",
     "rightkit-text-polish": "0.1.4",
     "rightkit-theme": "0.1.1",
     "rightkit-time": "0.1.5",
-    "rightkit-timeline": "0.1.1",
+    "rightkit-timeline": "0.1.2",
     "rightkit-transcript": "0.4.2",
     "rightkit-transcript-library": "0.1.8",
     "rightkit-tts": "0.3.2",
@@ -770,7 +770,7 @@
     "rightkit-web-extract": "0.1.2",
     "rightkit-web-session": "0.1.2",
     "rightkit-win-ui": "0.1.3",
-    "rightkit-workflow": "0.2.3"
+    "rightkit-workflow": "0.2.4"
   },
   "swift": {
     "rightkit-swift": {
@@ -1041,7 +1041,8 @@
     "rightkit-cache": [
       "0.2.0",
       "0.2.2",
-      "0.2.3"
+      "0.2.3",
+      "0.2.4"
     ],
     "rightkit-channel-memory": [
       "0.1.0",
@@ -1075,7 +1076,8 @@
     ],
     "rightkit-compose": [
       "0.1.0",
-      "0.2.0"
+      "0.2.0",
+      "0.2.3"
     ],
     "rightkit-context-runtime": [
       "0.1.4"
@@ -1154,7 +1156,8 @@
     ],
     "rightkit-dictation-app-runtime": [
       "0.2.0",
-      "0.2.2"
+      "0.2.2",
+      "0.3.1"
     ],
     "rightkit-dictation-command-host": [
       "0.3.0",
@@ -1171,7 +1174,8 @@
       "0.2.0"
     ],
     "rightkit-dictation-inference": [
-      "0.2.3"
+      "0.2.3",
+      "0.2.4"
     ],
     "rightkit-dictation-models": [
       "0.3.0",
@@ -1397,7 +1401,8 @@
     ],
     "rightkit-motion": [
       "0.1.0",
-      "0.2.0"
+      "0.2.0",
+      "0.4.0"
     ],
     "rightkit-notch-ui": [
       "0.2.1",
@@ -1469,7 +1474,8 @@
       "0.2.0",
       "0.2.1",
       "0.2.2",
-      "0.3.0"
+      "0.3.0",
+      "0.3.1"
     ],
     "rightkit-presence": [
       "0.1.1"
@@ -1541,7 +1547,8 @@
     ],
     "rightkit-review": [
       "0.2.0",
-      "0.4.0"
+      "0.4.0",
+      "0.6.0"
     ],
     "rightkit-roots": [
       "0.2.1"
@@ -1712,7 +1719,8 @@
     ],
     "rightkit-workflow": [
       "0.1.0",
-      "0.2.0"
+      "0.2.0",
+      "0.2.3"
     ],
     "rightkit-owner-approvals": [
       "0.1.2"
@@ -1769,6 +1777,105 @@
     ],
     "rightkit-repo-graph": [
       "0.3.2"
+    ],
+    "rightkit-agent-config": [
+      "0.1.3"
+    ],
+    "rightkit-agent-demo": [
+      "0.2.0"
+    ],
+    "rightkit-agent-engine-history": [
+      "0.1.4"
+    ],
+    "rightkit-agent-engine-runtime-resources": [
+      "0.1.1"
+    ],
+    "rightkit-agent-engine-storage": [
+      "0.3.0"
+    ],
+    "rightkit-agent-gateway": [
+      "0.3.0"
+    ],
+    "rightkit-agent-orchestration": [
+      "0.1.6"
+    ],
+    "rightkit-agent-recipes": [
+      "0.1.2"
+    ],
+    "rightkit-agent-telemetry": [
+      "0.1.0"
+    ],
+    "rightkit-app-icon": [
+      "0.1.0"
+    ],
+    "rightkit-app-update": [
+      "0.2.0"
+    ],
+    "rightkit-autoedit": [
+      "0.2.0"
+    ],
+    "rightkit-color": [
+      "0.1.1"
+    ],
+    "rightkit-content-plan": [
+      "0.2.1"
+    ],
+    "rightkit-context": [
+      "0.2.0"
+    ],
+    "rightkit-document-workspace": [
+      "0.2.0"
+    ],
+    "rightkit-evidence-effects": [
+      "0.1.1"
+    ],
+    "rightkit-github": [
+      "0.2.0"
+    ],
+    "rightkit-gpu": [
+      "0.1.0"
+    ],
+    "rightkit-library": [
+      "0.3.0"
+    ],
+    "rightkit-local-gen": [
+      "0.1.3"
+    ],
+    "rightkit-mail-gateway": [
+      "0.1.0"
+    ],
+    "rightkit-mail-store": [
+      "0.2.1"
+    ],
+    "rightkit-media-fetch": [
+      "0.2.0"
+    ],
+    "rightkit-media-gen-client": [
+      "0.1.0"
+    ],
+    "rightkit-media-gen": [
+      "0.2.3"
+    ],
+    "rightkit-reframe": [
+      "0.2.0"
+    ],
+    "rightkit-remote-compute": [
+      "0.2.1"
+    ],
+    "rightkit-shorts": [
+      "0.2.4"
+    ],
+    "rightkit-social-analytics": [
+      "0.3.0"
+    ],
+    "rightkit-social-publish": [
+      "0.2.0"
+    ],
+    "rightkit-terminal-ui": [
+      "0.1.3"
+    ],
+    "rightkit-timeline": [
+      "0.1.1"
     ]
   }
 }

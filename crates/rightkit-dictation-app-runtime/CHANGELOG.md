@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2
+
+- Publish the dependency requirements main already declares: `rightkit-fs` 0.5.0, where the published 0.3.1 requires 0.4.9. The 0.3.1 manifest on crates.io stays as published; this version carries the new requirements.
+
 ## 0.3.1 (unpublished)
 - Provider keys never gate the capture lifecycle (v6): `EngineSupervisor::ensure_provider_keys_after_start` is replaced by `deliver_provider_keys_background`, meant for a background thread. It delivers the generation's keys but never retires the generation, never shuts the engine down and never spawns one. A failed or uncertain delivery returns `Err` (fixed non-secret reason), settles the generation's gate as done (the recording keeps its engine, which holds no keys and falls back to local polish; no config push or stop can retire it mid-recording through the gate's failure path) and remembers the generation in `keys_retry_generation`; the next `start_without_keys` (no session in flight) retires it so the next generation gets its own delivery. `start`, `call`, `send` and `send_capture_control` are unchanged.
 - Allow the `capture_warmup` engine method and treat it as accepted-style (acknowledged at once, completed by an id-less event).

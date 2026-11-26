@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-demo"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Consented agent demo mode for Tauri hosts: an agent drives one catalog app through rightkit-automation while the host records that app's window into a sealed bundle, with an always-visible badge, a kill hotkey and a tray stop item."

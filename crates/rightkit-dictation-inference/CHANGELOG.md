@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.5
+
+- Publish the dependency requirements main already declares: `rightkit-audio` 0.4.0, where the published 0.2.4 requires 0.3.1; `rightkit-fs` 0.5.0 (cfg(target_os = "macos")), where the published 0.2.4 requires 0.4.9. The 0.2.4 manifest on crates.io stays as published; this version carries the new requirements.
+
 ## 0.2.4
 
 - Remove a literal stop/send suffix once. Ambiguous renderings require acoustic or token timing evidence.

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-telemetry"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Agent runtime telemetry for an agent host: resource metrics, turn latency, round trips, prompt overhead, context ceiling, evidence and repair counters."

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-remote-compute"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Rented GPU workers: SSH and Vast.ai drivers, register/stage/run/teardown lifecycle, a host-replaceable worker store, and the time-billed spend bracket with duration, budget and idle enforcement"

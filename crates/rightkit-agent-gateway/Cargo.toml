@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-gateway"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Core of a local agent gateway, with no product verbs: agent registry (hashed pairing keys, levels, scopes, revoke), the gate's ordered checks over a static method table, one audit row per call, the door a call came by, stable refusal codes, untrusted-content wrapping and secret redaction."

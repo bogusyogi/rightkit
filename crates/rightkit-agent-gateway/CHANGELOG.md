@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+- Publish the dependency requirements main already declares: `rightkit-fs` 0.5.0, where the published 0.3.0 requires 0.4.7. The 0.3.0 manifest on crates.io stays as published; this version carries the new requirements.
+
 ## 0.3.0 (unpublished)
 
 - Wire compatibility for one release: `pairing::AgentView` serializes `scopes` and also its 0.2 name `accounts` (same value), and `pairing::AuditView` serializes `scope` and also `account_id`. Both now implement `Deserialize` and accept either name or both (the new name wins), so MailRight's agents settings and any reader of the 0.2 field names keep working. The old names go in the next breaking release.
