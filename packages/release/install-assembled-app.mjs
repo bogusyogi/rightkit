@@ -359,6 +359,19 @@ export function installAssembledWindows({ root, config, descriptor: rawDescripto
     if (listFiles(fs, incoming).join("\n") !== before.join("\n")) abandon("the incoming payload changed its file list while signing");
     for (const [file, want] of unsigned) if (digest(fs, platformPath(incoming, file)) !== want) abandon(`${file} changed while signing`);
     try { verifyWindowsPayload({ spec, payload: incoming, profile: "dev", fs }); } catch (error) { removeOrAside(incoming); throw error; }
+    // The dev marker's `files` map is written at assembly, before signing, so for every signed executable it names bytes that are no longer on
+    // disk (Pulse 4e2f01b1, 2026-11-26: 8 of 14 hashes differed from the installed files). `files` keeps its meaning (the payload as
+    // assembled); `installed` is added here, after signing and verification, with the hash of each of those files as it will be installed.
+    // The marker is not part of a signature on Windows. A marker that cannot be rewritten is reported and the install goes on: it is no
+    // worse than before.
+    if (spec.devMarker) {
+      const markerFile = platformPath(incoming, spec.devMarker);
+      try {
+        const marker = JSON.parse(fs.readFileSync(markerFile, "utf8"));
+        marker.installed = Object.fromEntries(Object.keys(marker.files ?? {}).map((file) => [file, digest(fs, platformPath(incoming, file))]));
+        fs.writeFileSync(markerFile, `${JSON.stringify(marker, null, 2)}\n`);
+      } catch (error) { d.log(`right-release dev: ${spec.devMarker} could not record the installed hashes (${error.message}); its files map still lists the pre-signing hashes`); }
+    }
 
     // 2. Stop: the background task and everything that runs from the install folder.
     const exe = descriptor.stop.process ? path.join(dir, descriptor.stop.process) : null;
