@@ -13,6 +13,36 @@ use std::time::{Duration, Instant};
 
 const TEST_NAME: &str = "chrome_answers_cdp_over_the_devtools_pipe_and_opens_no_port";
 
+/// The Chrome for Testing the host names: the executable in `RIGHTKIT_CHROME_FOR_TESTING`, else
+/// the one in the managed root `RIGHTKIT_CHROME_FOR_TESTING_ROOT` when it holds an install. The
+/// crate reads these names only with its `host-env` feature, so the test reads them itself and
+/// passes the result as the explicit executable: the proof runs the same in every feature round.
+fn host_chrome() -> Option<std::path::PathBuf> {
+    let non_empty = |name: &str| {
+        std::env::var_os(name)
+            .filter(|value| !value.is_empty())
+            .map(std::path::PathBuf::from)
+    };
+    non_empty("RIGHTKIT_CHROME_FOR_TESTING").or_else(|| {
+        non_empty("RIGHTKIT_CHROME_FOR_TESTING_ROOT")
+            .map(|root| rightkit_browser::ManagedRoot::at(root).executable())
+            .filter(|executable| executable.exists())
+    })
+}
+
+/// Chrome for Testing as the launches below resolve it.
+fn resolve_chrome() -> rightkit_browser::Result<std::path::PathBuf> {
+    rightkit_browser::chrome_for_testing_path(host_chrome().as_deref())
+}
+
+/// Default launch options with the host's Chrome for Testing as the explicit executable.
+#[allow(clippy::field_reassign_with_default)]
+fn launch_options() -> rightkit_browser::LaunchOptions {
+    let mut options = rightkit_browser::LaunchOptions::default();
+    options.chrome_path = host_chrome();
+    options
+}
+
 /// True while the process exists and is not a zombie.
 fn alive(pid: u32) -> bool {
     let output = Command::new("ps")
@@ -34,7 +64,7 @@ fn command_line(pid: u32) -> String {
 
 #[tokio::test]
 async fn chrome_answers_cdp_over_the_devtools_pipe_and_opens_no_port() {
-    if let Err(error) = rightkit_browser::chrome_for_testing_path(None) {
+    if let Err(error) = resolve_chrome() {
         println!(
             "skipping {TEST_NAME}: Chrome for Testing is not installed on this host, so the \
              DevTools pipe proof cannot run. Set RIGHTKIT_CHROME_FOR_TESTING to a Chrome for \
@@ -43,10 +73,9 @@ async fn chrome_answers_cdp_over_the_devtools_pipe_and_opens_no_port() {
         return;
     }
 
-    let session =
-        rightkit_browser::BrowserSession::launch(rightkit_browser::LaunchOptions::default())
-            .await
-            .unwrap_or_else(|error| panic!("launch over the DevTools pipe failed: {error}"));
+    let session = rightkit_browser::BrowserSession::launch(launch_options())
+        .await
+        .unwrap_or_else(|error| panic!("launch over the DevTools pipe failed: {error}"));
     let pid = session
         .process_id()
         .expect("launched session reports its Chrome pid");

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.14
+
+Behaviour change for builds that relied on the environment (bogusyogi/rightkit#1805, CodeRight #567). Written, not compiled by its author; the gate compiles it.
+
+- **Changed: the two environment overrides of Chrome resolution are behind the new off-by-default cargo feature `host-env`.** `RIGHTKIT_CHROME_FOR_TESTING` (an executable) and `RIGHTKIT_CHROME_FOR_TESTING_ROOT` (the managed root) are class S3 release-switch selectors: the release gate refuses any binary whose bytes contain the name (CodeRight Mac package, rule `release-switch-names`). A default build now resolves `LaunchOptions::chrome_path`, then the managed `current` folder at the default root, then app installs and caches, and reads neither variable; the install hint no longer names them. With `host-env` the behaviour is exactly 0.3.13.
+- **Changed: `CHROME_FOR_TESTING_ENV` and `CHROME_FOR_TESTING_ROOT_ENV` exist only with `host-env`.** No crate in this repository, and no Pulse, CodeRight or HeardRight source, uses either constant (only the literal names appear, in scripts and test code), so no consumer breaks; it stays a patch release for that reason. A tool or test that still sets the variables enables `host-env` (the R2 consumer `ci/consumers/rightkit-browser` does).
+- Unchanged and not S3 selectors this release removes: `PUPPETEER_CACHE_DIR`, `PLAYWRIGHT_BROWSERS_PATH` (cache locations), `CHROME` (system Chrome, only with `system_chrome`), `RIGHTKIT_CHROME_HEADLESS_SHELL` (Windows fixture only).
+- Tests (`tests/devtools_pipe_e2e.rs`, `tests/kill_on_parent_exit_e2e.rs`) now read the two names themselves and pass the executable explicitly, so they run the same in the default, all-features and per-feature rounds.
+
 ## 0.3.13
 
 Additive (bogusyogi/rightkit#1802, CodeRight #567). Written, not compiled by its author; the gate compiles it.

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-browser"
-version = "0.3.13"
+version = "0.3.14"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared Chrome DevTools Protocol browser runtime for Right Suite: multi-page sessions, named profiles, real CDP input, observations with stale-ref checks."
@@ -59,6 +59,11 @@ axe = []
 # `BrowserPage::fill_secret`: typed fill of a password or card field with a wiped secret type, on every platform
 # the crate runs on (the Linux always-on host included). Off by default (pulls rightkit-crypto).
 secret-fill = ["dep:rightkit-crypto"]
+# The environment overrides of Chrome resolution: an executable (`RIGHTKIT_CHROME_FOR_TESTING`) and the
+# managed root (`RIGHTKIT_CHROME_FOR_TESTING_ROOT`), with the public `CHROME_FOR_TESTING_ENV` and
+# `CHROME_FOR_TESTING_ROOT_ENV`. Off by default: both names are class S3 release-switch selectors, so a
+# release binary must not carry them (bogusyogi/rightkit#1805). Tests, QA runners and dev tools enable it.
+host-env = []
 
 [package.metadata.rightkit]
 continuous = "held-resource"
