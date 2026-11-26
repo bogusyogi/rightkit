@@ -7,7 +7,7 @@
 //! - [`tools::ToolExecutor`]: runs a model tool-use loop under a gate and a budget, with result
 //!   re-entry.
 //! - Image and video-frame input: [`ContentBlock::Image`], [`crate::image::Frame`].
-//! - `provider-image` feature: [`provider_image::scale_image_to_max_edge`] scales a PNG or JPEG
+//! - `provider-image` feature: `provider_image::scale_image_to_max_edge` scales a PNG or JPEG
 //!   to a provider's longest-edge limit.
 //! - Streaming with cancellation, tool use, forced-tool structured output.
 //! - [`failover::FailoverChain`]: retryable-only route failover by default (configurable
