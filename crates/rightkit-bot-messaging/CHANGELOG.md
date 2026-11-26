@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2
+
+- Fix: the Telegram transport splits a reply longer than 4096 UTF-16 units into several `sendMessage` calls, never inside a character and preferring a line break, with the inline buttons on the last piece. Before, one oversized message was sent and Telegram refused it. Taken for every host.
+- Fix: a Bot API answer outside 2xx is a failed call. `telegram_post` returned success for any answer that arrived, so a refused `sendMessage` or `answerCallbackQuery` went unlogged; it now returns `Telegram returned HTTP <status>`, which the caller logs. The bot token stays out of the text.
+
 ## 0.3.1
 
 - Fix: a webhook delivery record's `target_redacted` keeps only scheme, host and port plus a 12-hex-digit SHA-256 prefix of the full target (`https://discord.com/<redacted:1beb230cad8c>`). Before, the path stayed, and Slack, Discord and ntfy carry their secret in the path. Records written earlier keep the old text. Taken for every host.
