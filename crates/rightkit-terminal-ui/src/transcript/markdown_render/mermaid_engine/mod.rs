@@ -9,7 +9,8 @@
 //! declarations are replaced by `engine_tests.rs`. Child sources are verbatim
 //! copies; their `use super::` paths resolve against this module.
 //!
-//! Supports flowcharts, sequences, states, classes, and entity relationships.
+//! Supports flowcharts, sequences, states, classes, entity relationships, and (local to this
+//! crate) pie charts.
 //! Graph edges own separate lanes and endpoint positions. Crossings never join
 //! routes. Unsupported syntax and outputs exceeding the caller's width return
 //! errors, leaving source fallback to the caller. This module performs no I/O
@@ -18,6 +19,7 @@
 mod draw;
 mod output;
 mod parse;
+mod pie;
 mod relations;
 mod sequence;
 mod state;
@@ -58,7 +60,8 @@ impl std::error::Error for RenderError {}
 
 /// Render the same bounded diagram as lines of semantic spans for caller-provided styling.
 ///
-/// Supports flowcharts, sequence diagrams, flat state diagrams, class diagrams, and ER diagrams.
+/// Supports flowcharts, sequence diagrams, flat state diagrams, class diagrams, ER diagrams, and
+/// pie charts.
 /// Unknown syntax, unsafe terminal text, and diagrams exceeding `max_width` return errors; no
 /// partial result is returned.
 pub fn render_spans(source: &str, max_width: usize) -> Result<Vec<Vec<Span>>, RenderError> {
@@ -69,6 +72,7 @@ pub fn render_spans(source: &str, max_width: usize) -> Result<Vec<Vec<Span>>, Re
     let (header, body) = statements.split_first().ok_or(RenderError::Unsupported)?;
     match *header {
         "sequenceDiagram" => sequence::render(body, max_width),
+        h if h == "pie" || h.starts_with("pie ") => pie::render(h, body, max_width),
         "stateDiagram-v2" | "stateDiagram" | "classDiagram" | "erDiagram" => {
             draw::render(&relations::parse(header, body)?, max_width)
         }

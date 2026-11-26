@@ -5,13 +5,14 @@
 //! it focus changes and turn/approval state, and calls
 //! [`TerminalNotifier::observe`] once per loop iteration.
 //!
-//! Configuration (environment, read once by [`TerminalNotifier::from_env`]):
+//! Configuration (environment, read once by [`TerminalNotifier::from_env`]);
+//! `RIGHTKIT` is the default prefix, see [`set_env_prefix`]:
 //! - `RIGHTKIT_NOTIFY`: `off`, `bel`, `osc9`, or `auto` (default: OSC 9 on
 //!   terminals known to implement it, BEL elsewhere).
 //! - `RIGHTKIT_TERMINAL_TITLE`: `off` leaves the title alone.
 
 use std::io::{self, Write};
-use std::sync::RwLock;
+use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
 /// Product name shown in the window title and notifications until the host
@@ -39,6 +40,46 @@ pub fn app_name() -> String {
         .ok()
         .and_then(|slot| slot.clone())
         .unwrap_or_else(|| DEFAULT_APP_NAME.to_string())
+}
+
+/// Environment-variable prefix (without the trailing `_`) until the host calls
+/// [`set_env_prefix`].
+pub const DEFAULT_ENV_PREFIX: &str = "RIGHTKIT";
+
+static ENV_PREFIX: OnceLock<String> = OnceLock::new();
+
+/// Set the host's environment-variable prefix, upper case, no trailing
+/// underscore (for example `MYAPP` reads `MYAPP_NOTIFY`). Call once at startup,
+/// before the first read of any of this crate's variables; returns `false` if
+/// the prefix is empty or one was already set. Same shape as
+/// `rightkit_agent_config::set_env_prefix`, which a host sets to the same value.
+pub fn set_env_prefix(prefix: &str) -> bool {
+    let prefix = prefix.trim();
+    if prefix.is_empty() {
+        return false;
+    }
+    ENV_PREFIX.set(prefix.to_string()).is_ok()
+}
+
+/// The environment-variable prefix in effect.
+pub fn env_prefix() -> &'static str {
+    ENV_PREFIX
+        .get()
+        .map(String::as_str)
+        .unwrap_or(DEFAULT_ENV_PREFIX)
+}
+
+/// `<prefix>_<suffix>`, the environment variable name this crate reads for
+/// `suffix` (for example `NOTIFY`).
+pub fn env_name(suffix: &str) -> String {
+    format!("{}_{suffix}", env_prefix())
+}
+
+/// The lower-case form of [`env_prefix`] (`rightkit` by default): the host's
+/// command and file-name token, used for the external-editor temp file and for
+/// the host's own command in the allow-rule subcommand list.
+pub fn app_slug() -> String {
+    env_prefix().to_ascii_lowercase()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,13 +132,13 @@ impl TerminalNotifier {
                 .map(|value| value.trim().to_ascii_lowercase())
         };
         let method = method_from_setting(
-            get("RIGHTKIT_NOTIFY").as_deref(),
+            get(&env_name("NOTIFY")).as_deref(),
             std::env::var("TERM_PROGRAM").ok().as_deref(),
             std::env::var_os("WT_SESSION").is_some(),
             std::env::var_os("KITTY_WINDOW_ID").is_some(),
         );
         let title_enabled = !matches!(
-            get("RIGHTKIT_TERMINAL_TITLE").as_deref(),
+            get(&env_name("TERMINAL_TITLE")).as_deref(),
             Some("off" | "0" | "false" | "no")
         );
         Self::new(method, title_enabled, cwd)

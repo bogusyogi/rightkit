@@ -11,13 +11,14 @@ use std::io::Write;
 
 use crate::terminal::capability::TerminalName;
 use crate::terminal::capability::terminal_info;
+use crate::terminal::notify::env_name;
 use crossterm::Command;
 use crossterm::event::KeyboardEnhancementFlags;
 use crossterm::event::PopKeyboardEnhancementFlags;
 use crossterm::event::PushKeyboardEnhancementFlags;
 use ratatui::crossterm::execute;
 
-const DISABLE_KEYBOARD_ENHANCEMENT_ENV_VAR: &str = "RIGHTKIT_TUI_DISABLE_KEYBOARD_ENHANCEMENT";
+const DISABLE_KEYBOARD_ENHANCEMENT_ENV_SUFFIX: &str = "TUI_DISABLE_KEYBOARD_ENHANCEMENT";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum VscodeDetection {
@@ -27,7 +28,8 @@ pub(crate) enum VscodeDetection {
 }
 
 pub(super) fn keyboard_enhancement_disabled() -> bool {
-    let disable_env = std::env::var(DISABLE_KEYBOARD_ENHANCEMENT_ENV_VAR).ok();
+    let disable_var = env_name(DISABLE_KEYBOARD_ENHANCEMENT_ENV_SUFFIX);
+    let disable_env = std::env::var(disable_var).ok();
     let is_wsl = running_in_wsl();
     let vscode_detection = if is_wsl {
         detect_vscode_terminal()

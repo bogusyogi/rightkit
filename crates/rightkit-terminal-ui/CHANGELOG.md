@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.5
+
+Additive; no public item is removed or changed. First two stages of moving CodeRight's terminal UI crate onto this one (bogusyogi/rightkit#1781).
+
+- **Naming hook.** The environment variables and file names the crate used to hard-code now take the host's prefix: `terminal::notify::set_env_prefix` (call once at startup, before the first read), `env_prefix`, `env_name` and `app_slug`, next to `set_app_name`. Same shape as `rightkit_agent_config::env_name`, which this crate does not depend on (it would bring rightkit-agent-policy, rightkit-http, toml and serde into a UI crate); a host sets the same prefix on both. Routed through it: `<PREFIX>_NOTIFY`, `<PREFIX>_TERMINAL_TITLE`, `<PREFIX>_ASCII`, `<PREFIX>_UNICODE`, `<PREFIX>_TUI_DISABLE_KEYBOARD_ENHANCEMENT`, the external-editor temp file (`<slug>-prompt-<pid>-<ns>.md`) and its shell `$0` (`<slug>-editor`), and the host's own command in the allow-rule subcommand list (`<slug> <subcommand>`; `rightkit` stays in the list). With nothing set every name is what it was.
+- **Added modules.** `render::cast` (the cast tree of the main agent and its sub-agents with their models), `transcript::pacer` (adaptive line pacing of a streamed answer), `terminal::kitty_image` (Kitty graphics output for a PNG), mermaid `pie` charts (a ` ```mermaid ` block starting `pie` now renders as bars, where it fell back to source), and the crate-private `composer::clipboard_copy` result types.
+- `NOTICE` (Codex, Pi and Goose donor attribution) is in the published package.
+
 ## 0.1.4
 
 - Publish the dependency requirements main already declares: `rightkit-fs` 0.5.0, where the published 0.1.3 requires 0.4.9. The 0.1.3 manifest on crates.io stays as published; this version carries the new requirements.
