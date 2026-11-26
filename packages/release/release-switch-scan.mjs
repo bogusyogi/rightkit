@@ -66,7 +66,13 @@ import { WIN_PACKAGE_DEFAULT_TRIPLE } from "./win-package-recipe.mjs";
 export const TEST_MODE_MARKER = "RIGHTKIT-TEST-MODE-COMPILED"; // identical to `TEST_MODE_MARKER_TEXT` in rightkit-daemon/src/mode.rs
 const CHUNK = 4 * 1024 * 1024;
 const FORBIDDEN_CLASSES = new Set(["S1", "S2", "S3", "S4"]);
-const CLASSES = new Set(["S1", "S2", "S3", "S4", "S5", "S6"]);
+const CLASSES = new Set(["S1", "S2", "S3", "S4", "S5", "S6", "S7"]);
+// S7, a handoff: a one-time value (a token, a nonce) the app's own code sets on a child process it starts, which the child reads and
+// removes. It selects no test mode, data root, executable, library or identity (M23 names those), so it is not compiled out; both ends
+// are checked in source instead (handoffFindings): the line that sets it on the child and the line that removes it after the read.
+const ANCHOR = /^[^:\s][^:]*:[1-9][0-9]*$/;
+const HANDOFF_SET = /(?:\.envs?\s*\(|\bset_var\s*\(|\bsetenv\s*\(|\benvironment\s*\[|\benv\w*\s*\.\s*insert\s*\()/;
+const HANDOFF_CLEAR = /(?:\benv_remove\s*\(|\bremove_var\s*\(|\bunsetenv\s*\(|\bremoveValue\s*\()/;
 const CHANNELS = new Set(["env", "argv", "settings", "preference", "frontend"]);
 // `swift:<CONDITION>`: the read sits inside `#if <CONDITION>`, a Swift compilation condition the Release build does not define
 // (`DEBUG`, or the app's own, e.g. `PULSE_QA`); the source walk confirms the enclosure and the project's Release settings.
@@ -337,7 +343,7 @@ export function parseInventory(text, label = "switches.json") {
     if (typeof entry?.name !== "string" || !entry.name) { bad("every switch needs a `name`"); continue; }
     if (names.has(entry.name)) bad(`${where} is listed twice`);
     names.add(entry.name);
-    if (!CLASSES.has(entry.class)) bad(`${where}: \`class\` must be one of S1..S6`);
+    if (!CLASSES.has(entry.class)) bad(`${where}: \`class\` must be one of S1..S7`);
     if (!CHANNELS.has(entry.channel)) bad(`${where}: \`channel\` must be one of ${[...CHANNELS].join(", ")}`);
     if (FORBIDDEN_CLASSES.has(entry.class)) {
       if (typeof entry.compiledOut !== "string" || !COMPILED_OUT.test(entry.compiledOut)) {
@@ -355,6 +361,12 @@ export function parseInventory(text, label = "switches.json") {
       }
     } else if (entry.class === "S6") {
       if (!["bool", "int", "enum"].includes(entry.valueType)) bad(`${where}: class S6 needs a bounded \`valueType\` (bool, int or enum)`);
+    } else if (entry.class === "S7") {
+      if (entry.channel !== "env") bad(`${where}: class S7 is a value handed to a child process in its environment; \`channel\` must be env`);
+      const handoff = entry.handoff;
+      if (!handoff || typeof handoff !== "object" || Array.isArray(handoff) || !ANCHOR.test(handoff.setBy ?? "") || !ANCHOR.test(handoff.clearedAt ?? "")) {
+        bad(`${where}: class S7 needs \`handoff\`: { setBy: "<path>:<line>", clearedAt: "<path>:<line>" } (where the app sets it on its child, and where the child removes it after reading)`);
+      }
     } else if (entry.class === "S5") {
       if (entry.userGesture !== true) bad(`${where}: class S5 needs \`userGesture: true\` (chosen by a picker, saved preference or the user's own argument)`);
     }
@@ -588,6 +600,7 @@ export function sourceSwitchFindings({ sourceRoot, sourceRoots, inventoryText, i
     if (swift) swiftConditions.add(swift[1]);
   }
   findings.push(...swiftReleaseConditionFindings(walkRoots, skipAbs, sourceRoot, swiftConditions));
+  findings.push(...handoffFindings(doc, sourceRoot, inventoryLabel));
   return findings;
 }
 
@@ -598,6 +611,61 @@ const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const ownerNameMatches = (pattern, name) => (pattern.endsWith("*") ? name.startsWith(pattern.slice(0, -1)) : pattern === name);
 const treeHasCrate = (treeText, crate) => typeof treeText === "string" && new RegExp(`(^|[^A-Za-z0-9_-])${escapeRegExp(crate)} v[0-9]`, "m").test(treeText);
 const PRESENCE_CALL = { scrub: /(?:env_remove|remove_var|env_clear|scrub\w*|clear\w*|retain)/, clear: /(?:env_remove|remove_var|env_clear|scrub\w*|clear\w*|retain)/, set: /(?:set_var|\.envs?\s*\(|\bset\w*\s*\()/ };
+
+// Does `<path>:<line>` under the source root show the literal name beside a call matching `call` (two lines either side)? null when it does.
+function anchorCallProblem(sourceRoot, name, anchor, call, what, alias = null) {
+  if (!sourceRoot) return "has no source root to read its anchor from";
+  const [rel, line] = [anchor.slice(0, anchor.lastIndexOf(":")), Number(anchor.slice(anchor.lastIndexOf(":") + 1))];
+  const base = path.resolve(sourceRoot);
+  const abs = path.resolve(base, rel);
+  if (!within(base, abs)) return `anchor ${anchor} escapes the app root`;
+  let lines;
+  try { lines = readFileSync(abs, "utf8").split(/\r?\n/); } catch { return `anchor ${anchor}: the file does not exist`; }
+  if (line > lines.length) return `anchor ${anchor}: the file has only ${lines.length} lines`;
+  const window = lines.slice(Math.max(0, line - 3), line + 2).join("\n");
+  const named = window.includes(`"${name}"`) || (alias && new RegExp(`\\b${alias}\\b`).test(window));
+  if (!named) return `anchor ${anchor} does not show the literal "${name}"${alias ? ` or its constant ${alias}` : ""} within two lines`;
+  if (!call.test(window)) return `anchor ${anchor} shows the name but no ${what} (${call.source})`;
+  return null;
+}
+
+// The identifier a `<path>:<line>` line declares as a constant equal to "name" (`const X: &str = "name";`, `static`, `let`), or null.
+function constantNamed(sourceRoot, anchor, name) {
+  if (!sourceRoot) return null;
+  const [rel, line] = [anchor.slice(0, anchor.lastIndexOf(":")), Number(anchor.slice(anchor.lastIndexOf(":") + 1))];
+  const base = path.resolve(sourceRoot);
+  const abs = path.resolve(base, rel);
+  if (!within(base, abs)) return null;
+  let text;
+  try { text = readFileSync(abs, "utf8").split(/\r?\n/)[line - 1] ?? ""; } catch { return null; }
+  const m = /\b(?:const|static|let)\s+([A-Za-z_][A-Za-z0-9_]*)\b[^=]*=\s*"([^"]*)"/.exec(text);
+  return m && m[2] === name ? m[1] : null;
+}
+
+/**
+ * Class S7 (handoff): both ends of each entry are read from source. `handoff.setBy` must show the app setting the name on a child
+ * process, and `handoff.clearedAt` must show the name being removed from the environment (the reader clears it once read). An entry
+ * whose anchors do not show that is `inventory-invalid`: the name is then an ordinary runtime read with no class.
+ */
+export function handoffFindings(doc, sourceRoot, inventoryLabel = "switches.json") {
+  const findings = [];
+  for (const entry of doc?.switches ?? []) {
+    if (entry?.class !== "S7" || !ANCHOR.test(entry.handoff?.setBy ?? "") || !ANCHOR.test(entry.handoff?.clearedAt ?? "")) continue;
+    // `handoff.nameConst` (optional): the line declaring the constant the code uses for the name (`const X: &str = "NAME";`). When it
+    // is given and shows that, the two ends may name the constant instead of the literal.
+    let alias = null;
+    if (entry.handoff.nameConst !== undefined) {
+      const declared = ANCHOR.test(entry.handoff.nameConst ?? "") ? constantNamed(sourceRoot, entry.handoff.nameConst, entry.name) : null;
+      if (!declared) { findings.push({ layer: "inventory", rule: "inventory-invalid", file: inventoryLabel, reason: `inventory-invalid: switch \`${entry.name}\` (class S7 handoff): handoff.nameConst ${entry.handoff.nameConst} does not declare a constant equal to "${entry.name}"` }); continue; }
+      alias = declared;
+    }
+    for (const [anchor, call, what] of [[entry.handoff.setBy, HANDOFF_SET, "call that sets it on a child process"], [entry.handoff.clearedAt, HANDOFF_CLEAR, "call that removes it from the environment"]]) {
+      const problem = anchorCallProblem(sourceRoot, entry.name, anchor, call, what, alias);
+      if (problem) findings.push({ layer: "inventory", rule: "inventory-invalid", file: inventoryLabel, reason: `inventory-invalid: switch \`${entry.name}\` (class S7 handoff): ${problem}` });
+    }
+  }
+  return findings;
+}
 
 // Does the app anchor `<path>:<line>` show the name inside a call of the claimed mechanism (a window of two lines either side)?
 function presenceAnchorProblem(sourceRoot, entry) {
