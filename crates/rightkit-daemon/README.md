@@ -8,7 +8,7 @@ Local service discovery and authentication for Right Suite apps. It owns the con
 
 ## Features
 
-`local` (default, the local transport described below) and `remote-loopback` (loopback-only HTTP host with a bearer token, see below). The remote HTTPS host, the device link client and the blind relay (the former `remote`, `link` and `relay` features) are the `rightkit-daemon-remote` crate since 0.7.0.
+`local` (default, the local transport described below), `remote-loopback` (loopback-only HTTP host with a bearer token, see below) and `lan-discovery` (off by default: multicast DNS announce and browse, see below). The remote HTTPS host, the device link client and the blind relay (the former `remote`, `link` and `relay` features) are the `rightkit-daemon-remote` crate since 0.7.0.
 
 
 ## Platform support
@@ -173,6 +173,16 @@ Failed secrets are limited (`src/fail_limit.rs`, ported from MailRight): five fa
 `DaemonLifecycle::attach_or_launch` (or `attach_or_launch_local` for the `service.json` transport) attaches to a live host or, with a launcher, starts one under the cross-process spawn claim (two shells starting together launch one). `acquire_session` revalidates the host before it hands out a `Session`, and relaunches an owned host that exited only within the `RestartPolicy` budget (`restart_exhausted` once it is spent, until `reset_restart_budget`). `Session::call` confirms the host generation (endpoint, pid, process start time, publication time) before the request is written and again before the reply is returned; a reply from a host that is no longer current is `stale_generation`, never a success, and is not replayed (the request may have run on the old host). `GenerationFence` is the same rule for a transport that multiplexes requests. `release_session` closes that client's connection and never signals the host, owned or attached. `shutdown_owned` sends the app's graceful request (only to a host still confirmed to be the launched generation), waits the grace, then kills the launched process tree while the recorded identity still names it; on an attached host it is `not_owned` and nothing is sent or signalled. `supervisor::supervise_adopted` stays the way to run a private child.
 
 `stop_incumbent` replaces a hung host given its `ServiceRecord` and treats its death as success. `stop_identity` does the same from an `AdoptedIdentity`: `StopOptions::expected_exe` pins the executable (re-read before the ask and before each signal; a mismatch is `ExecutableMismatch` and nothing is signalled) and the caller's `released()` closure decides success (a dead process that did not release is `NotReleased`).
+
+## LAN discovery (`lan-discovery` feature)
+
+`lan_discovery` announces a service on the local network and browses for one, over multicast DNS and DNS-SD (the optional `mdns-sd` dependency, which runs one background thread per announcement). It is product-neutral: the host passes the service type (`_name._tcp.local.`), the instance and host names and the TXT properties.
+
+- `lan_ip()` is the address other machines reach this one on (the default route's source address; no packet is sent), or `None`.
+- `advertise(service_type, instance_name, host_name, ip, port, properties)` registers the service and returns an `Advertisement`; the service stays announced while that value lives, so the host keeps it (for example in a `static` `OnceLock`).
+- `browse(service_type, wait)` collects the instances that resolve to an address within `wait`, once each by full name, as `Resolved` rows (full name, host name, sorted addresses, port, TXT properties with lower-cased keys), and shuts its daemon down before it returns.
+
+It opens no listener: the host binds its own port.
 
 ## Loopback HTTP host (`remote-loopback` feature)
 

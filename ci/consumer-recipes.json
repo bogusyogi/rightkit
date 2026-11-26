@@ -2433,7 +2433,7 @@
       "gateEvidence": "per-run private temp suites removed on drop; local current-user IPC to same process for PK07 R2; no TCP or real user data",
       "consumes": "PK07 named consumers per docs/plans/2026-10-20-rightkit-implementation/01-packages.md: HeardRight and ScrapeRight data-folder move; Pulse migrated_app_root() retirement (PK07-3); CutoverParticipant surface at crates/rightkit-roots/src/root_cutover.rs:231 (re-exported by rightkit-daemon since 0.8.0); PK07 R2 Service builder/local host, Client::connect_expecting, echo, method/app denial & executable mismatch",
       "files": {
-        "Cargo.toml": "1e3f4606408db6428eead312b637c8a8beaf3a2301cd46d30fac545f864ed7b3",
+        "Cargo.toml": "b8a7ca851cc51a995031002e9c978989cf0f8b68fd93ea8d8b1b4f19cac26f7c",
         "README.md": "f22334339f3882d892f14678425f5bf1b4e975607ad9e181dcc01240bba7c7f0",
         "src/main.rs": "d2b85600d65982f5bb4236e90206e6e9133dc8d2031815fc3abf2e24ad1abd62"
       },
@@ -2609,7 +2609,7 @@
       "pkId": "PK26",
       "id": "ci/consumers/rightkit-llm/src/main.rs",
       "files": {
-        "Cargo.toml": "d6799bc12c2a2becc9b56f09a67035e4e26976037e40058e815eabffb541f8a0",
+        "Cargo.toml": "a3409badef5dae9b19f099efd4b0f9dbf759f0ce6d56afdd5d7ba3540143fad3",
         "README.md": "b6615409fe6230ce89f536708e07002b33df0b9712c828baca6335480662e47a",
         "src/main.rs": "af9e5de71bcd646a770d34f76853e42621347b156f0a5cd6e440f138022c36fa"
       }
