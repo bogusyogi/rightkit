@@ -170,7 +170,7 @@ const DOCTOR_OWNED_ROWS = new Set(["rightkit-registry", "build-inputs", "dirty-i
 // The list entry when this release is for a repository RightKit does not bind (unbound-repository.mjs), else null. Read once, on first use.
 let unboundMemo;
 function unbound() {
-  if (unboundMemo === undefined) unboundMemo = opts.doctor ? null : unboundRepository({ root, source: workerSource });
+  if (unboundMemo === undefined) unboundMemo = unboundRepository({ root, source: workerSource });
   return unboundMemo;
 }
 const adviceLine = (name, detail) => `right-release: ADVICE ${name} (this repository is not bound by RightKit's app contract; nothing is refused): ${detail}`;
@@ -628,6 +628,11 @@ if (opts.doctor) {
     gateFindings = blocker
       ? [{ name: "prebuild-gates", detail: `BLOCKED by ${blocker}` }]
       : evaluatePrebuildGates({ root, config, target, platform: opts.platform, iosSpec, nativeIos, nativeAssembly, nativeFinalizer, strict: !opts.dryRun }).findings;
+  }
+  // The same rule as the build: the release-switch inventory gates are advice for an unbound repository.
+  if (unbound()) {
+    for (const finding of gateFindings.filter((entry) => UNBOUND_ADVICE_GATES.has(entry.name))) console.error(adviceLine(`gate ${finding.name}`, finding.detail));
+    gateFindings = gateFindings.filter((entry) => !UNBOUND_ADVICE_GATES.has(entry.name));
   }
   const configProblems = problems.length;
   // The config findings (stderr, as every early refusal always was) and the gate rows (stdout) of this one run.

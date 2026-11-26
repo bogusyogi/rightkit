@@ -436,8 +436,7 @@ Commands:
                                                       Enroll one native key or create a signed-device request
   ownership approve-key <fingerprint|request.json>    Approve one pending device key from an active host
   ownership revoke-key <fingerprint>                  Revoke one active device key
-  ownership trust-sync                               Advance this host's protected trust to the committed key log
-  ownership trust-sync --check                       Read-only: say whether a sync would ask for approval, and for what (exit 3 if so)
+  ownership trust-sync | trust-refresh               Retired: no check needs the host's protected trust refreshed (prints why)
   ownership trust-compare [--json]                   Print this host's protected-trust digest (Mac is the reference)
   ownership-approval                                 Retired no-op: exceptions are plain entries in the repo exceptions file, edited directly and reviewed through git
   ownership-report --workspace <dir> [--markdown <file>] [--json-out <file>]
