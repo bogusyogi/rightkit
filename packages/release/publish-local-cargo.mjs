@@ -180,7 +180,7 @@ export async function publishLocalCargo(argv, { run = spawnSync, log = console.l
   log(`publish-local: compile report ok for cargo:${name} ${version} at ${commit.slice(0, 12)} (executor ${report.executor ?? (report.schema === UNIT_LIST_COMPILE_SCHEMA ? `broker seam, unit-list run ${report.runId}` : report.schema === UNIT_RESULT_SCHEMA ? "broker seam, together compile" : "unknown")})`);
   // What the unit's tests did, when the report carries it: a skipped asset-gated test (a SKIP marker line) is said, never counted as run.
   const unitTests = report?.stages?.compile?.tests;
-  if (unitTests && Number.isInteger(unitTests.executed)) log(`publish-local: tests of cargo:${name}: ${unitTests.executed} passed, ${unitTests.skipped ?? 0} skipped${unitTests.assetGated ? " (asset-gated unit: a skipped test did not exercise its asset)" : ""}, ${unitTests.ignored ?? 0} ignored`);
+  if (unitTests && Number.isInteger(unitTests.executed)) log(`publish-local: tests of cargo:${name}: ${unitTests.executed} passed, ${unitTests.skipped ?? 0} skipped${(unitTests.skipped ?? 0) > 0 ? " (a skipped test returned early and did not exercise what it needs)" : ""}, ${unitTests.ignored ?? 0} ignored`);
   // The broker's cargo, run directly: package and publish --no-verify compile nothing (GC-A11).
   const pathKey = platform === "win32" ? (Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "Path") : "PATH";
   const direct = directCargoPath({ env: { ...env, PATH: env[pathKey] }, platform, gateWrappers: true });
