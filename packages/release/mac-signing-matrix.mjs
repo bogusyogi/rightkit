@@ -228,6 +228,19 @@ export function planMacSigning({ entries, nestedCode = [], nestedSigning, root, 
     const apps = entries.map((entry) => entry.file).filter((file) => /\.app\/?$/.test(file)).map((file) => file.replace(/\/+$/, ""));
     for (const app of apps) {
       const own = [...byPath.values()].filter((item) => item.file.startsWith(app + path.sep) || item.file.startsWith(`${app}/`));
+      // A per-path sign.entitlements entry reaches nested code only: the bundle and its main executable are signed by the bundle's own
+      // sign.prePackageFiles entry. A key naming either, or an exact key naming no nested code at all, used to be dropped in silence and the
+      // binary shipped hardened with no entitlements (HeardRight's macOS config, found by reading 2026-11-26). It is refused here, where the
+      // main executable's name is known, with the message sign.nestedCode already gives for the same mistake.
+      if (nestedSigning.entitlements && typeof nestedSigning.entitlements === "object" && !Array.isArray(nestedSigning.entitlements)) {
+        const mainRelative = `Contents/MacOS/${mainName(app)}`;
+        const nestedRelative = new Set(own.map((item) => path.relative(app, item.file).split(path.sep).join("/")));
+        for (const key of Object.keys(nestedSigning.entitlements)) {
+          const normalized = key.replace(/^\.\/+/, "").replace(/\/+$/, "");
+          if (normalized === "." || normalized === "" || normalized === mainRelative) throw invalid(`sign.entitlements[${JSON.stringify(key)}]: the bundle and its main executable are signed with the bundle; set entitlements on its sign.prePackageFiles entry ({ file, entitlements }). A per-path entry applies to nested code only`);
+          if (!/[*?]/.test(normalized) && !nestedRelative.has(normalized)) throw invalid(`sign.entitlements[${JSON.stringify(key)}]: names no nested code inside ${path.basename(app)}; the entry would be ignored and the file signed without entitlements`);
+        }
+      }
       let settings;
       try { settings = resolveSettings(own.map((item) => item.file), { app, sign: nestedSigning, root: root ?? process.cwd() }); }
       catch (error) { throw invalid(error.message); }
