@@ -431,8 +431,15 @@ pub fn builder<'a>(
         Some(dir) => b.data_directory(dir),
         None => b,
     };
-    // A never-show host's windows are never created focused.
-    let b = if crate::lifecycle::never_show(app) {
+    // A never-show host's windows are never created focused, and neither is a window whose reveal is a
+    // background one (a hidden QA run, `RIGHTKIT_QA_BACKGROUND`): a focused build makes WebView2 take
+    // keyboard focus as it is created (wry `MoveFocus`), which activates the window although
+    // `show_without_activation` later shows it with `SW_SHOWNOACTIVATE` (Pulse run-d561c460: "an owned app
+    // process was frontmost").
+    let b = if crate::lifecycle::never_show(app)
+        || crate::lifecycle::reveal_mode(app, crate::lifecycle::RevealSource::OpenWindow)
+            == crate::lifecycle::RevealMode::Background
+    {
         b.focused(false)
     } else {
         b

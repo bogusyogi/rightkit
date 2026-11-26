@@ -13209,7 +13209,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tauri-shell"
-version = "0.8.10"
+version = "0.8.11"
 dependencies = [
  "block2",
  "libc 0.2.191",
