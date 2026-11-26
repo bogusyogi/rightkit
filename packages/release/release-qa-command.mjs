@@ -203,12 +203,13 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, deps = 
     const sourceListing = split && journeysConfig && !journeysConfig.receipt
       ? (deps.writeSourceListing ?? writeQaSourceListing)({ source: release, dir: path.join(repoRoot, ".right-release", "qa-source"), git: gitRunner })
       : null;
-    // The journeys runner builds with `rustright cargo` in the app root, not through the seam, so the broker checks the stage's Class A
-    // verdict against that directory (its workspace is the cwd relative to the snapshot). Hand it the verdict for that directory, derived
-    // from the stage's root verdict exactly as the seam derives one for each of its own calls (seam-broker.mjs verdictForCwd).
+    // The journeys runner builds with `rustright cargo` itself, not through the seam, so the broker checks the stage's Class A verdict
+    // against the directory rustright selects for that build: the directory of the build's `--manifest-path`, or the app root without
+    // one (journeysBuildWorkspace). Hand it the verdict for that directory, derived from the stage's root verdict exactly as the seam
+    // derives one for each of its own calls (seam-broker.mjs verdictForCwd).
     const runCwd = appRoot;
     const stageEnv = deps.env ?? process.env;
-    const classAForRoot = sourceListing && stageEnv[CLASS_A_ENV] ? (deps.verdictForCwd ?? verdictForCwd)(stageEnv, runCwd) : null;
+    const classAForRoot = sourceListing && stageEnv[CLASS_A_ENV] ? (deps.verdictForCwd ?? verdictForCwd)(stageEnv, journeysBuildWorkspace({ manifestFile: path.resolve(appRoot, journeysConfig.manifest ?? "journeys.toml"), appRoot, args: (journeysConfig.args?.[stage] ?? []).map(String) })) : null;
     const runEnv = {
       ...process.env, ...(sourceListing ? { [QA_SOURCE_LISTING_ENV]: sourceListing } : {}), ...(classAForRoot ? { [CLASS_A_ENV]: classAForRoot } : {}), RIGHT_RELEASE_QA_STAGE: stage, RIGHT_RELEASE_QA_COMMIT: source.commit, RIGHT_RELEASE_QA_RELEASE_ID: releaseId,
       ...(sealed ? { RIGHT_RELEASE_QA_SEALED_DIR: sealed.sealedDir } : {}), ...(installedDirs.length ? { RIGHTKIT_QA_INSTALLED_DIRS: installedDirs.join(";") } : {}), ...(installedQa?.env ?? {}),
@@ -272,6 +273,44 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, deps = 
 function usage(code) {
   console.log("usage: right-release qa --stage installed --platform mac|win [--release <sealed-id>] [--config right-release.config.json]\n       (seals the QA receipt; admission is warn or refuse per app in qa-admission-policy.json; refused inside a QA run)\n       right-release qa audit [--app <dir>] [--json] [--since <YYYY-MM-DD>]\n       right-release qa policy show | set --repo <rightkit checkout> --app <app> --mode warn|refuse --set-by <name> [--stage installed]\n                             | approve-runner --repo <rightkit checkout> --runner <file> --version <v> --platform mac|win --set-by <name> [--note <text>]\n       (policy writes name their checkout with --repo or --dir and are refused inside node_modules or a trusted-gates root)");
   process.exit(code);
+}
+
+/**
+ * The directory `rustright cargo` selects as its workspace for the journeys build the runner is about to make. rustright does not
+ * take the process cwd when the command names `--manifest-path`: it takes the manifest's directory (rustright-cli shims.rs
+ * normalized_invocation), and the broker checks the Class A verdict against that directory. The build commands are the `build`
+ * arrays of the manifest's `[[adapter]]` tables (and `[app_build].command`); `--id` values in the journeys arguments narrow them to
+ * the adapters of the named journeys. A build without `--manifest-path` selects the app root. Builds that select different
+ * directories cannot share one verdict, so that is refused by name.
+ */
+export function journeysBuildWorkspace({ manifestFile, appRoot, args = [] }) {
+  if (!existsSync(manifestFile)) return appRoot;
+  const doc = createRequire(import.meta.url)("smol-toml").parse(readFileSync(manifestFile, "utf8"));
+  const ids = new Set();
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === "--id" && args[index + 1]) ids.add(String(args[index + 1]));
+    else if (String(args[index]).startsWith("--id=")) ids.add(String(args[index]).slice("--id=".length));
+  }
+  const journeys = (Array.isArray(doc.journey) ? doc.journey : []).filter((journey) => ids.size === 0 || ids.has(String(journey.id)));
+  const wanted = new Set(journeys.filter((journey) => journey.adapter).map((journey) => String(journey.adapter)));
+  const builds = (Array.isArray(doc.adapter) ? doc.adapter : [])
+    .filter((adapter) => Array.isArray(adapter.build) && (ids.size === 0 || wanted.has(String(adapter.name))))
+    .map((adapter) => ({ name: `adapter ${adapter.name}`, command: adapter.build.map(String) }));
+  if (Array.isArray(doc.app_build?.command) && journeys.some((journey) => !journey.adapter)) builds.push({ name: "app_build", command: doc.app_build.command.map(String) });
+  const dirOf = (command) => {
+    const separator = command.indexOf("--");
+    const index = command.findIndex((value, at) => (separator < 0 || at < separator) && (value === "--manifest-path" || value.startsWith("--manifest-path=")));
+    if (index < 0) return appRoot;
+    const manifest = command[index] === "--manifest-path" ? command[index + 1] : command[index].slice("--manifest-path=".length);
+    return manifest ? path.dirname(path.resolve(appRoot, manifest)) : appRoot;
+  };
+  const dirs = new Map();
+  for (const build of builds) { const dir = dirOf(build.command); dirs.set(dir, [...(dirs.get(dir) ?? []), build.name]); }
+  if (dirs.size === 0) return appRoot;
+  if (dirs.size > 1) {
+    throw new Error(`${manifestFile}: the journeys builds of this run select different rustright workspaces (${[...dirs].map(([dir, names]) => `${dir}: ${names.join(", ")}`).join("; ")}); one run carries one Class A verdict, so name one journey set per run with --id`);
+  }
+  return [...dirs.keys()][0];
 }
 
 export async function main(args) {

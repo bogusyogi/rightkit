@@ -2,6 +2,8 @@
 
 ## 0.6.86
 
+- The installed QA stage hands the journeys runner the Class A verdict for the directory `rustright cargo` selects for the journeys build: the directory of the build's `--manifest-path` in the journeys manifest, or the app root when the build names none. 0.6.85 handed the verdict for the app root, so a journeys build with `--manifest-path qa-e2e/Cargo.toml` was refused with `RK_CLASS_A_INVALID` (#1727).
+
 - A repository RightKit does not bind gets every ownership finding as advice. It is listed in the shipped `ownership-advise-only.json` with the owner's ruling in `ratifiedBy`; the scan reports each finding in full with tier `advise` and no finding refuses a build, package or release. Coverage gaps and scan problems still refuse. Legion is the first such repository (Adrian, 2026-11-26: it may use RightKit packages but owes none) (#1754).
 
 - `publish-local npm` no longer reports that the registry never served a version it has: when the per-version address answers a cached 404, it reads the package document before calling the version absent (#1754).
