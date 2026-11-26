@@ -113,7 +113,7 @@ pub(super) fn restore(
             if root.file {
                 restore_file_root(live, &snapshot, root.existed, entries)?;
             } else {
-                restore_root(live, &snapshot, root.existed, entries)?;
+                restore_root(live, &snapshot, root.existed, entries, &root.exclude)?;
             }
             if !root_matches(&root, entries)? {
                 return err("live root differs after restore; marker retained");
@@ -193,7 +193,7 @@ fn root_matches(root: &RootRecord, entries: &[Entry]) -> Result<bool> {
         if !md.is_dir() || md.file_type().is_symlink() {
             return Ok(false);
         }
-        Ok(diff(entries, &scan(live)?, true).is_empty())
+        Ok(diff(entries, &scan_excluding(live, &root.exclude)?, true).is_empty())
     }
 }
 

@@ -395,6 +395,12 @@ pub struct SnapshotConfig {
     /// file when its last component has an extension; end it with `/` to make it a folder.
     #[serde(default)]
     pub extra_paths: Vec<String>,
+    /// Paths inside a snapshotted folder that the run neither copies nor restores: absolute, or
+    /// `~/...` like `extra_paths`. For live state other processes keep writing during a run (a
+    /// chat transport's routes and traces); the receipt makes no claim about them. An entry under
+    /// no snapshotted folder (the other platform's spelling) is ignored.
+    #[serde(default)]
+    pub exclude: Vec<String>,
     /// Image names of the app and its helpers (`ViewRight`, `viewright.exe`): the run refuses
     /// to start while any is running. Required, because a snapshot of a running app is not one.
     #[serde(default)]
@@ -471,6 +477,13 @@ impl SnapshotConfig {
             if !Path::new(p).is_absolute() && !p.starts_with("~/") && !p.starts_with("~\\") {
                 return err(format!(
                     "[snapshot].extra_paths entry {p:?} is neither absolute nor home-relative (~/...)"
+                ));
+            }
+        }
+        for p in &self.exclude {
+            if !Path::new(p).is_absolute() && !p.starts_with("~/") && !p.starts_with("~\\") {
+                return err(format!(
+                    "[snapshot].exclude entry {p:?} is neither absolute nor home-relative (~/...)"
                 ));
             }
         }
