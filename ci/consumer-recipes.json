@@ -3486,7 +3486,7 @@
       "pkId": "PK127",
       "id": "ci/consumers/rightkit-agent-plugins/src/main.rs",
       "files": {
-        "Cargo.toml": "7cf305d3483fe4da5d157d1a1d3b92227bef4f54378da55ab3069a1654842695",
+        "Cargo.toml": "d345c146e6c6ecb1ec3805a0a22464dd6a61684c11cb0f81d1d24b5539cb16fd",
         "README.md": "8713b2189242d102932fe67d652b7a107b09b27797cdba20062cf65536577d4e",
         "src/main.rs": "eb6fa86adf71c88cd949d26f240cfc287cce528d7ee015b3b7db4d6ca1da9393"
       }

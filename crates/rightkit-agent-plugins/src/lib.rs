@@ -20,7 +20,7 @@ pub use execution_trust::{
     classify_plugin_policy, extension_trust_catalog, ExtensionIsolationGuarantee,
     ExtensionTrustClass, ExtensionTrustDiagnostic,
 };
-pub use loader::PluginLoader;
+pub use loader::{validate_plugin_id, InstalledPlugin, PluginLoader, ReplacedPlugin};
 pub use manifest::{
     PluginCommandMetadata, PluginDataAccess, PluginIsolationMode, PluginManifest,
     PluginMiddlewareCondition, PluginMiddlewareContribution, PluginPromptContribution,

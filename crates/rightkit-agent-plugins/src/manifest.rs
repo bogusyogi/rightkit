@@ -229,6 +229,25 @@ impl PluginManifest {
         self.ui_slots.iter().filter(|c| c.slot == slot).collect()
     }
 
+    /// Every contribution the host may show for this plugin, slot by slot (pane, band, status,
+    /// toast), in manifest order. Nothing for a disabled plugin, and nothing when the slot
+    /// declarations are invalid ([`validate_ui_slots`](Self::validate_ui_slots)), so one bad
+    /// declaration never grants a surface.
+    pub fn active_ui_contributions(&self) -> Vec<&PluginUiContribution> {
+        if self.validate_ui_slots().is_err() {
+            return Vec::new();
+        }
+        [
+            PluginUiSlot::Pane,
+            PluginUiSlot::Band,
+            PluginUiSlot::Status,
+            PluginUiSlot::Toast,
+        ]
+        .into_iter()
+        .flat_map(|slot| self.ui_contributions(slot))
+        .collect()
+    }
+
     /// Reject empty or duplicate slot ids and commands the manifest does not
     /// declare, so a slot cannot reach an undeclared capability.
     pub fn validate_ui_slots(&self) -> Result<(), PluginError> {
