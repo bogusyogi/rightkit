@@ -276,7 +276,10 @@ fn valid_shipped_entry(entry: &Value) -> bool {
         && roots
             .iter()
             .all(|root| root.as_str().is_some_and(exact_repository_path))
-        && matches!(field(entry, "visibility").as_str(), Some("public" | "private"))
+        && matches!(
+            field(entry, "visibility").as_str(),
+            Some("public" | "private")
+        )
 }
 
 /// The shipped registration for `identity`; an unreadable list holds no registration.
