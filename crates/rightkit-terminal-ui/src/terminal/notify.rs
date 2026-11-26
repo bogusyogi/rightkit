@@ -10,6 +10,14 @@
 //! - `RIGHTKIT_NOTIFY`: `off`, `bel`, `osc9`, or `auto` (default: OSC 9 on
 //!   terminals known to implement it, BEL elsewhere).
 //! - `RIGHTKIT_TERMINAL_TITLE`: `off` leaves the title alone.
+//! - `RIGHTKIT_PROGRAM_STATUS`: `off` stops the program status report (OSC 7501: working,
+//!   blocked on an approval (`kind=permission`), a question (`kind=question`) or a credential
+//!   prompt (`kind=auth`), idle, and `done` or `error` for a turn that ended while the terminal
+//!   was not in front, per the spec's "result ready, user has not seen it") that terminals and
+//!   multiplexers can show per tab; `on`
+//!   sends it to any terminal; `auto` (default) sends it unless `TERM` names a terminal that
+//!   answers no escape sequences. The protocol requires terminals to ignore a report they do
+//!   not know, so no query is sent first.
 
 use std::io::{self, Write};
 use std::sync::{OnceLock, RwLock};
@@ -103,6 +111,29 @@ pub struct TerminalNotifier {
     working_since: Option<Instant>,
     approval_pending: bool,
     title_written: Option<bool>,
+    program_status: bool,
+    status_written: Option<ProgramState>,
+    /// A turn ended while the terminal was reported as not in front: `Some(failed)` until the user
+    /// returns or the next turn starts (OSC 7501 `done` / `error`).
+    unseen_result: Option<bool>,
+}
+
+/// What the program is blocked on (OSC 7501 `kind`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlockKind {
+    Permission,
+    Question,
+    Auth,
+}
+
+/// What the program reports through OSC 7501.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProgramState {
+    Idle,
+    Working,
+    Blocked(BlockKind),
+    Done,
+    Error,
 }
 
 impl TerminalNotifier {
@@ -122,6 +153,16 @@ impl TerminalNotifier {
             working_since: None,
             approval_pending: false,
             title_written: None,
+            program_status: program_status_enabled(
+                std::env::var(env_name("PROGRAM_STATUS"))
+                    .ok()
+                    .map(|value| value.trim().to_ascii_lowercase())
+                    .as_deref(),
+                std::env::var("TERM").ok().as_deref(),
+                std::env::var_os("TERM_PROGRAM").is_some(),
+            ),
+            status_written: None,
+            unseen_result: None,
         }
     }
 
@@ -151,13 +192,34 @@ impl TerminalNotifier {
 
     /// Update from the current turn/approval state, writing the title on a
     /// working-state change and a notification on `working -> idle` or a newly
-    /// pending approval while the terminal is not in front.
+    /// pending approval while the terminal is not in front. Same as
+    /// [`Self::observe_status`] with an approval as the only block and a turn
+    /// that never failed.
     pub fn observe(
         &mut self,
         out: &mut impl Write,
         working: bool,
         approval_pending: bool,
     ) -> io::Result<()> {
+        self.observe_status(
+            out,
+            working,
+            approval_pending.then_some(BlockKind::Permission),
+            false,
+        )
+    }
+
+    /// Update from the current turn state: writes the title on a working-state change and a
+    /// notification on `working -> idle` or a newly pending approval while the terminal is not in
+    /// front. `block` says what a block is; `turn_failed` is read when `working` goes false.
+    pub fn observe_status(
+        &mut self,
+        out: &mut impl Write,
+        working: bool,
+        block: Option<BlockKind>,
+        turn_failed: bool,
+    ) -> io::Result<()> {
+        let approval_pending = block == Some(BlockKind::Permission);
         let now = Instant::now();
         let mut notice: Option<String> = None;
         if working && !self.working {
@@ -174,6 +236,12 @@ impl TerminalNotifier {
         if !working {
             self.working_since = None;
         }
+        if self.working && !working && block.is_none() && self.focus_reported && !self.focused {
+            self.unseen_result = Some(turn_failed);
+        }
+        if working || self.focused {
+            self.unseen_result = None;
+        }
         self.working = working;
         self.approval_pending = approval_pending;
 
@@ -182,6 +250,26 @@ impl TerminalNotifier {
             self.title_written = Some(working);
             write!(out, "{}", title_sequence(&self.title_leaf, working))?;
             wrote = true;
+        }
+        if self.program_status {
+            let state = if let Some(kind) = block {
+                ProgramState::Blocked(kind)
+            } else if working {
+                ProgramState::Working
+            } else if let Some(failed) = self.unseen_result {
+                if failed {
+                    ProgramState::Error
+                } else {
+                    ProgramState::Done
+                }
+            } else {
+                ProgramState::Idle
+            };
+            if self.status_written != Some(state) {
+                self.status_written = Some(state);
+                write!(out, "{}", program_status_sequence(state))?;
+                wrote = true;
+            }
         }
         if let Some(message) = notice {
             write!(out, "{}", notification_sequence(self.method, &message))?;
@@ -193,11 +281,19 @@ impl TerminalNotifier {
         Ok(())
     }
 
-    /// Restore a neutral title on exit.
+    /// Restore a neutral title on exit and remove the program status record.
     pub fn clear_title(&mut self, out: &mut impl Write) -> io::Result<()> {
+        let mut wrote = false;
         if self.title_enabled && self.title_written.is_some() {
             self.title_written = None;
             write!(out, "\x1b]0;\x07")?;
+            wrote = true;
+        }
+        if self.program_status && self.status_written.take().is_some() {
+            write!(out, "\x1b]7501;state=clear\x07")?;
+            wrote = true;
+        }
+        if wrote {
             out.flush()?;
         }
         Ok(())
@@ -239,6 +335,54 @@ fn method_from_setting(
             }
         }
     }
+}
+
+/// Whether to send OSC 7501 program status. A terminal that answers no escape sequences
+/// (`TERM` empty, `dumb`, `linux`, ...) is skipped unless a program identity says it is a
+/// modern terminal; an explicit setting wins.
+fn program_status_enabled(
+    setting: Option<&str>,
+    term: Option<&str>,
+    has_term_program: bool,
+) -> bool {
+    match setting {
+        Some("off" | "0" | "false" | "no" | "none") => false,
+        Some("on" | "1" | "true" | "yes") => true,
+        _ => {
+            let term = term.unwrap_or_default().to_ascii_lowercase();
+            !matches!(term.as_str(), "" | "dumb" | "linux" | "cons25" | "emacs") || has_term_program
+        }
+    }
+}
+
+/// OSC 7501 report for the root record (`https://www.superlogical.com/rex/docs/build/program-status`):
+/// BEL-terminated like the title sequence (the protocol allows ST or BEL).
+/// `state=working`, `state=blocked:kind=permission|question|auth` while the program waits on the user,
+/// `state=idle` at rest, `state=done` / `state=error` for a turn that ended out of sight.
+fn program_status_sequence(state: ProgramState) -> String {
+    // The `app=` token is the host's command name (`app_slug`), so a host sees its own name.
+    let app = app_slug();
+    let pairs = match state {
+        ProgramState::Idle => format!("state=idle:app={app}"),
+        ProgramState::Working => format!("state=working:app={app}"),
+        // msg is base64 of "Approval needed".
+        ProgramState::Blocked(BlockKind::Permission) => {
+            format!("state=blocked:kind=permission:app={app}:msg=QXBwcm92YWwgbmVlZGVk")
+        }
+        // msg is base64 of "Question for you".
+        ProgramState::Blocked(BlockKind::Question) => {
+            format!("state=blocked:kind=question:app={app}:msg=UXVlc3Rpb24gZm9yIHlvdQ==")
+        }
+        // msg is base64 of "Credential needed".
+        ProgramState::Blocked(BlockKind::Auth) => {
+            format!("state=blocked:kind=auth:app={app}:msg=Q3JlZGVudGlhbCBuZWVkZWQ=")
+        }
+        // msg is base64 of "Turn finished".
+        ProgramState::Done => format!("state=done:app={app}:msg=VHVybiBmaW5pc2hlZA=="),
+        // msg is base64 of "Turn failed".
+        ProgramState::Error => format!("state=error:app={app}:msg=VHVybiBmYWlsZWQ="),
+    };
+    format!("\x1b]7501;{pairs}\x07")
 }
 
 /// `<app name> · <leaf>` (see [`set_app_name`]), prefixed with a working marker while a turn runs.

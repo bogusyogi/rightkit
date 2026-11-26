@@ -19,22 +19,29 @@
 //!   overlay has rendered once (`armed`). Keys typed before the modal was
 //!   on screen cannot approve — and a request promoted from the queue
 //!   re-disarms until its own first render, so input queued *ahead* of it
-//!   cannot decide it either.
+//!   cannot decide it either. Letter keys (`y a n t`) are common prose, so
+//!   they are also ignored for `LETTER_DELAY` after the first render, and
+//!   never answer a card that appeared while the composer held unsent text,
+//!   nor one whose host never reported the composer's state
+//!   ([`ApprovalRequest::with_composer_had_text`]): digits, arrows plus Enter,
+//!   and Esc still do.
 
 use std::collections::{BTreeMap, VecDeque};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use crate::component::RenderFrameExt as _;
-use crossterm::event::{KeyCode, KeyEventKind};
+use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::component::{Component, Event, Outcome, Role, Theme};
 
 use super::cell::{Cell, PrefixedWrappedCell};
-use super::diff::{FileChange, create_diff_preview};
+use super::diff::{FileChange, create_diff_preview, ledger_diff_rows};
 use super::sanitize::sanitize;
 use crate::transcript::wrap::{display_width, wrap};
 
@@ -119,6 +126,13 @@ pub struct ApprovalRequest {
     /// Exact persistent allow rule the "always allow" option installs. The
     /// card prints these patterns verbatim; the host installs exactly them.
     allow_rule: Option<super::allow_rule::AllowRule>,
+    /// What the host said about the composer as this card appeared:
+    /// `Some(true)` when it held unsent text (letter keys then never answer
+    /// the card: the user may still be typing), `Some(false)` when it did not,
+    /// `None` when the host never said. Only `Some(false)` lets letter keys
+    /// answer, so a host that has not been updated keeps digits, arrows plus
+    /// Enter, and Esc as the only ways to decide.
+    composer_had_text: Option<bool>,
 }
 
 impl ApprovalRequest {
@@ -136,7 +150,23 @@ impl ApprovalRequest {
             policy_reason: None,
             execpolicy_amendment: None,
             allow_rule: None,
+            composer_had_text: None,
         }
+    }
+
+    /// Record whether the composer held unsent text when this card appeared.
+    /// `true` means letter keys cannot answer it (the user may still be
+    /// typing); `false` lets them answer after the first-render delay. Not
+    /// calling this leaves the card on digits, arrows plus Enter, and Esc.
+    pub fn with_composer_had_text(mut self, had_text: bool) -> Self {
+        self.composer_had_text = Some(had_text);
+        self
+    }
+
+    /// Letter keys may answer this card only when the host reported an empty
+    /// composer.
+    fn letters_enabled(&self) -> bool {
+        self.composer_had_text == Some(false)
     }
 
     /// Attach the persistent allow rule the "always allow" option installs.
@@ -254,12 +284,23 @@ pub struct ApprovalOverlay {
     queue: VecDeque<ApprovalRequest>,
     selected: usize,
     intents: Vec<ApprovalIntent>,
-    /// Model name shown in the redirect option label.
+    /// Model name shown in the title (`<model> wants to`).
     model_label: Option<String>,
     /// False until `render` has run once for the current request. Gate for
     /// "input buffered before the overlay appeared must not approve".
     armed: bool,
+    /// False when the card is too short to show any of what is being
+    /// approved; approving keys are then refused until it can.
+    subject_visible: bool,
+    /// Letter keys are ignored until this instant (set at the first render).
+    /// `None` means the delay has passed or never applied (tests).
+    letters_ok_at: Option<Instant>,
+    /// Permission mode shown dim beside "esc denies" (`Ask mode`), if known.
+    mode_label: Option<String>,
 }
+
+/// How long letter keys are ignored after the card is first drawn.
+const LETTER_DELAY: Duration = Duration::from_millis(400);
 
 impl ApprovalOverlay {
     /// Bind the overlay to `session_id` — a request carrying any other
@@ -273,6 +314,9 @@ impl ApprovalOverlay {
             intents: Vec::new(),
             model_label: None,
             armed: false,
+            subject_visible: true,
+            letters_ok_at: None,
+            mode_label: None,
         }
     }
 
@@ -336,21 +380,14 @@ impl ApprovalOverlay {
             .collect()
     }
 
-    /// Name the redirect option after the active model.
-    pub fn set_model_label(&mut self, model: Option<String>) {
-        self.model_label = model.map(|m| sanitize(&m)).filter(|m| !m.trim().is_empty());
+    /// Name the permission mode shown beside "esc denies" ("Ask mode").
+    pub fn set_mode_label(&mut self, mode: Option<String>) {
+        self.mode_label = mode.map(|m| sanitize(&m)).filter(|m| !m.trim().is_empty());
     }
 
-    fn option_label(&self, option: ApprovalDecision) -> String {
-        match (option, &self.model_label) {
-            (ApprovalDecision::Redirect, Some(model)) => {
-                // The label may carry `model · effort`; the sentence names the
-                // model only.
-                let model = model.split(" · ").next().unwrap_or(model);
-                format!("No, and tell {model} what to do instead")
-            }
-            _ => option.label().to_string(),
-        }
+    /// Name the active model in the title (`<model> wants to`).
+    pub fn set_model_label(&mut self, model: Option<String>) {
+        self.model_label = model.map(|m| sanitize(&m)).filter(|m| !m.trim().is_empty());
     }
 
     /// The request currently displayed, if any.
@@ -403,6 +440,13 @@ impl ApprovalOverlay {
         self.selected = (self.selected as isize + delta).rem_euclid(len) as usize;
     }
 
+    fn selected_declines(&self) -> bool {
+        self.current
+            .as_ref()
+            .and_then(|r| r.options.get(self.selected))
+            .is_some_and(|d| matches!(d, ApprovalDecision::Denied | ApprovalDecision::Redirect))
+    }
+
     fn accept_selected(&mut self) {
         let Some(request) = self.current.clone() else {
             return;
@@ -438,18 +482,131 @@ impl ApprovalOverlay {
         self.armed = false;
     }
 
-    /// The card title: what is being approved, in words.
-    fn title(request: &ApprovalRequest) -> &'static str {
-        match request.kind {
-            ApprovalKind::Exec { .. } => "Approve shell command",
-            ApprovalKind::Patch { .. } => "Approve file change",
-            ApprovalKind::Generic { .. } => "Approve request",
+    /// The title's parts: the verb, the first line of the object it acts on,
+    /// and whether the object runs over more than that one line.
+    fn title_parts(request: &ApprovalRequest) -> (&'static str, String, bool) {
+        let first = |text: &str| text.trim().lines().next().unwrap_or("").trim().to_string();
+        let multiline = |text: &str| text.trim().lines().count() > 1;
+        match &request.kind {
+            ApprovalKind::Exec { command, .. } => ("shell", first(command), multiline(command)),
+            ApprovalKind::Patch { changes, cwd, .. } => {
+                match (changes.len(), changes.iter().next()) {
+                    (1, Some((path, change))) => {
+                        let verb = match change {
+                            FileChange::Add { .. } => "create",
+                            FileChange::Delete { .. } => "delete",
+                            FileChange::Update { .. } => "edit",
+                        };
+                        (verb, shown_path(path, cwd), false)
+                    }
+                    (count, _) => ("edit", format!("{count} files"), false),
+                }
+            }
+            ApprovalKind::Generic { description } => {
+                ("approve", first(description), multiline(description))
+            }
         }
     }
 
-    /// The card body: the thing being approved, where it runs, and why the
-    /// policy is asking. Every optional line appears only when its source
-    /// supplied it.
+    /// Total (added, removed) lines of a file-change request.
+    fn change_counts(request: &ApprovalRequest, theme: &Theme) -> Option<(usize, usize)> {
+        let ApprovalKind::Patch { changes, .. } = &request.kind else {
+            return None;
+        };
+        let mut totals = (0usize, 0usize);
+        for change in changes.values() {
+            let (added, removed) = match change {
+                FileChange::Add { content } => (content.lines().count(), 0),
+                FileChange::Delete { content } => (0, content.lines().count()),
+                FileChange::Update { unified_diff } => {
+                    let (_, added, removed) = ledger_diff_rows(unified_diff, 0, 0, theme);
+                    (added, removed)
+                }
+            };
+            totals.0 += added;
+            totals.1 += removed;
+        }
+        Some(totals)
+    }
+
+    /// Fit the title row to `width`: the verb and object on the left, the
+    /// change count and "<model> wants to" on the right when they fit.
+    fn title_layout(&self, request: &ApprovalRequest, width: u16, theme: &Theme) -> TitleLayout {
+        let inner = (width as usize).saturating_sub(RAIL_WIDTH).max(1);
+        let (verb, full, multiline) = Self::title_parts(request);
+        let counts = Self::change_counts(request, theme);
+        let who = self
+            .model_label
+            .as_ref()
+            .map(|model| format!("{} wants to", model.split(" · ").next().unwrap_or(model)));
+        let count_w = counts.map_or(0, |(a, d)| display_width(&format!("+{a} −{d}")));
+        let who_w = who.as_ref().map_or(0, |w| display_width(w));
+        let right_w = count_w + who_w + if count_w > 0 && who_w > 0 { 3 } else { 0 };
+        let verb_w = display_width(verb) + 1;
+        let full_w = display_width(&full);
+        let with_right = inner.saturating_sub(verb_w + right_w + 2);
+        let show_right = right_w > 0 && with_right >= full_w.min(16);
+        let budget = if show_right {
+            with_right
+        } else {
+            inner.saturating_sub(verb_w)
+        };
+        TitleLayout {
+            verb,
+            object_clipped: multiline || full_w > budget,
+            object: clip_to_width(&full, budget.max(1)),
+            counts,
+            who,
+            show_right,
+            width: inner,
+        }
+    }
+
+    fn title_row(&self, layout: &TitleLayout, theme: &Theme) -> Line<'static> {
+        let dim = Style::default().fg(theme.color(Role::Dim));
+        let bright = Style::default().add_modifier(Modifier::BOLD);
+        let mut spans = vec![
+            Span::styled(layout.verb.to_string(), bright),
+            Span::raw(format!(" {}", layout.object)),
+        ];
+        if layout.show_right {
+            let mut right: Vec<Span<'static>> = Vec::new();
+            if let Some((added, removed)) = layout.counts {
+                right.push(Span::styled(
+                    format!("+{added}"),
+                    Style::default().fg(theme.color(Role::Success)),
+                ));
+                right.push(Span::raw(" "));
+                right.push(Span::styled(
+                    format!("−{removed}"),
+                    Style::default().fg(theme.color(Role::Failure)),
+                ));
+                if layout.who.is_some() {
+                    right.push(Span::raw("   "));
+                }
+            }
+            if let Some(who) = &layout.who {
+                right.push(Span::styled(who.clone(), dim));
+            }
+            let used: usize = display_width(layout.verb)
+                + 1
+                + display_width(&layout.object)
+                + right
+                    .iter()
+                    .map(|s| display_width(&s.content))
+                    .sum::<usize>();
+            spans.push(Span::raw(
+                " ".repeat(layout.width.saturating_sub(used).max(1)),
+            ));
+            spans.extend(right);
+        }
+        Line::from(spans)
+    }
+
+    /// The card body: what is being approved (a diff, or a command the title
+    /// could not show whole), where it runs, and, when no mode is shown at
+    /// the right of the choices, why the policy is asking. Every optional line
+    /// appears only when its source supplied it.
     fn body_lines(&self, width: u16, theme: &Theme) -> Vec<Line<'static>> {
         let Some(request) = &self.current else {
             return Vec::new();
@@ -467,8 +624,12 @@ impl ApprovalOverlay {
                 writes,
                 network,
             } => {
-                for row in wrap_command(command, inner) {
-                    lines.push(Line::from(vec![Span::raw("  "), Span::styled(row, bright)]));
+                // The title carries the command; repeat it here only when the
+                // title had to cut it or it runs over several lines.
+                if self.title_layout(request, width, theme).object_clipped {
+                    for row in wrap_command(command, inner) {
+                        lines.push(Line::from(vec![Span::raw("  "), Span::raw(row)]));
+                    }
                 }
                 if let Some(preview) = super::destructive::destructive_preview(command) {
                     lines.push(Line::from(Span::styled(
@@ -515,19 +676,37 @@ impl ApprovalOverlay {
                 // The user is being asked to approve this change, so show it
                 // — a few changed lines with their context — not a teaser.
                 // The card still clips itself to the screen it has.
-                for row in create_diff_preview(changes, cwd, inner, APPROVAL_DIFF_ROWS, theme) {
+                let mut rows = create_diff_preview(changes, cwd, inner, APPROVAL_DIFF_ROWS, theme);
+                // The preview opens with a "Proposed Diff" heading and a
+                // spacer, and (for one file) a "(+a -d) path" row: the title
+                // row already says all of that.
+                if rows.len() > 2 {
+                    rows.drain(..2);
+                    let opens_with_header = rows.first().is_some_and(|row| {
+                        let text: String = row.spans.iter().map(|s| s.content.as_ref()).collect();
+                        text.trim_start().starts_with("(+")
+                    });
+                    if changes.len() == 1 && opens_with_header {
+                        rows.remove(0);
+                    }
+                }
+                for row in rows {
                     let mut spans = vec![Span::raw("  ")];
                     spans.extend(row.spans);
                     lines.push(Line::from(spans));
                 }
             }
             ApprovalKind::Generic { description } => {
-                for row in wrap_command(description, inner) {
-                    lines.push(Line::from(vec![Span::raw("  "), Span::styled(row, bright)]));
+                if self.title_layout(request, width, theme).object_clipped {
+                    for row in wrap_command(description, inner) {
+                        lines.push(Line::from(vec![Span::raw("  "), Span::raw(row)]));
+                    }
                 }
             }
         }
-        if let Some(why) = request.policy_reason.as_ref() {
+        if self.mode_label.is_none()
+            && let Some(why) = request.policy_reason.as_ref()
+        {
             lines.push(Line::from(Span::styled(
                 format!("  asking because {why}"),
                 dim,
@@ -535,6 +714,242 @@ impl ApprovalOverlay {
         }
         lines
     }
+
+    /// The letter that answers with `option` on this card.
+    fn option_letter(request: &ApprovalRequest, option: ApprovalDecision) -> char {
+        match option {
+            ApprovalDecision::Approved => 'y',
+            ApprovalDecision::ApprovedForPrefix => 'a',
+            ApprovalDecision::ApprovedForSession => {
+                if request
+                    .options
+                    .contains(&ApprovalDecision::ApprovedForPrefix)
+                {
+                    's'
+                } else {
+                    'a'
+                }
+            }
+            ApprovalDecision::Denied => 'n',
+            ApprovalDecision::Redirect => 't',
+        }
+    }
+
+    /// The short words for one choice in the choices row.
+    fn option_text(request: &ApprovalRequest, option: ApprovalDecision) -> String {
+        match option {
+            ApprovalDecision::Approved => "allow".to_string(),
+            ApprovalDecision::ApprovedForPrefix => match request.allow_rule() {
+                Some(_) if matches!(request.kind, ApprovalKind::Patch { .. }) => {
+                    "always for this file".to_string()
+                }
+                Some(rule) => format!("always for \"{}\"", rule.label.trim_end_matches('…').trim()),
+                None => match request.execpolicy_amendment() {
+                    Some(prefix) => format!("always for \"{}\"", prefix.join(" ")),
+                    None => "always".to_string(),
+                },
+            },
+            ApprovalDecision::ApprovedForSession => "for this session".to_string(),
+            ApprovalDecision::Denied => "deny".to_string(),
+            ApprovalDecision::Redirect => "tell it what to do".to_string(),
+        }
+    }
+
+    /// What the highlighted choice installs, shown only while it is
+    /// highlighted. Prints the rule's exact patterns, never a paraphrase.
+    fn selected_note(&self, request: &ApprovalRequest) -> Option<String> {
+        match request.options.get(self.selected)? {
+            ApprovalDecision::ApprovedForPrefix => match request.allow_rule() {
+                Some(rule) => {
+                    let covers = if matches!(request.kind, ApprovalKind::Exec { .. }) {
+                        "also covers longer commands starting with it"
+                    } else {
+                        "this file only"
+                    };
+                    Some(format!(
+                        "{} · {covers} · in this project · a deny rule still wins",
+                        rule.installs()
+                    ))
+                }
+                None => request
+                    .execpolicy_amendment()
+                    .map(|prefix| format!("Persists shell({}) for this session", prefix.join(" "))),
+            },
+            ApprovalDecision::ApprovedForSession => match &request.kind {
+                ApprovalKind::Exec { command, .. } => {
+                    let scope = session_allowance_scope(command);
+                    Some(format!("{} · {}", scope[0], scope[1]))
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// The choices row (one row when it fits with the mode and "esc denies"
+    /// at the right; else the choices alone, else one per row), then the
+    /// highlighted choice's rule note.
+    fn footer_rows(
+        &self,
+        request: &ApprovalRequest,
+        inner: usize,
+        theme: &Theme,
+    ) -> Vec<Line<'static>> {
+        let dim = Style::default().fg(theme.color(Role::Dim));
+        // Digits stand in for the letters on a card that letters cannot answer.
+        let letters = request.letters_enabled();
+        let items: Vec<(String, String)> = request
+            .options
+            .iter()
+            .enumerate()
+            .map(|(i, option)| {
+                let key = if letters {
+                    Self::option_letter(request, *option).to_string()
+                } else {
+                    (i + 1).to_string()
+                };
+                (key, Self::option_text(request, *option))
+            })
+            .collect();
+        let hint = match &self.mode_label {
+            Some(mode) => format!("{mode} · esc denies"),
+            None => "esc denies".to_string(),
+        };
+        let item_spans = |i: usize, key: &str, text: &str| -> Vec<Span<'static>> {
+            let base = if i == self.selected {
+                Style::default().add_modifier(Modifier::REVERSED)
+            } else {
+                Style::default()
+            };
+            vec![
+                Span::styled(" ".to_string(), base),
+                Span::styled(key.to_string(), base.add_modifier(Modifier::BOLD)),
+                Span::styled(format!(" {text} "), base),
+            ]
+        };
+        let total: usize = items
+            .iter()
+            .map(|(k, t)| display_width(k) + display_width(t) + 3)
+            .sum::<usize>()
+            + items.len().saturating_sub(1);
+        let hint_w = display_width(&hint);
+        let mut rows: Vec<Line<'static>> = Vec::new();
+        if 1 + total + 2 + hint_w <= inner {
+            let mut spans = vec![Span::raw(" ")];
+            for (i, (key, text)) in items.iter().enumerate() {
+                if i > 0 {
+                    spans.push(Span::raw(" "));
+                }
+                spans.extend(item_spans(i, key, text));
+            }
+            spans.push(Span::raw(" ".repeat(inner - 1 - total - hint_w)));
+            spans.push(Span::styled(hint, dim));
+            rows.push(Line::from(spans));
+        } else {
+            if total < inner {
+                let mut spans = vec![Span::raw(" ")];
+                for (i, (key, text)) in items.iter().enumerate() {
+                    if i > 0 {
+                        spans.push(Span::raw(" "));
+                    }
+                    spans.extend(item_spans(i, key, text));
+                }
+                rows.push(Line::from(spans));
+            } else {
+                for (i, (key, text)) in items.iter().enumerate() {
+                    let room = inner.saturating_sub(display_width(key) + 4).max(1);
+                    let mut spans = vec![Span::raw(" ")];
+                    spans.extend(item_spans(i, key, &clip_to_width(text, room)));
+                    rows.push(Line::from(spans));
+                }
+            }
+            rows.push(Line::from(Span::styled(format!("  {hint}"), dim)));
+        }
+        if let Some(note) = self.selected_note(request) {
+            // The rule is the user's to read before choosing it: wrap, never cut.
+            for row in wrap(&note, inner.saturating_sub(4).max(1) as u16)
+                .into_iter()
+                .take(3)
+            {
+                rows.push(Line::from(Span::styled(format!("    {row}"), dim)));
+            }
+        }
+        rows
+    }
+
+    /// Answer with option `idx` (a digit or a letter): refused when the
+    /// subject is not on screen and the option would approve.
+    fn choose(&mut self, idx: usize) -> Outcome {
+        let Some(option) = self
+            .current
+            .as_ref()
+            .and_then(|r| r.options.get(idx).copied())
+        else {
+            return Outcome::Redraw;
+        };
+        let declines = matches!(
+            option,
+            ApprovalDecision::Denied | ApprovalDecision::Redirect
+        );
+        if !self.subject_visible && !declines {
+            return Outcome::Consumed;
+        }
+        self.selected = idx;
+        self.accept_selected();
+        Outcome::Redraw
+    }
+
+    /// Whether a letter key may answer the current card right now.
+    fn letters_allowed(&self) -> bool {
+        let enabled = self
+            .current
+            .as_ref()
+            .is_some_and(ApprovalRequest::letters_enabled);
+        enabled && self.letters_ok_at.is_none_or(|at| Instant::now() >= at)
+    }
+}
+
+/// The title row, fitted to a width.
+struct TitleLayout {
+    verb: &'static str,
+    /// The object, clipped to the room the row has.
+    object: String,
+    /// The whole subject did not fit on the title row, so the body repeats it.
+    object_clipped: bool,
+    counts: Option<(usize, usize)>,
+    who: Option<String>,
+    show_right: bool,
+    /// Columns inside the rail.
+    width: usize,
+}
+
+/// Path as the card names it: relative to `cwd` when possible, sanitized.
+fn shown_path(path: &Path, cwd: &Path) -> String {
+    let shown = path
+        .strip_prefix(cwd)
+        .map(|rel| rel.display().to_string())
+        .unwrap_or_else(|_| path.display().to_string());
+    sanitize(&shown)
+}
+
+/// Cut `text` to `width` display columns, ending in `…` when cut.
+fn clip_to_width(text: &str, width: usize) -> String {
+    if display_width(text) <= width {
+        return text.to_string();
+    }
+    let budget = width.saturating_sub(1);
+    let mut out = String::new();
+    let mut used = 0usize;
+    for grapheme in text.graphemes(true) {
+        let w = display_width(grapheme);
+        if used + w > budget {
+            break;
+        }
+        out.push_str(grapheme);
+        used += w;
+    }
+    out.push('…');
+    out
 }
 
 /// Width of the `┃ ` rail prefix.
@@ -568,102 +983,49 @@ impl Component for ApprovalOverlay {
 
         let dim = Style::default().fg(theme.color(Role::Dim));
         let rail = Style::default().fg(theme.color(Role::Attention));
-        let bright = Style::default().add_modifier(Modifier::BOLD);
         let inner = (area.width as usize).saturating_sub(RAIL_WIDTH).max(1);
 
-        // Title row: what is being approved, the active model on the right.
-        let mut title_spans = vec![Span::styled(Self::title(&request).to_string(), bright)];
-        if let Some(model) = self.model_label.as_ref() {
-            let name = model.split(" · ").next().unwrap_or(model).to_string();
-            let used = display_width(Self::title(&request)) + display_width(&name);
-            if used + 3 <= inner {
-                title_spans.push(Span::raw(" ".repeat(inner - used - 1)));
-                title_spans.push(Span::styled(name, dim));
-            }
-        }
-
-        let mut body: Vec<Line<'static>> = vec![Line::from(title_spans), Line::from("")];
+        // Subject first: the verb and object are the title row.
+        let layout = self.title_layout(&request, area.width, theme);
+        let mut body: Vec<Line<'static>> = vec![self.title_row(&layout, theme)];
+        let subject_start = body.len();
         body.extend(self.body_lines(area.width, theme));
+        let subject_len = body.len() - subject_start;
         body.push(Line::from(""));
-
-        for (i, option) in request.options.iter().enumerate() {
-            let selected = i == self.selected;
-            let marker = if selected { "› " } else { "  " };
-            let name_style = if selected { bright } else { Style::default() };
-            let label = match (option, &request.kind) {
-                (ApprovalDecision::ApprovedForSession, ApprovalKind::Exec { command, .. }) => {
-                    session_allowance_scope(command)[0].clone()
-                }
-                (ApprovalDecision::ApprovedForPrefix, _) if request.allow_rule().is_some() => {
-                    format!(
-                        "Always allow: {}",
-                        request
-                            .allow_rule()
-                            .map(|r| r.label.as_str())
-                            .unwrap_or_default()
-                    )
-                }
-                (ApprovalDecision::ApprovedForPrefix, _) => request
-                    .execpolicy_amendment()
-                    .map(|prefix| format!("Always allow prefix: {}", prefix.join(" ")))
-                    .unwrap_or_else(|| "Always allow this prefix".to_string()),
-                _ => self.option_label(*option),
-            };
-            let label_budget = inner.saturating_sub(display_width(marker) + 3).max(1);
-            for (row_index, row) in wrap(&label, label_budget as u16).into_iter().enumerate() {
-                if row_index == 0 {
-                    body.push(Line::from(vec![
-                        Span::styled(marker.to_string(), name_style),
-                        Span::styled(format!("{}  ", i + 1), if selected { bright } else { dim }),
-                        Span::styled(row, name_style),
-                    ]));
-                } else {
-                    body.push(Line::from(vec![
-                        Span::raw("     "),
-                        Span::styled(row, name_style),
-                    ]));
-                }
-            }
-            if let (ApprovalDecision::ApprovedForSession, ApprovalKind::Exec { command, .. }) =
-                (option, &request.kind)
-            {
-                let scope = &session_allowance_scope(command)[1];
-                for row in wrap(scope, inner.saturating_sub(8).max(1) as u16) {
-                    body.push(Line::from(Span::styled(format!("        {row}"), dim)));
-                }
-            }
-            if *option == ApprovalDecision::ApprovedForPrefix {
-                if let Some(rule) = request.allow_rule() {
-                    for line in [rule.installs(), rule.scope_note.clone()] {
-                        for row in wrap(&line, inner.saturating_sub(8).max(1) as u16) {
-                            body.push(Line::from(Span::styled(format!("        {row}"), dim)));
-                        }
-                    }
-                } else if let Some(prefix) = request.execpolicy_amendment() {
-                    let scope = format!("Persists shell({}) for this session", prefix.join(" "));
-                    for row in wrap(&scope, inner.saturating_sub(8).max(1) as u16) {
-                        body.push(Line::from(Span::styled(format!("        {row}"), dim)));
-                    }
-                }
-            }
-        }
-        body.push(Line::from(""));
-        body.push(Line::from(Span::styled(
-            format!(
-                "1–{} or ↑↓ ⏎ choose · esc reject",
-                request.options.len().max(1)
-            ),
-            dim,
-        )));
+        body.extend(self.footer_rows(&request, inner, theme));
 
         // Everything wears the rail; the card is bottom-anchored and, when the
-        // area is short, sheds body rows after the title (never the options
-        // or the hint).
+        // area is short, sheds spacer and subject rows (never the choices).
         let max_rows = area.height as usize;
+        self.subject_visible = true;
         if body.len() > max_rows {
-            let excess = body.len() - max_rows;
-            let drop_to = (1 + excess).min(body.len().saturating_sub(1));
-            body.drain(1..drop_to);
+            let mut excess = body.len() - max_rows;
+            // The spacer between subject and choices goes first.
+            body.remove(subject_start + subject_len);
+            excess -= 1;
+            if excess > 0 && subject_len > 0 {
+                if excess + 1 < subject_len {
+                    // Shed the tail of the subject behind an explicit marker.
+                    let keep = subject_len - excess - 1;
+                    let hidden = subject_len - keep;
+                    body.drain(subject_start + keep..subject_start + subject_len);
+                    body.insert(
+                        subject_start + keep,
+                        Line::from(Span::styled(
+                            format!("  … {hidden} more lines hidden, enlarge the terminal"),
+                            dim,
+                        )),
+                    );
+                } else {
+                    // Not even one subject row fits: approving keys are refused.
+                    self.subject_visible = false;
+                    body.truncate(1);
+                    body.push(Line::from(Span::styled(
+                        "enlarge the terminal to approve · esc denies",
+                        dim,
+                    )));
+                }
+            }
         }
         let height = (body.len() as u16).min(area.height);
         let lines: Vec<Line<'static>> = body
@@ -686,7 +1048,11 @@ impl Component for ApprovalOverlay {
         frame.render_widget(Paragraph::new(lines), view_area);
 
         // The overlay is now visibly on screen: keys arriving from this
-        // frame onward were typed against *this* request and may decide.
+        // frame onward were typed against *this* request and may decide;
+        // letters wait out `LETTER_DELAY` first.
+        if !self.armed {
+            self.letters_ok_at = Some(Instant::now() + LETTER_DELAY);
+        }
         self.armed = true;
     }
 
@@ -706,26 +1072,41 @@ impl Component for ApprovalOverlay {
             return Outcome::Consumed;
         }
         match key.code {
-            KeyCode::Up => {
+            KeyCode::Up | KeyCode::Left => {
                 self.move_selection(-1);
                 Outcome::Redraw
             }
-            KeyCode::Down => {
+            KeyCode::Down | KeyCode::Right => {
                 self.move_selection(1);
                 Outcome::Redraw
             }
             KeyCode::Enter => {
+                if !self.subject_visible && !self.selected_declines() {
+                    return Outcome::Consumed;
+                }
                 self.accept_selected();
                 Outcome::Redraw
             }
-            KeyCode::Char(c @ '1'..='9') => {
-                let idx = (c as usize) - ('1' as usize);
-                let has = self.current.as_ref().is_some_and(|r| idx < r.options.len());
-                if has {
-                    self.selected = idx;
-                    self.accept_selected();
+            KeyCode::Char(c @ '1'..='9') => self.choose((c as usize) - ('1' as usize)),
+            // Letters answer only a card the user was not typing through.
+            KeyCode::Char(c @ ('y' | 'a' | 'n' | 't' | 's')) => {
+                if !self.letters_allowed()
+                    || key
+                        .modifiers
+                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                {
+                    return Outcome::Consumed;
                 }
-                Outcome::Redraw
+                let idx = self.current.as_ref().and_then(|request| {
+                    request
+                        .options
+                        .iter()
+                        .position(|option| Self::option_letter(request, *option) == c)
+                });
+                match idx {
+                    Some(idx) => self.choose(idx),
+                    None => Outcome::Consumed,
+                }
             }
             KeyCode::Esc => {
                 self.reject_current();
