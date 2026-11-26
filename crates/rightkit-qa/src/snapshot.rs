@@ -1339,7 +1339,9 @@ fn resolve_excludes(cfg: &SnapshotConfig, roots: &[(PathBuf, bool)]) -> Result<V
                 let parts: Option<Vec<&str>> =
                     rest.components().map(|c| c.as_os_str().to_str()).collect();
                 let parts = parts.ok_or_else(|| {
-                    Error(format!("[snapshot].exclude entry {raw:?} is not valid UTF-8"))
+                    Error(format!(
+                        "[snapshot].exclude entry {raw:?} is not valid UTF-8"
+                    ))
                 })?;
                 out[i].push(parts.join("/"));
             }
@@ -2110,7 +2112,8 @@ mod exclude_tests {
 
     #[test]
     fn restore_keeps_excluded_live_state_and_restores_the_rest() {
-        let tmp = std::env::temp_dir().join(format!("rkqa-exclude-{}-{}", std::process::id(), new_id()));
+        let tmp =
+            std::env::temp_dir().join(format!("rkqa-exclude-{}-{}", std::process::id(), new_id()));
         let live = tmp.join("live");
         let snap = tmp.join("snap");
         fs::create_dir_all(live.join("chat")).unwrap();
@@ -2128,7 +2131,10 @@ mod exclude_tests {
         restore_root(&live, &snap, true, &entries, &ex).unwrap();
         assert_eq!(fs::read(live.join("settings.json")).unwrap(), b"before");
         assert!(!live.join("added.txt").exists());
-        assert_eq!(fs::read(live.join("chat").join("route2.json")).unwrap(), b"r2");
+        assert_eq!(
+            fs::read(live.join("chat").join("route2.json")).unwrap(),
+            b"r2"
+        );
         let _ = fs::remove_dir_all(&tmp);
     }
 }
