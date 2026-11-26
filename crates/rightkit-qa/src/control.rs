@@ -1698,7 +1698,10 @@ fn start_process(
 ) -> Result<(u32, Option<OwnedChild>)> {
     #[cfg(target_os = "macos")]
     {
-        let bundle = stage_bundle(spec, ws, id)?;
+        // The on-disk spelling: on a case-insensitive volume an earlier staging of the same app under
+        // another case (the bare-binary lane's `coderight/`) keeps its folder name, `ps` prints that
+        // spelling, and the needle and the focus identity below must equal it.
+        let bundle = fs::canonicalize(stage_bundle(spec, ws, id)?)?;
         let needle = format!("{}/Contents/MacOS/", bundle.display());
         // Register the REAL executable (CFBundleExecutable) before `open`. When it cannot be
         // resolved and validated, register nothing: the launch interval stays unverified and

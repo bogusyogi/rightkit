@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.15
+
+- macOS launch: the staged bundle is canonicalized before the launched app's pid is looked up, so the `ps` needle and the focus monitor's executable identity use the bundle's on-disk spelling. On a case-insensitive volume an earlier staging of the same app under another case (a bare-binary smoke lane's `coderight/` before a `.app` journey lane's `CodeRight/`) keeps its folder name, `ps` prints that spelling, and the case-sensitive prefix match never found the app (`launched app pid not found`).
+
 ## 0.10.14
 
 - `journeys run` works from a release QA stage's source snapshot, which is not a git work tree. Outside a git work tree the run is bound to the listing the stage names in `RIGHTKIT_QA_SOURCE_LISTING` (`rightkit.qa-source-listing/1`: commit, tree, snapshot root and the SHA-256 of every committed file): the listing's commit must equal `RIGHT_RELEASE_QA_COMMIT`, the snapshot root's `.rightkit-source-identity.json` must record the same commit and tree, and `--root` must be inside that root. The source identity is that commit and tree only when every listed file is present with its listed bytes; a scenario file counts as committed only when the listing names it with the bytes it has. A missing variable, an unreadable listing or any mismatch stops the run with the reason. Before this the run stopped at `git rev-parse --show-toplevel` in every snapshot.

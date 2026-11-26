@@ -2449,11 +2449,11 @@
       "gateEvidence": "no assets needed; in-memory values only; screenshot argument validation without native capture",
       "consumes": "PK14-4 named QA glue consumers per 01-packages.md: MailRight tauri_run.rs:109 QA registration, HeardRight and ScrapeRight journey runners; exercised modules: scenario, config, settings, check, storage, util (crates/rightkit-qa/src/lib.rs)",
       "files": {
-        "Cargo.toml": "29ab9242f7423dc15a43fc973438fd50d2f5e70f4e9e938a56d5e81073032e21",
+        "Cargo.toml": "53b8ea5ff27e8d9cc658803cdcff95778bd065d0dc102259fe3997777db8f43b",
         "README.md": "2a7c250cf674ea7a29db3b2f93367691102bb0e44ec155b50f6186e64f5be910",
         "src/main.rs": "ec89757f6e854649383ac355a419d5977b51f236e7ee1a5767bfe00bd8a358eb"
       },
-      "aggregateSha256": "7179443219127ff665ca94c955de0af10edd343ab9bbf06b2d700e8c8ffb9570"
+      "aggregateSha256": "8fbf084817bc9048632215a2e7465df183954e348dd412dd4363dd28df62bb54"
     },
     "rightkit-sandbox": {
       "pkId": "PK12",
