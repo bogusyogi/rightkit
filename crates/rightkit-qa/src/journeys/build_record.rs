@@ -834,8 +834,194 @@ fn git_text(dir: &Path, args: &[&str]) -> Result<String> {
         .to_string())
 }
 
-/// The repository root that contains `dir`.
+/// The environment variable in which a release QA stage names its source listing, as an absolute
+/// path. The stage runs from an exported snapshot, which is not a git work tree; the listing is
+/// what binds a run there to its commit. It is read only when `--root` is outside a git work tree.
+pub const SOURCE_LISTING_ENV: &str = "RIGHTKIT_QA_SOURCE_LISTING";
+/// The environment variable in which the stage names the commit it exported.
+pub const SOURCE_COMMIT_ENV: &str = "RIGHT_RELEASE_QA_COMMIT";
+const SOURCE_LISTING_SCHEMA: &str = "rightkit.qa-source-listing/1";
+/// The identity file the gate writes at a snapshot root.
+const SOURCE_IDENTITY_NAME: &str = ".rightkit-source-identity.json";
+
+/// The stage's listing: the commit, its tree, the snapshot root and the SHA-256 of every committed
+/// file by its repository-relative path.
+#[derive(Deserialize)]
+struct SourceListing {
+    schema: String,
+    commit: String,
+    tree: String,
+    root: PathBuf,
+    files: BTreeMap<String, String>,
+}
+
+/// A stage's source snapshot, as its listing describes it.
+struct SnapshotSource {
+    top: PathBuf,
+    commit: String,
+    tree: String,
+    files: BTreeMap<String, String>,
+}
+
+impl SnapshotSource {
+    /// Whether `file` is a committed file of the snapshot whose bytes are the listed ones. A file
+    /// the listing does not name (a build output, anything written after the export) is not.
+    fn holds(&self, file: &Path) -> Result<bool> {
+        let Ok(file_c) = canonical_plain(file) else {
+            return Ok(false);
+        };
+        if !file_c.starts_with(&self.top) || !file_c.is_file() {
+            return Ok(false);
+        }
+        let Some(want) = self.files.get(&rel_slash(&self.top, &file_c)) else {
+            return Ok(false);
+        };
+        let got = rightkit_fs::digest::sha256_file(&file_c)
+            .map_err(|e| Error(format!("cannot hash {}: {e}", file_c.display())))?;
+        Ok(got == *want)
+    }
+
+    /// Every listed file is present with its listed bytes, or an error that names the first one
+    /// that is not.
+    fn verify(&self) -> Result<()> {
+        for (rel, want) in &self.files {
+            let got = rightkit_fs::digest::sha256_file(&self.top.join(rel)).map_err(|e| {
+                Error(format!(
+                    "source snapshot {}: committed file {rel} cannot be read: {e}",
+                    self.top.display()
+                ))
+            })?;
+            if got != *want {
+                return err(format!(
+                    "source snapshot {}: committed file {rel} differs from commit {}",
+                    self.top.display(),
+                    self.commit
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Whether `dir` is inside a git work tree.
+fn in_git_work_tree(dir: &Path) -> bool {
+    matches!(git_text(dir, &["rev-parse", "--show-toplevel"]), Ok(top) if !top.is_empty())
+}
+
+/// The source snapshot that holds `dir`, for a `dir` outside any git work tree. Everything is
+/// required: the listing named by [`SOURCE_LISTING_ENV`], its commit equal to [`SOURCE_COMMIT_ENV`],
+/// the identity file at the listing's root with the same commit and tree, and `dir` inside that
+/// root. Anything missing or different is an error; nothing falls back.
+fn snapshot_source(dir: &Path) -> Result<SnapshotSource> {
+    let Some(listing) = std::env::var_os(SOURCE_LISTING_ENV).filter(|v| !v.is_empty()) else {
+        return err(format!(
+            "{} is not inside a git work tree and {SOURCE_LISTING_ENV} names no source listing",
+            dir.display()
+        ));
+    };
+    let listing = PathBuf::from(listing);
+    if !listing.is_absolute() {
+        return err(format!(
+            "{SOURCE_LISTING_ENV} {} is not an absolute path",
+            listing.display()
+        ));
+    }
+    let bytes = std::fs::read(&listing)
+        .map_err(|e| Error(format!("cannot read {}: {e}", listing.display())))?;
+    let parsed: SourceListing = serde_json::from_slice(&bytes).map_err(|e| {
+        Error(format!(
+            "{} is not a source listing: {e}",
+            listing.display()
+        ))
+    })?;
+    if parsed.schema != SOURCE_LISTING_SCHEMA {
+        return err(format!(
+            "{}: schema {:?}, expected {SOURCE_LISTING_SCHEMA:?}",
+            listing.display(),
+            parsed.schema
+        ));
+    }
+    if !is_hex_lower(&parsed.commit, 40) || !is_hex_lower(&parsed.tree, 40) {
+        return err(format!(
+            "{}: commit {:?} / tree {:?} are not 40-hex ids",
+            listing.display(),
+            parsed.commit,
+            parsed.tree
+        ));
+    }
+    let named = std::env::var(SOURCE_COMMIT_ENV).unwrap_or_default();
+    if named != parsed.commit {
+        return err(format!(
+            "{}: it lists commit {}, the stage named {named:?} ({SOURCE_COMMIT_ENV})",
+            listing.display(),
+            parsed.commit
+        ));
+    }
+    if let Some((rel, sha)) = parsed
+        .files
+        .iter()
+        .find(|(rel, sha)| !is_safe_relative(rel) || !is_hex_lower(sha, 64))
+    {
+        return err(format!(
+            "{}: entry {rel:?} = {sha:?} is not a relative path with a SHA-256",
+            listing.display()
+        ));
+    }
+    if !parsed.root.is_absolute() {
+        return err(format!(
+            "{}: root {} is not an absolute path",
+            listing.display(),
+            parsed.root.display()
+        ));
+    }
+    let top = canonical_plain(&parsed.root)
+        .map_err(|e| Error(format!("cannot resolve {}: {e}", parsed.root.display())))?;
+    let identity_file = top.join(SOURCE_IDENTITY_NAME);
+    let identity: Value = std::fs::read(&identity_file)
+        .map_err(|e| Error(format!("cannot read {}: {e}", identity_file.display())))
+        .and_then(|b| {
+            serde_json::from_slice(&b)
+                .map_err(|e| Error(format!("{} is not JSON: {e}", identity_file.display())))
+        })?;
+    let identity_commit = identity.get("commit").and_then(Value::as_str);
+    let identity_tree = identity
+        .get("trees")
+        .and_then(|t| t.get(""))
+        .and_then(Value::as_str);
+    if identity_commit != Some(parsed.commit.as_str())
+        || identity_tree != Some(parsed.tree.as_str())
+    {
+        return err(format!(
+            "{} records commit {identity_commit:?} tree {identity_tree:?}, the listing {} names commit {} tree {}",
+            identity_file.display(),
+            listing.display(),
+            parsed.commit,
+            parsed.tree
+        ));
+    }
+    let dir_c = canonical_plain(dir)
+        .map_err(|e| Error(format!("cannot resolve {}: {e}", dir.display())))?;
+    if !dir_c.starts_with(&top) {
+        return err(format!(
+            "{} is outside the source snapshot {}",
+            dir.display(),
+            top.display()
+        ));
+    }
+    Ok(SnapshotSource {
+        top,
+        commit: parsed.commit,
+        tree: parsed.tree,
+        files: parsed.files,
+    })
+}
+
+/// The repository root that contains `dir`: the git work tree, or outside one the source snapshot
+/// the release QA stage listed ([`SOURCE_LISTING_ENV`]).
 pub fn git_top(dir: &Path) -> Result<PathBuf> {
+    if !in_git_work_tree(dir) {
+        return Ok(snapshot_source(dir)?.top);
+    }
     let top = git_text(dir, &["rev-parse", "--show-toplevel"])?;
     if top.is_empty() {
         return err(format!("{} is not inside a git work tree", dir.display()));
@@ -843,13 +1029,18 @@ pub fn git_top(dir: &Path) -> Result<PathBuf> {
     Ok(PathBuf::from(top))
 }
 
-/// Whether `file` (inside the work tree `top`) exists in the committed tree at `HEAD`. A scenario
+/// Whether `file` (inside the work tree `top`) exists in the committed tree at `HEAD`; in a source
+/// snapshot, whether the stage's listing names it with the bytes it has. A scenario
 /// the runner reads must be bound to a committed source: an ignored, untracked or staged-only file
 /// is not, and is refused. A git failure answers `false` (refused), never `true`.
 pub fn committed_at_head(file: &Path) -> Result<bool> {
     let (Some(dir), Some(name)) = (file.parent(), file.file_name()) else {
         return Ok(false);
     };
+    // In a source snapshot the committed files are the listed ones, byte for byte.
+    if !in_git_work_tree(dir) {
+        return snapshot_source(dir)?.holds(file);
+    }
     // `HEAD:./<name>` is resolved against the directory git runs in, so no path-prefix matching
     // between the file and the work tree root is needed (the forms differ on Windows).
     let mut cmd = std::process::Command::new("git");
@@ -919,6 +1110,18 @@ fn diff_digest(top: &Path) -> Result<String> {
 /// all of that. Two identities are equal only when the checkout is byte-identical in everything
 /// git sees, so a file edited during a build changes it even though `head` and `tree` stay put.
 pub fn source_identity(top: &Path) -> Result<Source> {
+    // A source snapshot is its commit or it is refused: every listed file is checked, and a file
+    // the listing does not name is never source, so there is no dirty state to describe.
+    if !in_git_work_tree(top) {
+        let snapshot = snapshot_source(top)?;
+        snapshot.verify()?;
+        return Ok(Source {
+            head: snapshot.commit,
+            tree: snapshot.tree,
+            dirty: false,
+            diff_sha256: None,
+        });
+    }
     let head = git_text(top, &["rev-parse", "HEAD"])?;
     let tree = git_text(top, &["rev-parse", "HEAD^{tree}"])?;
     if !is_hex_lower(&head, 40) || !is_hex_lower(&tree, 40) {
