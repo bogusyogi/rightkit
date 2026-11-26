@@ -42,26 +42,27 @@ available. Apps must keep a patch, now from one shared source.
 
 ## 2. What RightKit ships
 
-`vendor/tauri-runtime-wry/` is upstream 2.12.2 with HeardRight's patch rebased onto it, plus the regression test
+`vendor/tauri-runtime-wry/` is upstream 2.12.3 (first written against 2.12.2, the evidence above) with HeardRight's patch rebased onto it, plus the regression test
 `worker_handle_clone_drop_preserves_live_event_loop_context`. See `vendor/tauri-runtime-wry/PATCH.md` for the
 change list, why, and how to rebase. The 2.12 rebase is slightly larger than HeardRight's 2.11.4 patch because
 2.12's `make_event_handler` takes `Context` by value and partially moves fields out of `main_thread`; the patch
 clones them out of the `Arc` on Windows and keeps an owning `Arc` in the handler closure.
 
-It is not a workspace member: root `Cargo.toml` `exclude` lists `vendor/tauri-runtime-wry`, and
+It is not a workspace member (the root `Cargo.toml` `members` do not name it; `exclude` lists only
+`crates/rightkit-mesh-ffi`), and
 `.gitattributes` marks the directory `-text` so upstream bytes are kept. It is not published to crates.io (we
 cannot publish a crate named `tauri-runtime-wry` under our account), so it is a git `[patch]` source.
 
 ## 3. How every app pins it
 
 Because RightKit's repository is the git source, the pin is by tag. Tag format `trw-<upstream ver>-rk<n>`.
-First tag (not yet created, see section 5): `trw-2.12.2-rk1`.
+Current tag: `trw-2.12.3-rk1` (annotated, on `c2c31daf3`, pushed 2026-11-26).
 
 In the app's workspace root `Cargo.toml` (the one that owns `Cargo.lock`):
 
 ```toml
 [patch.crates-io]
-tauri-runtime-wry = { git = "https://github.com/bogusyogi/rightkit", tag = "trw-2.12.2-rk1" }
+tauri-runtime-wry = { git = "https://github.com/bogusyogi/rightkit", tag = "trw-2.12.3-rk1" }
 ```
 
 Local development against a RightKit checkout (do not commit):
@@ -76,7 +77,8 @@ Rules:
 - The patch is for every OS build of the app; on non-Windows targets the patched code compiles to the upstream
   representation. Keep one `[patch]` entry for all targets.
 - Cargo applies a `[patch]` only if the patched version satisfies the requirement `tauri` resolves. The vendored
-  crate keeps version `2.12.2`, so it replaces any `tauri-runtime-wry ^2.12` (2.12.2 resolved today). If an app is
+  crate keeps version `2.12.3`, so it replaces a `tauri-runtime-wry` requirement it satisfies: tauri 2.12.4 asks
+  `~2.12.2` and 2.12.5 asks `~2.12.3`, both met. A tauri release asking `~2.12.4` or above leaves the patch unused. If an app is
   held on `tauri ~2.11` it needs the older HeardRight copy until it moves; the symptom of a stale pin is Cargo
   warning "Patch ... was not used in the crate graph", which an app's CI should turn into a failure (grep
   `cargo tree -i tauri-runtime-wry` for the git source).
@@ -117,14 +119,14 @@ Do not file without Adrian's yes. Suggested issue title and body:
 > `runner_shared`), which would be a larger change in tao; happy to discuss which side you prefer.
 >
 > **PR:** the `rightkit_windows_context_tests` regression test plus the `Arc` change from
-> `vendor/tauri-runtime-wry` (RightKit `trw-2.12.2-rk1`), under MIT/Apache-2.0 like the rest of the crate. Related
+> `vendor/tauri-runtime-wry` (RightKit `trw-2.12.3-rk1`), under MIT/Apache-2.0 like the rest of the crate. Related
 > prior art in the same file: the comment "changing this to an Rc will cause frequent app crashes" on
 > `DispatcherMainThreadContext::windows`.
 
 ## 5. Needs a Windows build or test to prove
 
-Nothing here has been compiled: this was written edit-only on 2026-10-17. Proof still needed before the tag
-`trw-2.12.2-rk1` is created:
+Written edit-only on 2026-10-17 against 2.12.2. The tag `trw-2.12.3-rk1` now exists (step 5 below); steps 1 to 4 were
+not recorded as run for it, so they stand as the proof still owed:
 
 1. Compile the crate on Windows with and without the `tracing` feature (the `make_event_handler` change has
    `cfg(feature = "tracing")` and `cfg(target_os = "windows")` branches), and once for a non-Windows target
@@ -138,7 +140,7 @@ Nothing here has been compiled: this was written edit-only on 2026-10-17. Proof 
 3. Build and smoke-run a real Tauri 2.12 app on Windows with the git pin: window opens, `AppHandle` use from a
    worker thread, clean exit (this exercises the closure-owned `Arc` drop in `make_event_handler`, which is new
    relative to HeardRight's validated 2.11.4 patch and the part least covered by the regression test).
-4. Confirm `cargo metadata` in the RightKit workspace is unaffected by the new `exclude` entry, and that an app
+4. Confirm `cargo metadata` in the RightKit workspace does not list the vendored crate, and that an app
    resolving the git `tag` finds the package under `vendor/tauri-runtime-wry` (Cargo scans the repo for the
    package by name).
-5. Then create and push tag `trw-2.12.2-rk1` (needs Adrian's go-ahead for the push).
+5. Tag `trw-2.12.3-rk1`: created and pushed on `c2c31daf3` (2026-11-26).
