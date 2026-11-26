@@ -4566,13 +4566,20 @@ export async function main(argv, io = {}) {
       // GC-A24: RightKit's own preflight and exports probe execute the commit's code with its installed dependencies; a pass is reused
       // for the same commit tree, installed-dependency bytes, node and platform (and scope), and only a pass.
       const effects = path.join(snapshotDir, "scripts", "ci", "exports-import-effects.mjs");
+      // rightkit#1808: the exports probe imports every exported module from the snapshot, so it needs the snapshot's dependencies. Only a
+      // full admission (--full-a) installs them; a content check installs nothing. The probe therefore runs only on a full admission, and
+      // whether it ran is part of the cache key, so a content check's pass is never reused as a probed one.
+      const probes = o.exists(effects) && scopeForward.length === 0 && fullAdmission;
       let selfKey = null;
-      if (ruleCache) { try { selfKey = ruleCache.key({ rule: "rightkit-self-rules", tree: snapshotCommit.tree, scope: scopeForward, installed: installedDependencyDigest({ root: snapshotDir, files: sc.commitFiles(snapshotCheckout, snapshotCommit.commit, o.spawn).files, includeCaches: false }), effects: o.exists(effects) }); } catch { selfKey = null; } }
+      if (ruleCache) { try { selfKey = ruleCache.key({ rule: "rightkit-self-rules", tree: snapshotCommit.tree, scope: scopeForward, installed: installedDependencyDigest({ root: snapshotDir, files: sc.commitFiles(snapshotCheckout, snapshotCommit.commit, o.spawn).files, includeCaches: false }), effects: probes }); } catch { selfKey = null; } }
       const selfCached = Boolean(selfKey && ruleCache.passed(selfKey));
       if (selfCached) o.out(`preflight: ${snapshotCommit.commit.slice(0, 12)} cached pass (tree ${snapshotCommit.tree.slice(0, 12)}, same installed dependencies)`);
       const r = selfCached ? { status: 0 } : launch(process.execPath, [path.join(snapshotDir, "scripts", "preflight.mjs"), "--repo", root, "--commit", snapshotCommit.commit], { cwd: root, env: o.env });
       selfRules = r.status === 0 ? 0 : 1;
-      if (!selfCached && selfRules === 0 && o.exists(effects) && scopeForward.length === 0) {
+      if (!selfCached && selfRules === 0 && o.exists(effects) && scopeForward.length === 0 && !fullAdmission) {
+        o.out("exports-import-effects: not run by this content check (it installs no dependencies into the snapshot); run the check with --full-a, or any --to stage, to probe the exports");
+      }
+      if (!selfCached && selfRules === 0 && probes) {
         const common = o.spawn("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: root });
         const report = path.join(failed(common) ? path.join(root, ".git") : text(common).trim(), "rightkit-gate", "import-effects", `snapshot-${snapshotCommit.commit}.json`);
         const e = launch(process.execPath, [effects, "--root", snapshotDir, "--no-export", "--report", report], { cwd: snapshotDir, env: o.env });
