@@ -24,7 +24,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | agent-engine | `rightkit-agent-engine-core` | none | declaration-only | 0 | rightkit-agent-engine-core: staged 0.1.4, not published |
 | agent-experience-gates | `@rightkit/ax` | none | declaration-only | 0 | @rightkit/ax: published 0.3.2 (npm) |
 | agent-gateway | `rightkit-agent-gateway` | none | declaration-only | 0 | rightkit-agent-gateway: staged 0.3.0, not published |
-| agent-history | `rightkit-agent-engine-history` | none | declaration-only | 0 | rightkit-agent-engine-history: staged 0.1.4, not published |
+| agent-history | `rightkit-agent-engine-history` | none | declaration-only | 0 | rightkit-agent-engine-history: staged 0.1.5, not published |
 | agent-host-traits | `rightkit-agent-host-traits` | none | declaration-only | 0 | rightkit-agent-host-traits: staged 0.1.3, not published |
 | agent-memory | `rightkit-memory` | none | declaration-only | 0 | rightkit-memory: published 0.3.1 (crates.io) |
 | agent-mobile-runtime | `rightkit-agent-engine-mobile-runtime` | none | declaration-only | 0 | rightkit-agent-engine-mobile-runtime: staged 0.1.1, not published |

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.5
+
+`snapshot_targets` and `record_after_targets` are byte-exact, as the rest of the store has been since 0.1.3. No public item is added, renamed or removed; a patch in this 0.x crate.
+
+- **`snapshot_targets`** stores an existing file's raw bytes through `snapshot_bytes`. It used to refuse a file that is not valid UTF-8 (`the file is not valid UTF-8`), so a call that would write such a file was reported as `history_unavailable` and not run. A text file is snapshotted exactly as before: the `.snap` file is the same bytes.
+- **`record_after_targets`** reads the file's raw bytes and records them through `record_after_bytes`. It used to read text, so a non-UTF-8 file was returned as a failed record and a later rewind reported it as unverified. For a UTF-8 file the record is the same fingerprint as before.
+
 ## 0.1.4 (2026-11-16)
 
 Fixes a data-loss bug in the slot key and ports the store's safety fixes. These are the store's own behaviour, not host options; no public item is added, renamed or removed. A patch in this 0.x crate, as 0.1.3 was: dependents on `0.1` take it without a requirement change.

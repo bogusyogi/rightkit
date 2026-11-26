@@ -629,20 +629,14 @@ impl HistoryStore {
 
     /// The engine's write path (sessions rule 41): before a tool call runs,
     /// write a restore point for every file it may write. An existing file is
-    /// snapshotted with its content, a file that does not exist yet is recorded
-    /// as absent. Any failure returns the `history_unavailable` error text and
-    /// the caller must not run the call: no file is edited without a restore
-    /// point.
+    /// snapshotted byte for byte, whatever its encoding, and a file that does
+    /// not exist yet is recorded as absent. Any failure returns the
+    /// `history_unavailable` error text and the caller must not run the call:
+    /// no file is edited without a restore point.
     pub fn snapshot_targets(&self, targets: &[PathBuf]) -> Result<(), String> {
         for path in targets {
             let outcome = match std::fs::read(path) {
-                Ok(bytes) => match String::from_utf8(bytes) {
-                    Ok(text) => self.snapshot(path, &text),
-                    Err(_) => Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "the file is not valid UTF-8",
-                    )),
-                },
+                Ok(bytes) => self.snapshot_bytes(path, &bytes),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                     self.snapshot_absent(path)
                 }
@@ -664,15 +658,15 @@ impl HistoryStore {
     pub fn record_after_targets(&self, targets: &[PathBuf]) -> Vec<PathBuf> {
         let mut failed = Vec::new();
         for path in targets {
-            let content = match std::fs::read_to_string(path) {
-                Ok(text) => Some(text),
+            let content = match std::fs::read(path) {
+                Ok(bytes) => Some(bytes),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
                 Err(_) => {
                     failed.push(path.clone());
                     continue;
                 }
             };
-            if self.record_after(path, content.as_deref()).is_err() {
+            if self.record_after_bytes(path, content.as_deref()).is_err() {
                 failed.push(path.clone());
             }
         }
