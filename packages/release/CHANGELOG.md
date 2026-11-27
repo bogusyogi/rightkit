@@ -2,6 +2,8 @@
 
 ## 0.6.92
 
+- The acceptance run's "killed midway" case ends every program of the killed gate on Windows. `taskkill /T` walks the tree once, so a child the gate started in the milliseconds of the kill could outlive it: on 27 Nov a `cargo tree` started 4 ms before the gate died ran on with no recorded exit, and NN08 failed (0.6.92 acceptance). The runner now repeats the walk, ending every live process descended from the gate's tree (by parent pid, started no earlier than the gate), until a walk finds none, bounded at 10 s.
+
 - The acceptance run's "from nothing" case sets aside the gate's Class A history on the Mac too. The runner named the history file from the lowercased store path on every platform, while the gate lowercases it on Windows only, so on the Mac the history stayed while its store was moved aside and the gate refused case 1 ("expected entry absent; removal cause unknown"), failing every later line that needs a passing run. The runner now names it the way the gate does. Windows is unchanged.
 
 ## 0.6.91
