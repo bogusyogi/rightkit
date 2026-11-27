@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.6.90
+
+- The gate's desktop release stage publishes an app whose sealed manifest names `distribution.provider: "r2-rightapps"` from the host, through the same `publish-update` that already put the existing R2 versions up. Package seals the provider into the manifest; the release stage reads it only from manifest bytes whose sha256 equals the sealed digest, and runs `publish-update` from the primary checkout only while the qualified manifest is still the sealed one. Every R2 object goes up in process (one signed PutObject below the multipart threshold, multipart above it) and is read back before the run continues; a readback that differs is `PUBLICATION_REMOTE_MISMATCH`. Wrangler is no longer on the publish path. A manifest sealed before this release has no provider and stays refused, so an R2 app needs one new package run. GitHub-releases apps are unchanged.
 
 - A dependency-resolution failure is never cached as a deterministic failure (`deterministic-failure/4`): cargo's "failed to select a version for", "no matching package named", "location searched:" and "candidate versions found which didn't match" mean the host's registry index lacks a version the lock names, which is the host, not the inputs. Such a run is still red; the next run compiles again. The bump retires every failure stored under `/3` once (Pulse's Mac compile of 97de4c70 was refused four times by a stored "failed to select a version for rightkit-tauri-shell =0.8.11" after the index caught up). Passes are unaffected.
 
