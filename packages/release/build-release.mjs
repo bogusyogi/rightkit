@@ -942,6 +942,9 @@ function sealRelease({ configRoot, managedCargoTarget, artifactPaths = null, and
     // DevTools allowance (owner's fixed design): { mode: "denied" } for every app; content-only only for an allow-listed app.
     devtools: devtoolsEvidence(resolveDevtoolsAllowance({ config, root: configRoot })),
     platform,
+    // The app's distribution provider, sealed with the bytes (rightkit#1754): the door decides a desktop release's route from the verified sealed
+    // manifest (r2-rightapps may publish from a broker host; github-releases only from the trusted publisher), never by executing app code.
+    ...(typeof config.distribution?.provider === "string" ? { distribution: { provider: config.distribution.provider } } : {}),
     ...(mediaSidecars ? { mediaSidecars } : {}),
     cacheKey,
     // Portable contracts sign only raw executables — installer/embedding

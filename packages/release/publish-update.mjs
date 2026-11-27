@@ -13,7 +13,7 @@ import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
 import { verifyPublicationRelease, PublicationError, assertArtifactUnchanged, digestBytes } from "./publication-artifacts.mjs";
-import { uploadVerifiedR2Artifact } from "./r2-verified-upload.mjs";
+import { putVerifiedR2Artifact } from "./r2-verified-upload.mjs";
 import { verifyPlatformTrust } from "./github-release.mjs";
 import { admitInstalledQa } from "./release-qa-audit.mjs";
 import { RIGHT_SUITE_API_ORIGIN, RIGHT_SUITE_GATED_ARTIFACT_HOST, RIGHT_SUITE_PUBLIC_INSTALLER_BASE } from "./suite-api.generated.mjs";
@@ -212,7 +212,7 @@ if (tier === "patch") {
     if (!appInstallerKind) artifactFile(artifact.signature);
     if (!uploadedKeys.has(installerKey)) {
       console.log(`${dryRun ? "[dry-run] " : ""}UPLOAD public/${installerKey}`);
-      if (!dryRun) uploadVerifiedR2Artifact(verifiedArtifact(file), installerKey, "public", { cwd: root });
+      if (!dryRun) await putVerifiedR2Artifact(verifiedArtifact(file), installerKey, "public");
       uploadedKeys.add(installerKey);
     }
     const signature = dryRun ? `<signature:${artifact.signature ?? "msix-authenticode"}>` : signatureFor(artifact);
@@ -234,7 +234,7 @@ if (tier === "patch") {
     const file = artifactFile(installer.file);
     if (!uploadedKeys.has(installer.key)) {
       console.log(`${dryRun ? "[dry-run] " : ""}UPLOAD public/${installer.key}`);
-      if (!dryRun) uploadVerifiedR2Artifact(verifiedArtifact(file), installer.key, "public", { cwd: root });
+      if (!dryRun) await putVerifiedR2Artifact(verifiedArtifact(file), installer.key, "public");
       uploadedKeys.add(installer.key);
     }
     const metadata = dryRun ? { sha256: null, sizeBytes: null } : await fileMetadata(file);
@@ -248,7 +248,7 @@ if (tier === "patch") {
     // package came from, so it must outlive the version that replaces it.
     if (installer.versionedKey && !uploadedKeys.has(installer.versionedKey)) {
       console.log(`${dryRun ? "[dry-run] " : ""}UPLOAD public/${installer.versionedKey}`);
-      if (!dryRun) uploadVerifiedR2Artifact(verifiedArtifact(file), installer.versionedKey, "public", { cwd: root });
+      if (!dryRun) await putVerifiedR2Artifact(verifiedArtifact(file), installer.versionedKey, "public");
       uploadedKeys.add(installer.versionedKey);
     }
   }
@@ -317,7 +317,7 @@ for (const artifact of artifacts) {
   if (!appInstallerKind) artifactFile(artifact.signature);
   if (!uploadedKeys.has(artifact.key)) {
     console.log(`${dryRun ? "[dry-run] " : ""}UPLOAD private/${artifact.key}`);
-    if (!dryRun) uploadVerifiedR2Artifact(verifiedArtifact(file), artifact.key, "private", { cwd: root });
+    if (!dryRun) await putVerifiedR2Artifact(verifiedArtifact(file), artifact.key, "private");
     uploadedKeys.add(artifact.key);
   }
   const signature = dryRun ? `<signature:${artifact.signature ?? "msix-authenticode"}>` : signatureFor(artifact);

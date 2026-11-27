@@ -2113,7 +2113,8 @@ async function runStages(o, args, root, git, io) {
     try { decided = routePlan(o, { to, stages: devTest ? [] : stages, devTest, executor: routeExecutor, stagePlatform: platform, appConfig: selected && to !== "check" ? routeAppConfig({ git, commit: selected.commit, appDir, platform: devTestPlatform(args) }) : null }); }
     catch (e) { o.err(`${tag} ${e.message}`); return 2; }
     if (decided.refusal) { o.err(`${tag} BLOCKED: ${decided.refusal.code}: ${decided.refusal.message}; nothing ran${decided.route === "snapshot" ? " and the checkout is never built" : ""}`); return 1; }
-    const notPublisher = decided.route === "snapshot" ? releaseRouteRefusal(o, { stages, platform }) : null;
+    const sealedProvider = () => (selected?.commit ? sealedProviderOf((o.sealedFor ?? sealedFor)({ root, commit: selected.commit, platform })) : null);
+    const notPublisher = decided.route === "snapshot" ? releaseRouteRefusal(o, { stages, platform, sealedProvider }) : null;
     if (notPublisher) { o.err(`${tag} BLOCKED: ${notPublisher.code}: ${notPublisher.message}; nothing ran and the checkout is never built`); return 1; }
     // The declared Linux broker admits snapshots only under its own data root: refused before any ownership or sync when the gate's root is elsewhere.
     if (decided.route === "snapshot" && !hosted) {
@@ -2182,7 +2183,10 @@ async function runStages(o, args, root, git, io) {
   // Release writes to R2. The write credential lives only in the trusted publisher: a GitHub Actions job in the protected
   // publication environment, which sets RIGHTKIT_PUBLISHER=github-environment. Hosts and agents never hold it, so the door refuses the
   // stage anywhere else rather than fail half way through an upload.
-  if (stages.includes("release") && !mobile && !(o.env.GITHUB_ACTIONS === "true" && o.env.RIGHTKIT_PUBLISHER === "github-environment")) {
+  // rightkit#1754: an app whose sealed set declares r2-rightapps publishes from this host through publish-update (the release stage re-reads
+  // the provider from the manifest bytes the receipt vouches for); a github-releases app still publishes only from the trusted publisher.
+  const r2LocalRelease = stages.includes("release") && !mobile && sealedProviderOf((o.sealedFor ?? sealedFor)({ root, commit, platform })) === "r2-rightapps";
+  if (stages.includes("release") && !mobile && !r2LocalRelease && !(o.env.GITHUB_ACTIONS === "true" && o.env.RIGHTKIT_PUBLISHER === "github-environment")) {
     o.err(`${tag} BLOCKED: --to release runs only in the trusted publisher (the release workflow's protected publication job). Run --to qualify here, then dispatch the release workflow for ${commit.slice(0, 12)}`);
     return 1;
   }
@@ -2231,6 +2235,22 @@ async function runStages(o, args, root, git, io) {
       o.out(`${tag} [${stage}] right-release ${cliArgs.join(" ")}${sourceOf ? ` (from the snapshot ${ds.path})` : ""}`);
       // The seam's two variables come with the carrier (seamStageEnvOf), as for every other stage with children.
       const r = (o.spawnInherit ?? inheritLaunch)(process.execPath, [cli, ...cliArgs], { cwd: sourceOf ? snapshotAppRootOf(ds.path, appDir) : appRoot, env: carriedEnv(carrier, { ...o.env, ...run.env }, extraEnv) });
+      childOk = r.status === 0;
+    } finally { endRun(run); }
+    const carriedOk = await carrier.finish({ stage });
+    return childOk && carriedOk;
+  };
+  // rightkit#1754: publish-update runs from the primary checkout, never the snapshot: it reads the checkout's clean HEAD (assertPrimaryReleaseCheckout,
+  // assertCleanSource), so its door run carries no source split and the CLI's checkout guard applies (HEAD must be the sealed commit). It stays out
+  // of SPLIT_COMMANDS. It uploads in process (r2-verified-upload.mjs), so no credential is carried to a broker job.
+  const rightReleaseFromCheckout = async (stage, cliArgs) => {
+    const carrier = await carrierForChildren({ o, ds, root, git, executor, stage, tag, appDir });
+    if (carrier.refusal) { o.err(`${tag} BLOCKED: ${carrier.refusal}; nothing ran`); return false; }
+    const run = startRun({ commonDir, commit, tree, stage });
+    let childOk = false;
+    try {
+      o.out(`${tag} [${stage}] right-release ${cliArgs.join(" ")} (from the primary checkout ${appRoot})`);
+      const r = (o.spawnInherit ?? inheritLaunch)(process.execPath, [cli, ...cliArgs], { cwd: appRoot, env: carriedEnv(carrier, { ...o.env, ...run.env }) });
       childOk = r.status === 0;
     } finally { endRun(run); }
     const carriedOk = await carrier.finish({ stage });
@@ -2549,6 +2569,10 @@ async function runStages(o, args, root, git, io) {
       } else {
         if (!receipt.stages.qualify?.ok || receipt.stages.qualify.manifestSha256 !== sealed.manifestSha256) { o.err(`${tag} BLOCKED: [release] the sealed set was not qualified (installed QA) in this door run's receipt`); ok = false; }
         else if (qualifyRecordProblem(receipt.stages.qualify)) { o.err(`${tag} BLOCKED: [release] the recorded qualification no longer stands: ${qualifyRecordProblem(receipt.stages.qualify)}; nothing was uploaded`); ok = false; }
+        else if (sealedProviderOf(sealedNow) === "r2-rightapps" && sealedNow?.digest === sealed.manifestSha256 && !(o.env.GITHUB_ACTIONS === "true" && o.env.RIGHTKIT_PUBLISHER === "github-environment")) {
+          // rightkit#1754: the provider is re-read from the manifest bytes this receipt vouches for; GC-T22 still needs Adrian's words for the build.
+          ok = await rightReleaseFromCheckout(stage, ["publish-update", "--release", sealed.sealed, "--platform", platform, "--tier", tier]); extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256, tier, route: "r2-local" };
+        }
         else { ok = await rightRelease(stage, ["upload", "--release", sealed.sealed, "--platform", platform, "--tier", tier]); extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256, tier }; }
       }
     }
@@ -3705,10 +3729,25 @@ export const ROUTE_SCHEMA = "rightkit-gate.route/1";
  * protected publication job (GITHUB_ACTIONS with RIGHTKIT_PUBLISHER=github-environment); a mobile platform's store upload has its own tier-less route. Asked by a real
  * run before it takes ownership or syncs the snapshot (E2E L3-03); the probe has no release route, so this is not a probe code.
  */
-export function releaseRouteRefusal(o, { stages, platform }) {
+export function releaseRouteRefusal(o, { stages, platform, sealedProvider = () => null }) {
   if (!stages.includes("release") || MOBILE_PLATFORMS.has(platform)) return null;
   if (o.env.GITHUB_ACTIONS === "true" && o.env.RIGHTKIT_PUBLISHER === "github-environment") return null;
+  // rightkit#1754: an app whose sealed manifest declares r2-rightapps publishes from the host through publish-update; the release stage
+  // re-reads the provider from the manifest bytes the receipt vouches for before anything is uploaded.
+  if (sealedProvider() === "r2-rightapps") return null;
   return { code: "RK_RELEASE_PUBLISHER_ONLY", message: "--to release runs only in the trusted publisher (the release workflow's protected publication job). Run --to qualify on the native host, then dispatch the release workflow for the commit" };
+}
+
+/** The distribution provider a sealed set declares (`manifest.distribution.provider`), read from the manifest bytes whose sha256 is `sealed.digest`;
+ * null for no sealed set, unreadable or changed bytes, or a manifest sealed before the field existed. */
+export function sealedProviderOf(sealed, { readFile = (f) => fs.readFileSync(f) } = {}) {
+  if (!sealed?.manifest) return null;
+  try {
+    const bytes = readFile(sealed.manifest);
+    if (createHash("sha256").update(bytes).digest("hex") !== sealed.digest) return null;
+    const provider = JSON.parse(String(bytes)).distribution?.provider;
+    return typeof provider === "string" ? provider : null;
+  } catch { return null; }
 }
 
 /**

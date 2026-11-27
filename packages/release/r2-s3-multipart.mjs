@@ -170,6 +170,23 @@ export async function uploadMultipart({ file, evidence, bucket, key, credentials
   } finally { closeSync(fd); }
 }
 
+/**
+ * Upload `body` (a Buffer below R2_MULTIPART_THRESHOLD_BYTES) to `bucket/key` in one signed PutObject. Its sha256 and size must equal `evidence`
+ * before anything is sent, so an object that does not match the evidence is never created; the caller still reads the remote bytes back with
+ * streamObjectDigest. This replaces `pnpm dlx wrangler r2 object put` on the publication path: no child process, no credential leaves this process,
+ * nothing is downloaded at publish time. Returns { sizeBytes }.
+ */
+export async function putObject({ body, evidence, bucket, key, credentials, account, fetchImpl, sleep }) {
+  if (!Buffer.isBuffer(body)) throw new PublicationError("PUBLICATION_ROUTE_INVALID", "putObject takes the verified bytes as a Buffer");
+  if (body.length >= R2_MULTIPART_THRESHOLD_BYTES) throw new PublicationError("PUBLICATION_ROUTE_INVALID", `an object of ${body.length} bytes goes up as a multipart upload`);
+  if (evidence.sizeBytes !== undefined && body.length !== evidence.sizeBytes) throw new PublicationError("PUBLICATION_SIZE_MISMATCH", `artifact size mismatch: ${key}`);
+  const digest = sha256Hex(body);
+  if (digest !== evidence.sha256) throw new PublicationError("PUBLICATION_HASH_MISMATCH", `artifact sha256 mismatch: ${key}`);
+  const client = s3Client({ bucket, credentials, account, fetchImpl, sleep });
+  await client.send("PUT", key, { body, payloadHash: digest });
+  return { sizeBytes: body.length };
+}
+
 /** One signed GetObject response (optionally `range: "bytes=N-"`): the body is streamed by the caller. Throws with the HTTP status only. */
 export async function getObject({ bucket, key, credentials, account, fetchImpl, sleep, range }) {
   const client = s3Client({ bucket, credentials, account, fetchImpl, sleep });
