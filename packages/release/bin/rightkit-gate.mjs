@@ -125,7 +125,7 @@ import { buildDirectReceipt, directVerdict, resolveTargetDirectory, verifyDirect
 import { platformDirOf } from "../platform-dir.mjs";
 import { buildInventory, classifyUnitResults, dependencyFirstOrder, selectAffectedAcrossInventories, classifyUnitRows, unitListReport } from "../affected-units.mjs";
 import { createRequire } from "node:module";
-import { BUILD_CONTROL_PROTOCOL, HANDSHAKE_PROBE_ID, RUNTIME_MANIFEST_FILE, brokerControlTarget, parseRuntimeIdentity } from "../seam-broker.mjs";
+import { BUILD_CONTROL_PROTOCOL, HANDSHAKE_PROBE_ID, RUNTIME_MANIFEST_FILE, brokerControlTarget, parseRuntimeIdentity, runtimeManifestPathOf } from "../seam-broker.mjs";
 import { snapshotReclaimJudge } from "../seam-broker.mjs";
 import net from "node:net";
 import { installSpawnLedger } from "../spawn-ledger.mjs";
@@ -3946,8 +3946,8 @@ export function brokerRuntimeIdentityText({ clients, env = {}, platform = proces
         if (!exists(candidate)) continue;
         let file = candidate;
         try { file = resolveBrokerClient(candidate, { platform, readFile }).file; } catch { continue; }
-        let real = file; try { real = realpath(file); } catch { real = file; }
-        const identity = parseRuntimeIdentity(readFile(path.join(path.dirname(real), RUNTIME_MANIFEST_FILE)));
+        // The POSIX agent shim is followed to the client it starts (seam-broker.mjs runtimeManifestPathOf): on the Mac the manifest was looked for in agent-bin.
+        const identity = parseRuntimeIdentity(readFile(runtimeManifestPathOf(file, { platform, read: readFile, realpath })));
         if (identity.ok) return `${identity.identity.version}:${identity.identity.brokerDigest}:${identity.identity.clientDigest}`;
       } catch { /* the next candidate */ }
     }
@@ -4467,7 +4467,7 @@ export async function main(argv, io = {}) {
   // flags below because everything after `clippy` is cargo's own argv, verbatim (`-v`, `-h` and `--version` are cargo's).
   // `candidate-receipt` (GB-73): the candidate build receipt the RustRight installer takes in place of a clean primary checkout.
   if (args[0] === "candidate-receipt") return (await import("../candidate-receipt-command.mjs")).candidateReceiptCommand(o, args.slice(1));
-  if (args[0] === "clippy") return (await import("../clippy-route.mjs")).clippyCommand(o, args.slice(1), { main, io, absoluteEnv: SNAPSHOT_ABSOLUTE_ENV });
+  if (args[0] === "clippy") return (await import("../clippy-route.mjs")).clippyCommand(o, args.slice(1), { main, io, absoluteEnv: SNAPSHOT_ABSOLUTE_ENV, seamLockFor });
   if (args.includes("--version") || args.includes("-v")) {
     o.out(JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version);
     return 0;

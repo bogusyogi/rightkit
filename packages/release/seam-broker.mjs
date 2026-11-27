@@ -152,6 +152,26 @@ export function posixAgentShimTarget(text) {
   return exec ? exec[1] : null;
 }
 
+/**
+ * The runtime manifest that sits beside the RustRight client `exe` really starts (`exe` already resolved through resolveBrokerClient): on POSIX the real path,
+ * and through the installer's agent shim (a short sh script in the managed agent-bin that execs the runtime's client; not a symlink, so its real path is
+ * itself and agent-bin holds no manifest) to the client it starts. Used by every reader of the installed broker's identity: the seam's reclaim judge
+ * (2026-11-26), the unit compile's result store and the failure cache (2026-11-27: on the Mac both read agent-bin and found nothing, so every unit run
+ * reported "nothing is remembered or reused" and no compile failure was cached; CodeRight, rightkit-agent-engine-attention 71ea35fa).
+ */
+export function runtimeManifestPathOf(exe, { platform = process.platform, read = (file) => fs.readFileSync(file, "utf8"), realpath = fs.realpathSync.native } = {}) {
+  let real = exe;
+  if (platform !== "win32") {
+    try { real = realpath(exe); } catch { real = exe; }
+    let shimText = null;
+    try { shimText = read(real); } catch { shimText = null; }
+    const target = posixAgentShimTarget(shimText);
+    if (target) real = target;
+  }
+  const paths = platform === "win32" ? path.win32 : path.posix;
+  return paths.join(paths.dirname(real), RUNTIME_MANIFEST_FILE);
+}
+
 export function brokerControlTarget(o, { client = o?.client } = {}) {
   const platform = o?.platform ?? process.platform;
   const env = o?.env ?? process.env;
@@ -159,19 +179,8 @@ export function brokerControlTarget(o, { client = o?.client } = {}) {
   if (typeof client !== "string" || !client) return { ok: false, problem: "the RustRight client is not on PATH, so its runtime identity cannot be read" };
   let exe;
   try { exe = resolveBrokerClient(client, { platform, readFile: read }).file; } catch (error) { return { ok: false, problem: `the RustRight client cannot be resolved (${error.message})` }; }
-  let real = exe;
-  if (platform !== "win32") { try { real = (o?.realpath ?? fs.realpathSync.native)(exe); } catch { real = exe; } }
-  // The installer's POSIX agent shim (a short sh script in the managed agent-bin that execs the runtime's client) is not a symlink, so
-  // its real path is itself and the manifest was looked for in agent-bin, where there is none: no dead holder's snapshot lock could be
-  // reclaimed on the Mac (2026-11-26). Follow the shim to the client it starts; the manifest sits beside that.
-  if (platform !== "win32") {
-    let shimText = null;
-    try { shimText = read(real); } catch { shimText = null; }
-    const target = posixAgentShimTarget(shimText);
-    if (target) real = target;
-  }
-  const paths = platform === "win32" ? path.win32 : path.posix;
-  const manifest = paths.join(paths.dirname(real), RUNTIME_MANIFEST_FILE);
+  // The POSIX agent shim is followed to the client it starts (runtimeManifestPathOf; no dead holder's lock could be reclaimed on the Mac before, 2026-11-26).
+  const manifest = runtimeManifestPathOf(exe, { platform, read, ...(o?.realpath ? { realpath: o.realpath } : {}) });
   let text;
   try { text = read(manifest); } catch (error) { return { ok: false, problem: `cannot read the runtime manifest ${manifest} beside the client (${error?.message ?? error})` }; }
   const identity = parseRuntimeIdentity(text);

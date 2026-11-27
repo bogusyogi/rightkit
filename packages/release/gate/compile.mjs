@@ -11,6 +11,7 @@ import { fileStore, resultsByCrate, runCalls } from "./run-calls.mjs";
 import { runTests } from "./tests.mjs";
 import { CROSS_TARGETS, hostTarget } from "../cross-targets.mjs";
 import { resolveBrokerClient } from "../broker-client.mjs";
+import { runtimeManifestPathOf } from "../seam-broker.mjs";
 import { runSeamCargoCall } from "../seam-broker.mjs";
 import { codeClosure } from "../code-closure.mjs";
 
@@ -42,11 +43,11 @@ export function gateCodeFiles(dir = HERE, { readFile = (f) => fs.readFileSync(f,
  * The broker is named by its exact build (`brokerDigest` of the runtime manifest beside the client), never by a version label, which two builds
  * can share. `brokerKnown` is false when that digest cannot be read; then nothing is remembered and nothing remembered is reused.
  */
-export function gateIdentity({ commit, snapshot, platform, client, readFile = (f) => fs.readFileSync(f, "utf8") }) {
+export function gateIdentity({ commit, snapshot, platform, client, readFile = (f) => fs.readFileSync(f, "utf8"), realpath = fs.realpathSync.native }) {
   let toolchain = "unpinned";
   for (const file of ["rust-toolchain.toml", "rust-toolchain"]) { try { toolchain = crypto.createHash("sha256").update(readFile(path.join(snapshot, file))).digest("hex").slice(0, 16); break; } catch { /* next */ } }
   let broker = "none";
-  if (client) { try { const m = JSON.parse(readFile(path.join(path.dirname(client), "runtime-manifest.json"))); broker = typeof m.brokerDigest === "string" && /^[0-9a-f]{64}$/.test(m.brokerDigest) ? m.brokerDigest : "unknown"; } catch { broker = "unknown"; } }
+  if (client) { try { const m = JSON.parse(readFile(runtimeManifestPathOf(client, { platform, read: readFile, realpath }))); broker = typeof m.brokerDigest === "string" && /^[0-9a-f]{64}$/.test(m.brokerDigest) ? m.brokerDigest : "unknown"; } catch { broker = "unknown"; } }
   const code = crypto.createHash("sha256");
   for (const f of gateCodeFiles(HERE)) code.update(f.name).update("\0").update(f.text).update("\0");
   return { commit, toolchain, host: platform, broker, brokerKnown: /^[0-9a-f]{64}$/.test(broker), gate: code.digest("hex").slice(0, 16) };

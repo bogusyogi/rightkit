@@ -16,10 +16,10 @@
 //                 from a snapshot. The request is never rewritten to leave such a package out (signed D8-1: three additions only).
 //   Linux         direct, through the item 7 cargo wrapper (cargo-target-shim.mjs): every cargo launch is bound to the checkout's own
 //                 target directory or refused, so nothing is written under the snapshot (row 8.12).
-//   Mac and Dell  the broker carrier (item 7 row 7.12) is not wired into the gate yet. The route refuses BEFORE class A, the sync and
-//                 any compile with a BLOCKED code naming 7.12, and never falls back to direct cargo on a broker-managed host
-//                 (rows 8.3, 8.10, 8.13). The gate's half of the broker receipt (attribution and toolchain, rows 8.9 and 8.16) is
-//                 `routeFromBrokerReceipt` below, unwired until the carrier is.
+//   Mac and Dell  through the seam (rightkit#1811): `rustright cargo clippy ...` from the snapshot with RUSTRIGHT_GATE_COMMIT and RUSTRIGHT_CLASS_A naming
+//                 this run's class A verdict, as the door's class B clippy rows run. The broker pins the output directory and adds --keep-going
+//                 itself, so the gate adds neither there; non-compiling reads use the real toolchain cargo (GC-A11). Never direct cargo for the
+//                 compile. `routeFromBrokerReceipt` below (the signed attribution detail) is not wired yet: results come from cargo's JSON stream.
 //   result        FAILED when any unit failed; diagnostics by package and target from cargo's JSON messages; a unit that never ran
 //                 because a dependency failed is reported blocked and the result claims no completeness (row 8.4).
 //   exit          0 PASSED, 1 FAILED or BLOCKED, 2 refused or could not run (RK_CHECK_ERROR: the snapshot moved).
@@ -32,6 +32,9 @@ import { directPlatform, realCargoOf } from "./managed-cargo.mjs";
 import { defaultSpawnAsync, sidecarBoundCrate } from "./deterministic-scans.mjs";
 import { gateStateDir } from "./gate-stages.mjs";
 import { ProvenanceError } from "./receipt-signature.mjs";
+import { resolveBrokerClient as defaultResolveBrokerClient } from "./broker-client.mjs";
+import { directCargoPath } from "./managed-cargo.mjs";
+import { seamEnv, verdictForRun } from "./gate-seam.mjs";
 
 export const ROUTE_RECEIPT_SCHEMA = "rightkit.gate-clippy-route-receipt/1";
 export const ROUTE_DIAGNOSTICS_SCHEMA = "rightkit.gate-clippy-route-diagnostics/1";
@@ -40,7 +43,7 @@ export const CLIPPY_USAGE = "usage: rightkit-gate clippy [<cargo clippy args>]  
 export const ROUTE_CODES = Object.freeze({
   notClippy: "RK_CLIPPY_NOT_CLIPPY", messageFormat: "RK_CLIPPY_MESSAGE_FORMAT", targetDir: "RK_CLIPPY_TARGET_DIR", config: "RK_CLIPPY_CONFIG", toolchain: "RK_CLIPPY_TOOLCHAIN_OVERRIDE",
   fix: "RK_CLIPPY_FIX", unstable: "RK_CLIPPY_UNSTABLE", chdir: "RK_CLIPPY_CHDIR", manifestAbsolute: "RK_CLIPPY_MANIFEST_ABSOLUTE", manifestEscapes: "RK_CLIPPY_MANIFEST_ESCAPES",
-  outputInSnapshot: "RK_CLIPPY_OUTPUT_IN_SNAPSHOT", brokerCarrier: "RK_CLIPPY_BROKER_CARRIER_NOT_WIRED", brokerUnavailable: "RK_CLIPPY_BROKER_UNAVAILABLE", hostUnsupported: "RK_CLIPPY_HOST_UNSUPPORTED",
+  outputInSnapshot: "RK_CLIPPY_OUTPUT_IN_SNAPSHOT", brokerUnavailable: "RK_CLIPPY_BROKER_UNAVAILABLE", hostUnsupported: "RK_CLIPPY_HOST_UNSUPPORTED",
   sidecarBound: "RK_CLIPPY_SIDECAR_BOUND", receiptEvidence: "RK_CLIPPY_RECEIPT_EVIDENCE", toolchainUnreadable: "RK_CLIPPY_TOOLCHAIN_UNREADABLE",
 });
 
@@ -316,7 +319,7 @@ export function summarizeRun({ messages, stderr = "", exit = null, signal = null
  * this receipt's, it is available and not truncated, every row is well formed and the compact counts equal the rows. Counts alone never pass (`units: 2` with exit 0
  * and no matching detail is FAILED). Missing or unverifiable evidence makes the route result FAILED, never a partial success:
  * `{ aggregate, code, units, failedUnits, problems, toolchain, complete }`. A unit with errors, or a nonzero exit, is a failure.
- * The Clippy carrier stays explicitly refused (RK_CLIPPY_BROKER_CARRIER_NOT_WIRED) until the whole route is wired.
+ * Not wired yet: on a broker host the route's per-unit results come from cargo's own JSON stream (rightkit#1811), not from this signed detail.
  */
 export function routeFromBrokerReceipt(receipt, detailBytes = null) {
   const problems = [];
@@ -395,12 +398,22 @@ export async function clippyCommand(o, args, deps = {}) {
     resultLine(o, tag, { result: "BLOCKED", code: ROUTE_CODES.brokerUnavailable, launched: false });
     return BLOCKED;
   }
-  if (executor.kind === "broker") {
-    o.err(`${tag} BLOCKED: ${ROUTE_CODES.brokerCarrier}: on this broker host a Clippy route compiles the commit snapshot only through the RustRight snapshot carrier (item 7 row 7.12), which the gate does not wire yet; nothing ran and cargo is never run directly here (rows 8.3, 8.10, 8.13)`);
-    resultLine(o, tag, { result: "BLOCKED", code: ROUTE_CODES.brokerCarrier, blockedOn: ["item7:7.12"], launched: false });
-    return BLOCKED;
-  }
-  if (!directPlatform(o.platform) || o.env.GITHUB_ACTIONS === "true") {
+  // Mac and Dell (rightkit#1811): the Clippy request is carried by the broker through the seam, as the door's class B clippy rows are
+  // (`rustright cargo clippy ...` from the snapshot with RUSTRIGHT_GATE_COMMIT and RUSTRIGHT_CLASS_A naming this run's class A verdict). The broker pins the
+  // output directory, adds --keep-going itself (BR29) and keeps everything from `--` on verbatim. Non-compiling reads (locate-project, metadata, -vV) use the
+  // real toolchain cargo (GC-A11). The client and that cargo are resolved here, before the lock: a host missing either runs nothing.
+  const brokerHost = executor.kind === "broker";
+  let brokerClient = null; let readCargo = "cargo"; let readRustc = "rustc";
+  if (brokerHost) {
+    const found = executor.route && executor.client ? executor.client : which("rustright").find((c) => path.isAbsolute(c));
+    try { brokerClient = found ? (deps.resolveBrokerClient ?? defaultResolveBrokerClient)(found, { platform: o.platform }).file : null; } catch (e) { brokerClient = null; o.err(`${tag} ${e.message}`); }
+    if (!brokerClient) { o.err(`${tag} BLOCKED: ${ROUTE_CODES.brokerUnavailable}: no RustRight client by absolute path on this broker host; nothing ran`); resultLine(o, tag, { result: "BLOCKED", code: ROUTE_CODES.brokerUnavailable, launched: false }); return BLOCKED; }
+    const direct = (deps.directCargo ?? directToolchainCargo)(o);
+    if (!direct) { o.err(`${tag} BLOCKED: no real toolchain cargo for the non-compiling reads on this broker host (GC-A11); nothing ran`); return BLOCKED; }
+    readCargo = direct;
+    readRustc = path.join(path.dirname(direct), o.platform === "win32" ? "rustc.exe" : "rustc");
+    o.out(`${tag} broker host: Clippy is carried by the broker through the seam (client ${brokerClient}); non-compiling reads use ${readCargo}`);
+  } else if (!directPlatform(o.platform) || o.env.GITHUB_ACTIONS === "true") {
     o.err(`${tag} BLOCKED: ${ROUTE_CODES.hostUnsupported}: the route builds a gate-owned commit snapshot on a Linux execution host; hosted CI runs Clippy through its own workflow; nothing ran`);
     return BLOCKED;
   }
@@ -437,7 +450,7 @@ export async function clippyCommand(o, args, deps = {}) {
   const commitDeclaresSidecars = confDirs.some((d) => d === "" || sidecarBoundCrate({ dir: d, exists: commitExists, readFile: commitRead }).bound);
   let preBound = [];
   if (commitDeclaresSidecars) {
-    const preMeta = o.spawn("cargo", ["metadata", "--no-deps", "--offline", "--locked", "--format-version", "1", ...(parsed.manifestPath ? ["--manifest-path", parsed.manifestPath] : [])], { cwd: cwdReal, env: o.env });
+    const preMeta = o.spawn(readCargo, ["metadata", "--no-deps", "--offline", "--locked", "--format-version", "1", ...(parsed.manifestPath ? ["--manifest-path", parsed.manifestPath] : [])], { cwd: cwdReal, env: o.env });
     let preScope = null;
     try { if (!failed(preMeta)) preScope = resolveScope({ before: parsed.before, metadata: JSON.parse(text(preMeta)), directory: parsed.manifestPath ? path.dirname(path.resolve(cwdReal, parsed.manifestPath)) : cwdReal }); } catch { preScope = null; }
     preBound = sidecarBoundMembers({ scope: preScope, dirOf: (p) => posix(path.relative(root, path.dirname(p.manifest_path))) || ".", exists: commitExists, readFile: commitRead });
@@ -445,15 +458,22 @@ export async function clippyCommand(o, args, deps = {}) {
   if (preBound.length) { o.err(sidecarRefusal(tag, preBound, "read from the commit")); resultLine(o, tag, { result: "BLOCKED", code: ROUTE_CODES.sidecarBound, blockedOn: ["item7:7.05"], bound: preBound, launched: false }); return BLOCKED; }
 
   const timings = {}; const lap = (name, since) => { timings[name] = Date.now() - since; };
-  // The snapshot lock first (E6, reset plan section 3): held from before the sync until the diagnostics are written. This route runs only on a host with no broker, so it is
+  // The snapshot lock first (E6, reset plan section 3): held from before the sync until the diagnostics are written. The same lock on every host (the door's own snapshot routes take it too), so it is
   // the legacy lock, reclaimed when its holder is proven gone. A busy repository runs nothing and syncs nothing.
   let lock;
-  try { lock = (deps.takeSnapshotLock ?? snap.takeSnapshotLock)({ checkout: root, root: snapshotsAt }); }
+  // A broker host's lock carries the seam body (this process's identity and the commit) the broker reads before it carries a request, and a dead holder's lock is
+  // reclaimed only on the broker's proof (rightkit-gate.mjs seamLockFor, the same lock the door takes). No body on a broker host: nothing runs.
+  let seamLock = { lock: {}, body: null };
+  if (brokerHost) {
+    seamLock = deps.seamLockFor ? deps.seamLockFor({ o, root, snapshotsAt, commit: selected.commit, snap, tag }) : { refusal: `${tag} BLOCKED: RK_SEAM: the gate gave the route no seam lock; nothing ran` };
+    if (seamLock.refusal) { o.err(seamLock.refusal); return BLOCKED; }
+  }
+  try { lock = (deps.takeSnapshotLock ?? snap.takeSnapshotLock)({ checkout: root, root: snapshotsAt, ...(brokerHost ? { lock: seamLock.lock } : {}) }); }
   catch (e) { if (e.code !== "busy" && e.code !== "refused") throw e; o.err(`${tag} BLOCKED: ${e.message}; ${e.code === "refused" ? "nothing ran, nothing created" : "the route never re-syncs a snapshot another request holds; nothing ran"}`); return BLOCKED; }
   o.out(`${tag} snapshot lock held ${lock.token}${lock.reclaimed ? ` (reclaimed from ${lock.reclaimed.from}: ${lock.reclaimed.proof})` : ""}`);
   const lockView = snap.lockView(lock);
   const abort = o.abort ?? new AbortController();
-  let shimDir = null; let messagesFile = null;
+  let shimDir = null; let messagesFile = null; let carriedSettled = true;
   const stopped = []; const onSignal = (sig) => () => { stopped.push(sig); abort.abort(); };
   const handlers = o.abort ? [] : [["SIGINT", onSignal("SIGINT")], ["SIGTERM", onSignal("SIGTERM")]];
   for (const [sig, h] of handlers) process.on(sig, h);
@@ -480,45 +500,75 @@ export async function clippyCommand(o, args, deps = {}) {
     // The snapshot's working directory for the request, and the Cargo workspace it names, resolved from the commit's own manifests.
     const snapCwd = relCwd ? path.join(synced.path, ...relCwd.split("/")) : synced.path;
     if (!fs.existsSync(snapCwd)) { o.err(`${tag} BLOCKED: the working directory ${relCwd} is not in commit ${synced.commit.slice(0, 12)}; run from a directory the commit holds; nothing compiled`); return BLOCKED; }
-    const realCargo = realCargoOf(which("cargo"));
-    if (!realCargo) { o.err(`${tag} BLOCKED: no cargo on PATH to wrap for the snapshot compile; nothing compiled`); return BLOCKED; }
-    const located = o.spawn("cargo", ["locate-project", "--workspace", "--message-format", "plain", ...(parsed.manifestPath ? ["--manifest-path", parsed.manifestPath] : [])], { cwd: snapCwd, env: o.env });
+    const realCargo = brokerHost ? null : realCargoOf(which("cargo"));
+    if (!brokerHost && !realCargo) { o.err(`${tag} BLOCKED: no cargo on PATH to wrap for the snapshot compile; nothing compiled`); return BLOCKED; }
+    const located = o.spawn(readCargo, ["locate-project", "--workspace", "--message-format", "plain", ...(parsed.manifestPath ? ["--manifest-path", parsed.manifestPath] : [])], { cwd: snapCwd, env: o.env });
     if (failed(located) || !path.isAbsolute(text(located).trim())) { o.err(`${tag} BLOCKED: the request's Cargo workspace cannot be resolved in the snapshot (${why(located) || "no manifest"}); nothing compiled`); return BLOCKED; }
     const workspaceDir = fs.realpathSync.native(path.dirname(text(located).trim()));
     if (!inside(workspaceDir, realSnapshot)) { o.err(`${tag} BLOCKED: the Cargo workspace ${workspaceDir} is outside the snapshot; nothing compiled`); return BLOCKED; }
     const cargoDir = posix(path.relative(realSnapshot, workspaceDir)) || ".";
-    const checkoutManifest = path.join(root, ...(cargoDir === "." ? [] : cargoDir.split("/")), "Cargo.toml");
-    if (!(o.exists ?? fs.existsSync)(checkoutManifest)) { o.err(`${tag} BLOCKED: the checkout has no ${posix(path.relative(root, checkoutManifest))}, so the output directory of workspace ${cargoDir} cannot be resolved; nothing compiled`); return BLOCKED; }
-    // The same resolution the door's snapshot compile makes (bin/rightkit-gate.mjs, "output directory for workspace").
-    const metaOut = o.spawn("cargo", ["metadata", "--offline", "--format-version", "1", "--no-deps", "--manifest-path", checkoutManifest], { cwd: path.dirname(checkoutManifest), env: o.env });
-    let outputDir = null;
-    try { outputDir = failed(metaOut) ? null : JSON.parse(text(metaOut)).target_directory; } catch { outputDir = null; }
-    if (typeof outputDir !== "string" || !path.isAbsolute(outputDir)) { o.err(`${tag} BLOCKED: cargo metadata in the checkout reported no absolute target_directory for ${cargoDir}${failed(metaOut) ? ` (${why(metaOut)})` : ""}; nothing compiled`); return BLOCKED; }
-    outputDir = path.resolve(outputDir);
-    if (inside(outputDir, realSnapshot)) { o.err(`${tag} ${ROUTE_CODES.outputInSnapshot}: the resolved output directory ${outputDir} is inside the snapshot; nothing compiled`); return REFUSED_EXIT; }
-    o.out(`${tag} output directory for workspace ${cargoDir}: ${outputDir} (the checkout's)`);
+    // Direct (Linux) host: the checkout's output directory and the item 7 cargo wrapper. A broker host has neither: the broker pins its outputs.
+    let outputDir = null; let shim = null; let scanEnv = o.env;
+    if (!brokerHost) {
+      const checkoutManifest = path.join(root, ...(cargoDir === "." ? [] : cargoDir.split("/")), "Cargo.toml");
+      if (!(o.exists ?? fs.existsSync)(checkoutManifest)) { o.err(`${tag} BLOCKED: the checkout has no ${posix(path.relative(root, checkoutManifest))}, so the output directory of workspace ${cargoDir} cannot be resolved; nothing compiled`); return BLOCKED; }
+      // The same resolution the door's snapshot compile makes (bin/rightkit-gate.mjs, "output directory for workspace").
+      const metaOut = o.spawn("cargo", ["metadata", "--offline", "--format-version", "1", "--no-deps", "--manifest-path", checkoutManifest], { cwd: path.dirname(checkoutManifest), env: o.env });
+      outputDir = null;
+      try { outputDir = failed(metaOut) ? null : JSON.parse(text(metaOut)).target_directory; } catch { outputDir = null; }
+      if (typeof outputDir !== "string" || !path.isAbsolute(outputDir)) { o.err(`${tag} BLOCKED: cargo metadata in the checkout reported no absolute target_directory for ${cargoDir}${failed(metaOut) ? ` (${why(metaOut)})` : ""}; nothing compiled`); return BLOCKED; }
+      outputDir = path.resolve(outputDir);
+      if (inside(outputDir, realSnapshot)) { o.err(`${tag} ${ROUTE_CODES.outputInSnapshot}: the resolved output directory ${outputDir} is inside the snapshot; nothing compiled`); return REFUSED_EXIT; }
+      o.out(`${tag} output directory for workspace ${cargoDir}: ${outputDir} (the checkout's)`);
 
-    // The item 7 cargo wrapper binds every cargo launch to that directory or refuses it.
-    const shimApi = deps.shim ?? await import("./cargo-target-shim.mjs");
-    let shim;
-    try { shim = shimApi.installCargoShim({ base: os.tmpdir(), snapshotRoot: synced.path, targetDirs: { [cargoDir]: outputDir }, realCargo, platform: o.platform, onDir: (dir) => { shimDir = dir; } }); }
-    catch (e) { o.err(`${tag} BLOCKED: the runtime cargo wrapper cannot be installed (${e.message}); nothing compiled`); return BLOCKED; }
-    const scanEnv = shimApi.shimScanEnv(o.env, shim);
-    o.out(`${tag} runtime cargo wrapper ${shim.shim} (identity ${shim.identity.slice(0, 16)}) -> ${realCargo}`);
+      // The item 7 cargo wrapper binds every cargo launch to that directory or refuses it.
+      const shimApi = deps.shim ?? await import("./cargo-target-shim.mjs");
+
+      try { shim = shimApi.installCargoShim({ base: os.tmpdir(), snapshotRoot: synced.path, targetDirs: { [cargoDir]: outputDir }, realCargo, platform: o.platform, onDir: (dir) => { shimDir = dir; } }); }
+      catch (e) { o.err(`${tag} BLOCKED: the runtime cargo wrapper cannot be installed (${e.message}); nothing compiled`); return BLOCKED; }
+      scanEnv = shimApi.shimScanEnv(o.env, shim);
+      o.out(`${tag} runtime cargo wrapper ${shim.shim} (identity ${shim.identity.slice(0, 16)}) -> ${realCargo}`);
+    }
 
     // The toolchain identity this run compiled with (BROKER-CONTRACT B5: the same engine and toolchain for batch and per-crate runs).
-    const toolchain = toolchainIdentity({ spawn: o.spawn, env: o.env, cwd: snapCwd });
+    const toolchain = toolchainIdentity({ spawn: o.spawn, env: o.env, cwd: snapCwd, cargo: readCargo, rustc: readRustc });
     if (!toolchain) { o.err(`${tag} BLOCKED: ${ROUTE_CODES.toolchainUnreadable}: \`cargo -vV\` or \`rustc -vV\` printed nothing the gate can read; nothing compiled`); return BLOCKED; }
 
     // The requested package set (blocked-unit detection and the sidecar re-check), read from the snapshot's own metadata.
     let scope = null;
-    const metaScope = o.spawn(shim.shim, ["metadata", "--no-deps", "--format-version", "1", "--locked", ...(parsed.manifestPath ? ["--manifest-path", parsed.manifestPath] : [])], { cwd: snapCwd, env: scanEnv });
+    const metaScope = o.spawn(brokerHost ? readCargo : shim.shim, ["metadata", "--no-deps", "--format-version", "1", "--locked", ...(parsed.manifestPath ? ["--manifest-path", parsed.manifestPath] : [])], { cwd: snapCwd, env: scanEnv });
     try { if (!failed(metaScope)) scope = resolveScope({ before: parsed.before, metadata: JSON.parse(text(metaScope)), directory: parsed.manifestPath ? path.dirname(path.resolve(snapCwd, parsed.manifestPath)) : snapCwd }); } catch { scope = null; }
 
     // Sidecar-bound scope (row 8.8): refused before the sync above; this re-check on the snapshot's own metadata is the backstop.
     const bound = sidecarBoundMembers({ scope, dirOf: (p) => path.dirname(p.manifest_path) });
     if (bound.length) { o.err(sidecarRefusal(tag, bound, "found in the snapshot, after the checkout's own metadata showed none")); resultLine(o, tag, { result: "BLOCKED", code: ROUTE_CODES.sidecarBound, blockedOn: ["item7:7.05"], bound, launched: false }); return BLOCKED; }
     const invocations = [];
+
+    // Broker host: the seam. This run's class A wrote the full verdict for the synced commit; the request names it (gate-seam.mjs verdictForRun). The
+    // snapshot's state file binds the repository key; a state that names another commit or tree runs nothing.
+    let brokerSeam = null;
+    if (brokerHost) {
+      try {
+        const state = JSON.parse(fs.readFileSync(`${path.resolve(synced.path)}.state.json`, "utf8"));
+        if (state?.commit !== synced.commit || state?.tree !== synced.tree || typeof state?.repoKey !== "string") throw new Error(`${synced.path}.state.json does not describe commit ${synced.commit} tree ${synced.tree}`);
+        const verdictDir = path.join(path.dirname(path.resolve(snapshotsAt)), "class-a-verdicts");
+        // The workspace the broker admits the request under is the client's: the directory of --manifest-path when the request names one, else the working
+        // directory (rustright-cli shims.rs normalized_invocation). The verdict must name that same snapshot-relative directory, or the broker refuses it
+        // RK_CLASS_A_INVALID "workspace ... differs from admission" (Dell replay 27 Nov: a member crate of the root Cargo workspace named by its manifest path).
+        const admittedDir = parsed.manifestPath !== null ? path.dirname(path.resolve(snapCwd, parsed.manifestPath)) : snapCwd;
+        const admitted = posix(path.relative(realSnapshot, fs.realpathSync.native(admittedDir))) || ".";
+        const verdict = (deps.verdictForRun ?? verdictForRun)({ seam: { commit: synced.commit, tree: synced.tree, repoKey: state.repoKey, verdictDir, scope: null }, workspace: admitted });
+        brokerSeam = { verdict, env: seamEnv({ commit: synced.commit, classA: verdict }) };
+      } catch (e) { o.err(`${tag} BLOCKED: RK_SEAM: ${e.message}; nothing compiled`); resultLine(o, tag, { result: "BLOCKED", code: "RK_SEAM", launched: false }); return BLOCKED; }
+      o.out(`${tag} seam: class A verdict ${brokerSeam.verdict}`);
+    }
+    // The broker adds --keep-going itself (rustright-policy cargo_argv.rs BR29), so on a broker host the gate does not add it.
+    const finalArgv = brokerHost && !parsed.already.includes("--keep-going") ? parsed.final.filter((arg) => arg !== "--keep-going") : parsed.final;
+    const transformations = brokerHost ? parsed.transformations.filter((t) => t.arg !== "--keep-going") : parsed.transformations;
+    const launchCommand = brokerHost ? brokerClient : shim.shim;
+    const launchArgs = brokerHost ? ["cargo", "clippy", ...finalArgv] : ["clippy", ...finalArgv];
+    const launchEnv = brokerHost ? { ...o.env, ...brokerSeam.env } : scanEnv;
+    if (brokerHost) carriedSettled = false; // from here a broker job may exist until the client reports its exit
 
     t = Date.now();
     let run = { messages: [], stderr: "", exit: null, signal: null, startError: null };
@@ -527,13 +577,17 @@ export async function clippyCommand(o, args, deps = {}) {
     const requestId = crypto.randomUUID();
     messagesFile = path.join(stateDir, `${requestId}.messages.jsonl`);
     {
-      const r = await (deps.runCargo ?? defaultSpawnAsync)(shim.shim, ["clippy", ...parsed.final], { cwd: snapCwd, env: scanEnv, signal: abort.signal, stdoutFile: messagesFile });
-      invocations.push({ role: "requested", argv: ["clippy", ...parsed.final], exit: r.status ?? null });
+      const r = await (deps.runCargo ?? defaultSpawnAsync)(launchCommand, launchArgs, { cwd: snapCwd, env: launchEnv, signal: abort.signal, stdoutFile: messagesFile });
+      invocations.push({ role: "requested", argv: ["clippy", ...finalArgv], exit: r.status ?? null });
       let body = "";
       try { body = fs.readFileSync(messagesFile, "utf8"); } catch { body = String(r.stdout ?? ""); }
       run = { messages: parseCargoMessages(body).messages, stderr: String(r.stderr ?? ""), exit: r.status ?? null, signal: stopped[0] ?? null, startError: r.error && !r.cancelled ? r.error.message : null };
     }
     lap("cargo", t);
+    // A broker refusal arrives on the client's stderr (`rustright-result {"code":...}`) with no cargo messages: show it, or the result reads as an empty build.
+    if (brokerHost && run.exit !== 0 && run.stderr) for (const l of run.stderr.trimEnd().split(/\r?\n/).slice(-6)) o.err(`${tag} broker: ${l}`);
+    // The carried request settled when the client returned an exit status of its own (not killed, not failed to start).
+    if (brokerHost) carriedSettled = run.exit !== null && !run.startError && !stopped.length;
     if (stopped.length) { fs.rmSync(messagesFile, { force: true }); o.err(`${tag} stopped by ${stopped[0]}; no result`); return stopped[0] === "SIGINT" ? 130 : 143; }
 
     // The result covers the commit only if the snapshot is still its tree after cargo exits (E6): otherwise the diagnostics are discarded.
@@ -551,14 +605,15 @@ export async function clippyCommand(o, args, deps = {}) {
     fs.rmSync(messagesFile, { force: true });
     lap("diagnostics", t);
     const receipt = {
-      schema: ROUTE_RECEIPT_SCHEMA, requestId, executor: "direct", issuedAt: new Date().toISOString(),
+      schema: ROUTE_RECEIPT_SCHEMA, requestId, executor: brokerHost ? "broker" : "direct", issuedAt: new Date().toISOString(),
       commit: { sha: synced.commit, tree: synced.tree },
       snapshot: { path: synced.path, treeAtStart, treeAtExit },
       snapshotLock: { token: lock.token },
-      outputDir, outputDirs: { [cargoDir]: outputDir },
-      cargoWrapper: { identity: shim.identity, workspaces: shim.workspaces },
+      outputDir, outputDirs: brokerHost ? null : { [cargoDir]: outputDir },
+      cargoWrapper: brokerHost ? null : { identity: shim.identity, workspaces: shim.workspaces },
+      broker: brokerHost ? { client: brokerClient, classAVerdict: brokerSeam.verdict, outputs: "pinned by the broker" } : null,
       toolchain,
-      argv: { request: parsed.request, final: parsed.final, transformations: parsed.transformations, already: parsed.already },
+      argv: { request: parsed.request, final: finalArgv, transformations, already: parsed.already },
       invocations,
       exit: { status: run.exit, signal: run.signal }, diagnosticsPath, timingsMs: timings,
       result: { aggregate: summary.aggregate, complete: summary.complete, completeness: summary.completeness, units: summary.units, blocked: summary.blocked, failedPackages: summary.failedPackages },
@@ -571,9 +626,20 @@ export async function clippyCommand(o, args, deps = {}) {
   } finally {
     for (const [sig, h] of handlers) process.off(sig, h);
     if (shimDir) fs.rmSync(shimDir, { recursive: true, force: true });
-    // This route submits no broker job, so its lock is released whatever the run's outcome.
-    lock();
+    // Released on positive evidence: always on a direct host; on a broker host only when the carried request settled or never started, else kept for the broker's
+    // stale-owner proof (as the door's releaseSeamLock does).
+    if (carriedSettled) lock();
+    else o.err(`${tag} note: the snapshot lock ${lock.token} is kept: the carried Clippy request did not settle, so a broker job may still be finishing; the lock is reclaimed on the broker's proof`);
   }
+}
+
+/** The real toolchain cargo for a broker host's non-compiling reads (GC-A11): the broker's registered toolchain first, else PATH without the RustRight shims; null when none. */
+function directToolchainCargo(o) {
+  const pk = o.platform === "win32" ? (Object.keys(o.env).find((k) => k.toUpperCase() === "PATH") ?? "Path") : "PATH";
+  const d = directCargoPath({ env: { ...o.env, PATH: o.env[pk] }, exists: o.exists ?? fs.existsSync, platform: o.platform, gateWrappers: true });
+  const name = o.platform === "win32" ? "cargo.exe" : "cargo";
+  for (const dir of String(d.path ?? "").split(o.platform === "win32" ? ";" : ":").filter(Boolean)) { const c = path.join(dir, name); if ((o.exists ?? fs.existsSync)(c)) return c; }
+  return null;
 }
 
 function commonDirOf(o, root) {
@@ -582,9 +648,9 @@ function commonDirOf(o, root) {
 }
 
 /** The toolchain identity in the broker's shape (`name|cargo:<sha256>|rustc:<sha256>`, over `-vV`), or null when unreadable. */
-export function toolchainIdentity({ spawn, env, cwd }) {
-  const cargo = spawn("cargo", ["-vV"], { cwd, env });
-  const rustc = spawn("rustc", ["-vV"], { cwd, env });
+export function toolchainIdentity({ spawn, env, cwd, cargo: cargoBin = "cargo", rustc: rustcBin = "rustc" }) {
+  const cargo = spawn(cargoBin, ["-vV"], { cwd, env });
+  const rustc = spawn(rustcBin, ["-vV"], { cwd, env });
   if (failed(cargo) || failed(rustc) || !text(cargo).trim() || !text(rustc).trim()) return null;
   return `${env?.RUSTUP_TOOLCHAIN ?? "direct"}|cargo:${sha256(text(cargo).trim())}|rustc:${sha256(text(rustc).trim())}`;
 }
