@@ -1,8 +1,10 @@
 //! The feature flags of `[features]` as a table: name, state and default.
 //!
-//! `features list` prints it. The defaults are the ones the accessors on
-//! [`FeatureConfig`] apply (`self_review_enabled`, `turn_checkpoints_enabled`, ...), so the table
-//! and the code that reads each flag cannot disagree without a unit test here failing.
+//! `features list` prints it. Each default is read from the accessor on [`FeatureConfig`] that
+//! applies it (`self_review_enabled`, `turn_checkpoints_enabled`, ...), except
+//! `cli-acquisition-v1`, whose default is written beside its row. The table lists the five flags
+//! below only: a new `[features]` flag needs a row added here by hand, and the keys a host retires
+//! ([`crate::set_retired_config_keys`]) are not rows.
 
 use crate::FeatureConfig;
 

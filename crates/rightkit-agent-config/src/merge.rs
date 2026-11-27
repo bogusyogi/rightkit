@@ -350,7 +350,8 @@ pub fn validate_config(
     config.validate()
 }
 
-/// Provenance-aware merge that tracks which layer won for every field.
+/// Provenance-aware merge that tracks which layer won for every field. A key the host retired
+/// ([`crate::set_retired_config_keys`]) gets no conflict and no provenance entry.
 pub fn merge_with_report(
     base: HostConfig,
     overlay: HostConfig,
@@ -404,6 +405,10 @@ pub fn merge_with_report(
         ),
     ];
     for (field, base_val, overlay_val) in bool_fields {
+        // A key the host retired does not exist for it: no conflict and no provenance entry.
+        if crate::retired::is_retired(field) {
+            continue;
+        }
         if base_val.is_some() && overlay_val.is_some() && base_val != overlay_val {
             report.conflicts.push(MergeConflict {
                 field: field.to_string(),
