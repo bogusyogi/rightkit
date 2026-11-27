@@ -868,6 +868,7 @@ async fn save_settings(
                                     .or_insert_with(|| rightkit_agent_config::AgentOverride {
                                         model_id: slug.to_string(),
                                         provider_id: "openrouter".to_string(),
+                                        ..rightkit_agent_config::AgentOverride::default()
                                     });
                             }
                         }

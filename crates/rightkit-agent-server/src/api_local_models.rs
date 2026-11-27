@@ -349,6 +349,7 @@ async fn add_local_model_provider(
             api_key_required: suggestion.api_key_required,
             api_key_env: None,
             approved_private,
+            ..rightkit_agent_config::ProviderRouteConfig::default()
         },
     );
     let set_default = body.set_default;

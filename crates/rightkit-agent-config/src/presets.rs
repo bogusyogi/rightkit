@@ -115,3 +115,82 @@ pub fn resolve_preset(presets: &BTreeMap<String, Preset>, name: &str) -> Result<
         format!("unknown preset `{name}` (known: {known})")
     })
 }
+
+/// What a model profile changes for the sessions that run on a matching model: a note appended
+/// to the system prompt (inside its block, so the order of sessions rule 39 is unchanged) and
+/// tools left out of the tool set (for example `edit_file` for a model that edits with patches).
+///
+/// ```toml
+/// [profile."gpt-"]
+/// prompt = "Edit files with apply_patch."
+/// exclude_tools = ["edit_file"]
+/// ```
+///
+/// A key matches when it is a case-insensitive part of the model id. There is no profile unless
+/// a file names one, so no current model changes. Files: `<state root>/model-profiles.toml`, then
+/// `<workspace>/<state-dir>/model-profiles.toml` in a trusted workspace.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelProfile {
+    #[serde(default)]
+    pub prompt: Option<String>,
+    #[serde(default)]
+    pub exclude_tools: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ModelProfileFile {
+    #[serde(default)]
+    profile: BTreeMap<String, ModelProfile>,
+}
+
+/// The merged profile for `model_id` from explicit files (testable core). A file that does not
+/// parse is skipped: a broken profile must not stop a session from starting.
+pub fn model_profile_from(
+    user_file: Option<&Path>,
+    project_file: Option<&Path>,
+    project_trusted: bool,
+    model_id: &str,
+) -> ModelProfile {
+    let model = model_id.to_ascii_lowercase();
+    let mut merged = ModelProfile::default();
+    let files = [user_file, project_file.filter(|_| project_trusted)];
+    for path in files.into_iter().flatten() {
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        let Ok(file) = toml::from_str::<ModelProfileFile>(&text) else {
+            continue;
+        };
+        for (key, profile) in file.profile {
+            if key.trim().is_empty() || !model.contains(&key.to_ascii_lowercase()) {
+                continue;
+            }
+            if let Some(note) = profile.prompt.filter(|note| !note.trim().is_empty()) {
+                merged.prompt = Some(match merged.prompt.take() {
+                    Some(previous) => format!("{previous}\n\n{note}"),
+                    None => note,
+                });
+            }
+            merged.exclude_tools.extend(profile.exclude_tools);
+        }
+    }
+    merged
+}
+
+/// The profile for `model_id` in a workspace, from the real user dir and trust store.
+pub fn model_profile_for(workspace_root: &Path, model_id: &str) -> ModelProfile {
+    if model_id.trim().is_empty() {
+        return ModelProfile::default();
+    }
+    let user = crate::state_root().map(|r| r.join("model-profiles.toml"));
+    let project = workspace_root
+        .join(crate::state_dir_name())
+        .join("model-profiles.toml");
+    model_profile_from(
+        user.as_deref(),
+        Some(&project),
+        crate::is_workspace_trusted(workspace_root),
+        model_id,
+    )
+}

@@ -8,7 +8,9 @@ Layered TOML configuration for an agent host app (CodeRight and the RightKit age
 4. environment overrides (`RIGHTKIT_*`)
 5. session overrides (a map passed in)
 
-It also owns the host's state root and app name (`state_root`, `set_app_name`), the workspace trust store (`is_workspace_trusted`, `workspace_trust_store_path`), instruction files (`InstructionLoader`), presets, subscription accounts, licence environment names, session-scoped secrets (never serialized) and the OKF knowledge bundle format.
+It also owns the host's state root and app name (`state_root`, `set_app_name`), the workspace trust store (`is_workspace_trusted`, `workspace_trust_store_path`), instruction files (`InstructionLoader`), presets and model profiles, subscription accounts and linked profile folders, licence environment names, command-line config flags (`cli_flags`), trust-on-first-use definition pins (`definition_pins`), the feature-flag table (`features`), the JSON Schema derived from `HostConfig` (`schema`), session-scoped secrets (never serialized) and the OKF knowledge bundle format.
+
+Hardened behaviours that differ from the defaults are chosen once per process by the host at start-up (`set_hardened_config_loader`, `set_hardened_instructions`, `set_nearest_ancestor_trust`, `set_budget_defaults`); a host that calls none of them gets the defaults described in CHANGELOG.md.
 
 **Use it** for an agent host's product configuration. **Do not use it** for an app's own settings file: that is `rightkit-app-settings`, which this crate uses for its atomic writes.
 

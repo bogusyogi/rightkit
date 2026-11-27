@@ -332,6 +332,7 @@ fn provider_route_config(
         api_key_env: None,
         api_key_required: provider != "openai",
         approved_private: false,
+        ..ProviderRouteConfig::default()
     }
 }
 
@@ -385,6 +386,7 @@ impl ConfigPersister {
                         api_key_env: None,
                         api_key_required: false,
                         approved_private: false,
+                        ..ProviderRouteConfig::default()
                     },
                 );
             })
