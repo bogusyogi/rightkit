@@ -1,6 +1,4 @@
-#![allow(clippy::collapsible_match)]
-
-//! Embedded the host app agent runtime for hosts without `fork`/`exec`.
+//! Embedded agent runtime for hosts without `fork`/`exec`.
 //!
 //! This is the crate an iOS app links. It owns one session — engine, tool
 //! registry, conduit — inside the host process, and exposes a deliberately
@@ -20,10 +18,13 @@ pub mod branching;
 pub mod deferred_inbox;
 pub mod ffi;
 pub mod git;
+pub mod host_options;
+pub mod interaction;
 pub mod journal;
 pub mod journal_repair;
 pub mod llm;
 pub mod small_model;
+pub mod subagent;
 pub mod team_fleet;
 pub mod wasm;
 
@@ -32,10 +33,10 @@ use rightkit_agent_engine_core::conduit::Conduit;
 use rightkit_agent_engine_core::engine::{SessionEngine, SessionEngineConfig};
 use rightkit_agent_engine_core::llm::LlmClient;
 use rightkit_agent_engine_protocol::ProtocolEvent;
-use rightkit_agent_policy::PermissionMode;
+use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Explicit, host-owned HTTPS connectors. Tokens stay in process memory.
@@ -121,6 +122,13 @@ pub struct RuntimeConfig {
     /// persist it verbatim; Rust alone owns its schema and validation.
     #[serde(default)]
     pub checkpoint_json: Option<String>,
+    /// Absolute path to the read-only skills bundled inside the app
+    /// (`<dir>/<skill>/SKILL.md`, produced by the host's build). Absent means no
+    /// bundled skills. Workspace skills (`<workspace_root>/<state-dir>/skills`)
+    /// come first, so a project skill of the same name wins. A relative path is
+    /// ignored.
+    #[serde(default)]
+    pub bundled_skills_dir: Option<PathBuf>,
     /// Absolute path to a host-owned, app-private directory this runtime may
     /// write durable per-session files into (the journal, its crash-repair
     /// metadata sidecar, and the redacted audit log). Absent falls back to
@@ -138,6 +146,13 @@ pub struct RuntimeConfig {
     /// limit on someone's phone.
     #[serde(default)]
     pub budget_ceiling_usd: Option<f64>,
+    /// `"trusted"` | `"untrusted"` (ENG-89). Absent or empty means untrusted:
+    /// the engine's permission policy then raises an ask for effectful tools
+    /// instead of letting the mode auto-allow them. `SessionEngineConfig`'s own
+    /// default is `Trusted`, which a host must choose explicitly, never inherit.
+    /// Any other non-empty value is a config error.
+    #[serde(default)]
+    pub workspace_trust: Option<String>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -250,6 +265,42 @@ fn permission_mode(raw: Option<&str>) -> Result<PermissionMode, RuntimeError> {
     }
 }
 
+fn workspace_trust(raw: Option<&str>) -> Result<WorkspaceTrust, RuntimeError> {
+    match raw
+        .map(|value| value.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        None | Some("" | "untrusted") => Ok(WorkspaceTrust::Untrusted),
+        Some("trusted") => Ok(WorkspaceTrust::Trusted),
+        Some(other) => Err(RuntimeError::Config(format!(
+            "unknown workspaceTrust '{other}'; expected trusted or untrusted"
+        ))),
+    }
+}
+
+/// Set once, by whichever durable mirror (journal or audit log) fails first.
+static MIRROR_FAILURE_REPORTED: AtomicBool = AtomicBool::new(false);
+
+/// The journal and the audit log are best-effort mirrors: a full disk or a
+/// permissions error must not fail the caller's turn. The first failure of the
+/// process is written to standard error (so it is not lost silently); later
+/// ones are not, so a full disk cannot flood the log.
+fn report_mirror_failure(what: &str, error: &dyn std::fmt::Display) {
+    if !MIRROR_FAILURE_REPORTED.swap(true, Ordering::Relaxed) {
+        eprintln!(
+            "{}: {what} failed (later failures are not reported): {error}",
+            rightkit_agent_config::host_slug()
+        );
+    }
+}
+
+/// Append one record to the audit log, best-effort (see [`report_mirror_failure`]).
+fn append_audit(log: &audit_log::AuditLog, kind: audit_log::AuditEventKind) {
+    if let Err(error) = log.append(kind) {
+        report_mirror_failure("audit log append", &error);
+    }
+}
+
 #[derive(Debug)]
 pub enum RuntimeError {
     Config(String),
@@ -318,6 +369,14 @@ pub struct MobileRuntime {
     /// blocked on. Without this the session would simply hang the first time a
     /// tool asked — which is why `Bypass` is tempting and wrong.
     approvals: Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
+    /// Pending `ask_user` questions, keyed by question id (ENG-29). Shared with
+    /// the engine's questioner; resolved by `resolve_question` without taking
+    /// the engine mutex (the in-flight `submit` is waiting for that answer).
+    /// Always empty unless the host turned on
+    /// [`host_options::set_interactive_tools`].
+    questions: interaction::PendingQuestions,
+    /// Pending `exit_plan_mode` plans, keyed by plan id (ENG-29). Same rule.
+    plans: interaction::PendingPlans,
     /// Sequence of the last event handed to the host. Draining is resumable
     /// across app suspension, which is the whole reason it is a cursor rather
     /// than a channel the host must stay attached to. Atomic so `drain_events`
@@ -422,6 +481,7 @@ impl MobileRuntime {
         }
         let tools = Arc::new(tools);
         let session_id = config.session_id.clone();
+        let state_dir = rightkit_agent_config::state_dir_name();
 
         // ENG-33/34/35: open the durable journal before anything else touches
         // storage. `storage_dir` defaults to a workspace-relative path so a
@@ -431,7 +491,7 @@ impl MobileRuntime {
         let storage_dir = config
             .storage_dir
             .clone()
-            .unwrap_or_else(|| config.workspace_root.join(".rightkit").join("runtime"));
+            .unwrap_or_else(|| config.workspace_root.join(state_dir).join("runtime"));
         std::fs::create_dir_all(&storage_dir).map_err(|error| {
             RuntimeError::Config(format!(
                 "could not create runtime storage directory {}: {error}",
@@ -477,13 +537,19 @@ impl MobileRuntime {
         let audit_log = audit_log::AuditLog::open(&storage_dir, &session_id)
             .map_err(|error| RuntimeError::Config(format!("could not open audit log: {error}")))?;
         if repair_report.bytes_truncated > 0 {
-            let _ = audit_log.append(audit_log::AuditEventKind::JournalRepaired {
-                bytes_truncated: repair_report.bytes_truncated,
-            });
+            append_audit(
+                &audit_log,
+                audit_log::AuditEventKind::JournalRepaired {
+                    bytes_truncated: repair_report.bytes_truncated,
+                },
+            );
         }
-        let _ = audit_log.append(audit_log::AuditEventKind::SessionStarted {
-            resumed: checkpoint.is_some(),
-        });
+        append_audit(
+            &audit_log,
+            audit_log::AuditEventKind::SessionStarted {
+                resumed: checkpoint.is_some(),
+            },
+        );
 
         // The journal is a durable trail of every event this session has
         // published, independent of whatever cursor the host itself
@@ -510,11 +576,23 @@ impl MobileRuntime {
         let high_water = checkpoint_high_water.max(journal_high_water);
         let conduit = Arc::new(Conduit::with_high_water_mark(1024, high_water));
 
+        let configured_mode = permission_mode(config.permission_mode.as_deref())?;
+        let configured_trust = workspace_trust(config.workspace_trust.as_deref())?;
+        let spawner_workspace_root = config.workspace_root.clone();
         let mut engine_config = SessionEngineConfig {
             session_id: config.session_id,
-            skill_dirs: vec![config.workspace_root.join(".rightkit").join("skills")],
+            skill_dirs: std::iter::once(config.workspace_root.join(state_dir).join("skills"))
+                .chain(
+                    config
+                        .bundled_skills_dir
+                        .clone()
+                        .filter(|dir| dir.is_absolute()),
+                )
+                .collect(),
             workspace_root: config.workspace_root,
-            permission_mode: permission_mode(config.permission_mode.as_deref())?,
+            permission_mode: configured_mode,
+            // ENG-89: never inherit the engine default (`Trusted`).
+            workspace_trust: configured_trust,
             // No language server to ask, so never pay for the attempt.
             auto_post_edit_diagnostics: false,
             // ENG-30: a hard per-session cost ceiling. `SessionEngineConfig`'s
@@ -588,7 +666,10 @@ impl MobileRuntime {
         });
         if !checkpoint_has_system_prompt {
             engine.set_system_prompt(
-                "You are Agent, a coding agent running locally on this iPhone. Complete user requests by inspecting and editing configured workspace with available tools. Use relative workspace paths. Never claim a file change unless a tool result confirms it. You cannot run shell commands, builds, tests, browsers, or desktop-only tools on this host. Treat tool results as authoritative and stop after requested work is complete.",
+                format!(
+                    "You are {}, a coding agent running locally on this iPhone. Complete user requests by inspecting and editing configured workspace with available tools. Use relative workspace paths. Never claim a file change unless a tool result confirms it. You cannot run shell commands, builds, tests, browsers, or desktop-only tools on this host. Treat tool results as authoritative and stop after requested work is complete.",
+                    rightkit_agent_config::app_name()
+                ),
             );
         }
         if checkpoint.is_none() {
@@ -620,6 +701,44 @@ impl MobileRuntime {
         let approvals = Arc::new(Mutex::new(HashMap::new()));
         engine.set_approval_store(approvals.clone());
         let (interrupt_tx, interrupt_rx) = tokio::sync::watch::channel(false);
+        // ENG-29 / ENG-37: the on-device operator bridge and the sub-agent spawner, wired only
+        // when the host turned the option on. The permission-mode watch starts at the configured
+        // mode: the engine adopts its value at the start of every turn, so any other starting
+        // value would silently change this session's policy.
+        let questions: interaction::PendingQuestions = Arc::new(Mutex::new(HashMap::new()));
+        let plans: interaction::PendingPlans = Arc::new(Mutex::new(HashMap::new()));
+        let (mode_tx, mode_rx) = tokio::sync::watch::channel(configured_mode);
+        if host_options::subagents() {
+            // The child inherits the parent's mode, trust and interrupt.
+            engine.set_spawner(Arc::new(subagent::MobileSubagentSpawner::new(
+                subagent::SubagentSpawnerSettings {
+                    parent_session_id: session_id.clone(),
+                    provider: config.provider.clone(),
+                    workspace_root: spawner_workspace_root,
+                    workspace_trust: configured_trust,
+                    parent_ceiling_usd: config.budget_ceiling_usd.unwrap_or(0.0),
+                    mode_rx: mode_rx.clone(),
+                    interrupt: interrupt_tx.subscribe(),
+                    conduit: conduit.clone(),
+                },
+            )));
+        }
+        if host_options::interactive_tools() {
+            engine.set_permission_mode_receiver(mode_rx);
+            engine.set_questioner(Arc::new(interaction::MobileQuestioner {
+                session_id: session_id.clone(),
+                conduit: conduit.clone(),
+                store: questions.clone(),
+                interrupt: interrupt_tx.subscribe(),
+            }));
+            engine.set_plan_exit(Arc::new(interaction::MobilePlanExit {
+                session_id: session_id.clone(),
+                conduit: conduit.clone(),
+                store: plans.clone(),
+                mode_tx,
+                interrupt: interrupt_tx.subscribe(),
+            }));
+        }
         engine.set_interrupt_receiver(interrupt_rx);
         let goal = checkpoint
             .as_ref()
@@ -648,6 +767,8 @@ impl MobileRuntime {
             goal: Mutex::new(goal),
             conduit,
             approvals,
+            questions,
+            plans,
             cursor: AtomicI64::new(high_water),
             interrupt_tx,
             journal: Mutex::new(journal),
@@ -668,7 +789,9 @@ impl MobileRuntime {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let nonce = mint_nonce(&self.session_id, journal.last_sequence() + 1);
-        let _ = journal.append(nonce, kind);
+        if let Err(error) = journal.append(nonce, kind) {
+            report_mirror_failure("journal append", &error);
+        }
     }
 
     /// Run one turn to completion. Events land on the conduit as the turn
@@ -679,7 +802,8 @@ impl MobileRuntime {
         // Reset before each turn — see the field doc comment on why a stale
         // `true` from a PREVIOUS interrupted turn must not immediately fire
         // on this one.
-        let _ = self.interrupt_tx.send(false);
+        self.interrupt_tx
+            .send_modify(|interrupted| *interrupted = false);
         // ENG-33/41: mirror the submission itself, before the model ever
         // sees it, so a crash mid-turn still leaves a durable record that a
         // turn was requested.
@@ -688,9 +812,10 @@ impl MobileRuntime {
         self.append_journal(crate::journal::JournalEventKind::UserMessage {
             preview: preview.clone(),
         });
-        let _ = self
-            .audit_log
-            .append(crate::audit_log::AuditEventKind::TurnSubmitted { preview });
+        append_audit(
+            &self.audit_log,
+            crate::audit_log::AuditEventKind::TurnSubmitted { preview },
+        );
 
         let mut engine = self.engine.lock().await;
         let result = engine
@@ -718,48 +843,116 @@ impl MobileRuntime {
             return;
         };
         let last_seq = rightkit_agent_engine_core::conduit::seq_of(last);
+        // ENG-93: the transcript's tool message carries only the call id, so
+        // resolve names from the call events of this same batch. A call whose
+        // name is not in the batch is recorded under its id.
+        let mut call_names: HashMap<String, String> = HashMap::new();
+        for event in &events {
+            if let ProtocolEvent::ToolCallStarted { call, .. }
+            | ProtocolEvent::ToolApprovalRequested { call, .. } = event
+            {
+                call_names.insert(call.id.clone(), call.name.clone());
+            }
+        }
         for event in &events {
             let seq = rightkit_agent_engine_core::conduit::seq_of(event);
             self.append_journal(crate::journal::JournalEventKind::ProtocolEvent {
                 conduit_seq: seq,
             });
             match event {
-                ProtocolEvent::ToolResultAdded { result, .. } => {
-                    if let rightkit_agent_engine_protocol::TranscriptMessage::Tool {
-                        tool_call_id,
-                        is_error,
-                        ..
-                    } = result
-                    {
-                        let ok = !is_error;
-                        // ENG-18: this is the durable mirror of a committed
-                        // effect's outcome. The transcript's `Tool` message
-                        // carries `tool_call_id`, not the human tool name, at
-                        // this layer — the journal's closed `ToolCall` kind
-                        // still records that a call completed and whether it
-                        // succeeded, which is what `undo`/audit consumers of
-                        // the journal need; the tools crate's
-                        // `effect_receipt_store` remains the authority for
-                        // path-level conflict detection within one process.
-                        self.append_journal(crate::journal::JournalEventKind::ToolCall {
+                ProtocolEvent::ToolResultAdded {
+                    result:
+                        rightkit_agent_engine_protocol::TranscriptMessage::Tool {
+                            tool_call_id,
+                            summary,
+                            is_error,
+                            ..
+                        },
+                    ..
+                } => {
+                    let ok = !is_error;
+                    // ENG-18: this is the durable mirror of a committed
+                    // effect's outcome. The transcript's `Tool` message
+                    // carries `tool_call_id`, not the human tool name, at
+                    // this layer — the journal's closed `ToolCall` kind
+                    // still records that a call completed and whether it
+                    // succeeded, which is what `undo`/audit consumers of
+                    // the journal need; the tools crate's
+                    // `effect_receipt_store` remains the authority for
+                    // path-level conflict detection within one process.
+                    self.append_journal(crate::journal::JournalEventKind::ToolCall {
+                        tool_name: tool_call_id.clone(),
+                        ok,
+                    });
+                    if ok {
+                        self.append_journal(crate::journal::JournalEventKind::EffectApplied {
+                            effect_id: tool_call_id.clone(),
+                        });
+                    }
+                    append_audit(
+                        &self.audit_log,
+                        crate::audit_log::AuditEventKind::ToolInvoked {
                             tool_name: tool_call_id.clone(),
                             ok,
-                        });
-                        if ok {
-                            self.append_journal(crate::journal::JournalEventKind::EffectApplied {
-                                effect_id: tool_call_id.clone(),
-                            });
-                        }
-                        let _ =
-                            self.audit_log
-                                .append(crate::audit_log::AuditEventKind::ToolInvoked {
-                                    tool_name: tool_call_id.clone(),
-                                    ok,
-                                });
+                        },
+                    );
+                    // ENG-93: a policy denial reaches the model as a tool
+                    // error beginning `Permission denied:` with the rule
+                    // in a trailing `(policy: <source>)`.
+                    if summary.starts_with("Permission denied:") {
+                        let rule = summary
+                            .rfind("(policy: ")
+                            .map(|start| &summary[start + "(policy: ".len()..])
+                            .and_then(|rest| rest.split(')').next())
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty())
+                            .unwrap_or("policy")
+                            .to_string();
+                        append_audit(
+                            &self.audit_log,
+                            crate::audit_log::AuditEventKind::AuthorizationDecision {
+                                tool_name: call_names
+                                    .get(tool_call_id)
+                                    .cloned()
+                                    .unwrap_or_else(|| tool_call_id.clone()),
+                                outcome: "deny".to_string(),
+                                rule,
+                            },
+                        );
                     }
                 }
+                ProtocolEvent::ToolApprovalRequested {
+                    call, risk_label, ..
+                } => {
+                    append_audit(
+                        &self.audit_log,
+                        crate::audit_log::AuditEventKind::AuthorizationDecision {
+                            tool_name: call.name.clone(),
+                            outcome: "card".to_string(),
+                            rule: risk_label.clone(),
+                        },
+                    );
+                }
+                ProtocolEvent::ToolApprovalResolved {
+                    tool_call_id,
+                    approved,
+                    ..
+                } => {
+                    append_audit(
+                        &self.audit_log,
+                        crate::audit_log::AuditEventKind::AuthorizationDecision {
+                            tool_name: call_names
+                                .get(tool_call_id)
+                                .cloned()
+                                .unwrap_or_else(|| tool_call_id.clone()),
+                            outcome: if *approved { "allow" } else { "deny" }.to_string(),
+                            rule: "user".to_string(),
+                        },
+                    );
+                }
                 ProtocolEvent::SessionCompacted { dropped_count, .. } => {
-                    let _ = self.audit_log.append(
+                    append_audit(
+                        &self.audit_log,
                         crate::audit_log::AuditEventKind::CompactionOccurred {
                             dropped_count: *dropped_count,
                         },
@@ -770,12 +963,13 @@ impl MobileRuntime {
                     ceiling_usd,
                     ..
                 } => {
-                    let _ =
-                        self.audit_log
-                            .append(crate::audit_log::AuditEventKind::BudgetExceeded {
-                                current_usd_cents: (current_usd * 100.0).round().max(0.0) as u64,
-                                ceiling_usd_cents: (ceiling_usd * 100.0).round().max(0.0) as u64,
-                            });
+                    append_audit(
+                        &self.audit_log,
+                        crate::audit_log::AuditEventKind::BudgetExceeded {
+                            current_usd_cents: (current_usd * 100.0).round().max(0.0) as u64,
+                            ceiling_usd_cents: (ceiling_usd * 100.0).round().max(0.0) as u64,
+                        },
+                    );
                 }
                 _ => {}
             }
@@ -786,10 +980,12 @@ impl MobileRuntime {
     /// Stop the in-flight turn, if any. Safe to call with no turn running —
     /// the next `submit` resets the flag regardless.
     pub fn interrupt(&self) {
-        let _ = self.interrupt_tx.send(true);
-        let _ = self
-            .audit_log
-            .append(crate::audit_log::AuditEventKind::TurnInterrupted);
+        self.interrupt_tx
+            .send_modify(|interrupted| *interrupted = true);
+        append_audit(
+            &self.audit_log,
+            crate::audit_log::AuditEventKind::TurnInterrupted,
+        );
     }
 
     /// Hand the host every event it has not yet seen, advancing the cursor.
@@ -1112,14 +1308,49 @@ impl MobileRuntime {
             None => false,
         };
         if resolved {
-            let _ = self
-                .audit_log
-                .append(crate::audit_log::AuditEventKind::ApprovalResolved {
+            append_audit(
+                &self.audit_log,
+                crate::audit_log::AuditEventKind::ApprovalResolved {
                     tool_call_id: tool_call_id.to_string(),
                     approved,
-                });
+                },
+            );
         }
         resolved
+    }
+
+    /// Answer an `ask_user` question the agent is waiting on (ENG-29).
+    ///
+    /// Returns `1` when the answer was delivered, `0` when nothing was waiting
+    /// under that id (a stale tap, or a turn that already moved on), and `-1`
+    /// when the answers contain a blank text (a blank typed answer is not an
+    /// answer; the question stays pending). Never takes the engine mutex: the
+    /// in-flight `submit` holds it while waiting for this very answer.
+    pub fn resolve_question(&self, question_id: &str, answers: serde_json::Value) -> i32 {
+        if interaction::answers_have_blank_text(&answers) {
+            return -1;
+        }
+        let sender = self
+            .questions
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(question_id);
+        match sender {
+            Some(tx) => i32::from(tx.send(answers).is_ok()),
+            None => 0,
+        }
+    }
+
+    /// Answer an `exit_plan_mode` plan the agent presented (ENG-29). Returns
+    /// false when nothing was waiting under that id. Never takes the engine
+    /// mutex, for the same reason as [`Self::resolve_question`].
+    pub fn resolve_plan(&self, plan_id: &str, approved: bool) -> bool {
+        let sender = self
+            .plans
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(plan_id);
+        sender.is_some_and(|tx| tx.send(approved).is_ok())
     }
 
     /// Tool-call ids currently blocked on the user.
@@ -1152,11 +1383,12 @@ impl MobileRuntime {
         self.append_journal(crate::journal::JournalEventKind::CredentialRefreshed {
             provider: "cloudflare".to_string(),
         });
-        let _ = self
-            .audit_log
-            .append(crate::audit_log::AuditEventKind::CredentialRefreshed {
+        append_audit(
+            &self.audit_log,
+            crate::audit_log::AuditEventKind::CredentialRefreshed {
                 provider: "cloudflare".to_string(),
-            });
+            },
+        );
     }
 
     /// Names of the tools this host actually offers the model. The host shows
@@ -1201,19 +1433,25 @@ impl MobileRuntime {
 ///
 /// The second half of this list is for tools that ARE always built (they
 /// need no process), but need a context service `MobileRuntime` never wires
-/// up: `ctx.questioner` for `ask_user`, `ctx.plan_exit` for
-/// `exit_plan_mode`, `ctx.spawner` for `spawn_subagent`, `ctx.github_token`
-/// for `github`, `ctx.team_directory` for `team_*`, `ctx.message_dispatcher`
-/// for `send_message`, and any MCP server for `mcp_*` (no MCP config is ever
-/// loaded here). Each returns a clean error without that context rather than
+/// up: `ctx.team_directory` for `team_*`, `ctx.message_dispatcher` for
+/// `send_message`, the live-child supervisor for `followup_subagent`,
+/// `wait_for_subagents` and `interrupt_subagent`, `ctx.github_token` for
+/// `github`, and any MCP server for `mcp_*` (no MCP config is ever loaded
+/// here). Each returns a clean error without that context rather than
 /// panicking, but the model was still choosing them from a schema promising
 /// they would work, then burning a turn on a call that could not succeed.
 ///
+/// `ask_user` (`ctx.questioner`), `exit_plan_mode` (`ctx.plan_exit`) and
+/// `spawn_subagent` (`ctx.spawner`) are wired in `MobileRuntime::new` (see
+/// `interaction.rs` and `subagent.rs`) when the host turned on
+/// [`host_options::set_interactive_tools`] or [`host_options::set_subagents`],
+/// and are offered to the model only then.
+///
 /// docs/pending/2026-08-28-ios-standalone-local-runtime.md §7 (mobile
 /// capability profile) is the source of truth for what launch actually
-/// supports; this list implements it. Wiring these up for real — a mobile
-/// questioner UI, a plan-review sheet, a subagent runtime, GitHub OAuth — is
-/// M1/M2 scope, not something to half-wire under time pressure.
+/// supports; this list implements it. Wiring the remaining ones for real — a
+/// live-child supervisor, a team directory, a message dispatcher — is later
+/// scope, not something to half-wire under time pressure.
 fn is_mobile_supported_tool(
     name: &str,
     github_configured: bool,
@@ -1248,9 +1486,6 @@ fn is_mobile_supported_tool(
         "exit_worktree",
         // Context-unwired tools: registered unconditionally, but this host
         // never wires the service they need to actually succeed.
-        "ask_user",
-        "exit_plan_mode",
-        "spawn_subagent",
         "mcp_auth",
         "team_create",
         "team_delete",
@@ -1267,4 +1502,6 @@ fn is_mobile_supported_tool(
     !UNSUPPORTED.contains(&name)
         && (name != "github" || github_configured)
         && (name != "cloudflare" || cloudflare_configured)
+        && (!matches!(name, "ask_user" | "exit_plan_mode") || host_options::interactive_tools())
+        && (name != "spawn_subagent" || host_options::subagents())
 }

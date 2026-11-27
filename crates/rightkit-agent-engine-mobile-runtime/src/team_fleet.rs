@@ -240,14 +240,25 @@ fn result_json<T: Serialize>(result: Result<T, String>) -> *mut c_char {
 /// # Safety
 /// `request_json` must be null or a valid NUL-terminated UTF-8 C string; null
 /// or invalid UTF-8 yields an `{ok:false}` JSON error. The returned string is
-/// owned by the caller and must be released with `host_mobile_string_free`.
-#[no_mangle]
-pub unsafe extern "C" fn host_mobile_team_fleet_import(request_json: *const c_char) -> *mut c_char {
+/// owned by the caller and must be released with [`crate::ffi::string_free`].
+pub unsafe fn team_fleet_import(request_json: *const c_char) -> *mut c_char {
     result_json((|| {
         let request = parse_request(request_json)?;
         let runtime = fleet_runtime(request)?;
         Ok(fleet_summary(&runtime))
     })())
+}
+
+/// C symbol `host_mobile_team_fleet_import`: forwards to [`team_fleet_import`], whose contract applies unchanged.
+///
+/// # Safety
+/// The caller must uphold the `# Safety` contract of [`team_fleet_import`].
+#[cfg(feature = "c-abi")]
+#[no_mangle]
+pub unsafe extern "C" fn host_mobile_team_fleet_import(request_json: *const c_char) -> *mut c_char {
+    // SAFETY: the C caller's arguments are passed on unchanged, and the contract
+    // they must meet is the one documented on `team_fleet_import`.
+    unsafe { team_fleet_import(request_json) }
 }
 
 /// Dispatch to one named peer after an explicit host-side user approval.
@@ -257,15 +268,26 @@ pub unsafe extern "C" fn host_mobile_team_fleet_import(request_json: *const c_ch
 /// # Safety
 /// `request_json` must be null or a valid NUL-terminated UTF-8 C string; null
 /// or invalid UTF-8 yields an `{ok:false}` JSON error. The returned string is
-/// owned by the caller and must be released with `host_mobile_string_free`.
-#[no_mangle]
-pub unsafe extern "C" fn host_mobile_team_fleet_dispatch_after_user_approval(
-    request_json: *const c_char,
-) -> *mut c_char {
+/// owned by the caller and must be released with [`crate::ffi::string_free`].
+pub unsafe fn team_fleet_dispatch_after_user_approval(request_json: *const c_char) -> *mut c_char {
     result_json((|| {
         let request: FleetDispatchRequest = parse_request(request_json)?;
         dispatch_fleet(&request)
     })())
+}
+
+/// C symbol `host_mobile_team_fleet_dispatch_after_user_approval`: forwards to [`team_fleet_dispatch_after_user_approval`], whose contract applies unchanged.
+///
+/// # Safety
+/// The caller must uphold the `# Safety` contract of [`team_fleet_dispatch_after_user_approval`].
+#[cfg(feature = "c-abi")]
+#[no_mangle]
+pub unsafe extern "C" fn host_mobile_team_fleet_dispatch_after_user_approval(
+    request_json: *const c_char,
+) -> *mut c_char {
+    // SAFETY: the C caller's arguments are passed on unchanged, and the contract
+    // they must meet is the one documented on `team_fleet_dispatch_after_user_approval`.
+    unsafe { team_fleet_dispatch_after_user_approval(request_json) }
 }
 
 /// Read outstanding direct work for one named peer. Shared context is only a
@@ -274,11 +296,8 @@ pub unsafe extern "C" fn host_mobile_team_fleet_dispatch_after_user_approval(
 /// # Safety
 /// `request_json` must be null or a valid NUL-terminated UTF-8 C string; null
 /// or invalid UTF-8 yields an `{ok:false}` JSON error. The returned string is
-/// owned by the caller and must be released with `host_mobile_string_free`.
-#[no_mangle]
-pub unsafe extern "C" fn host_mobile_team_fleet_receive(
-    request_json: *const c_char,
-) -> *mut c_char {
+/// owned by the caller and must be released with [`crate::ffi::string_free`].
+pub unsafe fn team_fleet_receive(request_json: *const c_char) -> *mut c_char {
     result_json((|| {
         let request: FleetReceiveRequest = parse_request(request_json)?;
         let runtime = fleet_runtime(request.fleet)?;
@@ -294,6 +313,20 @@ pub unsafe extern "C" fn host_mobile_team_fleet_receive(
     })())
 }
 
+/// C symbol `host_mobile_team_fleet_receive`: forwards to [`team_fleet_receive`], whose contract applies unchanged.
+///
+/// # Safety
+/// The caller must uphold the `# Safety` contract of [`team_fleet_receive`].
+#[cfg(feature = "c-abi")]
+#[no_mangle]
+pub unsafe extern "C" fn host_mobile_team_fleet_receive(
+    request_json: *const c_char,
+) -> *mut c_char {
+    // SAFETY: the C caller's arguments are passed on unchanged, and the contract
+    // they must meet is the one documented on `team_fleet_receive`.
+    unsafe { team_fleet_receive(request_json) }
+}
+
 /// Project one queued peer delegation into its target's exact prompt without
 /// consuming mailbox work. Shared context is injected read-only; a later
 /// local peer-runtime turn owns execution and acknowledgement.
@@ -301,13 +334,24 @@ pub unsafe extern "C" fn host_mobile_team_fleet_receive(
 /// # Safety
 /// `request_json` must be null or a valid NUL-terminated UTF-8 C string; null
 /// or invalid UTF-8 yields an `{ok:false}` JSON error. The returned string is
-/// owned by the caller and must be released with `host_mobile_string_free`.
-#[no_mangle]
-pub unsafe extern "C" fn host_mobile_team_fleet_execute_next(
-    request_json: *const c_char,
-) -> *mut c_char {
+/// owned by the caller and must be released with [`crate::ffi::string_free`].
+pub unsafe fn team_fleet_execute_next(request_json: *const c_char) -> *mut c_char {
     result_json((|| {
         let request: FleetExecuteRequest = parse_request(request_json)?;
         execute_next_fleet(request)
     })())
+}
+
+/// C symbol `host_mobile_team_fleet_execute_next`: forwards to [`team_fleet_execute_next`], whose contract applies unchanged.
+///
+/// # Safety
+/// The caller must uphold the `# Safety` contract of [`team_fleet_execute_next`].
+#[cfg(feature = "c-abi")]
+#[no_mangle]
+pub unsafe extern "C" fn host_mobile_team_fleet_execute_next(
+    request_json: *const c_char,
+) -> *mut c_char {
+    // SAFETY: the C caller's arguments are passed on unchanged, and the contract
+    // they must meet is the one documented on `team_fleet_execute_next`.
+    unsafe { team_fleet_execute_next(request_json) }
 }

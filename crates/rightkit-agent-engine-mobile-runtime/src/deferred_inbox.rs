@@ -106,15 +106,16 @@ impl MobileRuntime {
         // genuinely single-use even when two iOS callbacks race. The first
         // caller consumes this session-owned capability; every later caller
         // gets the explicit "no pending" error below.
-        let Some(_receiver) = deferred_receivers()
+        if deferred_receivers()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .remove(&key)
-        else {
+            .is_none()
+        {
             return Err(RuntimeError::Engine(format!(
                 "no pending deferred tool call '{tool_call_id}'"
             )));
-        };
+        }
 
         let result = self
             .engine

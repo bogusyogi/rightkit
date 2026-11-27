@@ -563,7 +563,7 @@
     "rightkit-agent-engine-cli": "0.1.1",
     "rightkit-agent-engine-core": "0.2.1",
     "rightkit-agent-engine-history": "0.1.6",
-    "rightkit-agent-engine-mobile-runtime": "0.1.1",
+    "rightkit-agent-engine-mobile-runtime": "0.1.2",
     "rightkit-agent-engine-protocol": "0.4.1",
     "rightkit-agent-engine-runtime-middleware": "0.1.4",
     "rightkit-agent-engine-runtime-resources": "0.1.2",
