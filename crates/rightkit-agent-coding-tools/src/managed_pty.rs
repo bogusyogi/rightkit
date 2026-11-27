@@ -40,7 +40,7 @@ pub(crate) fn spawn(
     program: &str,
     argv: &[String],
     proof: SandboxProcessProof,
-    _sandbox_tier: Option<crate::sandbox::SandboxTier>,
+    sandbox_tier: Option<crate::sandbox::SandboxTier>,
 ) -> Result<Box<dyn ManagedChild>, EffectExecutionError> {
     if program.is_empty()
         || program.contains('\0')
@@ -62,13 +62,19 @@ pub(crate) fn spawn(
             reason: "invalid PTY command, environment, working directory or dimensions".into(),
         });
     }
+    // With `shell::set_managed_pty_streamed` the PTY is `rightkit_sandbox`'s streamed PTY on every
+    // platform instead of this crate's own transports below.
+    #[cfg(any(unix, windows))]
+    if crate::shell::managed_pty_streamed() {
+        return streamed_backend::spawn(spec, size, program, argv, proof, sandbox_tier);
+    }
     #[cfg(windows)]
     {
-        return windows_backend::spawn(spec, size, program, argv, proof, _sandbox_tier);
+        return windows_backend::spawn(spec, size, program, argv, proof, sandbox_tier);
     }
     #[cfg(target_os = "linux")]
     {
-        return linux_backend::spawn(spec, size, program, argv, proof, _sandbox_tier);
+        return linux_backend::spawn(spec, size, program, argv, proof, sandbox_tier);
     }
     #[cfg(all(unix, not(target_os = "linux")))]
     {
@@ -589,6 +595,343 @@ impl Drop for ManagedPtyChild {
             // Reap on drop as well as explicit wait; no detached process owner.
             let _ = child.kill();
             let _ = child.wait();
+        }
+    }
+}
+
+/// The managed PTY through `rightkit_sandbox`'s streamed PTY (`Sandbox::spawn_pty_stream`): one
+/// transport for Linux, macOS and Windows. Used only with `shell::set_managed_pty_streamed`.
+#[cfg(any(unix, windows))]
+mod streamed_backend {
+    #[cfg(unix)]
+    use rightkit_child_process::AdoptedSignal;
+    use rightkit_sandbox::execution::{
+        CommandLaunchSpec, EffectExecutionError, ExecutionChannel, ManagedChild, PtySize,
+        SandboxProcessProof,
+    };
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+    use tokio::io::{AsyncRead, AsyncWrite};
+
+    /// Spawn an already policy-resolved program under the owner's streamed PTY.
+    ///
+    /// Callers own validation, policy/approval, resource admission, and sandbox
+    /// resolution before entering this function. `program`/`argv` may therefore
+    /// be a sandbox wrapper around the original `spec` program on platforms where
+    /// the native sandbox composes with a PTY (macOS seatbelt).
+    pub(super) fn spawn(
+        spec: &CommandLaunchSpec,
+        size: PtySize,
+        program: &str,
+        argv: &[String],
+        proof: SandboxProcessProof,
+        sandbox_tier: Option<crate::sandbox::SandboxTier>,
+    ) -> Result<Box<dyn ManagedChild>, EffectExecutionError> {
+        if tokio::runtime::Handle::try_current().is_err() {
+            return Err(EffectExecutionError::SpawnFailed);
+        }
+        // Names this process's environment must not hand to the child (providers R46). Empty
+        // unless the host turned on `shell::set_scrub_inherited_credentials`.
+        let removed = crate::process_launch::inherited_scrubbed_env_names(&spec.env);
+
+        #[cfg(unix)]
+        let policy = if cfg!(target_os = "macos") {
+            None
+        } else {
+            match sandbox_tier {
+                Some(tier) => {
+                    let mut policy = crate::shell::local_sandbox_config_for_tier(
+                        std::path::Path::new(&spec.context.workspace_root),
+                        tier,
+                    )
+                    .rightkit_policy()
+                    .map_err(|_| EffectExecutionError::SandboxMissing)?;
+                    let keep: Vec<String> = std::env::vars_os()
+                        .filter_map(|(name, _)| name.into_string().ok())
+                        .filter(|name| {
+                            removed
+                                .iter()
+                                .all(|gone| gone.as_os_str() != std::ffi::OsStr::new(name.as_str()))
+                        })
+                        .collect();
+                    policy.env = rightkit_sandbox::EnvPolicy {
+                        inherit: false,
+                        keep,
+                        set: std::collections::BTreeMap::new(),
+                    };
+                    Some(policy)
+                }
+                None => None,
+            }
+        };
+        #[cfg(windows)]
+        let policy = match sandbox_tier {
+            Some(tier) => {
+                let mut policy = rightkit_sandbox::SandboxPolicy::new()
+                    .allow_write(std::path::Path::new(&spec.context.workspace_root))
+                    .network(if tier.denies_network() {
+                        rightkit_sandbox::NetworkPolicy::Deny
+                    } else {
+                        rightkit_sandbox::NetworkPolicy::Allow
+                    })
+                    .loopback(rightkit_sandbox::LoopbackPolicy::Exempt);
+                policy.env = rightkit_sandbox::EnvPolicy {
+                    inherit: false,
+                    keep: std::env::vars_os()
+                        .filter_map(|(name, _)| name.into_string().ok())
+                        .filter(|name| {
+                            removed
+                                .iter()
+                                .all(|gone| !gone.to_string_lossy().eq_ignore_ascii_case(name))
+                        })
+                        .collect(),
+                    set: std::collections::BTreeMap::new(),
+                };
+                Some(policy)
+            }
+            None => None,
+        };
+
+        #[cfg(unix)]
+        let (program, args): (String, Vec<String>) = if policy.is_none() && !removed.is_empty() {
+            let mut args = Vec::new();
+            for name in &removed {
+                args.push("-u".to_string());
+                args.push(name.to_string_lossy().into_owned());
+            }
+            args.push(program.to_string());
+            args.extend(argv.iter().cloned());
+            ("/usr/bin/env".to_string(), args)
+        } else {
+            (program.to_string(), argv.to_vec())
+        };
+        #[cfg(windows)]
+        let (program, args): (String, Vec<String>) = (program.to_string(), argv.to_vec());
+
+        let mut command = rightkit_sandbox::SandboxCommand::new(program)
+            .args(args)
+            .cwd(&spec.cwd);
+        for (key, value) in &spec.env {
+            command = command.env(key.clone(), value.clone());
+        }
+
+        let mut streamed = pty_sandbox()
+            .spawn_pty_stream(
+                policy.as_ref(),
+                command,
+                rightkit_sandbox::PtySize::new(size.rows.max(1), size.cols.max(1))
+                    .with_pixels(size.pixel_width, size.pixel_height),
+            )
+            .map_err(map_pty_error)?;
+
+        let pid = streamed.id();
+        let reader = streamed
+            .take_reader()
+            .map_err(|_| EffectExecutionError::SpawnFailed)?
+            .ok_or(EffectExecutionError::SpawnFailed)?;
+        let writer = streamed
+            .take_writer()
+            .map_err(|_| EffectExecutionError::SpawnFailed)?
+            .ok_or(EffectExecutionError::SpawnFailed)?;
+
+        Ok(Box::new(StreamedPtyChild {
+            pty: streamed,
+            pid,
+            proof,
+            size,
+            reader: Some(reader),
+            writer: Some(PtyEofWriter {
+                inner: writer,
+                eof_written: 0,
+            }),
+            exit_code: None,
+        }))
+    }
+
+    fn map_pty_error(error: rightkit_sandbox::PtyError) -> EffectExecutionError {
+        use rightkit_sandbox::{PtyError, SandboxError};
+        match error {
+            PtyError::Sandbox(SandboxError::Unsupported(_))
+            | PtyError::Sandbox(SandboxError::InvalidPolicy(_)) => {
+                eprintln!("[sandbox] confined PTY launch refused: {error:?}");
+                EffectExecutionError::SandboxMissing
+            }
+            _ => EffectExecutionError::SpawnFailed,
+        }
+    }
+
+    fn pty_sandbox() -> &'static rightkit_sandbox::Sandbox {
+        static SANDBOX: std::sync::OnceLock<rightkit_sandbox::Sandbox> = std::sync::OnceLock::new();
+        SANDBOX.get_or_init(|| {
+            rightkit_sandbox::Sandbox::new(rightkit_sandbox::ResourceAuthority::new(
+                rightkit_sandbox::ResourceProfile::Expanded,
+            ))
+        })
+    }
+
+    fn exit_code_of(status: &std::process::ExitStatus) -> i32 {
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::ExitStatusExt as _;
+            status
+                .code()
+                .or_else(|| status.signal().map(|signal| 128 + signal))
+                .unwrap_or(-1)
+        }
+        #[cfg(not(unix))]
+        {
+            status.code().unwrap_or(-1)
+        }
+    }
+
+    struct PtyEofWriter {
+        inner: rightkit_sandbox::PtyWriter,
+        eof_written: usize,
+    }
+
+    impl AsyncWrite for PtyEofWriter {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<std::io::Result<usize>> {
+            let this = self.get_mut();
+            // Canonical terminal EOF: Ctrl-Z then Enter on a Windows console, Ctrl-D on a Unix terminal.
+            const EOF: &[u8] = if cfg!(windows) {
+                &[0x1a, b'\r']
+            } else {
+                &[0x04]
+            };
+            if this.eof_written == EOF.len() {
+                return Poll::Ready(Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "PTY input is closed",
+                )));
+            }
+            Pin::new(&mut this.inner).poll_write(cx, buf)
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            let this = self.get_mut();
+            Pin::new(&mut this.inner).poll_flush(cx)
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            let this = self.get_mut();
+            const EOF: &[u8] = if cfg!(windows) {
+                &[0x1a, b'\r']
+            } else {
+                &[0x04]
+            };
+            while this.eof_written < EOF.len() {
+                match Pin::new(&mut this.inner).poll_write(cx, &EOF[this.eof_written..]) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
+                    Poll::Ready(Ok(0)) => {
+                        return Poll::Ready(Err(std::io::ErrorKind::WriteZero.into()))
+                    }
+                    Poll::Ready(Ok(written)) => this.eof_written += written,
+                }
+            }
+            Pin::new(&mut this.inner).poll_flush(cx)
+        }
+    }
+
+    struct StreamedPtyChild {
+        pty: rightkit_sandbox::StreamedPty,
+        pid: u32,
+        proof: SandboxProcessProof,
+        size: PtySize,
+        reader: Option<rightkit_sandbox::PtyReader>,
+        writer: Option<PtyEofWriter>,
+        exit_code: Option<i32>,
+    }
+
+    #[async_trait::async_trait]
+    impl ManagedChild for StreamedPtyChild {
+        fn pid(&self) -> Option<u32> {
+            Some(self.pid)
+        }
+
+        fn sandbox_proof(&self) -> Option<SandboxProcessProof> {
+            Some(self.proof.clone())
+        }
+
+        fn execution_channel(&self) -> ExecutionChannel {
+            ExecutionChannel::Pty(self.size)
+        }
+
+        fn start_kill(&mut self) -> bool {
+            #[cfg(unix)]
+            {
+                std::num::NonZeroU32::new(self.pid).is_some_and(|session| {
+                    rightkit_child_process::signal_session(session, AdoptedSignal::Force).is_ok()
+                })
+            }
+            // The owner offers no synchronous tree kill on Windows: the old Job Object
+            // terminate is `cancel()`, and dropping this child kills the confined tree.
+            #[cfg(windows)]
+            {
+                false
+            }
+        }
+
+        fn take_stdin(&mut self) -> Option<Pin<Box<dyn AsyncWrite + Send>>> {
+            self.writer
+                .take()
+                .map(|writer| Box::pin(writer) as Pin<Box<dyn AsyncWrite + Send>>)
+        }
+
+        fn take_stdout(&mut self) -> Option<Pin<Box<dyn AsyncRead + Send>>> {
+            self.reader
+                .take()
+                .map(|reader| Box::pin(reader) as Pin<Box<dyn AsyncRead + Send>>)
+        }
+
+        fn take_stderr(&mut self) -> Option<Pin<Box<dyn AsyncRead + Send>>> {
+            // A PTY has one terminal byte stream; stderr is intentionally merged.
+            None
+        }
+
+        fn resize_pty(&mut self, size: PtySize) -> Result<(), EffectExecutionError> {
+            if size.rows == 0 || size.cols == 0 || size.rows > 32767 || size.cols > 32767 {
+                return Err(EffectExecutionError::InvalidRequest {
+                    field: "execution_channel".into(),
+                    reason: "PTY dimensions must be 1..32767".into(),
+                });
+            }
+            self.pty
+                .resize(
+                    rightkit_sandbox::PtySize::new(size.rows, size.cols)
+                        .with_pixels(size.pixel_width, size.pixel_height),
+                )
+                .map_err(|_| EffectExecutionError::Internal)?;
+            self.size = size;
+            Ok(())
+        }
+
+        async fn wait(&mut self) -> Result<i32, EffectExecutionError> {
+            if let Some(code) = self.exit_code {
+                return Ok(code);
+            }
+            let status = self
+                .pty
+                .wait()
+                .await
+                .map_err(|_| EffectExecutionError::Internal)?;
+            let code = exit_code_of(&status);
+            self.exit_code = Some(code);
+            Ok(code)
+        }
+
+        async fn cancel(&mut self) -> Result<(), EffectExecutionError> {
+            let status = self
+                .pty
+                .cancel(rightkit_sandbox::TerminationOptions::default())
+                .await
+                .map_err(|_| EffectExecutionError::KillFailed)?;
+            self.exit_code = Some(exit_code_of(&status));
+            Ok(())
         }
     }
 }

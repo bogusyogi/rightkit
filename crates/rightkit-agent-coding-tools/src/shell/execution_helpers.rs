@@ -1,8 +1,9 @@
 /// Per-session scratch directory for shell commands, exported as `TMPDIR` (and `TEMP`/`TMP`) when
 /// the host turned on `set_session_scratch_tmpdir`. The sandbox only writes inside the workspace,
 /// so `/tmp` is denied and `mktemp -d` fails. The directory is
-/// `<workspace>/.rightkit/tmp/<session>`; a `.gitignore` holding `*` is written beside it so
-/// nothing under `.rightkit/tmp` shows in `git status`, in a plain checkout or a worktree alike.
+/// `<workspace>/<state dir>/tmp/<session>` (the state folder is `rightkit_agent_config::state_dir_name`,
+/// `.rightkit` by default); a `.gitignore` holding `*` is written beside it so nothing under
+/// `<state dir>/tmp` shows in `git status`, in a plain checkout or a worktree alike.
 /// Nothing is written inside `.git`. Created on first use; `None` when the option is off or the
 /// directory cannot be created.
 pub(crate) fn session_scratch_dir(ctx: &ToolContext) -> Option<std::path::PathBuf> {
@@ -29,7 +30,7 @@ pub(crate) fn session_scratch_dir(ctx: &ToolContext) -> Option<std::path::PathBu
     scratch_dir_in(&ctx.workspace_root, &session)
 }
 
-/// `<workspace>/.rightkit/tmp/<name>`, created on demand, with the ignore file beside it, when the
+/// `<workspace>/<state dir>/tmp/<name>`, created on demand, with the ignore file beside it, when the
 /// host turned on `set_session_scratch_tmpdir`; `None` otherwise. Background shells have no
 /// session in scope and share the name `background`.
 pub(crate) fn scratch_dir_in(
@@ -39,7 +40,9 @@ pub(crate) fn scratch_dir_in(
     if !session_scratch_tmpdir() {
         return None;
     }
-    let base = workspace_root.join(".rightkit").join("tmp");
+    let base = workspace_root
+        .join(rightkit_agent_config::state_dir_name())
+        .join("tmp");
     let dir = base.join(name);
     std::fs::create_dir_all(&dir).ok()?;
     let ignore = base.join(".gitignore");
@@ -156,9 +159,10 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
             command.env_clear();
         }
         command.envs(spec.env.clone());
-        // No scrubbed variable reaches the child by inheritance. Empty unless the host turned on
-        // `set_scrub_inherited_credentials`.
-        for name in crate::process_launch::inherited_scrubbed_env_names(&spec.env) {
+        // No scrubbed variable reaches the child by inheritance (empty unless the host turned on
+        // `set_scrub_inherited_credentials`), and with `set_strip_parent_claude_session_env` a vendor
+        // program does not inherit a parent Claude Code session's variables.
+        for name in crate::process_launch::inherited_env_names_to_remove(&spec) {
             command.env_remove(name);
         }
         // Own session, so cancel can stop the whole tree (see `cancel`).
@@ -202,6 +206,26 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
                 let config = crate::process_launch::program_dirs(&spec)
                     .into_iter()
                     .fold(config, |config, dir| config.allow_read(dir));
+                // With `set_native_vendor_own_executable_read`, a vendor program is given exactly
+                // one MCP server, and that server is the host's own executable (see
+                // process_launch, which grants the same for its driver profiles). Without this
+                // the program cannot start it wherever the host is installed outside the system
+                // paths, and has no tools.
+                let config = if crate::shell::native_vendor_own_executable_read()
+                    && spec
+                        .context
+                        .sandbox_profile
+                        .as_deref()
+                        .is_some_and(|profile| {
+                            profile.starts_with("vendor-") || profile.starts_with("driver")
+                        }) {
+                    match std::env::current_exe() {
+                        Ok(own) => config.allow_read(own),
+                        Err(_) => config,
+                    }
+                } else {
+                    config
+                };
                 // RightKit prepares the confinement in the parent; a failure is a
                 // refused launch, never an unconfined one.
                 config.confine(command.as_std_mut()).map_err(|_| {
@@ -467,7 +491,7 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
         let mut enforced = false;
         let mut network_enforced = false;
         let starts_from_empty_env = spec.starts_from_empty_env();
-        let scrubbed_inherited = crate::process_launch::inherited_scrubbed_env_names(&spec.env);
+        let scrubbed_inherited = crate::process_launch::inherited_env_names_to_remove(&spec);
         // With `set_honour_disabled_sandbox_tier` an operator-disabled tier runs unconfined, as on
         // Linux and Windows; without it the launch is refused here.
         let honoured_tier = crate::shell::honour_disabled_sandbox_tier()
@@ -516,8 +540,15 @@ impl rightkit_sandbox::execution::ProcessLaunchAdapter for NativeCommandSandboxA
         // macOS: drops DYLD_INSERT_LIBRARIES only, and only when the host turned on
         // `set_harden_children` (see `harden_child`).
         crate::process_launch::harden_child(command.as_std_mut());
-        command
-            .spawn()
+        // With `set_anchor_children_to_parent` the child's group is tied to the host (macOS has no
+        // parent-death signal; the watchdog is armed by `spawn_anchored`).
+        let anchored = crate::shell::anchor_children_to_parent();
+        let spawned = if anchored {
+            parent_death::spawn_anchored(command).await
+        } else {
+            command.spawn()
+        };
+        spawned
             .map(|child| {
                 Box::new(MacManagedChild {
                     child,
@@ -1554,16 +1585,6 @@ pub(crate) fn assign_windows_job_to_pid(pid: u32) -> std::io::Result<crate::sand
 }
 
 #[cfg(windows)]
-pub(crate) fn spawn_windows_appcontainer(
-    program: &str,
-    args: &[String],
-    workspace_root: &Path,
-    with_stdin: bool,
-) -> std::io::Result<crate::sandbox::ConfinedPipedChild> {
-    spawn_windows_appcontainer_with_grant(program, args, workspace_root, with_stdin, false, None)
-}
-
-#[cfg(windows)]
 pub(crate) fn spawn_windows_appcontainer_with_grant(
     program: &str,
     args: &[String],
@@ -1706,22 +1727,194 @@ pub fn os_sandbox_enforced(workspace_root: &Path) -> bool {
     )) && !sandbox_disabled_for_workspace(workspace_root)
 }
 
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+/// The sandbox configuration for `workspace_root` at its current tier. Linux only: the other
+/// launch paths pick their tier themselves.
+#[cfg(target_os = "linux")]
 pub(crate) fn local_sandbox_config(workspace_root: &Path) -> SandboxConfig {
     local_sandbox_config_for_tier(workspace_root, sandbox_tier_for_workspace(workspace_root))
 }
 
+/// The sandbox configuration for `workspace_root` at `tier`, with no rerun grant. Compiled only
+/// where a caller exists (Linux launches and the macOS streamed PTY); Windows uses
+/// `local_sandbox_config_for_tier_with_grant` through the shell tool.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(crate) fn local_sandbox_config_for_tier(
     workspace_root: &Path,
     tier: crate::sandbox::SandboxTier,
 ) -> SandboxConfig {
-    local_sandbox_config_with_home(
+    local_sandbox_config_for_tier_with_grant(workspace_root, tier, None)
+}
+
+/// `local_sandbox_config_for_tier` widened by the one digest-bound rerun grant the engine
+/// issued after the operator chose "Approve rerun" (`ToolContext::sandbox_retry_grant`, bound to
+/// the approved payload digest by the engine's tool dispatch). The shell tool passes it only with
+/// `set_sandbox_rerun_grant_unix`. This is the Linux counterpart of the Windows grant applied in
+/// the foreground shell (`spawn_windows_appcontainer_with_grant`).
+pub(crate) fn local_sandbox_config_for_tier_with_grant(
+    workspace_root: &Path,
+    tier: crate::sandbox::SandboxTier,
+    grant: Option<&crate::sandbox::SandboxGrant>,
+) -> SandboxConfig {
+    local_sandbox_config_with_grant_and_home(
         workspace_root,
         tier,
+        grant,
         std::env::var_os("HOME")
             .map(std::path::PathBuf::from)
             .as_deref(),
     )
+}
+
+/// Whether a backgrounded command may use the network: the same decision the foreground shell
+/// makes from the session's permission mode, so Bypass ("Full access") applies whether or not
+/// `run_in_background` is set. Used with `set_shell_background_follows_session`.
+pub(crate) fn background_network_allowed(ctx: &ToolContext) -> bool {
+    background_network_allowed_for(&ctx.workspace_root, ctx.sandbox_permission_mode())
+}
+
+pub(crate) fn background_network_allowed_for(
+    workspace_root: &Path,
+    permission_mode: rightkit_agent_policy::PermissionMode,
+) -> bool {
+    !effective_sandbox_tier(workspace_root, Some(permission_mode)).denies_network()
+}
+
+/// Resolve one rerun-grant path to the existing, canonical path the OS sandbox can grant.
+///
+/// Landlock (`add_rule` opens the path with `O_PATH`) and Seatbelt can only grant an existing
+/// inode, so a grant on a not-yet-created file would silently grant nothing. RightKit extracts
+/// the denied path from the shell's error, which is exactly such a file, so a missing path falls
+/// back to its parent directory (one level only). That widens a file grant to the whole
+/// directory for the one approved rerun. Refusals mirror the Windows `lease_extra_access_in`:
+/// a filesystem root, a protected secret, a path containing secrets, or (here) the home
+/// directory or one of its ancestors.
+///
+/// With `create_missing` (write grants only), a missing parent folder is created after approval
+/// instead: see `create_grant_folder`. The new folder then passes the same refusals as above.
+fn grantable_path(
+    path: &Path,
+    home: Option<&Path>,
+    create_missing: bool,
+) -> Option<std::path::PathBuf> {
+    if !path.is_absolute() {
+        return None;
+    }
+    let chosen: std::path::PathBuf = if std::fs::symlink_metadata(path).is_ok() {
+        path.to_path_buf()
+    } else if create_missing {
+        create_grant_folder(path)?
+    } else {
+        path.parent()?.to_path_buf()
+    };
+    let canonical = match std::fs::canonicalize(&chosen) {
+        Ok(canonical) => canonical,
+        Err(error) => {
+            tracing::warn!(path = %path.display(), %error, "rerun grant path skipped: does not resolve");
+            return None;
+        }
+    };
+    let refusal = if canonical.parent().is_none() {
+        Some("filesystem root")
+    // The secret checks run on the path as written and as resolved, so a symlinked or
+    // non-canonical home (macOS `/var` vs `/private/var`) cannot slip a secret past either.
+    } else if crate::sandbox::path_is_protected_secret(&canonical)
+        || crate::sandbox::path_is_protected_secret(&chosen)
+    {
+        Some("protected secret location")
+    } else if !crate::sandbox::secret_paths_within(&canonical).is_empty()
+        || !crate::sandbox::secret_paths_within(&chosen).is_empty()
+    {
+        Some("contains protected secrets")
+    } else if home.is_some_and(|home| {
+        let home = std::fs::canonicalize(home).unwrap_or_else(|_| home.to_path_buf());
+        home.starts_with(&canonical)
+    }) {
+        Some("home directory or an ancestor of it")
+    } else {
+        None
+    };
+    if let Some(reason) = refusal {
+        tracing::warn!(path = %path.display(), granted = %canonical.display(), reason, "rerun grant path refused");
+        return None;
+    }
+    Some(canonical)
+}
+
+/// Most missing folder levels a rerun grant may create.
+const MAX_CREATED_GRANT_DEPTH: usize = 8;
+
+/// Create the missing parent folder of a not-yet-existing grant path and return it. The last
+/// component of `path` is the file itself and is never created. The nearest existing ancestor
+/// must be reached without crossing a symlink below the top level: a link the agent planted in
+/// the workspace (`ws/link -> ~/.config`) would otherwise make the folder appear somewhere the
+/// approval card never showed. Top-level links such as macOS `/tmp -> /private/tmp` belong to
+/// root and are allowed. The ancestor must not be a root, a protected secret or contain
+/// secrets, and at most `MAX_CREATED_GRANT_DEPTH` plain components may be created.
+fn create_grant_folder(path: &Path) -> Option<std::path::PathBuf> {
+    let refuse = |reason: &str| {
+        tracing::warn!(path = %path.display(), reason, "rerun grant path refused");
+    };
+    let mut ancestor = path.parent()?;
+    let mut remaining = Vec::new();
+    while std::fs::symlink_metadata(ancestor).is_err() {
+        remaining.push(ancestor.components().next_back()?);
+        if remaining.len() > MAX_CREATED_GRANT_DEPTH {
+            refuse("too many missing folder levels");
+            return None;
+        }
+        ancestor = ancestor.parent()?;
+    }
+    let crosses_symlink = ancestor
+        .ancestors()
+        .filter(|prefix| prefix.components().count() > 2)
+        .any(|prefix| {
+            std::fs::symlink_metadata(prefix).is_ok_and(|meta| meta.file_type().is_symlink())
+        });
+    if crosses_symlink {
+        refuse("existing part of the path goes through a symbolic link");
+        return None;
+    }
+    if !remaining
+        .iter()
+        .all(|component| matches!(component, std::path::Component::Normal(_)))
+    {
+        refuse("missing folder path has a non-plain component");
+        return None;
+    }
+    remaining.reverse();
+    let canonical_ancestor = match std::fs::canonicalize(ancestor) {
+        Ok(canonical) => canonical,
+        Err(error) => {
+            tracing::warn!(path = %path.display(), %error, "rerun grant path skipped: does not resolve");
+            return None;
+        }
+    };
+    if canonical_ancestor.parent().is_none() {
+        refuse("filesystem root");
+        return None;
+    }
+    if crate::sandbox::path_is_protected_secret(&canonical_ancestor) {
+        refuse("protected secret location");
+        return None;
+    }
+    if !crate::sandbox::secret_paths_within(&canonical_ancestor).is_empty() {
+        refuse("contains protected secrets");
+        return None;
+    }
+    let target = remaining.iter().fold(canonical_ancestor, |dir, component| {
+        dir.join(component.as_os_str())
+    });
+    // Refuse before creating anything, so a refused grant leaves no empty folders behind. The
+    // target does not exist yet, so it cannot be home or an ancestor of it.
+    if crate::sandbox::path_is_protected_secret(&target) {
+        refuse("protected secret location");
+        return None;
+    }
+    if let Err(error) = std::fs::create_dir_all(&target) {
+        tracing::warn!(path = %path.display(), %error, "rerun grant folder could not be created");
+        return None;
+    }
+    Some(target)
 }
 
 /// Character devices a confined child may open for writing. Each is a device node, so a write grant
@@ -1815,9 +2008,10 @@ fn linux_withheld_reads(workspace_root: &Path) -> Vec<std::path::PathBuf> {
     withheld
 }
 
-pub(crate) fn local_sandbox_config_with_home(
+pub(crate) fn local_sandbox_config_with_grant_and_home(
     workspace_root: &Path,
     tier: crate::sandbox::SandboxTier,
+    grant: Option<&crate::sandbox::SandboxGrant>,
     home: Option<&Path>,
 ) -> SandboxConfig {
     let config = SandboxConfig::new()
@@ -1828,6 +2022,24 @@ pub(crate) fn local_sandbox_config_with_home(
         .allow_read("/lib64")
         .allow_read("/bin")
         .allow_read("/etc/ssl");
+    // The rerun grant adds only paths `grantable_path` accepts. A write path also needs read.
+    let config = match grant {
+        Some(grant) => {
+            let config = grant
+                .read_paths
+                .iter()
+                .filter_map(|path| grantable_path(path, home, false))
+                .fold(config, |config, path| config.allow_read(path));
+            grant
+                .write_paths
+                .iter()
+                .filter_map(|path| grantable_path(path, home, true))
+                .fold(config, |config, path| {
+                    config.allow_read(&path).allow_write(path)
+                })
+        }
+        None => config,
+    };
     // Linux Landlock denies everything it does not list, and git, ssh and most shells open
     // `/dev/null` read-write. Git treats an unreadable config file as fatal (EACCES, not
     // "missing"), and tools resolve users, hosts and alternatives through the `/etc` files.
@@ -1867,23 +2079,28 @@ pub(crate) fn local_sandbox_config_with_home(
             config
         };
     match tier {
-        crate::sandbox::SandboxTier::Strict => config.with_seccomp().deny_network(),
+        // RightKit's seccomp allowlist is network-denying, so a network rerun grant runs
+        // Landlock-only, the same as Bypass and WorkspaceWrite.
+        crate::sandbox::SandboxTier::Strict if !grant.is_some_and(|grant| grant.network) => {
+            config.with_seccomp().deny_network()
+        }
         _ => config,
     }
 }
 
 /// macOS Seatbelt wrapper: rewrite `(program, args)` to run under
 /// `sandbox-exec -p <profile>` unless the tier is disabled. Returns `None` when
-/// no wrapping should happen (tier `none`).
+/// no wrapping should happen (tier `none`). `grant` is the one digest-bound rerun grant.
 #[cfg(target_os = "macos")]
 pub(crate) fn macos_sandbox_wrap(
     program: &str,
     args: &[String],
     workspace_root: &Path,
     permission_mode: Option<rightkit_agent_policy::PermissionMode>,
+    grant: Option<&crate::sandbox::SandboxGrant>,
 ) -> Option<(String, Vec<String>)> {
     let tier = effective_sandbox_tier(workspace_root, permission_mode);
-    macos_sandbox_wrap_for_tier(program, args, workspace_root, tier)
+    macos_sandbox_wrap_for_tier_with_grant(program, args, workspace_root, tier, grant)
 }
 
 #[cfg(target_os = "macos")]
@@ -1893,10 +2110,21 @@ pub(crate) fn macos_sandbox_wrap_for_tier(
     workspace_root: &Path,
     tier: crate::sandbox::SandboxTier,
 ) -> Option<(String, Vec<String>)> {
+    macos_sandbox_wrap_for_tier_with_grant(program, args, workspace_root, tier, None)
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn macos_sandbox_wrap_for_tier_with_grant(
+    program: &str,
+    args: &[String],
+    workspace_root: &Path,
+    tier: crate::sandbox::SandboxTier,
+    grant: Option<&crate::sandbox::SandboxGrant>,
+) -> Option<(String, Vec<String>)> {
     if tier.is_disabled() {
         return None;
     }
-    let config = local_sandbox_config_for_tier(workspace_root, tier);
+    let config = local_sandbox_config_for_tier_with_grant(workspace_root, tier, grant);
     // Write-confinement-only Seatbelt (RightKit `ConfinementMode::WriteOnly`): reads and
     // execution stay open, writes are limited to the workspace plus temp/dev paths, and
     // the strict tier denies outbound network. RightKit realpath-resolves the write roots.

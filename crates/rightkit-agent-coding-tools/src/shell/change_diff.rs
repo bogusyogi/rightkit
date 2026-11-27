@@ -6,8 +6,11 @@
 // back, exactly, whatever its encoding), and a bounded unified diff of the changes is appended to
 // the result. With the option off none of this runs.
 
-/// The hidden per-workspace state directory the history lives in (the same one the edit tools use).
-const CHANGE_STATE_DIR: &str = ".rightkit";
+/// The hidden per-workspace state directory the history lives in (the same one the edit tools use):
+/// `rightkit_agent_config::state_dir_name`.
+fn change_state_dir() -> &'static str {
+    rightkit_agent_config::state_dir_name()
+}
 const MANIFEST_MAX_FILES: usize = 20_000;
 const MANIFEST_MAX_FILE_BYTES: u64 = 1024 * 1024;
 const MANIFEST_MAX_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
@@ -66,17 +69,12 @@ impl WorkspaceManifest {
             .require_git(false)
             .follow_links(false)
             .filter_entry(|entry| {
-                !matches!(
-                    entry.file_name().to_str(),
-                    Some(
-                        ".git"
-                            | CHANGE_STATE_DIR
-                            | "node_modules"
-                            | "target"
-                            | ".venv"
-                            | "__pycache__"
-                    )
-                )
+                let name = entry.file_name().to_str();
+                !(name == Some(change_state_dir())
+                    || matches!(
+                        name,
+                        Some(".git" | "node_modules" | "target" | ".venv" | "__pycache__")
+                    ))
             })
             .build();
         let mut seen = 0usize;
@@ -157,7 +155,7 @@ impl WorkspaceManifest {
         }
         let store = rightkit_agent_engine_history::HistoryStore::new(
             workspace,
-            CHANGE_STATE_DIR,
+            change_state_dir(),
             session_id,
         );
         let mut failed = Vec::new();

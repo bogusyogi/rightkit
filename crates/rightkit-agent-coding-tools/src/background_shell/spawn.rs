@@ -1,3 +1,6 @@
+// A stream with no newline is flushed in chunks of this size, not buffered whole.
+const BG_READ_CHUNK_MAX: u64 = 64 * 1024;
+
 #[cfg(windows)]
 enum BackgroundChild {
     Tokio(tokio::process::Child),
@@ -79,6 +82,7 @@ async fn run_windows_background(
     args: Vec<String>,
     workspace_root: std::path::PathBuf,
     apply_local_sandbox: bool,
+    network_allowed: bool,
     shell: Arc<BgShell>,
     mut kill_rx: tokio::sync::oneshot::Receiver<()>,
     cancel_rx: Option<tokio::sync::watch::Receiver<bool>>,
@@ -95,7 +99,14 @@ async fn run_windows_background(
         let spawn_args = args.clone();
         let spawn_root = workspace_root.clone();
         let mut spawn = tokio::task::spawn_blocking(move || {
-            crate::shell::spawn_windows_appcontainer(&spawn_program, &spawn_args, &spawn_root, true)
+            crate::shell::spawn_windows_appcontainer_with_grant(
+                &spawn_program,
+                &spawn_args,
+                &spawn_root,
+                true,
+                network_allowed,
+                None,
+            )
         });
         let spawned = tokio::select! {
             joined = &mut spawn => joined,
@@ -166,7 +177,10 @@ async fn run_windows_background(
             let mut buf = Vec::new();
             loop {
                 buf.clear();
-                match reader.read_until(b'\n', &mut buf).await {
+                match tokio::io::AsyncReadExt::take(&mut reader, BG_READ_CHUNK_MAX)
+                    .read_until(b'\n', &mut buf)
+                    .await
+                {
                     Ok(0) => break,
                     Ok(_) => sh.append(&buf),
                     Err(_) => break,
@@ -181,7 +195,10 @@ async fn run_windows_background(
             let mut buf = Vec::new();
             loop {
                 buf.clear();
-                match reader.read_until(b'\n', &mut buf).await {
+                match tokio::io::AsyncReadExt::take(&mut reader, BG_READ_CHUNK_MAX)
+                    .read_until(b'\n', &mut buf)
+                    .await
+                {
                     Ok(0) => break,
                     Ok(_) => sh.append(&buf),
                     Err(_) => break,
@@ -285,6 +302,59 @@ pub fn spawn_background_with_target(
     )
 }
 
+/// [`spawn_background_with_target`] for a command that follows the session that asked for it
+/// (`shell::set_shell_background_follows_session`).
+///
+/// `network_allowed` is the session's effective sandbox network decision
+/// (`!effective_sandbox_tier(root, Some(mode)).denies_network()`, see
+/// `shell::background_network_allowed`), so a backgrounded command gets the same network access as
+/// the same command in the foreground; Bypass ("Full access") is honoured on every OS.
+///
+/// `session_id` names the session that asked, so its background commands count against the
+/// per-session limit of the resource profile as well as the host-wide one. Empty means no
+/// session is known; only the host-wide limit applies then.
+pub fn spawn_background_for_session(
+    command: String,
+    workspace_root: &Path,
+    session_id: &str,
+    store: &BgStore,
+    cancel_rx: Option<tokio::sync::watch::Receiver<bool>>,
+    execution_target: BgExecutionTarget,
+    network_allowed: bool,
+) -> Result<String, crate::process_resource_authority::ProcessAdmissionError> {
+    let (program, flag) = crate::shell::platform_shell();
+    spawn_background_program_with_kind_and_target_using(
+        program.to_string(),
+        vec![flag.to_string(), command.clone()],
+        command,
+        workspace_root,
+        store,
+        cancel_rx,
+        execution_target,
+        true,
+        network_allowed,
+        "backgroundShell",
+        || reserve_background_process(workspace_root, session_id),
+    )
+}
+
+/// The governor applies a per-session limit only to a reservation made under the session's
+/// scope; under the workspace scope only the host-wide limit applies, so one session could take
+/// every background slot.
+fn reserve_background_process(
+    workspace_root: &Path,
+    session_id: &str,
+) -> Result<
+    crate::process_resource_authority::ProcessAdmission,
+    crate::process_resource_authority::ProcessAdmissionError,
+> {
+    crate::process_resource_authority::reserve_process(
+        crate::process_resource_authority::ResourceKind::BackgroundProcess,
+        crate::process_resource_authority::session_or_workspace_scope(session_id, workspace_root),
+        false,
+    )
+}
+
 pub fn spawn_background_program_with_target(
     program: String,
     args: Vec<String>,
@@ -328,6 +398,7 @@ pub fn spawn_background_program_with_kind_and_target(
         cancel_rx,
         execution_target,
         apply_local_sandbox,
+        false,
         process_kind,
         || {
             crate::process_resource_authority::reserve_process(
@@ -350,6 +421,7 @@ fn spawn_background_program_with_kind_and_target_using(
     cancel_rx: Option<tokio::sync::watch::Receiver<bool>>,
     execution_target: BgExecutionTarget,
     apply_local_sandbox: bool,
+    network_allowed: bool,
     process_kind: &str,
     reserve: impl FnOnce() -> Result<
         crate::process_resource_authority::ProcessAdmission,
@@ -369,6 +441,7 @@ fn spawn_background_program_with_kind_and_target_using(
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos(),
+        clock: Mutex::new(ShellClock::default()),
         output: Mutex::new(rightkit_agent_engine_runtime_resources::BoundedOutput::default()),
         cursor: Mutex::new(0),
         status: Mutex::new(BgStatus::Running),
@@ -421,6 +494,7 @@ fn spawn_background_program_with_kind_and_target_using(
         windows_args,
         workspace_root.to_path_buf(),
         apply_local_sandbox,
+        network_allowed,
         shell,
         kill_rx,
         cancel_rx,
@@ -444,7 +518,10 @@ fn spawn_background_program_with_kind_and_target_using(
                 sandbox_profile: Some("workspace".to_string()),
                 sandbox_required: apply_local_sandbox
                     && !crate::shell::sandbox_disabled_for_workspace(&workspace_root_owned),
-                network_required: false,
+                // The session's network decision (`spawn_background_for_session`), not a
+                // hard-coded denial: the native adapter then confines at WorkspaceWrite.
+                // `false` for every other entry point.
+                network_required: network_allowed,
             },
             // The scratch space the foreground shell gets (empty unless the host turned on
             // `set_session_scratch_tmpdir`): `/tmp` is denied by the sandbox.
@@ -488,7 +565,10 @@ fn spawn_background_program_with_kind_and_target_using(
                 let mut buf = Vec::new();
                 loop {
                     buf.clear();
-                    match reader.read_until(b'\n', &mut buf).await {
+                    match tokio::io::AsyncReadExt::take(&mut reader, BG_READ_CHUNK_MAX)
+                        .read_until(b'\n', &mut buf)
+                        .await
+                    {
                         Ok(0) => break,
                         Ok(_) => {
                             sh.append(&buf);
@@ -505,7 +585,10 @@ fn spawn_background_program_with_kind_and_target_using(
                 let mut buf = Vec::new();
                 loop {
                     buf.clear();
-                    match reader.read_until(b'\n', &mut buf).await {
+                    match tokio::io::AsyncReadExt::take(&mut reader, BG_READ_CHUNK_MAX)
+                        .read_until(b'\n', &mut buf)
+                        .await
+                    {
                         Ok(0) => break,
                         Ok(_) => {
                             sh.append(&buf);

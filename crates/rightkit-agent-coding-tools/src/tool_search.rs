@@ -10,6 +10,21 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const TOOL_SEARCH_DESCRIPTION: &str =
     "Discover available tools with a ranked shortlist from case-insensitive substring matching over tool names and descriptions.";
 
+/// The description with `set_tool_search_on_demand_description`: `tool_search` as the way to find
+/// and load the tools that are not in the current tool list.
+pub const TOOL_SEARCH_ON_DEMAND_DESCRIPTION: &str =
+    "Find and load tools that are not in your current tool list. Git, web search, browser, sub-agents, background tasks, skills, code intelligence, notebooks and MCP tools load on demand: call this with a few words for what you need (for example \"search the web\" or \"git diff\"); the matching tools can be called from your next step. With no query it returns a name index of every tool. Matching is substring search over tool names and descriptions, so use plain nouns and verbs.";
+
+/// The `tool_search` description in effect: [`TOOL_SEARCH_ON_DEMAND_DESCRIPTION`] with
+/// `tool_options::set_tool_search_on_demand_description`, else [`TOOL_SEARCH_DESCRIPTION`].
+pub fn tool_search_description() -> &'static str {
+    if crate::tool_options::tool_search_on_demand_description() {
+        TOOL_SEARCH_ON_DEMAND_DESCRIPTION
+    } else {
+        TOOL_SEARCH_DESCRIPTION
+    }
+}
+
 const SHORTLIST_MIN: usize = 5;
 const SHORTLIST_DEFAULT: usize = 7;
 const SHORTLIST_MAX: usize = 9;
@@ -71,7 +86,7 @@ impl ToolSearchTool {
         CapabilityDescriptor {
             id: "tool:tool_search".to_string(),
             name: "tool_search".to_string(),
-            description: TOOL_SEARCH_DESCRIPTION.to_string(),
+            description: tool_search_description().to_string(),
             schema_digest: crate::registry::capability_schema_digest(&input_schema),
             input_schema,
             read_only: true,
@@ -255,7 +270,7 @@ impl Tool for ToolSearchTool {
     }
 
     fn description(&self) -> &str {
-        TOOL_SEARCH_DESCRIPTION
+        tool_search_description()
     }
 
     fn input_schema(&self) -> Value {

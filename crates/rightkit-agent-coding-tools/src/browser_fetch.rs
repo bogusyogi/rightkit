@@ -12,9 +12,9 @@
 use crate::context::ToolContext;
 use crate::tool_trait::{Tool, ToolResult};
 use rightkit_agent_policy::{
-    prompt_injection_placeholder, resolve_then_reject_private,
-    resolve_then_reject_private_allow_loopback, scan_prompt_injection, CapabilityClass,
-    NetGuardError, PermissionDecision, PermissionEngine, ThreatScanScope,
+    prompt_injection_placeholder, resolve_then_reject_private_allow_loopback,
+    scan_prompt_injection, CapabilityClass, NetGuardError, PermissionDecision, PermissionEngine,
+    ThreatScanScope,
 };
 use scraper::{ElementRef, Html, Node, Selector};
 use serde_json::{json, Value};
@@ -93,8 +93,8 @@ impl Tool for BrowserFetchTool {
 
         match tier.as_str() {
             "native" => run_native(&url).await,
-            "js" => run_js(&url).await,
-            "auto" => run_auto(&url).await,
+            "js" => run_js(&url, ctx.cancel_rx.clone()).await,
+            "auto" => run_auto(&url, ctx.cancel_rx.clone()).await,
             other => ToolResult::error(format!(
                 "Unknown browser_fetch tier '{other}'. Supported: auto, native, js."
             )),
@@ -118,8 +118,120 @@ async fn run_native(url: &str) -> ToolResult {
     }
 }
 
+/// Page rendered by the host's WebKit view (iOS JS tier).
+#[cfg(target_os = "ios")]
+pub struct WebkitRendered {
+    /// URL the view finished on, after every redirect. Re-checked by the SSRF guard.
+    pub final_url: String,
+    /// The page title.
+    pub title: String,
+    /// The page's readable text.
+    pub text: String,
+}
+
+/// Host render callback: `(validated url, max response bytes)`. Blocking; the tool runs it
+/// on a blocking thread under the request timeout and the cancel watch.
+#[cfg(target_os = "ios")]
+pub type WebkitRenderer =
+    std::sync::Arc<dyn Fn(&str, usize) -> Result<WebkitRendered, String> + Send + Sync>;
+
+#[cfg(target_os = "ios")]
+static WEBKIT_RENDERER: std::sync::RwLock<Option<WebkitRenderer>> = std::sync::RwLock::new(None);
+
+/// Register (or replace) the host WebKit renderer. Called by the mobile runtime FFI.
+#[cfg(target_os = "ios")]
+pub fn install_webkit_renderer(renderer: WebkitRenderer) {
+    if let Ok(mut slot) = WEBKIT_RENDERER.write() {
+        *slot = Some(renderer);
+    }
+}
+
+/// JS on iOS: the host WebKit view renders the page. The SSRF guard runs on the requested
+/// URL before the callback and again on the final redirected URL before any text is used.
+#[cfg(target_os = "ios")]
+async fn run_js(url: &str, cancel: Option<tokio::sync::watch::Receiver<bool>>) -> ToolResult {
+    let renderer = match WEBKIT_RENDERER.read().ok().and_then(|slot| slot.clone()) {
+        Some(renderer) => renderer,
+        None => {
+            return ToolResult::error(
+                "JS rendering is unavailable: no WebKit renderer is installed",
+            )
+        }
+    };
+    let parsed = match parse_fetch_url(url) {
+        Ok(parsed) => parsed,
+        Err(FetchError::Blocked) => return ToolResult::error("render target was blocked"),
+        Err(FetchError::Other(message)) => return ToolResult::error(message),
+    };
+    if let Some(reason) = ssrf_guard_reject_reason("fetch", parsed.as_str()).await {
+        return ToolResult::error(reason);
+    }
+    let target = parsed.to_string();
+    let render = tokio::task::spawn_blocking(move || renderer(&target, MAX_DECOMPRESSED_BYTES));
+    let cancelled = async {
+        match cancel {
+            Some(mut rx) => loop {
+                if *rx.borrow() {
+                    return;
+                }
+                if rx.changed().await.is_err() {
+                    std::future::pending::<()>().await;
+                }
+            },
+            None => std::future::pending::<()>().await,
+        }
+    };
+    let rendered = tokio::select! {
+        _ = cancelled => return ToolResult::error("browser_fetch was cancelled"),
+        outcome = tokio::time::timeout(REQUEST_TIMEOUT, render) => match outcome {
+            Err(_) => return ToolResult::error("browser_fetch exceeded its 15-second total timeout"),
+            Ok(Err(_)) => return ToolResult::error("WebKit render task failed"),
+            Ok(Ok(Err(error))) => return ToolResult::error(error),
+            Ok(Ok(Ok(rendered))) => rendered,
+        },
+    };
+    let final_url = match parse_fetch_url(&rendered.final_url) {
+        Ok(final_url) => final_url,
+        Err(_) => return ToolResult::error("WebKit render ended on a blocked or invalid URL"),
+    };
+    if let Some(reason) = ssrf_guard_reject_reason("fetch", final_url.as_str()).await {
+        return ToolResult::error(reason);
+    }
+    let title = truncate_utf8_with_marker(rendered.title, MAX_EXTRACTED_TITLE_BYTES);
+    let text = truncate_utf8_with_marker(rendered.text, MAX_EXTRACTED_TEXT_BYTES);
+    ok_result(&FetchResult {
+        url: final_url.to_string(),
+        title: sanitize_untrusted_tool_text("browser_fetch", &title),
+        text: wrap_untrusted_web_text("browser_fetch", &text),
+        tier_used: 3,
+    })
+}
+
 /// JS: TinyFish renders the page server-side and returns markdown.
-async fn run_js(url: &str) -> ToolResult {
+#[cfg(not(target_os = "ios"))]
+async fn run_js(url: &str, cancel: Option<tokio::sync::watch::Receiver<bool>>) -> ToolResult {
+    let cancelled = async {
+        match cancel {
+            Some(mut rx) => loop {
+                if *rx.borrow() {
+                    return;
+                }
+                if rx.changed().await.is_err() {
+                    std::future::pending::<()>().await;
+                }
+            },
+            None => std::future::pending::<()>().await,
+        }
+    };
+    tokio::select! {
+        () = cancelled => ToolResult::error("browser_fetch was cancelled"),
+        result = run_js_remote(url) => result,
+    }
+}
+
+/// The remote render behind [`run_js`]: validate the target, then ask TinyFish for the page.
+#[cfg(not(target_os = "ios"))]
+async fn run_js_remote(url: &str) -> ToolResult {
     // TinyFish performs the target fetch remotely, so it cannot use the
     // native path's pinned resolver. Validate the scheme/credentials and reject
     // every locally resolved private target (including loopback) before sending
@@ -150,6 +262,7 @@ async fn run_js(url: &str) -> ToolResult {
     }
 }
 
+#[cfg(not(target_os = "ios"))]
 async fn validate_remote_render_target(url: &str) -> Result<url::Url, String> {
     let parsed = parse_fetch_url(url).map_err(|error| match error {
         FetchError::Blocked => "remote render target was blocked".to_string(),
@@ -167,7 +280,7 @@ async fn validate_remote_render_target(url: &str) -> Result<url::Url, String> {
     let port = parsed
         .port_or_known_default()
         .ok_or_else(|| "URL has no known port".to_string())?;
-    if let Err(error) = resolve_then_reject_private(host, port).await {
+    if let Err(error) = rightkit_agent_policy::resolve_then_reject_private(host, port).await {
         return Err(format!(
             "Refusing to fetch '{}': {error}. Remote rendering does not allow loopback or private targets.",
             parsed.as_str()
@@ -178,12 +291,12 @@ async fn validate_remote_render_target(url: &str) -> Result<url::Url, String> {
 
 /// Auto: native (incl. its stealth retry) and, only if the site blocks both,
 /// escalate to JS rendering.
-async fn run_auto(url: &str) -> ToolResult {
+async fn run_auto(url: &str, cancel: Option<tokio::sync::watch::Receiver<bool>>) -> ToolResult {
     match fetch_and_extract(url, false).await {
         Ok(result) => ok_result(&result),
         Err(FetchError::Blocked) => match fetch_and_extract(url, true).await {
             Ok(result) => ok_result(&result),
-            Err(FetchError::Blocked) => run_js(url).await,
+            Err(FetchError::Blocked) => run_js(url, cancel).await,
             Err(FetchError::Other(e)) => ToolResult::error(e),
         },
         Err(FetchError::Other(e)) => ToolResult::error(e),
@@ -522,9 +635,23 @@ fn extract_readable(html: &str) -> (String, String) {
     for sel_str in &content_selectors {
         if let Ok(sel) = Selector::parse(sel_str) {
             if let Some(el) = doc.select(&sel).next() {
-                let mut parts = Vec::new();
-                append_readable_text(el, &mut parts);
-                text = parts.join(" ");
+                if crate::tool_options::browser_fetch_markdown_text() {
+                    let mut rendered = String::new();
+                    append_readable_markdown(el, &mut rendered);
+                    // At most one blank line between blocks.
+                    text = rendered
+                        .lines()
+                        .map(str::trim_end)
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                        .replace("\n\n\n", "\n\n")
+                        .trim()
+                        .to_string();
+                } else {
+                    let mut parts = Vec::new();
+                    append_readable_text(el, &mut parts);
+                    text = parts.join(" ");
+                }
                 if text.len() > 100 {
                     break;
                 }
@@ -559,6 +686,96 @@ fn append_readable_text(element: ElementRef<'_>, parts: &mut Vec<String>) {
                     append_readable_text(child, parts);
                 }
             }
+        }
+    }
+}
+
+/// Render `element` as light Markdown into `out`: headings as `#`, list items as `- `, `<pre>` as a
+/// fence, table rows as `a | b`, block elements on their own lines. Plain text nodes are trimmed and
+/// joined with a space, as before.
+fn append_readable_markdown(element: ElementRef<'_>, out: &mut String) {
+    fn end_line(out: &mut String) {
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    fn blank_line(out: &mut String) {
+        end_line(out);
+        if !out.is_empty() && !out.ends_with("\n\n") {
+            out.push('\n');
+        }
+    }
+    fn push_inline(out: &mut String, text: &str) {
+        if !out.is_empty() && !out.ends_with(['\n', ' ', '`']) && !out.ends_with("- ") {
+            out.push(' ');
+        }
+        out.push_str(text);
+    }
+    fn inline_text(element: ElementRef<'_>) -> String {
+        let mut line = String::new();
+        append_readable_markdown(element, &mut line);
+        line.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+    for node in element.children() {
+        match node.value() {
+            Node::Text(text) => {
+                let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+                if !text.is_empty() {
+                    push_inline(out, &text);
+                }
+            }
+            Node::Element(child)
+                if matches!(child.name(), "script" | "style" | "noscript" | "template") => {}
+            Node::Element(child) => {
+                let Some(el) = ElementRef::wrap(node) else {
+                    continue;
+                };
+                match child.name() {
+                    "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+                        let level = usize::from(child.name().as_bytes()[1] - b'0');
+                        let text = inline_text(el);
+                        if !text.is_empty() {
+                            blank_line(out);
+                            out.push_str(&format!("{} {text}\n\n", "#".repeat(level)));
+                        }
+                    }
+                    "pre" => {
+                        blank_line(out);
+                        let code: String = el.text().collect();
+                        out.push_str(&format!("```\n{}\n```\n\n", code.trim_matches('\n')));
+                    }
+                    "li" => {
+                        end_line(out);
+                        let text = inline_text(el);
+                        if !text.is_empty() {
+                            out.push_str(&format!("- {text}\n"));
+                        }
+                    }
+                    "tr" => {
+                        end_line(out);
+                        let cells: Vec<String> = el
+                            .children()
+                            .filter_map(ElementRef::wrap)
+                            .filter(|cell| matches!(cell.value().name(), "td" | "th"))
+                            .map(inline_text)
+                            .collect();
+                        if !cells.is_empty() {
+                            out.push_str(&cells.join(" | "));
+                            out.push('\n');
+                        }
+                    }
+                    "br" => end_line(out),
+                    "p" | "div" | "section" | "article" | "main" | "header" | "footer" | "nav"
+                    | "aside" | "blockquote" | "ul" | "ol" | "table" | "figure" | "form" | "dl"
+                    | "dt" | "dd" | "hr" => {
+                        end_line(out);
+                        append_readable_markdown(el, out);
+                        end_line(out);
+                    }
+                    _ => append_readable_markdown(el, out),
+                }
+            }
+            _ => {}
         }
     }
 }

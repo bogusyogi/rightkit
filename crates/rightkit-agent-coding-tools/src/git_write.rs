@@ -19,7 +19,11 @@ impl Tool for GitWriteTool {
     }
 
     fn description(&self) -> &str {
-        "Guarded Git stage, commit, and push with exact repository/path/ref/remote inputs and machine-readable approval/effect receipts. Force and wildcard pushes are refused."
+        if crate::tool_options::git_write_full_description() {
+            "Guarded Git mutations (stage, unstage, discard, commit, push, init, set_remote, branch_create, branch_switch, branch_delete) with exact repository/path/ref/remote inputs and machine-readable approval/effect receipts. Destructive: discard overwrites the working-tree files at the given paths with their staged content, permanently losing uncommitted edits; branch_delete with force deletes an unmerged branch. Force and wildcard pushes are refused."
+        } else {
+            "Guarded Git stage, commit, and push with exact repository/path/ref/remote inputs and machine-readable approval/effect receipts. Force and wildcard pushes are refused."
+        }
     }
 
     fn input_schema(&self) -> Value {

@@ -24,7 +24,9 @@ pub struct CheckpointStore {
 impl CheckpointStore {
     pub fn new(workspace_root: &Path) -> Self {
         Self {
-            dir: workspace_root.join(".rightkit").join("checkpoints"),
+            dir: workspace_root
+                .join(rightkit_agent_config::state_dir_name())
+                .join("checkpoints"),
         }
     }
 

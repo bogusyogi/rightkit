@@ -73,6 +73,7 @@ pub async fn spawn_managed_channel_with_kind(
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos(),
+        clock: Mutex::new(ShellClock::default()),
         output: Mutex::new(BoundedOutput::default()),
         cursor: Mutex::new(0),
         status: Mutex::new(BgStatus::Running),

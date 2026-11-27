@@ -39,7 +39,7 @@ host_option!(
 
 host_option!(
     /// Gives each shell command a writable scratch directory inside the workspace
-    /// (`<workspace>/.rightkit/tmp/<session>`, with a `.gitignore` of `*` beside it) and exports it as
+    /// (`<workspace>/<state dir>/tmp/<session>`, with a `.gitignore` of `*` beside it) and exports it as
     /// `TMPDIR`, `TEMP` and `TMP`, because the sandbox denies `/tmp`. Background shells share the
     /// name `background`. `false` (the default) sets none of these variables and creates no folder.
     SESSION_SCRATCH_TMPDIR,
@@ -106,13 +106,25 @@ host_option!(
 host_option!(
     /// Undoes a foreground shell command's changes to the files that configure future sessions
     /// (hooks, config, MCP servers, policy, rules, skills, instruction files) when the content the
-    /// session read is not the user's own, and reports them; and, as the other half of that rule,
-    /// asks for approval only when remote (web or MCP) content influenced the session. `false`
-    /// (the default) refuses any command influenced by non-user content without approval and
-    /// restores nothing.
+    /// session read is not the user's own, and reports them. `false` (the default) restores
+    /// nothing. This option does not change when approval is asked: see
+    /// `set_shell_approval_for_remote_content_only`.
     SHELL_PROTECT_CONFIG_FILES,
     set_shell_protect_config_files,
     shell_protect_config_files
+);
+
+host_option!(
+    /// Asks for durable-write approval of a shell command, and of input or EOF written to a managed
+    /// process, only when remote (web or MCP) content influenced the session; content the user
+    /// did not type but that is not remote (a file read from the workspace, say) needs none. `false`
+    /// (the default) requires approval after any non-user content. This is looser than the
+    /// default, so a host that sets it should also set `set_shell_protect_config_files`, whose
+    /// restore guard undoes what such a command changes in the files that configure future
+    /// sessions.
+    SHELL_APPROVAL_FOR_REMOTE_CONTENT_ONLY,
+    set_shell_approval_for_remote_content_only,
+    shell_approval_for_remote_content_only
 );
 
 host_option!(
@@ -136,7 +148,7 @@ host_option!(
 host_option!(
     /// Records what a shell command changes in the workspace. The workspace's files (up to 20,000,
     /// each up to 1 MiB, 256 MiB in all; `.git`, `node_modules`, `target`, `.venv`, `__pycache__`
-    /// and `.rightkit` are skipped, and so is what the workspace's ignore files exclude) are read
+    /// and the host's state folder are skipped, and so is what the workspace's ignore files exclude) are read
     /// before a command and compared after it. Each file it changed, created or deleted gets a
     /// restore point in the session's history (`rightkit-agent-engine-history`, the same store the
     /// edit tools use, byte for byte), a file with no restore point is named in the result, and a
@@ -164,6 +176,168 @@ host_option!(
     set_shell_withhold_secrets,
     shell_withhold_secrets
 );
+
+host_option!(
+    /// Before a foreground or background shell command runs, reads the file each simple clause of
+    /// it runs (the program, or the interpreter's script operand) and refuses the command when
+    /// that file contains a catastrophic command (`rightkit_agent_policy::exec_reason`), so a script
+    /// written by an earlier tool call is checked at launch and not only the command line. A clause
+    /// that names a symbolic link whose target lies outside the workspace is skipped, never read.
+    /// `false` (the default) applies only the command-line destructive guard.
+    SHELL_EXEC_BOUNDARY_GUARD,
+    set_shell_exec_boundary_guard,
+    shell_exec_boundary_guard
+);
+
+host_option!(
+    /// Windows only: refuses a shell command when the session carries `deny-read-globs` entries
+    /// of its own (beyond the always-on defaults), because the AppContainer sandbox cannot enforce
+    /// them inside a granted folder (a lowbox token ignores DENY entries, rightkit#887) and only the
+    /// file tools would. A workspace whose sandbox is turned off is exempt. `false` (the default)
+    /// runs the command with those globs unenforced for the shell.
+    SHELL_REFUSE_UNENFORCED_PATH_DENY,
+    set_shell_refuse_unenforced_path_deny,
+    shell_refuse_unenforced_path_deny
+);
+
+host_option!(
+    /// Makes a `run_in_background` shell follow the session that started it: it gets the network
+    /// access the foreground shell would have in the session's permission mode (so a Bypass
+    /// session's background command is not network-denied), and its process slot counts against the
+    /// per-session limit of the resource profile as well as the host-wide one. `false` (the
+    /// default) starts it with the network denied and counts it under the workspace only.
+    SHELL_BACKGROUND_FOLLOWS_SESSION,
+    set_shell_background_follows_session,
+    shell_background_follows_session
+);
+
+host_option!(
+    /// Applies the one digest-bound rerun grant the engine issues after the operator chose
+    /// "Approve rerun" (`ToolContext::sandbox_retry_grant`) on Linux and macOS too, as it already is
+    /// on Windows: the granted read and write paths widen that one launch (a missing path falls back
+    /// to its parent folder; a filesystem root, a protected secret location, a folder that contains
+    /// secrets and the home folder or an ancestor of it are refused), and a network grant leaves the
+    /// Strict seccomp network denial off for it. `false` (the default) ignores the grant there.
+    SANDBOX_RERUN_GRANT_UNIX,
+    set_sandbox_rerun_grant_unix,
+    sandbox_rerun_grant_unix
+);
+
+host_option!(
+    /// Linux and macOS: a sandboxed launch of a vendor program (a sandbox profile that starts with
+    /// `vendor-` or `driver`) through `NativeCommandSandboxAdapter` may also read the host's own
+    /// executable, which that program starts as its one MCP server. `false` (the default) grants no
+    /// such read.
+    NATIVE_VENDOR_OWN_EXECUTABLE_READ,
+    set_native_vendor_own_executable_read,
+    native_vendor_own_executable_read
+);
+
+host_option!(
+    /// For a vendor program (a launch profile that starts with `vendor-` or `driver`), removes the
+    /// variables a parent Claude Code session exports (`CLAUDE_HOST_SESSION_ENV`) from the child's
+    /// environment, unless the launch sets a real value itself, so the program describes itself and
+    /// cannot attach to the parent's session, messaging socket or token. `false` (the default)
+    /// leaves them as inherited.
+    STRIP_PARENT_CLAUDE_SESSION_ENV,
+    set_strip_parent_claude_session_env,
+    strip_parent_claude_session_env
+);
+
+host_option!(
+    /// Linux: confines the shell, the native launch adapter and the streamed PTY through one
+    /// `rightkit_sandbox::SandboxPolicy` built by `SandboxConfig::rightkit_policy`: Landlock grants
+    /// only the listed paths (no implicit `/proc`, `/etc`, `/sys` or `/dev` root), the Landlock signal
+    /// scope is the child's own domain, and the network is denied by seccomp. `false` (the default)
+    /// keeps the crate's own Landlock ruleset (`SandboxConfig::seccomp_policy` for the seccomp half),
+    /// which has no signal scope. Other platforms are unaffected.
+    SANDBOX_POLICY_CONFINEMENT,
+    set_sandbox_policy_confinement,
+    sandbox_policy_confinement
+);
+
+host_option!(
+    /// Starts a managed PTY (`execution_channel: "pty"`) through `rightkit_sandbox`'s streamed PTY
+    /// (`Sandbox::spawn_pty_stream`) on Linux, macOS and Windows, with the confinement policy of
+    /// [`set_sandbox_policy_confinement`] on Linux and the environment of the launch (inherited
+    /// variables minus the scrubbed ones) as an explicit allowlist. `false` (the default) keeps
+    /// the crate's own PTY transports: Linux and Windows backends, `portable-pty` on macOS.
+    MANAGED_PTY_STREAMED,
+    set_managed_pty_streamed,
+    managed_pty_streamed
+);
+
+host_option!(
+    /// macOS: the Seatbelt profile for a vendor driver (`SandboxConfig::driver`) allows no write or
+    /// ioctl on terminal devices and reads metadata only on the granted roots and their ancestors,
+    /// and lists the certificate store (`/private/etc/ssl`) for reading in place of the blanket
+    /// `/etc` read (rightkit#711). `false` (the default) keeps the wider profile.
+    SANDBOX_STRICT_DRIVER_PROFILE,
+    set_sandbox_strict_driver_profile,
+    sandbox_strict_driver_profile
+);
+
+host_option!(
+    /// Counts an acknowledged input sequence of a managed process as `sequence + 1` (the number of
+    /// inputs acknowledged), so `last_acked_input_sequence` equals `next_input_sequence` once
+    /// every input was delivered and a delivered write leaves no unacknowledged range; a re-attach
+    /// is then no longer refused after the first input. `false` (the default) records the sequence
+    /// number itself, which leaves the most recent delivered input looking unacknowledged.
+    PROCESS_LEASE_ACK_COUNTS,
+    set_process_lease_ack_counts,
+    process_lease_ack_counts
+);
+
+host_option!(
+    /// The background shell poll tool (`get_shell_output`) adds `output_base64` only when the
+    /// output is not valid UTF-8 (the `output` text already carries valid UTF-8 exactly). `false`
+    /// (the default) always adds it.
+    BACKGROUND_OUTPUT_BASE64_WHEN_LOSSY,
+    set_background_output_base64_when_lossy,
+    background_output_base64_when_lossy
+);
+
+/// Names a host adds to the environment scrub of every launch, and the subset of them a launch
+/// keeps when it sets the value itself.
+struct ExtraScrubbedEnv {
+    scrubbed: Vec<String>,
+    kept_when_launch_sets: Vec<String>,
+}
+
+static EXTRA_SCRUBBED_ENV: std::sync::OnceLock<ExtraScrubbedEnv> = std::sync::OnceLock::new();
+
+/// Adds fixed environment variable names to the scrub every child launch applies (the credential,
+/// daemon-token and licence names that the launchers already remove). `scrubbed` are removed from
+/// the inherited environment and from the launch's own layered environment; of those,
+/// `kept_when_launch_sets` stay when the launch sets them itself (a driver gateway secret layered
+/// on purpose). The names are matched exactly. A host uses this to keep its own daemon secrets out
+/// of children by a spelling that does not depend on when `rightkit_agent_config::set_env_prefix`
+/// ran. Call once at start-up; returns `false` (and changes nothing) when a choice was already made.
+pub fn set_extra_scrubbed_env_names(scrubbed: &[&str], kept_when_launch_sets: &[&str]) -> bool {
+    EXTRA_SCRUBBED_ENV
+        .set(ExtraScrubbedEnv {
+            scrubbed: scrubbed.iter().map(|name| name.to_string()).collect(),
+            kept_when_launch_sets: kept_when_launch_sets
+                .iter()
+                .map(|name| name.to_string())
+                .collect(),
+        })
+        .is_ok()
+}
+
+/// Whether `name` is one of the names added by [`set_extra_scrubbed_env_names`].
+pub(crate) fn extra_scrubbed_env_name(name: &str) -> bool {
+    EXTRA_SCRUBBED_ENV
+        .get()
+        .is_some_and(|extra| extra.scrubbed.iter().any(|scrubbed| scrubbed == name))
+}
+
+/// Whether `name` is one of the added names a launch keeps when it sets the value itself.
+pub(crate) fn extra_kept_env_name(name: &str) -> bool {
+    EXTRA_SCRUBBED_ENV
+        .get()
+        .is_some_and(|extra| extra.kept_when_launch_sets.iter().any(|kept| kept == name))
+}
 
 static SHELL_NOTICE_LABEL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 

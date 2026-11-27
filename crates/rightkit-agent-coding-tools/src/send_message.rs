@@ -19,7 +19,25 @@ use crate::tool_trait::{Tool, ToolResult};
 use serde_json::{json, Value};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub struct SendMessageTool;
+/// The `send_message` tool.
+pub struct SendMessageTool {
+    description: std::sync::OnceLock<String>,
+}
+
+impl SendMessageTool {
+    /// A fresh tool; its description is composed on first use from the host's names and options.
+    pub fn new() -> Self {
+        Self {
+            description: std::sync::OnceLock::new(),
+        }
+    }
+}
+
+impl Default for SendMessageTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[async_trait::async_trait]
 impl Tool for SendMessageTool {
@@ -28,17 +46,27 @@ impl Tool for SendMessageTool {
     }
 
     fn description(&self) -> &str {
-        #[cfg(feature = "host")]
-        {
-            "Send a message to a specific session or broadcast to all. Writes the message to the \
-             messages drop-dir ($HOST_MESSAGES_DIR or ~/.host/messages) as a JSON file \
-             for the daemon to forward. Returns confirmation with the target."
-        }
-        // The mobile build has no env override, so its description names none.
-        #[cfg(not(feature = "host"))]
-        {
-            "Send a message to a specific session or broadcast to all. Writes the message to the messages drop-dir (~/.rightkit/messages) as a JSON file for the daemon to forward. Returns confirmation with the target."
-        }
+        // Composed on first ask and kept for this tool instance only, so it follows the names and
+        // options the host has set by the time the tool is built, not a process-wide first read.
+        self.description.get_or_init(|| {
+            let drop_dir = if cfg!(feature = "host") && !crate::tool_options::send_message_fixed_dir()
+            {
+                format!(
+                    "${} or ~/{}/messages",
+                    rightkit_agent_config::env_name("MESSAGES_DIR"),
+                    rightkit_agent_config::state_dir_name()
+                )
+            } else if cfg!(feature = "host") {
+                // The host build with the fixed directory: always the state root's folder.
+                "<state root>/messages".to_string()
+            } else {
+                // The mobile build has no env override, so its description names none.
+                format!("~/{}/messages", rightkit_agent_config::state_dir_name())
+            };
+            format!(
+                "Send a message to a specific session or broadcast to all. Writes the message to the messages drop-dir ({drop_dir}) as a JSON file for the daemon to forward. Returns confirmation with the target."
+            )
+        })
     }
 
     fn input_schema(&self) -> Value {
@@ -95,14 +123,20 @@ impl Tool for SendMessageTool {
             .map(|d| d.as_millis())
             .unwrap_or(0);
 
-        // `RIGHTKIT_MESSAGES_DIR` relocates the message directory in `host`
-        // builds only; the mobile profile always uses the state root.
+        // `<prefix>_MESSAGES_DIR` (`rightkit_agent_config::env_name`) relocates the message
+        // directory in `host` builds only, and not with `set_send_message_fixed_dir`; the mobile
+        // profile always uses the state root.
         let default_dir = || match rightkit_agent_config::state_root() {
             Some(root) => root.join("messages").to_string_lossy().into_owned(),
-            None => "/tmp/.rightkit/messages".to_string(),
+            None => format!("/tmp/{}/messages", rightkit_agent_config::state_dir_name()),
         };
         #[cfg(feature = "host")]
-        let dir = std::env::var("RIGHTKIT_MESSAGES_DIR").unwrap_or_else(|_| default_dir());
+        let dir = if crate::tool_options::send_message_fixed_dir() {
+            default_dir()
+        } else {
+            std::env::var(rightkit_agent_config::env_name("MESSAGES_DIR"))
+                .unwrap_or_else(|_| default_dir())
+        };
         #[cfg(not(feature = "host"))]
         let dir = default_dir();
 

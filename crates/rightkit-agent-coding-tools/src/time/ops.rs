@@ -22,11 +22,11 @@ fn current_time(args: &Value) -> ToolResult {
 
     let mut results = serde_json::Map::new();
     for tz in &zones {
-        match tz_offset(tz) {
+        match tz_offset(tz, unix) {
             Ok((offset, label)) => {
                 results.insert(
                     tz.clone(),
-                    serde_json::Value::String(apply_offset(unix, offset, label)),
+                    serde_json::Value::String(apply_offset(unix, offset, &label)),
                 );
             }
             Err(e) => {
@@ -72,17 +72,17 @@ fn convert_time(args: &Value) -> ToolResult {
     {
         unix
     } else if let Some(from_tz) = args.get("from_timezone").and_then(|v| v.as_str()) {
-        match tz_offset(from_tz) {
-            Ok((offset, _)) => unix - offset, // convert local → UTC
+        match tz_offset_for_local(from_tz, unix) {
+            Ok(offset) => unix - offset, // convert local → UTC
             Err(e) => return ToolResult::error(e),
         }
     } else {
         unix // assume UTC
     };
 
-    match tz_offset(to_tz) {
+    match tz_offset(to_tz, unix) {
         Ok((offset, label)) => {
-            let converted = apply_offset(unix, offset, label);
+            let converted = apply_offset(unix, offset, &label);
             ToolResult::ok(
                 serde_json::json!({
                     "input": dt_str,

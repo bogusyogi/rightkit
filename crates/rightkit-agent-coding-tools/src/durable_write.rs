@@ -28,21 +28,38 @@ pub(crate) fn repository_policy_kind(path: &Path) -> Option<DurableWriteKind> {
         return Some(DurableWriteKind::RepositoryInstruction);
     }
 
+    // Files that configure what runs or what is allowed in the next session.
+    // The project hook file is `<state-dir>/hooks.json` (a file, not the
+    // `hooks` directory), and MCP server lists start processes.
+    if matches!(file, ".mcp.json") {
+        return Some(DurableWriteKind::Hook);
+    }
+    let state_dir = rightkit_agent_config::state_dir_name().to_ascii_lowercase();
     for pair in parts.windows(2) {
-        match (pair[0].as_str(), pair[1].as_str()) {
-            (".rightkit", "hooks") => return Some(DurableWriteKind::Hook),
-            (".rightkit", "skills") | (".rightkit", "agents") | (".claude", "skills") => {
-                return Some(DurableWriteKind::Skill)
+        let (dir, name) = (pair[0].as_str(), pair[1].as_str());
+        if dir == state_dir {
+            match name {
+                "hooks" | "hooks.json" | "mcp.json" => return Some(DurableWriteKind::Hook),
+                "config.toml"
+                | "policy.abac.yaml"
+                | "policy.abac.yml"
+                | "permission-rules.json" => return Some(DurableWriteKind::Rule),
+                "schedules.json" => return Some(DurableWriteKind::Schedule),
+                "skills" | "agents" => return Some(DurableWriteKind::Skill),
+                "rules" => return Some(DurableWriteKind::Rule),
+                "instructions" => return Some(DurableWriteKind::RepositoryInstruction),
+                _ => {}
             }
-            (".rightkit", "rules") | (".claude", "rules") => return Some(DurableWriteKind::Rule),
-            (".rightkit", "instructions") | (".claude", "instructions") => {
-                return Some(DurableWriteKind::RepositoryInstruction)
-            }
+        }
+        match (dir, name) {
+            (".claude", "skills") => return Some(DurableWriteKind::Skill),
+            (".claude", "rules") => return Some(DurableWriteKind::Rule),
+            (".claude", "instructions") => return Some(DurableWriteKind::RepositoryInstruction),
             _ => {}
         }
     }
 
-    if parts.len() >= 2 && parts[parts.len() - 2] == ".rightkit" && file == "policy.toml" {
+    if parts.len() >= 2 && parts[parts.len() - 2] == state_dir && file == "policy.toml" {
         return Some(DurableWriteKind::Rule);
     }
     None
@@ -67,6 +84,15 @@ fn state_root_policy_kind(parts: &[String]) -> Option<DurableWriteKind> {
     let rest = parts.strip_prefix(root_parts.as_slice())?;
     match rest {
         [dir, ..] if dir == "hooks" => Some(DurableWriteKind::Hook),
+        [file] if file == "hooks.json" || file == "mcp.json" => Some(DurableWriteKind::Hook),
+        [file]
+            if file == "config.toml"
+                || file == "permission-rules.json"
+                || file == "policy.abac.yaml"
+                || file == "policy.abac.yml" =>
+        {
+            Some(DurableWriteKind::Rule)
+        }
         [dir, ..] if dir == "skills" || dir == "agents" => Some(DurableWriteKind::Skill),
         [dir, ..] if dir == "rules" => Some(DurableWriteKind::Rule),
         [dir, ..] if dir == "instructions" => Some(DurableWriteKind::RepositoryInstruction),
@@ -86,6 +112,15 @@ pub(crate) fn patch_arg_kind(args: &serde_json::Value) -> Option<DurableWriteKin
         .and_then(serde_json::Value::as_str)?
         .lines()
         .filter_map(|line| line.strip_prefix("*** "))
+        // The Codex envelope names files as `*** Update File: path`; without
+        // this the header text itself was classified as the path.
+        .map(|header| {
+            ["Update File:", "Add File:", "Delete File:"]
+                .iter()
+                .find_map(|prefix| header.strip_prefix(prefix))
+                .unwrap_or(header)
+                .trim()
+        })
         .find_map(|path| repository_policy_kind(Path::new(path)))
 }
 

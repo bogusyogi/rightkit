@@ -30,7 +30,6 @@ use rightkit_sandbox::execution::{
 use std::future::Future;
 use std::pin::Pin;
 use std::time::Duration;
-use tokio::io::AsyncReadExt;
 
 struct GovernedMediaProcessLaunchAdapter {
     network_required: bool,
@@ -69,26 +68,10 @@ impl rightkit_ffmpeg::agent_media::ProcessLaunchAdapter for GovernedMediaProcess
             let process_id = child.pid().map(|pid| pid.to_string());
             let stdout = child.take_stdout();
             let stderr = child.take_stderr();
-            let stdout_task = tokio::spawn(async move {
-                let mut bytes = Vec::new();
-                if let Some(mut stream) = stdout {
-                    stream
-                        .read_to_end(&mut bytes)
-                        .await
-                        .map_err(|error| error.to_string())?;
-                }
-                Ok::<_, String>(bytes)
-            });
-            let stderr_task = tokio::spawn(async move {
-                let mut bytes = Vec::new();
-                if let Some(mut stream) = stderr {
-                    stream
-                        .read_to_end(&mut bytes)
-                        .await
-                        .map_err(|error| error.to_string())?;
-                }
-                Ok::<_, String>(bytes)
-            });
+            // Bounded capture: output past the cap is drained and dropped, so a
+            // process streaming gigabytes cannot exhaust the daemon's memory.
+            let (stdout_task, stdout_kept) = spawn_capped_reader(stdout);
+            let (stderr_task, stderr_kept) = spawn_capped_reader(stderr);
             let wait = async {
                 if let Some(mut cancel_rx) = cancel_rx {
                     tokio::select! {
@@ -118,8 +101,11 @@ impl rightkit_ffmpeg::agent_media::ProcessLaunchAdapter for GovernedMediaProcess
                     ));
                 }
             };
-            let stdout = stdout_task.await.map_err(|error| error.to_string())??;
-            let stderr = stderr_task.await.map_err(|error| error.to_string())??;
+            // The child has exited, but a background grandchild can still hold its pipes open,
+            // and then EOF never comes. The readers get a short grace, then the call returns with
+            // what the child wrote.
+            let stdout = finish_reader(stdout_task, &stdout_kept, READER_GRACE_AFTER_EXIT).await?;
+            let stderr = finish_reader(stderr_task, &stderr_kept, READER_GRACE_AFTER_EXIT).await?;
             Ok(rightkit_ffmpeg::agent_media::ManagedProcessOutput {
                 output: std::process::Output {
                     status: exit_status(status),
@@ -130,6 +116,70 @@ impl rightkit_ffmpeg::agent_media::ProcessLaunchAdapter for GovernedMediaProcess
             })
         })
     }
+}
+
+/// How long a media child's output readers may run on after the child exited.
+const READER_GRACE_AFTER_EXIT: Duration = Duration::from_secs(2);
+
+/// Most bytes kept from one stream of a media subprocess: twice the 50 000-byte limit
+/// `rightkit_ffmpeg::agent_media` puts on the text it returns, which leaves room for its
+/// truncation marker. The rest of the stream is read and discarded so the child never blocks.
+const MAX_CAPTURED_STREAM_BYTES: usize = 100_000;
+
+type CapturedBytes = std::sync::Arc<std::sync::Mutex<Vec<u8>>>;
+
+/// Drain `stream` to EOF on its own task, keeping at most [`MAX_CAPTURED_STREAM_BYTES`] in a
+/// buffer the caller can still read if the task has to be abandoned.
+fn spawn_capped_reader<R>(
+    stream: Option<R>,
+) -> (tokio::task::JoinHandle<Result<(), String>>, CapturedBytes)
+where
+    R: tokio::io::AsyncRead + Unpin + Send + 'static,
+{
+    let kept = CapturedBytes::default();
+    let sink = kept.clone();
+    let task = tokio::spawn(async move {
+        use tokio::io::AsyncReadExt as _;
+        let Some(mut stream) = stream else {
+            return Ok(());
+        };
+        let cap = MAX_CAPTURED_STREAM_BYTES;
+        let mut buffer = vec![0u8; 64 * 1024];
+        loop {
+            let read = stream
+                .read(&mut buffer)
+                .await
+                .map_err(|error| error.to_string())?;
+            if read == 0 {
+                return Ok(());
+            }
+            let mut kept = sink
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let room = cap.saturating_sub(kept.len());
+            kept.extend_from_slice(&buffer[..read.min(room)]);
+        }
+    });
+    (task, kept)
+}
+
+/// Wait at most `grace` for a reader to reach EOF; past it, stop the reader and keep what it
+/// captured. A read error still fails, as before.
+async fn finish_reader(
+    task: tokio::task::JoinHandle<Result<(), String>>,
+    kept: &CapturedBytes,
+    grace: Duration,
+) -> Result<Vec<u8>, String> {
+    let abort = task.abort_handle();
+    match tokio::time::timeout(grace, task).await {
+        Ok(joined) => joined.map_err(|error| error.to_string())??,
+        Err(_) => abort.abort(),
+    }
+    Ok(std::mem::take(
+        &mut *kept
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    ))
 }
 
 #[cfg(windows)]

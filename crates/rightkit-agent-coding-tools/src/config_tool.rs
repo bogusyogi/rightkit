@@ -177,7 +177,7 @@ impl ConfigTool {
 
 fn config_path(ctx: &ToolContext) -> PathBuf {
     ctx.workspace_root
-        .join(".rightkit")
+        .join(rightkit_agent_config::state_dir_name())
         .join("agent-config.json")
 }
 

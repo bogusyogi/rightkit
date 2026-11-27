@@ -176,29 +176,43 @@ impl Tool for PowerShellTool {
 
 /// Files and folders in a workspace that decide what a FUTURE session runs or is allowed to do:
 /// hooks, config, MCP servers, rules, skills and instruction files (the same set
-/// `durable_write::repository_policy_kind` guards for typed writes).
-const PROTECTED_PATHS: &[&str] = &[
-    ".rightkit/hooks.json",
-    ".rightkit/hooks",
-    ".rightkit/config.toml",
-    ".rightkit/mcp.json",
-    ".rightkit/policy.toml",
-    ".rightkit/policy.abac.yaml",
-    ".rightkit/policy.abac.yml",
-    ".rightkit/permission-rules.json",
-    ".rightkit/schedules.json",
-    ".rightkit/skills",
-    ".rightkit/agents",
-    ".rightkit/rules",
-    ".rightkit/instructions",
-    ".claude/skills",
-    ".claude/rules",
-    ".claude/instructions",
-    ".mcp.json",
-    "AGENTS.md",
-    "CLAUDE.md",
-    "RIGHT.md",
-];
+/// `durable_write::repository_policy_kind` guards for typed writes). The host's state folder is
+/// `rightkit_agent_config::state_dir_name`.
+fn protected_paths() -> Vec<String> {
+    let state_dir = rightkit_agent_config::state_dir_name();
+    let mut paths: Vec<String> = [
+        "hooks.json",
+        "hooks",
+        "config.toml",
+        "mcp.json",
+        "policy.toml",
+        "policy.abac.yaml",
+        "policy.abac.yml",
+        "permission-rules.json",
+        "schedules.json",
+        "skills",
+        "agents",
+        "rules",
+        "instructions",
+    ]
+    .iter()
+    .map(|name| format!("{state_dir}/{name}"))
+    .collect();
+    paths.extend(
+        [
+            ".claude/skills",
+            ".claude/rules",
+            ".claude/instructions",
+            ".mcp.json",
+            "AGENTS.md",
+            "CLAUDE.md",
+            "RIGHT.md",
+        ]
+        .iter()
+        .map(|path| path.to_string()),
+    );
+    paths
+}
 const PROTECTED_SNAPSHOT_MAX_FILES: usize = 400;
 const PROTECTED_SNAPSHOT_MAX_BYTES: u64 = 2 * 1024 * 1024;
 
@@ -244,7 +258,7 @@ impl ProtectedSnapshot {
             }
         }
         let mut out = std::collections::BTreeMap::new();
-        for relative in PROTECTED_PATHS {
+        for relative in protected_paths() {
             walk(&workspace.join(relative), &mut out);
         }
         out
@@ -360,6 +374,135 @@ async fn execute_shell_guarded(args: Value, ctx: &ToolContext, flavor: ShellFlav
     .with_process_id(process_id)
 }
 
+/// Split `cmd` into simple clauses at unquoted `;`, `&&`, `||`, `|`, `&`, newlines, `(` and
+/// `)`, and each clause into words at unquoted whitespace (single quotes, double quotes and
+/// backslash escapes honoured, quotes removed). Leading `NAME=value` words and leading
+/// wrapper words are dropped; `source X` and `. X` become `("sh", [X])`; otherwise the first
+/// remaining word is the program and the rest are its arguments.
+fn clause_programs(cmd: &str) -> Vec<(String, Vec<String>)> {
+    fn flush_word(words: &mut Vec<String>, word: &mut String, in_word: &mut bool) {
+        if *in_word {
+            words.push(std::mem::take(word));
+            *in_word = false;
+        }
+    }
+    fn finish_clause(words: &mut Vec<String>, out: &mut Vec<(String, Vec<String>)>) {
+        let clause = std::mem::take(words);
+        let mut rest = clause.as_slice();
+        while let Some(first) = rest.first() {
+            let is_assignment = first.split_once('=').is_some_and(|(name, _)| {
+                !name.is_empty()
+                    && !name.starts_with(|c: char| c.is_ascii_digit())
+                    && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            });
+            let is_wrapper = matches!(
+                first.as_str(),
+                "env" | "command" | "exec" | "nohup" | "time" | "sudo" | "nice"
+            );
+            if is_assignment || is_wrapper {
+                rest = &rest[1..];
+            } else {
+                break;
+            }
+        }
+        let Some((first, tail)) = rest.split_first() else {
+            return;
+        };
+        if first == "source" || first == "." {
+            if let Some(operand) = tail.first() {
+                out.push(("sh".to_string(), vec![operand.clone()]));
+            }
+            return;
+        }
+        out.push((first.clone(), tail.to_vec()));
+    }
+
+    let mut out = Vec::new();
+    let mut words: Vec<String> = Vec::new();
+    let mut word = String::new();
+    let mut in_word = false;
+    let mut chars = cmd.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' => {
+                in_word = true;
+                for q in chars.by_ref() {
+                    if q == '\'' {
+                        break;
+                    }
+                    word.push(q);
+                }
+            }
+            '"' => {
+                in_word = true;
+                while let Some(q) = chars.next() {
+                    match q {
+                        '"' => break,
+                        '\\' => match chars.peek().copied() {
+                            Some(next @ ('"' | '\\' | '$' | '`')) => {
+                                word.push(next);
+                                chars.next();
+                            }
+                            _ => word.push('\\'),
+                        },
+                        other => word.push(other),
+                    }
+                }
+            }
+            '\\' => {
+                in_word = true;
+                if let Some(next) = chars.next() {
+                    word.push(next);
+                }
+            }
+            ';' | '&' | '|' | '\n' | '(' | ')' => {
+                flush_word(&mut words, &mut word, &mut in_word);
+                finish_clause(&mut words, &mut out);
+            }
+            c if c.is_whitespace() => flush_word(&mut words, &mut word, &mut in_word),
+            other => {
+                in_word = true;
+                word.push(other);
+            }
+        }
+    }
+    flush_word(&mut words, &mut word, &mut in_word);
+    finish_clause(&mut words, &mut out);
+    out
+}
+
+/// True when the program or any argument, joined onto `run_cwd` when relative, names a
+/// symlink whose resolved target lies outside `workspace_root` (or cannot be resolved).
+/// Such a clause is never read by the exec-boundary guard, so it cannot leak a file from
+/// outside the workspace.
+fn clause_names_outside_symlink(
+    program: &str,
+    args: &[String],
+    run_cwd: &Path,
+    workspace_root: &Path,
+) -> bool {
+    let root =
+        std::fs::canonicalize(workspace_root).unwrap_or_else(|_| workspace_root.to_path_buf());
+    std::iter::once(program)
+        .chain(args.iter().map(String::as_str))
+        .filter(|word| !word.is_empty())
+        .any(|word| {
+            let path = Path::new(word);
+            let full = if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                run_cwd.join(path)
+            };
+            let is_symlink = std::fs::symlink_metadata(&full)
+                .map(|m| m.file_type().is_symlink())
+                .unwrap_or(false);
+            is_symlink
+                && std::fs::canonicalize(&full)
+                    .map(|target| !target.starts_with(&root))
+                    .unwrap_or(true)
+        })
+}
+
 async fn execute_shell_unguarded(
     args: Value,
     ctx: &ToolContext,
@@ -393,9 +536,10 @@ async fn execute_shell_unguarded(
     // typed durable sinks before launching any interpreter. This is deliberately
     // conservative because parsing every language and redirection form cannot
     // prove a command read-only.
-    // With `set_shell_protect_config_files` only remote (web, MCP) content makes the command a
-    // durable sink that needs approval; the guard above undoes what other content changes.
-    let durable_authorized = if shell_protect_config_files() {
+    // With `set_shell_approval_for_remote_content_only` only remote (web, MCP) content makes the
+    // command a durable sink that needs approval; with `set_shell_protect_config_files` the guard
+    // undoes what other content changes.
+    let durable_authorized = if shell_approval_for_remote_content_only() {
         rightkit_agent_policy::shell_durable_write_is_authorized(
             &ctx.content_provenance,
             ctx.durable_write_approved,
@@ -429,6 +573,14 @@ async fn execute_shell_unguarded(
             }
             if shell_refuse_unenforced_resource_limits() {
                 if let Some(message) = ctx.unenforced_resource_limits_error("shell") {
+                    return ToolResult::error(message);
+                }
+            }
+            if shell_refuse_unenforced_path_deny() {
+                if let Some(message) = ctx.unenforced_path_deny_error(
+                    "shell",
+                    sandbox_disabled_for_workspace(&ctx.workspace_root),
+                ) {
                     return ToolResult::error(message);
                 }
             }
@@ -481,6 +633,33 @@ async fn execute_shell_unguarded(
     } else {
         None
     };
+
+    // With `set_shell_exec_boundary_guard`, exec-boundary destructive guard: inspect what the
+    // shell tool is about to launch. For every simple clause of the command, the file that its
+    // program (or interpreter operand) names is read and the destructive guard is applied to its
+    // text, so a file written by an earlier tool call, a `split` output, an `awk` writer in an
+    // earlier call or a planted repository script is checked when it exists at launch. A file
+    // created and run inside the SAME command line is covered only by the lexical guard
+    // (`catastrophic_reason` above). A clause naming a symlink whose target is outside the
+    // workspace is skipped, never read.
+    if shell_exec_boundary_guard() {
+        let run_cwd = workdir
+            .clone()
+            .unwrap_or_else(|| ctx.workspace_root.clone());
+        for (program, program_args) in clause_programs(&cmd) {
+            if clause_names_outside_symlink(&program, &program_args, &run_cwd, &ctx.workspace_root)
+            {
+                continue;
+            }
+            if let Some(reason) =
+                rightkit_agent_policy::exec_reason(&program, &program_args, &run_cwd)
+            {
+                return ToolResult::error(format!(
+                    "Blocked by destructive guard ({reason}): a file that this command runs contains a catastrophic command; this command is refused in any mode."
+                ));
+            }
+        }
+    }
 
     let engine = PermissionEngine::new();
     let dialect = match flavor {
@@ -585,13 +764,28 @@ async fn execute_shell_unguarded(
     if args["run_in_background"].as_bool().unwrap_or(false) {
         match &ctx.background_shells {
             Some(store) => {
-                let id = match crate::background_shell::spawn_background_with_target(
-                    cmd.clone(),
-                    &ctx.workspace_root,
-                    store,
-                    ctx.cancel_rx.clone(),
-                    execution_target_from_context(ctx),
-                ) {
+                // With `set_shell_background_follows_session` the command gets the session's
+                // network decision and counts against the session's process limit.
+                let spawned = if shell_background_follows_session() {
+                    crate::background_shell::spawn_background_for_session(
+                        cmd.clone(),
+                        &ctx.workspace_root,
+                        &ctx.session_id,
+                        store,
+                        ctx.cancel_rx.clone(),
+                        execution_target_from_context(ctx),
+                        background_network_allowed(ctx),
+                    )
+                } else {
+                    crate::background_shell::spawn_background_with_target(
+                        cmd.clone(),
+                        &ctx.workspace_root,
+                        store,
+                        ctx.cancel_rx.clone(),
+                        execution_target_from_context(ctx),
+                    )
+                };
+                let id = match spawned {
                     Ok(id) => id,
                     Err(error) => return ToolResult::error(error.to_string()),
                 };
@@ -643,10 +837,19 @@ async fn execute_shell_unguarded(
     // package managers, TLS certificates). On Linux it is enforced through
     // `rightkit_sandbox::confine_command` (Landlock + seccomp, applied in the child
     // after fork but before exec); a host without Landlock refuses the launch.
+    // With `set_sandbox_rerun_grant_unix`, the one digest-bound rerun grant the engine issued
+    // after the operator chose "Approve rerun" widens a Linux or macOS launch as it does a
+    // Windows one.
+    let rerun_grant = if sandbox_rerun_grant_unix() {
+        ctx.sandbox_retry_grant.as_ref()
+    } else {
+        None
+    };
     #[cfg_attr(not(target_os = "linux"), allow(unused_variables, unused_mut))]
-    let mut sandbox = local_sandbox_config_for_tier(
+    let mut sandbox = local_sandbox_config_for_tier_with_grant(
         &ctx.workspace_root,
         effective_sandbox_tier(&ctx.workspace_root, Some(ctx.sandbox_permission_mode())),
+        rerun_grant,
     );
     // With `set_shell_verifier_read_only` the verifier role runs checks with a read-only shell:
     // its workspace write access is withheld (it stays readable); temp paths stay writable.
@@ -696,6 +899,7 @@ async fn execute_shell_unguarded(
         &base_args,
         &ctx.workspace_root,
         Some(ctx.sandbox_permission_mode()),
+        rerun_grant,
     ) {
         Some(command) => command,
         None if sandbox_disabled_for_workspace(&ctx.workspace_root) => {
@@ -758,8 +962,10 @@ async fn execute_shell_unguarded(
     // daemon's controlling terminal.
     rightkit_child_process::tokio_support::lead_session(&mut command);
 
-    // Die with the host when it asked for that. Before `confine`: seccomp must not see prctl.
-    #[cfg(target_os = "linux")]
+    // Die with the host when it asked for that. Linux registers the parent-death signal here;
+    // on macOS `spawn_anchored` ties the whole group instead. Before `confine`: seccomp must
+    // not see prctl.
+    #[cfg(unix)]
     let anchored = anchor_children_to_parent();
     #[cfg(target_os = "linux")]
     if anchored {
@@ -795,13 +1001,13 @@ async fn execute_shell_unguarded(
         })
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     let spawned = if anchored {
         parent_death::spawn_anchored(command).await
     } else {
         command.spawn()
     };
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(unix))]
     let spawned = command.spawn();
     let child = match spawned {
         Ok(c) => c,

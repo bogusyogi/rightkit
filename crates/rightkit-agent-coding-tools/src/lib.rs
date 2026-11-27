@@ -43,6 +43,7 @@ macro_rules! host_option {
     };
 }
 
+pub mod advisor_tool;
 pub mod apply_patch;
 pub mod artifact_crud;
 pub mod ask_user;
@@ -175,11 +176,11 @@ pub(crate) mod lsp_notify {
 
 pub use cloudflare::CloudflareConfig;
 pub use context::{
-    CredentialPrompt, CredentialRequester, ExecutionResourceLimits, MessageDispatch,
-    MessageDispatcher, PlanExit, SecretString, SpawnRuntimeKind, SubagentContinuity,
-    SubagentSpawnOptions, SubagentSpawner, SubagentSupervisor, SubagentTerminalStatus,
-    SubagentWaitOutcome, SubagentWorktreeOptions, TeamDefinition, TeamDirectory, ToolContext,
-    UserQuestioner,
+    AdvisorBackend, CredentialPrompt, CredentialRequester, ExecutionResourceLimits,
+    MessageDispatch, MessageDispatcher, PlanExit, SecretString, SpawnRuntimeKind,
+    SubagentContinuity, SubagentSpawnOptions, SubagentSpawner, SubagentSupervisor,
+    SubagentTerminalStatus, SubagentWaitOutcome, SubagentWorktreeOptions, TeamDefinition,
+    TeamDirectory, ToolContext, UserQuestioner,
 };
 pub use file_service::{
     BatchEntryOutcome, BatchEntryReceipt, BatchMutationFailure, BatchMutationReceipt,

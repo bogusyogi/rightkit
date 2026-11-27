@@ -63,7 +63,7 @@ impl Tool for TaskUpdateTool {
         }
         record.node.updated_at = now_string();
         let record = record.clone();
-        if let Err(e) = save_records(ctx, &records) {
+        if let Err(e) = save_records(ctx, &mut records) {
             return ToolResult::error(e);
         }
         set_memory_records(ctx, records);
@@ -196,7 +196,7 @@ impl Tool for TaskOutputTool {
                 record.node.updated_at = now_string();
             } else {
                 let mut body = historical_output_body(record, shell_id);
-                if let Err(e) = save_records(ctx, &records) {
+                if let Err(e) = save_records(ctx, &mut records) {
                     return ToolResult::error(e);
                 }
                 set_memory_records(ctx, records);
@@ -214,7 +214,7 @@ impl Tool for TaskOutputTool {
         } else {
             record.output.clone()
         };
-        if let Err(e) = save_records(ctx, &records) {
+        if let Err(e) = save_records(ctx, &mut records) {
             return ToolResult::error(e);
         }
         set_memory_records(ctx, records);
@@ -281,7 +281,7 @@ impl Tool for TaskStopTool {
             record.node.updated_at = now_string();
             record.output.push_str(&stopped.content);
             record.output.push('\n');
-            if let Err(e) = save_records(ctx, &records) {
+            if let Err(e) = save_records(ctx, &mut records) {
                 return ToolResult::error(e);
             }
             set_memory_records(ctx, records);

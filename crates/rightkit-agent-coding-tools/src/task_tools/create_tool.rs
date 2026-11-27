@@ -119,6 +119,11 @@ impl Tool for TaskCreateTool {
                 if let Some(message) = ctx.unenforced_network_profile_error("task_create") {
                     return ToolResult::error(message);
                 }
+                if crate::tool_options::refuse_unenforced_resource_limits() {
+                    if let Some(message) = ctx.unenforced_resource_limits_error("task_create") {
+                        return ToolResult::error(message);
+                    }
+                }
                 let store =
                     match &ctx.background_shells {
                         Some(store) => store,
@@ -126,19 +131,31 @@ impl Tool for TaskCreateTool {
                             "task_create with command requires background shells in this context.",
                         ),
                     };
-                match map_background_admission(
+                let target = crate::background_shell::BgExecutionTarget {
+                    backend_id: ctx.execution_backend.clone(),
+                    workspace_id: ctx.execution_workspace_id.clone(),
+                    network_profile: ctx.execution_network_profile.clone(),
+                };
+                let spawned = if crate::shell::shell_background_follows_session() {
+                    crate::background_shell::spawn_background_for_session(
+                        command.to_string(),
+                        &ctx.workspace_root,
+                        &ctx.session_id,
+                        store,
+                        ctx.cancel_rx.clone(),
+                        target,
+                        crate::shell::background_network_allowed(ctx),
+                    )
+                } else {
                     crate::background_shell::spawn_background_with_target(
                         command.to_string(),
                         &ctx.workspace_root,
                         store,
                         ctx.cancel_rx.clone(),
-                        crate::background_shell::BgExecutionTarget {
-                            backend_id: ctx.execution_backend.clone(),
-                            workspace_id: ctx.execution_workspace_id.clone(),
-                            network_profile: ctx.execution_network_profile.clone(),
-                        },
-                    ),
-                ) {
+                        target,
+                    )
+                };
+                match map_background_admission(spawned) {
                     Ok(shell_id) => Some(shell_id),
                     Err(error) => return ToolResult::error(error.to_string()),
                 }
@@ -222,8 +239,14 @@ impl Tool for TaskCreateTool {
             Ok(records) => records,
             Err(e) => return ToolResult::error(e),
         };
+        // The counter restarts with the daemon: never reuse an id that is already on disk.
+        let mut id = id;
+        while records.contains_key(&id) {
+            id = format!("task-{}", TASK_SEQ.fetch_add(1, Ordering::Relaxed));
+        }
+        record.node.id = id.clone();
         records.insert(id.clone(), record.clone());
-        if let Err(e) = save_records(ctx, &records) {
+        if let Err(e) = save_records(ctx, &mut records) {
             return ToolResult::error(e);
         }
         set_memory_records(ctx, records);

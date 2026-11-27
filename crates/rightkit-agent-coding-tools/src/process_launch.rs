@@ -145,6 +145,7 @@ impl ProcessLaunchAdapter for LocalProcessLaunchAdapter {
 fn is_scrubbed_env_name(name: &str) -> bool {
     rightkit_agent_config::licence_env::is_licence_env_name(name)
         || rightkit_llm::agent_providers::host_credentials::is_credential_env_name(name)
+        || crate::shell::extra_scrubbed_env_name(name)
 }
 
 /// `spec` with every scrubbed variable dropped from its layered environment, so no spawn arm
@@ -159,10 +160,9 @@ fn scrub_spec_env(mut spec: CommandLaunchSpec) -> CommandLaunchSpec {
 /// the driver's session-bound MCP helper can reach the gateway (providers R46's one exception).
 /// They are kept only when set on the launch spec; an inherited copy is still removed.
 fn is_driver_gateway_name(name: &str) -> bool {
-    matches!(
-        name,
-        "RIGHTKIT_GATEWAY_TOKEN" | "RIGHTKIT_DRIVER_INSTANCE_SECRET"
-    )
+    name == rightkit_agent_config::env_name("GATEWAY_TOKEN")
+        || name == rightkit_agent_config::env_name("DRIVER_INSTANCE_SECRET")
+        || crate::shell::extra_kept_env_name(name)
 }
 
 /// Scrubbed variables the child would only get by inheriting this process's environment: every
@@ -180,6 +180,57 @@ pub(crate) fn inherited_scrubbed_env_names(
         return Vec::new();
     }
     inherited_scrubbed_from(std::env::vars_os().map(|(name, _)| name), explicit)
+}
+
+/// Variables a Claude Code session exports to the programs it starts. When the host itself was
+/// started from inside a Claude Code session (a terminal tool call, an IDE terminal, a cloud
+/// session), the Claude Code that it starts must not inherit them: it would report the parent's
+/// entry point as its own, and could attach to the parent's session, messaging socket and token.
+/// Removing them lets the program describe itself. `CLAUDECODE` and `CLAUDE_CODE_CHILD_SESSION` are
+/// documented (code.claude.com/docs/en/env-vars); the others are the ones Claude Code 2.1.327 was
+/// seen to export. Applied to a vendor program only, and only when the host turned on
+/// [`crate::shell::set_strip_parent_claude_session_env`].
+pub const CLAUDE_HOST_SESSION_ENV: &[&str] = &[
+    "CLAUDECODE",
+    "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_CODE_HOST_SESSION_ID",
+    "CLAUDE_CODE_SESSION_ATTENDED",
+    "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+    "CLAUDE_CODE_EXECPATH",
+    "CLAUDE_CODE_DESKTOP_APP_VERSION",
+    "CLAUDE_AGENT_SDK_VERSION",
+    "CLAUDE_EFFORT",
+    "CLAUDE_PID",
+];
+
+/// Whether a launch is a vendor program: a sandbox profile that starts with `vendor-` or `driver`.
+fn is_vendor_launch(spec: &CommandLaunchSpec) -> bool {
+    spec.context
+        .sandbox_profile
+        .as_deref()
+        .is_some_and(|profile| profile.starts_with("vendor-") || profile.starts_with("driver"))
+}
+
+/// Every variable a launch must not inherit from this process: the scrubbed names
+/// ([`inherited_scrubbed_env_names`]) and, with
+/// [`crate::shell::set_strip_parent_claude_session_env`] and for a vendor program, a parent Claude
+/// Code session's own variables. Names the launch sets itself stay.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub(crate) fn inherited_env_names_to_remove(spec: &CommandLaunchSpec) -> Vec<std::ffi::OsString> {
+    let mut names = inherited_scrubbed_env_names(&spec.env);
+    if crate::shell::strip_parent_claude_session_env() && is_vendor_launch(spec) {
+        names.extend(
+            CLAUDE_HOST_SESSION_ENV
+                .iter()
+                .filter(|name| std::env::var_os(name).is_some())
+                .filter(|name| !spec.env.iter().any(|(set, _)| set == *name))
+                .map(std::ffi::OsString::from),
+        );
+    }
+    names
 }
 
 /// Drop from `command` every scrubbed variable it would inherit from this process. No-op unless the
@@ -326,6 +377,22 @@ fn build_command(
     for name in licence_env_names(spec) {
         command.env_remove(name);
     }
+    // With `set_strip_parent_claude_session_env`, a vendor program must not see a parent Claude
+    // Code session's variables at all. The driver runtime can only pin a removal to an empty value
+    // (the launch contract has no "unset"), and an empty `CLAUDE_CODE_ENTRYPOINT` is still a
+    // variable the program can read. Unset them here, where the command is built, unless the
+    // launch sets a real value itself.
+    if crate::shell::strip_parent_claude_session_env() && is_vendor_launch(spec) {
+        for name in CLAUDE_HOST_SESSION_ENV {
+            let set_by_launch = spec
+                .env
+                .iter()
+                .any(|(set, value)| set == name && !value.is_empty());
+            if !set_by_launch {
+                command.env_remove(name);
+            }
+        }
+    }
     // Own the whole tree so cancellation/timeout takes descendants with it
     // rather than orphaning them (mirrors the shell tool path). The child leads
     // its own group, which `rightkit_child_process::tokio_support::terminate_tree`
@@ -334,19 +401,40 @@ fn build_command(
     // Own session (setsid), not just a group: the child must not keep the
     // daemon's controlling terminal.
     rightkit_child_process::tokio_support::lead_session(&mut command);
+    // With `set_anchor_children_to_parent`, MCP servers, vendor drivers and operator terminals
+    // launched here die with the host. Linux registers the parent-death signal here (macOS ties
+    // the group in `spawn_command` instead). Spawned through `spawn_command` (anchor thread).
+    // Before `confine` in `spawn_enforced`: seccomp must not see prctl.
+    #[cfg(target_os = "linux")]
+    if crate::shell::anchor_children_to_parent() {
+        crate::shell::parent_death::kill_on_parent_exit(&mut command);
+    }
     // Registered here, before any `confine` in `spawn_enforced`, so the rlimit hook runs first.
     // A no-op unless the host turned on `set_harden_children`.
     harden_child(command.as_std_mut());
     command
 }
 
+/// Spawn a command from [`build_command`]. With `set_anchor_children_to_parent` it is forked on
+/// Unix through the anchor thread, so the parent-death signal registered there fires when the host
+/// dies, not when a retiring tokio worker thread exits, and the child's group is tied to the host.
+async fn spawn_command(
+    mut command: tokio::process::Command,
+) -> std::io::Result<tokio::process::Child> {
+    #[cfg(unix)]
+    if crate::shell::anchor_children_to_parent() {
+        return crate::shell::parent_death::spawn_anchored(command).await;
+    }
+    command.spawn()
+}
+
 async fn spawn_unconfined(
     spec: &CommandLaunchSpec,
     proof: SandboxProcessProof,
 ) -> Result<Box<dyn ManagedChild>, EffectExecutionError> {
-    let mut command = build_command(spec, &spec.program, &spec.argv);
-    command
-        .spawn()
+    let command = build_command(spec, &spec.program, &spec.argv);
+    spawn_command(command)
+        .await
         .map(|child| {
             Box::new(LocalManagedChild::Tokio {
                 child,
@@ -571,9 +659,9 @@ async fn spawn_enforced(
         enforced: true,
         network_enforced: decision.tier.denies_network(),
     };
-    let mut command = build_command(&spec, &program, &argv);
-    command
-        .spawn()
+    let command = build_command(&spec, &program, &argv);
+    spawn_command(command)
+        .await
         .map(|child| {
             Box::new(LocalManagedChild::Tokio {
                 child,
@@ -614,8 +702,8 @@ async fn spawn_enforced(
     config
         .confine(command.as_std_mut())
         .map_err(|_| EffectExecutionError::SandboxMissing)?;
-    command
-        .spawn()
+    spawn_command(command)
+        .await
         .map(|child| {
             Box::new(LocalManagedChild::Tokio {
                 child,

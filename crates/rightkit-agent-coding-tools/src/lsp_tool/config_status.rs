@@ -83,7 +83,9 @@ fn render_status(workspace_root: &Path) -> String {
 }
 
 pub fn lsp_config_path(workspace_root: &Path) -> PathBuf {
-    workspace_root.join(".rightkit").join("lsp.json")
+    workspace_root
+        .join(rightkit_agent_config::state_dir_name())
+        .join("lsp.json")
 }
 
 pub fn load_lsp_workspace_config(workspace_root: &Path) -> LspWorkspaceConfig {

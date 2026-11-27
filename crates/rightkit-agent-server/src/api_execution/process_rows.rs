@@ -53,6 +53,8 @@ fn execution_process_row(
 ) -> ExecutionProcessRow {
     let status = shell.status();
     let target = shell.execution_target();
+    // One lease read per row (the baseline read it four times).
+    let lease = shell.lease_snapshot_now();
     ExecutionProcessRow {
         id: shell_id.to_string(),
         kind: shell.process_kind().to_string(),
@@ -81,15 +83,15 @@ fn execution_process_row(
             rightkit_sandbox::execution::ExecutionChannel::Pipe => None,
         },
         persistence: shell.persistence().label().to_string(),
-        attachment: if shell.lease_snapshot_now().attached {
+        attachment: if lease.attached {
             "attached"
         } else {
             "detached"
         }
         .to_string(),
-        lease_epoch: shell.lease_snapshot_now().epoch,
-        next_input_sequence: shell.lease_snapshot_now().next_input_sequence,
-        last_acked_input_sequence: shell.lease_snapshot_now().last_acked_input_sequence,
+        lease_epoch: lease.epoch,
+        next_input_sequence: lease.next_input_sequence,
+        last_acked_input_sequence: lease.last_acked_input_sequence,
         status: process_status(&status).to_string(),
         status_label: process_status_label(&status),
         last_output_line: shell

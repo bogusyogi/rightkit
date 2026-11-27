@@ -193,10 +193,17 @@ impl Tool for SearchTool {
     }
 
     fn description(&self) -> &str {
-        SEARCH_DESCRIPTION
+        if crate::tool_options::search_workspace_grep() {
+            workspace_grep::DESCRIPTION
+        } else {
+            SEARCH_DESCRIPTION
+        }
     }
 
     fn input_schema(&self) -> Value {
+        if crate::tool_options::search_workspace_grep() {
+            return workspace_grep::input_schema();
+        }
         json!({
             "type": "object",
             "required": ["pattern"],
@@ -218,6 +225,9 @@ impl Tool for SearchTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolContext) -> ToolResult {
+        if crate::tool_options::search_workspace_grep() {
+            return workspace_grep::run(&args, ctx);
+        }
         let pattern_str = match args["pattern"].as_str() {
             Some(pattern) => pattern,
             None => return ToolResult::error("Missing required argument: pattern"),
@@ -864,7 +874,8 @@ fn cursor_binding(
         "after": after,
         "ignorePolicy": {
             "hidden": false, "gitIgnore": true, "gitGlobal": true,
-            "requireGit": false, "noiseDirectories": [".git", ".rightkit", ".hg", ".svn"],
+            "requireGit": false,
+            "noiseDirectories": [".git", rightkit_agent_config::state_dir_name(), ".hg", ".svn"],
             "ignoreContents": "live", "workspaceGeneration": "live"
         },
         "consistency": LIVE_CONSISTENCY
@@ -1087,8 +1098,345 @@ fn trim_line_ending(bytes: &[u8]) -> &[u8] {
 }
 
 pub(crate) fn not_noise_dir(entry: &ignore::DirEntry) -> bool {
-    !matches!(
-        entry.file_name().to_str(),
-        Some(".git") | Some(".rightkit") | Some(".hg") | Some(".svn")
+    match entry.file_name().to_str() {
+        Some(".git") | Some(".hg") | Some(".svn") => false,
+        Some(name) => name != rightkit_agent_config::state_dir_name(),
+        None => true,
+    }
+}
+
+/// The workspace-grep search, on `rightkit_search::grep_stream`: the walk, matching, context, paging and
+/// cursor are `rightkit-search`'s; this module is the caller (argument parsing, the deny-read and
+/// workspace hooks, the rendering and the status line). Used when the host sets
+/// `tool_options::set_search_workspace_grep`.
+mod workspace_grep {
+    use crate::context::ToolContext;
+    use crate::tool_trait::ToolResult;
+    use regex::bytes::Regex;
+    use rightkit_search::grep_stream::{
+        stream_page, StreamError, StreamHooks, StreamItem, StreamMode, StreamPage, StreamRequest,
+        StreamStatus,
+    };
+    use serde_json::{json, Value};
+    use std::path::Path;
+    use std::time::Duration;
+
+    pub(super) const DESCRIPTION: &str = concat!(
+    "Search file contents for a regex; respects .gitignore. ",
+    "Modes: 'content' (matching lines, default), 'files_with_matches' (paths only), 'count' (per-file). ",
+    "Matches only, no ranking. ",
+    "Says whether the search was Complete, Truncated, Cancelled or hit its deadline, ",
+    "with a continuation cursor when it can resume. If it truncates, narrow the pattern or the glob, or use files_with_matches."
+);
+
+    const MAX_RESULTS: usize = 200;
+    const MAX_CONTEXT_LINES: usize = 100;
+    const MAX_TOTAL_BYTES_PER_PAGE: u64 = 64 * 1024 * 1024;
+    const DEFAULT_DEADLINE: Duration = Duration::from_secs(5);
+    const MAX_DEADLINE: Duration = Duration::from_secs(60);
+    const LIVE_CONSISTENCY: &str = "best_effort_live_workspace";
+    /// Directories the walk never enters: the VCS folders and the host's own state folder.
+    fn noise_directories() -> [&'static str; 4] {
+        [
+            ".git",
+            rightkit_agent_config::state_dir_name(),
+            ".hg",
+            ".svn",
+        ]
+    }
+
+    pub(super) fn input_schema() -> Value {
+        json!({
+            "type": "object",
+            "required": ["pattern"],
+            "properties": {
+                "pattern": { "type": "string", "description": "Regex pattern to search for" },
+                "path": { "type": "string", "description": "Directory or file to search (relative to workspace root)" },
+                "file_glob": { "type": "string", "description": "Glob pattern to filter files, e.g. '*.rs'" },
+                "case_sensitive": { "type": "boolean", "description": "Whether to match case-sensitively (default: false)" },
+                "multiline": { "type": "boolean", "description": "Let the pattern match across lines (\\n in the pattern; files over 8MiB are skipped; no cursor)" },
+                "output_mode": { "type": "string", "enum": ["content", "files_with_matches", "count"], "description": "Output shape (default: content)" },
+                "context": { "type": "integer", "description": "Lines of context before AND after each match (bounded to 100)" },
+                "before_context": { "type": "integer", "description": "Lines of context before each match (bounded to 100)" },
+                "after_context": { "type": "integer", "description": "Lines of context after each match (bounded to 100)" },
+                "max_results": { "type": "integer", "description": "Max result rows (default 200; output also has a 1MiB hard ceiling)" },
+                "cursor": { "type": "string", "description": "Continuation from the same query/options and roots; workspace and ignore files remain live, so continuation is explicitly best-effort" },
+                "deadline_ms": { "type": "integer", "description": "Optional page deadline in milliseconds, capped at 60s; 0 yields Deadline immediately" },
+                "max_bytes": { "type": "integer", "description": "Optional page byte target, capped at 64MiB; a currently scanned logical line remains bounded independently" }
+            }
+        })
+    }
+
+    pub(super) fn run(args: &Value, ctx: &ToolContext) -> ToolResult {
+        let pattern_str = match args["pattern"].as_str() {
+            Some(pattern) => pattern,
+            None => return ToolResult::error("Missing required argument: pattern"),
+        };
+        let case_sensitive = args["case_sensitive"].as_bool().unwrap_or(false);
+        let multiline = args["multiline"].as_bool().unwrap_or(false);
+        // Early validity check only: the model keeps seeing `Invalid regex: ...` exactly as before.
+        if let Err(error) = build_regex(pattern_str, case_sensitive, multiline) {
+            return ToolResult::error(format!("Invalid regex: {error}"));
+        }
+        let search_root = if let Some(path) = args["path"].as_str() {
+            match crate::read_file::resolve_in_workspace(path, &ctx.workspace_root) {
+                Ok(path) => path,
+                Err(error) => return ToolResult::error(error),
+            }
+        } else {
+            ctx.workspace_root.clone()
+        };
+        if let Err(error) = crate::read_file::enforce_path_deny(
+            ctx,
+            &search_root,
+            crate::read_file::PathAccess::Read,
+        ) {
+            return ToolResult::error(error);
+        }
+        let file_glob = args["file_glob"].as_str();
+        let file_matcher = match file_glob {
+            Some(glob) => match crate::list_files::build_matcher(glob) {
+                Ok(matcher) => Some(matcher),
+                Err(error) => return ToolResult::error(error),
+            },
+            None => None,
+        };
+        let mode = match args.get("output_mode") {
+            None | Some(Value::Null) => StreamMode::Content,
+            Some(Value::String(mode)) => match mode.as_str() {
+                "content" => StreamMode::Content,
+                "files_with_matches" => StreamMode::FilesWithMatches,
+                "count" => StreamMode::Count,
+                _ => {
+                    return ToolResult::error(format!(
+                "Invalid output_mode {}: expected one of content, files_with_matches, count",
+                Value::String(mode.clone())
+            ))
+                }
+            },
+            Some(other) => {
+                return ToolResult::error(format!(
+                "Invalid output_mode {other}: expected one of content, files_with_matches, count"
+            ))
+            }
+        };
+        let max_results = args["max_results"]
+            .as_u64()
+            .and_then(|n| usize::try_from(n).ok())
+            .unwrap_or(MAX_RESULTS)
+            .clamp(1, MAX_RESULTS);
+        let requested_context = args["context"]
+            .as_u64()
+            .and_then(|n| usize::try_from(n).ok());
+        let requested_before = requested_context.or_else(|| {
+            args["before_context"]
+                .as_u64()
+                .and_then(|n| usize::try_from(n).ok())
+        });
+        let requested_after = requested_context.or_else(|| {
+            args["after_context"]
+                .as_u64()
+                .and_then(|n| usize::try_from(n).ok())
+        });
+        let deadline = args["deadline_ms"]
+            .as_u64()
+            .map(Duration::from_millis)
+            .unwrap_or(DEFAULT_DEADLINE)
+            .min(MAX_DEADLINE);
+        let cursor = args["cursor"]
+            .as_str()
+            .map(str::trim)
+            .filter(|raw| !raw.is_empty())
+            .map(str::to_string);
+
+        let mut request = StreamRequest::new(
+            ctx.workspace_root.clone(),
+            search_root,
+            pattern_str.to_string(),
+        );
+        request.case_sensitive = case_sensitive;
+        request.multiline = multiline;
+        request.mode = mode;
+        request.before = requested_before.unwrap_or(0).min(MAX_CONTEXT_LINES);
+        request.after = requested_after.unwrap_or(0).min(MAX_CONTEXT_LINES);
+        request.max_results = max_results;
+        request.deadline = deadline;
+        request.max_page_bytes = args["max_bytes"]
+            .as_u64()
+            .unwrap_or(MAX_TOTAL_BYTES_PER_PAGE)
+            .min(MAX_TOTAL_BYTES_PER_PAGE);
+        // Hidden files are searched; ignore files are honoured without requiring a git repository.
+        request.include_hidden = true;
+        request.git_ignore = true;
+        request.git_global = true;
+        request.require_git = false;
+        request.cursor = cursor;
+        // A cursor must not cross a changed noise policy, glob or consistency claim.
+        request.caller_binding = format!(
+            "noiseDirectories {}; fileGlob={}; consistency={LIVE_CONSISTENCY}",
+            noise_directories().join(" "),
+            file_glob.unwrap_or("")
+        );
+
+        let hooks = SearchHooks {
+            ctx,
+            file_matcher: file_matcher.as_ref(),
+        };
+        let page = match stream_page(&request, &hooks) {
+            Ok(page) => page,
+            Err(error) => return ToolResult::error(stream_error_text(error)),
+        };
+
+        let rows: Vec<String> = page
+            .items
+            .iter()
+            .map(|item| render_item(item, &ctx.workspace_root))
+            .collect();
+        let mut body = if rows.is_empty() {
+            "No matches found.".to_string()
+        } else {
+            rows.join("\n")
+        };
+        body.push('\n');
+        body.push_str(&status_line(&page));
+        if page.status == StreamStatus::Truncated {
+            // Tell the model how to get a smaller answer, not just that this one was cut.
+            body.push_str(
+                "\n[Truncated: narrow with a more specific pattern, `path` or `file_glob`, or use output_mode files_with_matches or count.]",
+            );
+        }
+        ToolResult::ok(body)
+    }
+
+    /// The owner calls these while it walks; each one answers for the host's read boundary.
+    struct SearchHooks<'a> {
+        ctx: &'a ToolContext,
+        file_matcher: Option<&'a (globset::GlobMatcher, bool)>,
+    }
+
+    impl StreamHooks for SearchHooks<'_> {
+        fn cancelled(&self) -> bool {
+            self.ctx
+                .cancel_rx
+                .as_ref()
+                .is_some_and(|receiver| *receiver.borrow())
+        }
+
+        fn admit_entry(&self, name: &str) -> bool {
+            !noise_directories().contains(&name)
+        }
+
+        fn admit_file(&self, rel: &str) -> bool {
+            let path = self.ctx.workspace_root.join(rel);
+            file_glob_matches(&path, &self.ctx.workspace_root, self.file_matcher)
+                && crate::read_file::resolve_in_workspace(rel, &self.ctx.workspace_root).is_ok()
+        }
+
+        /// deny-read-globs: a denied file is never opened, counted or reported.
+        fn authorize_read(&self, abs: &Path) -> bool {
+            crate::read_file::enforce_path_deny(self.ctx, abs, crate::read_file::PathAccess::Read)
+                .is_ok()
+        }
+
+        fn row_bytes(&self, item: &StreamItem) -> usize {
+            render_item(item, &self.ctx.workspace_root)
+                .len()
+                .saturating_add(1)
+        }
+    }
+
+    /// One row exactly as the model sees it: workspace-relative path, secrets masked.
+    fn render_item(item: &StreamItem, workspace_root: &Path) -> String {
+        let rel = |path: &Path| {
+            path.strip_prefix(workspace_root)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .replace('\\', "/")
+        };
+        let line = match item {
+            StreamItem::Match { path, line, text } => {
+                format!("{}:{}: {}", rel(path.as_ref()), line, text)
+            }
+            StreamItem::Context { path, line, text } => {
+                format!("{}:{}- {}", rel(path.as_ref()), line, text)
+            }
+            StreamItem::Separator => "--".to_string(),
+            StreamItem::FileHit { path } => rel(path.as_ref()),
+            StreamItem::Count { path, count } => format!("{}:{}", rel(path.as_ref()), count),
+        };
+        crate::output_compaction::mask_secrets(&line)
+    }
+
+    fn stream_error_text(error: StreamError) -> String {
+        match error {
+            StreamError::BadPattern(error) => format!("Invalid regex: {error}"),
+            StreamError::NotFound(path) => format!("Path not found: {}", path.display()),
+            StreamError::RootOutsideWorkspace(path) => {
+                format!("Path '{}' escapes the workspace root", path.display())
+            }
+            StreamError::BadCursor(reason) => {
+                if reason.starts_with("cursor ") {
+                    format!("Search {reason}")
+                } else if let Some(rest) = reason.strip_prefix("invalid ") {
+                    format!("Invalid search {rest}")
+                } else {
+                    format!("Invalid search cursor: {reason}; restart search")
+                }
+            }
+        }
+    }
+
+    fn build_regex(
+        pattern: &str,
+        case_sensitive: bool,
+        multiline: bool,
+    ) -> Result<Regex, regex::Error> {
+        // In multiline mode `^`/`$` still mean a line start/end, so anchors keep their per-line meaning.
+        let flags = format!(
+            "{}{}",
+            if case_sensitive { "" } else { "(?i)" },
+            if multiline { "(?m)" } else { "" }
+        );
+        Regex::new(&format!("{flags}{pattern}"))
+    }
+    fn status_line(page: &StreamPage) -> String {
+        let status = match page.status {
+            StreamStatus::Complete => "Complete",
+            StreamStatus::Truncated => "Truncated",
+            StreamStatus::Cancelled => "Cancelled",
+            StreamStatus::Deadline => "Deadline",
+        };
+        format!(
+        "[search status={} reason={} files={} bytes={} consistency=BestEffort workspace=live ignore=live snapshot=none cursor={}]",
+        status,
+        page.reason.unwrap_or("none"),
+        page.files_scanned,
+        page.bytes_scanned,
+        page.next.as_deref().unwrap_or("null")
     )
+    }
+
+    fn file_glob_matches(
+        path: &std::path::Path,
+        workspace_root: &std::path::Path,
+        file_matcher: Option<&(globset::GlobMatcher, bool)>,
+    ) -> bool {
+        let Some((matcher, path_scoped)) = file_matcher else {
+            return true;
+        };
+        let rel = path
+            .strip_prefix(workspace_root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let hay = if *path_scoped {
+            rel
+        } else {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("")
+                .to_string()
+        };
+        matcher.is_match(hay)
+    }
 }

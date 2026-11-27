@@ -15,6 +15,7 @@ pub fn record_foreground_process(
         .unwrap_or_else(|| format!("fg-{}", next_shell_sequence()));
     let mut bounded_output = BoundedOutput::default();
     bounded_output.push(output.as_bytes());
+    let finished = !matches!(status, BgStatus::Running | BgStatus::Unknown);
     let shell = Arc::new(BgShell {
         command,
         process_kind: "foregroundShell".to_string(),
@@ -29,6 +30,10 @@ pub fn record_foreground_process(
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos(),
+        clock: Mutex::new(ShellClock {
+            last_output_ns: (!output.is_empty()).then(now_ns),
+            ended_ns: finished.then(now_ns),
+        }),
         output: Mutex::new(bounded_output),
         cursor: Mutex::new(0),
         status: Mutex::new(status),
@@ -134,15 +139,20 @@ impl Tool for ProcessTool {
             "get" => ToolResult::ok(process_row(process_id, &shell).to_string()),
             "output" => {
                 let (bytes, truncated) = shell.drain_new_payload();
-                ToolResult::ok(
-                    json!({
-                        "process": process_row(process_id, &shell),
-                        "output": String::from_utf8_lossy(&bytes),
-                        "output_base64": rightkit_crypto::base64_encode(&bytes),
-                        "truncated": truncated,
-                    })
-                    .to_string(),
-                )
+                let mut payload = json!({
+                    "process": process_row(process_id, &shell),
+                    "output": String::from_utf8_lossy(&bytes),
+                    "truncated": truncated,
+                });
+                // The text already carries valid UTF-8 exactly; with
+                // `set_background_output_base64_when_lossy` the bytes are added only when the
+                // text could not (lossy), so a poll does not pay for the output twice.
+                if !crate::shell::background_output_base64_when_lossy()
+                    || std::str::from_utf8(&bytes).is_err()
+                {
+                    payload["output_base64"] = json!(rightkit_crypto::base64_encode(&bytes));
+                }
+                ToolResult::ok(payload.to_string())
             }
             "input" | "eof" => {
                 // Rule 55: a confined agent cannot type into an unconfined shell. The operator
@@ -150,10 +160,20 @@ impl Tool for ProcessTool {
                 if shell.launched_unconfined() {
                     return ToolResult::error(UNCONFINED_PROCESS_INPUT_REFUSAL);
                 }
-                if !rightkit_agent_policy::durable_write_is_authorized(
-                    &ctx.content_provenance,
-                    ctx.durable_write_approved,
-                ) {
+                // With `set_shell_approval_for_remote_content_only` only remote (web, MCP) content
+                // makes process input a durable sink that needs approval, as for the shell tool.
+                let input_authorized = if crate::shell::shell_approval_for_remote_content_only() {
+                    rightkit_agent_policy::shell_durable_write_is_authorized(
+                        &ctx.content_provenance,
+                        ctx.durable_write_approved,
+                    )
+                } else {
+                    rightkit_agent_policy::durable_write_is_authorized(
+                        &ctx.content_provenance,
+                        ctx.durable_write_approved,
+                    )
+                };
+                if !input_authorized {
                     return ToolResult::error(
                         "explicit durable-write approval required for process input/EOF",
                     );
@@ -299,6 +319,9 @@ pub(crate) const UNCONFINED_PROCESS_INPUT_REFUSAL: &str = "refused: this process
 
 fn process_row(id: &str, shell: &BgShell) -> Value {
     let target = shell.execution_target();
+    // One read of the lease. While an input flush holds it nothing was read, so the lease
+    // fields are `null` for this row instead of invented values.
+    let lease = shell.try_lease_snapshot_now();
     json!({
         "processId": id,
         "osPid": shell.pid(),
@@ -306,10 +329,10 @@ fn process_row(id: &str, shell: &BgShell) -> Value {
         "executionChannel": shell.execution_channel(),
         "persistence": shell.persistence().label(),
         "unconfined": shell.launched_unconfined(),
-        "attached": shell.lease_snapshot_now().attached,
-        "leaseEpoch": shell.lease_snapshot_now().epoch,
-        "nextInputSequence": shell.lease_snapshot_now().next_input_sequence,
-        "lastAckedInputSequence": shell.lease_snapshot_now().last_acked_input_sequence,
+        "attached": lease.as_ref().map(|lease| lease.attached),
+        "leaseEpoch": lease.as_ref().map(|lease| lease.epoch),
+        "nextInputSequence": lease.as_ref().map(|lease| lease.next_input_sequence),
+        "lastAckedInputSequence": lease.as_ref().map(|lease| lease.last_acked_input_sequence),
         "command": shell.command,
         "status": status_label(&shell.status()),
         "exit": shell.exit_status(),

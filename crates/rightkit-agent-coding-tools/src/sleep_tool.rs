@@ -10,6 +10,15 @@ pub struct SleepTool;
 
 const MAX_SLEEP_MS: u64 = 60_000; // 60 seconds
 
+host_option!(
+    /// An operator cancel (`ToolContext::cancel_rx`) ends a running `sleep` at once and returns an
+    /// error naming the milliseconds slept, instead of waiting out the rest of it. `false` (the
+    /// default) sleeps the full duration.
+    SLEEP_HONOURS_CANCEL,
+    set_sleep_honours_cancel,
+    sleep_honours_cancel
+);
+
 #[async_trait::async_trait]
 impl Tool for SleepTool {
     fn name(&self) -> &str {
@@ -37,7 +46,7 @@ impl Tool for SleepTool {
         })
     }
 
-    async fn execute(&self, args: Value, _ctx: &ToolContext) -> ToolResult {
+    async fn execute(&self, args: Value, ctx: &ToolContext) -> ToolResult {
         let ms = match args["milliseconds"].as_u64() {
             Some(m) => m,
             None => {
@@ -55,7 +64,33 @@ impl Tool for SleepTool {
         }
 
         let start = std::time::Instant::now();
-        tokio::time::sleep(tokio::time::Duration::from_millis(ms)).await;
+        if sleep_honours_cancel() {
+            // An operator cancel ends the sleep at once instead of waiting out the rest of it.
+            let cancelled = async {
+                let Some(mut rx) = ctx.cancel_rx.clone() else {
+                    return std::future::pending::<()>().await;
+                };
+                loop {
+                    if *rx.borrow_and_update() {
+                        return;
+                    }
+                    if rx.changed().await.is_err() {
+                        return std::future::pending::<()>().await;
+                    }
+                }
+            };
+            tokio::select! {
+                _ = tokio::time::sleep(tokio::time::Duration::from_millis(ms)) => {}
+                _ = cancelled => {
+                    return ToolResult::error(format!(
+                        "Sleep cancelled by operator after {} ms",
+                        start.elapsed().as_millis()
+                    ));
+                }
+            }
+        } else {
+            tokio::time::sleep(tokio::time::Duration::from_millis(ms)).await;
+        }
         let elapsed = start.elapsed().as_millis() as u64;
 
         ToolResult::ok(format!("Slept for {} ms (requested: {} ms)", elapsed, ms))

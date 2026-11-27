@@ -47,7 +47,12 @@ pub struct SandboxDenial {
 impl SandboxDenial {
     /// The text block appended to the tool result.
     pub fn render(&self) -> String {
-        format!("[Agent sandbox denial: {}] {}", self.rule_id, self.message)
+        format!(
+            "[{} sandbox denial: {}] {}",
+            rightkit_agent_config::app_name(),
+            self.rule_id,
+            self.message
+        )
     }
 }
 

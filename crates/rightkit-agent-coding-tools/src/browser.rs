@@ -24,6 +24,7 @@ use crate::browser_fetch::wrap_untrusted_web_text;
 use crate::context::ToolContext;
 use crate::tool_trait::{Tool, ToolResult};
 use rightkit_agent_policy::net_guard::{
+    resolve_browser_target_with_trust_and_allowlist,
     resolve_then_reject_private_allow_loopback_with_trust_and_allowlist, TrustedNavigationPolicy,
 };
 use rightkit_agent_policy::{CapabilityClass, PermissionDecision, PermissionEngine};
@@ -451,6 +452,8 @@ pub struct BrowserSession {
     /// actual session lifetime ends.
     _resource_admission: crate::process_resource_authority::ProcessAdmission,
     _context_admission: crate::process_resource_authority::SpecificProcessAdmission,
+    /// Chrome's only route to non-loopback hosts; stops when the session drops.
+    _egress_proxy: EgressProxy,
 }
 
 impl BrowserSession {
@@ -537,7 +540,36 @@ impl BrowserSession {
         consent: Option<crate::browser_consent::ConsentedLaunch>,
     ) -> Result<Self, String> {
         navigation_trust.validate()?;
-        let profile = tempfile::tempdir()
+        let navigation_trust = Arc::new(std::sync::Mutex::new(navigation_trust));
+        let control = match &consent {
+            None => BrowserControlState::new(owner_session_id.to_string()),
+            Some(consent) => BrowserControlState::with_profile(
+                owner_session_id.to_string(),
+                BrowserProfileV1 {
+                    kind: "imported".to_string(),
+                    label: Some(consent.receipt.id.clone()),
+                    ephemeral: false,
+                },
+                match consent.mode {
+                    crate::browser_consent::ConsentedMode::Import => BrowserModeV1::Headless,
+                    crate::browser_consent::ConsentedMode::Attach => BrowserModeV1::Visible,
+                },
+            ),
+        };
+        control
+            .host_policy
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .extend(initial_host_policy);
+        let egress_proxy = EgressProxy::start(
+            Arc::clone(&navigation_trust),
+            Arc::clone(&control.host_policy),
+        )
+        .await?;
+        let profile_prefix = format!("{}-browser-", rightkit_agent_config::host_slug());
+        let profile = tempfile::Builder::new()
+            .prefix(&profile_prefix)
+            .tempdir()
             .map_err(|e| format!("could not create a browser profile directory: {e}"))?;
         let download_root = profile.path().join("downloads");
         std::fs::create_dir(&download_root)
@@ -553,19 +585,28 @@ impl BrowserSession {
             .network(rightkit_browser::NetworkPolicy::unrestricted())
             .on_event(|event| tracing::debug!(?event, "browser lifecycle"));
         options.download_dir = Some(download_root.clone());
+        // Every non-loopback connection goes through the egress proxy, which
+        // resolves and validates the name once and connects to those addresses.
+        // Chrome never resolves proxied names itself (SOCKS5 sends the hostname),
+        // so a rebinding answer cannot differ from the checked one. Chrome never
+        // proxies loopback, which the guard allows anyway.
+        options.extra_args.push(format!(
+            "--proxy-server=socks5://127.0.0.1:{}",
+            egress_proxy.port
+        ));
         // Chrome cannot run its own sandbox as root. Containers and CI run as root,
         // so the operator may opt out of Chrome's sandbox there explicitly; without
         // that opt-in a root launch is refused with the reason, never weakened.
         if running_as_root() {
-            if std::env::var("RIGHTKIT_BROWSER_NO_SANDBOX").as_deref() == Ok("1") {
+            let no_sandbox_variable = rightkit_agent_config::env_name("BROWSER_NO_SANDBOX");
+            if std::env::var(&no_sandbox_variable).as_deref() == Ok("1") {
                 options.extra_args.push("--no-sandbox".to_string());
             } else {
-                return Err(
+                return Err(format!(
                     "the browser cannot start as root: Chrome refuses to run its sandbox for \
                      the root user. Run the host app as a normal user, or, in a disposable container \
-                     or CI, set RIGHTKIT_BROWSER_NO_SANDBOX=1 to run Chrome without its sandbox."
-                        .to_string(),
-                );
+                     or CI, set {no_sandbox_variable}=1 to run Chrome without its sandbox."
+                ));
             }
         }
         let consent_plan = match &consent {
@@ -647,27 +688,6 @@ impl BrowserSession {
         .map_err(|e| format!("could not contain browser downloads: {e}"))?;
 
         let approved_origin = Arc::new(tokio::sync::RwLock::new(None));
-        let navigation_trust = Arc::new(std::sync::Mutex::new(navigation_trust));
-        let control = match &consent {
-            None => BrowserControlState::new(owner_session_id.to_string()),
-            Some(consent) => BrowserControlState::with_profile(
-                owner_session_id.to_string(),
-                BrowserProfileV1 {
-                    kind: "imported".to_string(),
-                    label: Some(consent.receipt.id.clone()),
-                    ephemeral: false,
-                },
-                match consent.mode {
-                    crate::browser_consent::ConsentedMode::Import => BrowserModeV1::Headless,
-                    crate::browser_consent::ConsentedMode::Attach => BrowserModeV1::Visible,
-                },
-            ),
-        };
-        control
-            .host_policy
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .extend(initial_host_policy);
         let host_policy = Arc::clone(&control.host_policy);
         install_document_guard(
             &page,
@@ -690,7 +710,17 @@ impl BrowserSession {
             download_root,
             _resource_admission: resource_admission,
             _context_admission: context_admission,
+            _egress_proxy: egress_proxy,
         };
+        // Every arm launches Chrome as this process's child (the consented "attach" plan too: it starts a
+        // private copy of the profile), so any session with a process id is ours to close.
+        let pid = session.browser.process_id();
+        register_owned_browser(OwnedBrowser {
+            pid,
+            profile_dir: session._profile.path().to_path_buf(),
+            #[cfg(windows)]
+            handle: pid.and_then(open_owned_process),
+        });
         session.navigate(url).await?;
         Ok(session)
     }
@@ -1303,6 +1333,187 @@ impl BrowserSession {
     /// Close Chrome and stop the page pumps. Safe to call twice.
     pub async fn shutdown(&self) {
         self.browser.shutdown().await;
+        // Chrome is closed; the profile dir stays registered until Drop deletes it.
+        for entry in OWNED_BROWSERS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter_mut()
+            .filter(|e| e.profile_dir == self._profile.path())
+        {
+            entry.pid = None;
+        }
+    }
+}
+
+impl Drop for BrowserSession {
+    fn drop(&mut self) {
+        // Field drop order (browser before _profile) closes Chrome, then deletes the profile dir; neither is
+        // ours to clean at exit any more.
+        unregister_owned_browser(self._profile.path());
+    }
+}
+
+/// A browser session the host app launched and has not cleaned up: Chrome's process id (None once it was
+/// closed) and the session's temporary profile dir.
+struct OwnedBrowser {
+    pid: Option<u32>,
+    profile_dir: std::path::PathBuf,
+    /// Windows: a handle to Chrome's browser process, opened right after launch. Holding it keeps the pid
+    /// from being reused, so the exit hook terminates exactly the process we launched. Closed on drop.
+    #[cfg(windows)]
+    handle: Option<std::os::windows::io::OwnedHandle>,
+}
+
+/// Open Chrome's browser process for termination and waiting, or `None` when it cannot be opened.
+#[cfg(windows)]
+fn open_owned_process(pid: u32) -> Option<std::os::windows::io::OwnedHandle> {
+    use std::os::windows::io::FromRawHandle;
+    use winapi::um::winnt::{PROCESS_TERMINATE, SYNCHRONIZE};
+    // SAFETY: OpenProcess takes plain values and returns a new handle or null.
+    let raw = unsafe {
+        winapi::um::processthreadsapi::OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, 0, pid)
+    };
+    if raw.is_null() {
+        tracing::warn!(
+            pid,
+            "could not open Chrome's process; its profile dir may be left at exit"
+        );
+        return None;
+    }
+    // SAFETY: `raw` is a valid process handle we own and close exactly once, through OwnedHandle.
+    Some(unsafe { std::os::windows::io::OwnedHandle::from_raw_handle(raw.cast()) })
+}
+
+/// Browsers the host app launched and has not cleaned up. A browser session is closed when it is dropped or
+/// shut down, but a process that ends with `std::process::exit` (every CLI exit does) runs no destructor,
+/// so Chrome would outlive the host app, orphaned (issue 465), and `TempDir`'s destructor would not delete the
+/// profile dir either. The registry therefore also holds each session's temporary profile dir. It holds ONLY
+/// that `TempDir` path, never the consented imported profile under `profiles_root`, which
+/// `purge_imported_profile` owns.
+static OWNED_BROWSERS: std::sync::Mutex<Vec<OwnedBrowser>> = std::sync::Mutex::new(Vec::new());
+
+fn register_owned_browser(entry: OwnedBrowser) {
+    OWNED_BROWSERS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(entry);
+}
+
+fn unregister_owned_browser(profile_dir: &std::path::Path) {
+    OWNED_BROWSERS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .retain(|e| e.profile_dir != profile_dir);
+}
+
+/// Close every browser this process launched and has not closed: SIGTERM to each Chrome process group,
+/// up to `grace` for them to exit, then SIGKILL. For the process exit path, where destructors do not run.
+/// A group is signalled only while its leader is still this process's child (an unreaped child cannot have
+/// had its pid reused), so a Chrome that already exited and was reaped never leads to signalling a stranger.
+/// On Windows the kill-on-close job object would end Chrome only after this process exits, too late for the
+/// profile dir, so each still-open browser process is terminated through the handle taken at launch, when one
+/// could be opened (no pid reuse is possible while it is held), and waited for within `grace`. Only the browser
+/// process is terminated; its renderer, GPU, utility and crashpad children exit on their own once it is gone.
+/// Then every registered temporary profile dir is removed, best effort. On Windows those children may still
+/// hold profile files for a moment, so removal is retried until the same `grace` deadline; a child that
+/// outlives it leaves the dir behind.
+pub fn close_owned_browsers_at_exit(grace: std::time::Duration) {
+    #[cfg(windows)]
+    let deadline = std::time::Instant::now() + grace;
+    let entries: Vec<OwnedBrowser> = std::mem::take(
+        &mut *OWNED_BROWSERS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    );
+    #[cfg(unix)]
+    {
+        let pids: Vec<u32> = entries.iter().filter_map(|e| e.pid).collect();
+        // waitpid(WNOHANG): 0 = our child, still running; pid = our child, exited now (reaped here, its
+        // group may still have members); -1 (ECHILD) = not our child any more, so the pid may be reused.
+        let still_ours = |pid: libc::pid_t| {
+            let mut status = 0;
+            // SAFETY: waitpid with WNOHANG on a single pid; `status` is a valid out pointer.
+            unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) >= 0 }
+        };
+        let groups: Vec<libc::pid_t> = pids
+            .into_iter()
+            .filter_map(|pid| libc::pid_t::try_from(pid).ok())
+            .filter(|pid| *pid > 1 && still_ours(*pid))
+            .collect();
+        // SAFETY: kill(2) with a negative pid signals that process group; no memory is involved.
+        let signal = |pgid: libc::pid_t, sig: libc::c_int| unsafe { libc::kill(-pgid, sig) } == 0;
+        for pgid in &groups {
+            signal(*pgid, libc::SIGTERM);
+        }
+        let deadline = std::time::Instant::now() + grace;
+        let alive = |pgid: libc::pid_t| {
+            // Reap the leader first: an unreaped zombie leader still answers kill(-pgid, 0).
+            let mut status = 0;
+            // SAFETY: as above.
+            unsafe { libc::waitpid(pgid, &mut status, libc::WNOHANG) };
+            signal(pgid, 0)
+        };
+        while std::time::Instant::now() < deadline && groups.iter().any(|g| alive(*g)) {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        let mut killed: Vec<libc::pid_t> = groups.iter().copied().filter(|g| alive(*g)).collect();
+        for pgid in &killed {
+            signal(*pgid, libc::SIGKILL);
+        }
+        // wait (bounded) for killed leaders to die so they stop writing to the profile dir before it is removed
+        let reap_deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
+        while !killed.is_empty() && std::time::Instant::now() < reap_deadline {
+            killed.retain(|pgid| {
+                let mut status = 0;
+                // SAFETY: waitpid with WNOHANG on a single pid; `status` is a valid out pointer.
+                // 0 = still running; the pgid (reaped) or -1 (not our child) = done.
+                unsafe { libc::waitpid(*pgid, &mut status, libc::WNOHANG) == 0 }
+            });
+            if !killed.is_empty() {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        let live = || {
+            entries
+                .iter()
+                .filter(|e| e.pid.is_some())
+                .filter_map(|e| e.handle.as_ref())
+        };
+        for handle in live() {
+            // SAFETY: a live process handle with PROCESS_TERMINATE access.
+            unsafe {
+                winapi::um::processthreadsapi::TerminateProcess(handle.as_raw_handle().cast(), 1)
+            };
+        }
+        for handle in live() {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            let millis = u32::try_from(left.as_millis()).unwrap_or(u32::MAX);
+            // SAFETY: a live process handle with SYNCHRONIZE access; the wait is bounded by the remaining grace.
+            unsafe {
+                winapi::um::synchapi::WaitForSingleObject(handle.as_raw_handle().cast(), millis)
+            };
+        }
+    }
+    for entry in &entries {
+        #[cfg(windows)]
+        while std::fs::remove_dir_all(&entry.profile_dir).is_err()
+            && entry.profile_dir.exists()
+            && std::time::Instant::now() < deadline
+        {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        #[cfg(not(windows))]
+        if let Err(error) = std::fs::remove_dir_all(&entry.profile_dir) {
+            tracing::debug!(
+                %error,
+                profile_dir = %entry.profile_dir.display(),
+                "browser temporary profile dir was not removed at exit"
+            );
+        }
     }
 }
 
@@ -1550,6 +1761,560 @@ async fn install_document_guard(
         .map_err(|error| format!("could not enable browser request interception: {error}"))
 }
 
+/// A loopback SOCKS5 proxy (RFC 1928, CONNECT only, no auth) that is the single
+/// resolver for one browser session. Each connection's name is resolved once,
+/// checked by the same navigation guard and trust policy the interceptor uses,
+/// and connected to exactly the validated addresses. This closes DNS rebinding:
+/// the interceptor's own lookup only decides whether a request may start.
+///
+/// Exposure: the listener binds 127.0.0.1 only (never 0.0.0.0 or ::), lives
+/// exactly as long as its `BrowserSession`, and is unauthenticated because
+/// Chrome cannot send SOCKS5 credentials from launch flags. Any local process
+/// that finds the port while the session lives can use it, but it gets nothing
+/// the guard would not allow the session itself: every target is still resolved
+/// and checked here. When an upstream HTTP proxy is configured, such a process
+/// could reach guard-approved destinations through that proxy's credentials.
+///
+/// Limits: the SOCKS greeting and request must finish within
+/// `EGRESS_HANDSHAKE_TIMEOUT`, resolving and connecting within
+/// `EGRESS_CONNECT_TIMEOUT`, a relay closes after `EGRESS_IDLE_TIMEOUT` without
+/// bytes in either direction, and at most `EGRESS_MAX_RELAYS` relays run at once
+/// (further clients are closed at accept).
+struct EgressProxy {
+    port: u16,
+    task: tokio::task::JoinHandle<()>,
+}
+
+const EGRESS_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+const EGRESS_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+const EGRESS_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+const EGRESS_MAX_RELAYS: usize = 256;
+/// Upper bound on an upstream proxy's CONNECT response head.
+const EGRESS_MAX_PROXY_RESPONSE: usize = 16 * 1024;
+
+impl Drop for EgressProxy {
+    fn drop(&mut self) {
+        // Aborting the accept loop drops its JoinSet, which aborts every relay.
+        self.task.abort();
+    }
+}
+
+impl EgressProxy {
+    async fn start(
+        navigation_trust: Arc<std::sync::Mutex<BrowserNavigationTrustV1>>,
+        host_policy: Arc<std::sync::Mutex<HashMap<String, BrowserNetworkDecisionV1>>>,
+    ) -> Result<Self, String> {
+        // `--proxy-server` makes Chrome ignore HTTP(S)_PROXY/ALL_PROXY/PAC, so the
+        // relay itself must honour them. A set but unusable value fails closed.
+        let upstream = Arc::new(UpstreamProxyConfig::from_env()?);
+        // Loopback only: the proxy must never be reachable from another host.
+        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .await
+            .map_err(|e| format!("could not start the browser egress proxy: {e}"))?;
+        let port = listener
+            .local_addr()
+            .map_err(|e| format!("could not start the browser egress proxy: {e}"))?
+            .port();
+        let task = tokio::spawn(async move {
+            let mut relays = tokio::task::JoinSet::new();
+            loop {
+                let accepted = listener.accept().await;
+                while relays.try_join_next().is_some() {}
+                let Ok((client, _)) = accepted else {
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    continue;
+                };
+                if relays.len() >= EGRESS_MAX_RELAYS {
+                    tracing::warn!(
+                        limit = EGRESS_MAX_RELAYS,
+                        "browser egress proxy at its relay limit; closing new connection"
+                    );
+                    drop(client);
+                    continue;
+                }
+                let trust = Arc::clone(&navigation_trust);
+                let policy = Arc::clone(&host_policy);
+                let upstream = Arc::clone(&upstream);
+                relays.spawn(async move {
+                    if let Err(error) = socks5_relay(client, trust, policy, upstream).await {
+                        tracing::debug!(%error, "browser egress relay ended with an error");
+                    }
+                });
+            }
+        });
+        Ok(Self { port, task })
+    }
+}
+
+/// Reads the SOCKS5 greeting and CONNECT request. `Ok(None)` means the client
+/// was already answered with a refusal.
+async fn socks5_read_request(
+    client: &mut tokio::net::TcpStream,
+) -> std::io::Result<Option<(String, u16)>> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    const UNSUPPORTED: [u8; 10] = [5, 7, 0, 1, 0, 0, 0, 0, 0, 0]; // command not supported
+
+    let mut greeting = [0u8; 2];
+    client.read_exact(&mut greeting).await?;
+    let mut methods = vec![0u8; usize::from(greeting[1])];
+    client.read_exact(&mut methods).await?;
+    if greeting[0] != 5 || !methods.contains(&0) {
+        client.write_all(&[5, 0xff]).await?;
+        return Ok(None);
+    }
+    client.write_all(&[5, 0]).await?;
+
+    let mut request = [0u8; 4];
+    client.read_exact(&mut request).await?;
+    // Hosts are spelled as `url::Url::host_str` spells them, so host-policy
+    // keys and trusted domains match the interceptor's view of the same request.
+    let host = match request[3] {
+        1 => {
+            let mut ip = [0u8; 4];
+            client.read_exact(&mut ip).await?;
+            std::net::Ipv4Addr::from(ip).to_string()
+        }
+        3 => {
+            let mut len = [0u8; 1];
+            client.read_exact(&mut len).await?;
+            let mut name = vec![0u8; usize::from(len[0])];
+            client.read_exact(&mut name).await?;
+            String::from_utf8_lossy(&name).to_ascii_lowercase()
+        }
+        4 => {
+            let mut ip = [0u8; 16];
+            client.read_exact(&mut ip).await?;
+            format!("[{}]", std::net::Ipv6Addr::from(ip))
+        }
+        _ => {
+            client.write_all(&UNSUPPORTED).await?;
+            return Ok(None);
+        }
+    };
+    let port = client.read_u16().await?;
+    if request[0] != 5 || request[1] != 1 {
+        client.write_all(&UNSUPPORTED).await?;
+        return Ok(None);
+    }
+    Ok(Some((host, port)))
+}
+
+async fn socks5_relay(
+    mut client: tokio::net::TcpStream,
+    navigation_trust: Arc<std::sync::Mutex<BrowserNavigationTrustV1>>,
+    host_policy: Arc<std::sync::Mutex<HashMap<String, BrowserNetworkDecisionV1>>>,
+    upstream_proxy: Arc<UpstreamProxyConfig>,
+) -> std::io::Result<()> {
+    use tokio::io::AsyncWriteExt;
+    const REFUSED: [u8; 10] = [5, 2, 0, 1, 0, 0, 0, 0, 0, 0]; // not allowed by ruleset
+    const UNREACHABLE: [u8; 10] = [5, 5, 0, 1, 0, 0, 0, 0, 0, 0]; // connection refused
+    const TIMED_OUT: [u8; 10] = [5, 4, 0, 1, 0, 0, 0, 0, 0, 0]; // host unreachable
+
+    let request = tokio::time::timeout(EGRESS_HANDSHAKE_TIMEOUT, socks5_read_request(&mut client))
+        .await
+        .map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::TimedOut, "SOCKS5 handshake timed out")
+        })??;
+    let Some((host, port)) = request else {
+        return Ok(());
+    };
+
+    let trust = navigation_trust
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    let Ok(policy) = trust.policy() else {
+        return client.write_all(&REFUSED).await;
+    };
+    let host_allowlisted = host_policy
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&host)
+        .copied()
+        == Some(BrowserNetworkDecisionV1::Allow);
+    // The guard always resolves and checks the name here, with or without an
+    // upstream proxy; only the checked addresses are ever dialled or named.
+    let addrs = match tokio::time::timeout(
+        EGRESS_CONNECT_TIMEOUT,
+        resolve_browser_target_with_trust_and_allowlist(&host, port, &policy, host_allowlisted),
+    )
+    .await
+    {
+        Ok(Ok(addrs)) if !addrs.is_empty() => addrs,
+        Ok(_) => return client.write_all(&REFUSED).await,
+        Err(_) => return client.write_all(&TIMED_OUT).await,
+    };
+    let route = upstream_proxy.route(&host, port);
+    let connected = tokio::time::timeout(EGRESS_CONNECT_TIMEOUT, async {
+        match route {
+            None => tokio::net::TcpStream::connect(&addrs[..]).await,
+            Some(proxy) => proxy.connect_tunnel(&addrs).await,
+        }
+    })
+    .await;
+    let upstream = match connected {
+        Ok(Ok(upstream)) => upstream,
+        Ok(Err(_)) => return client.write_all(&UNREACHABLE).await,
+        Err(_) => return client.write_all(&TIMED_OUT).await,
+    };
+    client.write_all(&[5, 0, 0, 1, 0, 0, 0, 0, 0, 0]).await?;
+    relay_with_idle_timeout(client, upstream, EGRESS_IDLE_TIMEOUT).await
+}
+
+/// Copies bytes both ways until both sides close, an error occurs, or `idle`
+/// passes with no bytes moving in either direction (reads or writes).
+async fn relay_with_idle_timeout(
+    a: tokio::net::TcpStream,
+    b: tokio::net::TcpStream,
+    idle: std::time::Duration,
+) -> std::io::Result<()> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let timed_out =
+        || std::io::Error::new(std::io::ErrorKind::TimedOut, "browser egress relay idle");
+    let (mut a_read, mut a_write) = a.into_split();
+    let (mut b_read, mut b_write) = b.into_split();
+    let mut a_buf = vec![0u8; 16 * 1024];
+    let mut b_buf = vec![0u8; 16 * 1024];
+    let (mut a_open, mut b_open) = (true, true);
+    while a_open || b_open {
+        // A fresh sleep per iteration: any completed read restarts the clock.
+        tokio::select! {
+            read = a_read.read(&mut a_buf), if a_open => {
+                let n = read?;
+                if n == 0 {
+                    a_open = false;
+                    if let Err(error) = b_write.shutdown().await {
+                        tracing::debug!(%error, "browser egress relay: closing the write side failed");
+                    }
+                } else {
+                    tokio::time::timeout(idle, b_write.write_all(&a_buf[..n]))
+                        .await
+                        .map_err(|_| timed_out())??;
+                }
+            }
+            read = b_read.read(&mut b_buf), if b_open => {
+                let n = read?;
+                if n == 0 {
+                    b_open = false;
+                    if let Err(error) = a_write.shutdown().await {
+                        tracing::debug!(%error, "browser egress relay: closing the write side failed");
+                    }
+                } else {
+                    tokio::time::timeout(idle, a_write.write_all(&b_buf[..n]))
+                        .await
+                        .map_err(|_| timed_out())??;
+                }
+            }
+            () = tokio::time::sleep(idle) => return Err(timed_out()),
+        }
+    }
+    Ok(())
+}
+
+/// An HTTP proxy the relay tunnels through with `CONNECT`. The proxy itself is
+/// operator configuration and is dialled without the navigation guard (it is
+/// usually loopback or private); the guard governs only the destinations.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct UpstreamProxy {
+    host: String,
+    port: u16,
+    /// `Proxy-Authorization` value from the URL's userinfo; never logged.
+    authorization: Option<String>,
+}
+
+impl UpstreamProxy {
+    /// Parses one proxy variable. A bare `host:port` means `http://host:port`.
+    /// Only `http://` is supported; anything else fails closed. Errors name the
+    /// variable, never its value, which may carry credentials.
+    fn parse(variable: &str, value: &str) -> Result<Self, String> {
+        let value = value.trim();
+        let with_scheme = if value.contains("://") {
+            value.to_string()
+        } else {
+            format!("http://{value}")
+        };
+        let invalid = || {
+            format!(
+                "{variable} is set but is not a usable proxy URL; the browser will not start \
+                 rather than bypass the configured proxy"
+            )
+        };
+        let url = url::Url::parse(&with_scheme).map_err(|_| invalid())?;
+        if url.scheme() != "http" {
+            return Err(format!(
+                "{variable} uses the `{}` scheme; the browser egress proxy can only tunnel \
+                 through an http:// proxy, so the browser will not start rather than bypass it",
+                url.scheme()
+            ));
+        }
+        let host = match url.host().ok_or_else(invalid)? {
+            url::Host::Domain(domain) if !domain.is_empty() => domain.to_string(),
+            url::Host::Domain(_) => return Err(invalid()),
+            url::Host::Ipv4(ip) => ip.to_string(),
+            url::Host::Ipv6(ip) => ip.to_string(),
+        };
+        let port = url.port_or_known_default().ok_or_else(invalid)?;
+        let authorization = if url.username().is_empty() && url.password().is_none() {
+            None
+        } else {
+            let user = percent_decode(url.username()).ok_or_else(invalid)?;
+            let password = percent_decode(url.password().unwrap_or("")).ok_or_else(invalid)?;
+            let mut credentials = user;
+            credentials.push(b':');
+            credentials.extend_from_slice(&password);
+            Some(format!(
+                "Basic {}",
+                rightkit_crypto::base64_encode(&credentials)
+            ))
+        };
+        Ok(Self {
+            host,
+            port,
+            authorization,
+        })
+    }
+
+    /// Opens a `CONNECT` tunnel to the first checked address the proxy accepts.
+    /// The request names the checked IP literal, never the hostname, so the
+    /// proxy cannot resolve the name to a different address. Chrome runs TLS end
+    /// to end through the tunnel.
+    async fn connect_tunnel(
+        &self,
+        targets: &[std::net::SocketAddr],
+    ) -> std::io::Result<tokio::net::TcpStream> {
+        let mut last_error = std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "no checked address to connect to",
+        );
+        for target in targets {
+            match self.connect_one(*target).await {
+                Ok(stream) => return Ok(stream),
+                Err(error) => last_error = error,
+            }
+        }
+        Err(last_error)
+    }
+
+    async fn connect_one(
+        &self,
+        target: std::net::SocketAddr,
+    ) -> std::io::Result<tokio::net::TcpStream> {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut stream = tokio::net::TcpStream::connect((self.host.as_str(), self.port)).await?;
+        let authority = connect_authority(target);
+        let mut request = format!("CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n");
+        if let Some(authorization) = &self.authorization {
+            request.push_str("Proxy-Authorization: ");
+            request.push_str(authorization);
+            request.push_str("\r\n");
+        }
+        request.push_str("\r\n");
+        stream.write_all(request.as_bytes()).await?;
+
+        // Read the response head one byte at a time so no tunnel bytes that
+        // follow it are consumed here.
+        let mut head = Vec::with_capacity(256);
+        let mut byte = [0u8; 1];
+        while !head.ends_with(b"\r\n\r\n") {
+            if head.len() >= EGRESS_MAX_PROXY_RESPONSE {
+                return Err(std::io::Error::other(
+                    "upstream proxy response head too large",
+                ));
+            }
+            if stream.read(&mut byte).await? == 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "upstream proxy closed during CONNECT",
+                ));
+            }
+            head.push(byte[0]);
+        }
+        let status_line = head.split(|b| *b == b'\n').next().unwrap_or_default();
+        let status = String::from_utf8_lossy(status_line);
+        let mut parts = status.split_whitespace();
+        let version_ok = parts.next().is_some_and(|v| v.starts_with("HTTP/1."));
+        let code = parts.next().unwrap_or_default();
+        if version_ok && code.len() == 3 && code.starts_with('2') {
+            Ok(stream)
+        } else {
+            Err(std::io::Error::other(format!(
+                "upstream proxy refused CONNECT: {}",
+                status.trim()
+            )))
+        }
+    }
+}
+
+/// `ip:port`, bracketing IPv6 as RFC 9110 authority form requires.
+fn connect_authority(target: std::net::SocketAddr) -> String {
+    match target.ip() {
+        std::net::IpAddr::V4(ip) => format!("{ip}:{}", target.port()),
+        std::net::IpAddr::V6(ip) => format!("[{ip}]:{}", target.port()),
+    }
+}
+
+fn percent_decode(input: &str) -> Option<Vec<u8>> {
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = std::str::from_utf8(bytes.get(i + 1..i + 3)?).ok()?;
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    Some(out)
+}
+
+/// One `NO_PROXY` entry, matched against the hostname Chrome asked for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum NoProxyEntry {
+    /// `*`: no destination uses the upstream proxy.
+    All,
+    /// `example.com`, `.example.com` or `*.example.com`: the name and its subdomains.
+    Domain(String),
+    /// An IP literal, matched only against an IP-literal destination.
+    Ip(std::net::IpAddr),
+    /// `10.0.0.0/8` style, matched only against an IP-literal destination.
+    Cidr(std::net::IpAddr, u8),
+}
+
+impl NoProxyEntry {
+    /// Parses one entry. Unparseable entries are dropped, which sends more
+    /// traffic through the proxy, never less.
+    fn parse(raw: &str) -> Option<Self> {
+        let entry = raw.trim().to_ascii_lowercase();
+        if entry.is_empty() {
+            return None;
+        }
+        if entry == "*" {
+            return Some(Self::All);
+        }
+        if let Some((addr, len)) = entry.split_once('/') {
+            let ip = addr
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .parse::<std::net::IpAddr>()
+                .ok()?;
+            let len = len.parse::<u8>().ok()?;
+            let max = if ip.is_ipv4() { 32 } else { 128 };
+            return (len <= max).then_some(Self::Cidr(ip, len));
+        }
+        let unbracketed = entry.trim_start_matches('[').trim_end_matches(']');
+        if let Ok(ip) = unbracketed.parse::<std::net::IpAddr>() {
+            return Some(Self::Ip(ip));
+        }
+        // `[v6]:port` or `name:port`: the port is ignored, as curl does.
+        if let Some((bracketed, _)) = entry.strip_prefix('[').and_then(|e| e.split_once("]:")) {
+            return bracketed.parse().ok().map(Self::Ip);
+        }
+        let name = match entry.rsplit_once(':') {
+            Some((name, port)) if port.chars().all(|c| c.is_ascii_digit()) => name,
+            _ => entry.as_str(),
+        };
+        if let Ok(ip) = name.parse::<std::net::IpAddr>() {
+            return Some(Self::Ip(ip));
+        }
+        let domain = name.trim_start_matches('*').trim_start_matches('.');
+        (!domain.is_empty()).then(|| Self::Domain(domain.to_string()))
+    }
+
+    /// `host` is spelled as the SOCKS request gives it (lowercase name, or an
+    /// IP literal with IPv6 in brackets).
+    fn matches(&self, host: &str) -> bool {
+        let ip = host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .parse::<std::net::IpAddr>()
+            .ok();
+        match (self, ip) {
+            (Self::All, _) => true,
+            (Self::Ip(entry), Some(ip)) => *entry == ip,
+            (Self::Cidr(net, len), Some(ip)) => ip_in_cidr(ip, *net, *len),
+            (Self::Domain(domain), None) => {
+                let host = host.trim_end_matches('.');
+                host == domain
+                    || host
+                        .strip_suffix(domain.as_str())
+                        .is_some_and(|prefix| prefix.ends_with('.'))
+            }
+            _ => false,
+        }
+    }
+}
+
+fn ip_in_cidr(ip: std::net::IpAddr, net: std::net::IpAddr, len: u8) -> bool {
+    match (ip, net) {
+        (std::net::IpAddr::V4(ip), std::net::IpAddr::V4(net)) => {
+            len == 0 || (u32::from(ip) ^ u32::from(net)) >> (32 - u32::from(len)) == 0
+        }
+        (std::net::IpAddr::V6(ip), std::net::IpAddr::V6(net)) => {
+            len == 0 || (u128::from(ip) ^ u128::from(net)) >> (128 - u32::from(len)) == 0
+        }
+        _ => false,
+    }
+}
+
+/// The upstream proxies Chrome would have used without `--proxy-server`, read
+/// from the standard variables (lowercase wins over uppercase, as curl does).
+/// Port 80 uses `http_proxy`, every other port `https_proxy`; each falls back to
+/// `all_proxy`. `no_proxy` destinations connect directly, exactly as with no
+/// upstream configured.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct UpstreamProxyConfig {
+    http: Option<UpstreamProxy>,
+    https: Option<UpstreamProxy>,
+    all: Option<UpstreamProxy>,
+    no_proxy: Vec<NoProxyEntry>,
+}
+
+impl UpstreamProxyConfig {
+    fn from_env() -> Result<Self, String> {
+        Self::from_lookup(|name| std::env::var(name).ok())
+    }
+
+    fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
+        let first_set = |names: [&'static str; 2]| {
+            names.into_iter().find_map(|name| {
+                lookup(name)
+                    .filter(|value| !value.trim().is_empty())
+                    .map(|value| (name, value))
+            })
+        };
+        let proxy = |names: [&'static str; 2]| {
+            first_set(names)
+                .map(|(name, value)| UpstreamProxy::parse(name, &value))
+                .transpose()
+        };
+        Ok(Self {
+            http: proxy(["http_proxy", "HTTP_PROXY"])?,
+            https: proxy(["https_proxy", "HTTPS_PROXY"])?,
+            all: proxy(["all_proxy", "ALL_PROXY"])?,
+            no_proxy: first_set(["no_proxy", "NO_PROXY"])
+                .map(|(_, value)| {
+                    value
+                        .split(|c: char| c == ',' || c.is_whitespace())
+                        .filter_map(NoProxyEntry::parse)
+                        .collect()
+                })
+                .unwrap_or_default(),
+        })
+    }
+
+    /// The proxy for a checked destination, or `None` to connect directly.
+    fn route(&self, host: &str, port: u16) -> Option<&UpstreamProxy> {
+        if self.no_proxy.iter().any(|entry| entry.matches(host)) {
+            return None;
+        }
+        let scheme_proxy = if port == 80 { &self.http } else { &self.https };
+        scheme_proxy.as_ref().or(self.all.as_ref())
+    }
+}
+
 fn browser_request_guard_url(url: &str, is_document: bool) -> Result<Option<String>, ()> {
     let mut parsed = url::Url::parse(url).map_err(|_| ())?;
     match parsed.scheme() {
@@ -1656,7 +2421,13 @@ fn truncate(mut text: String, max: usize) -> String {
         // callers already match on; the suffix stays intact so existing
         // callers/tests that check `ends_with("… [truncated]")` still hold.
         let original_bytes = text.len();
-        text.truncate(max);
+        // `String::truncate` panics inside a multi-byte character; page text
+        // is often non-ASCII, so cut at the nearest boundary at or below `max`.
+        let mut cut = max;
+        while !text.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        text.truncate(cut);
         text.push_str(&format!(
             "\n[full {original_bytes}B, shown {max}B] … [truncated]"
         ));
@@ -1725,6 +2496,7 @@ fn repeated_action_cycle_depth(recent: &VecDeque<String>) -> usize {
     depth
 }
 
+/// What a consented browser launch does with the user's profile.
 enum ConsentedPlan {
     Import,
     Attach,
@@ -2004,19 +2776,56 @@ impl Tool for BrowserReadTool {
             Ok(result) => result,
             Err(e) => return ToolResult::error(e),
         };
-        let elements = serde_json::to_string_pretty(&observation.dom_fallback)
-            .unwrap_or_else(|_| "[]".to_string());
         let observation_json =
             serde_json::to_string_pretty(&observation).unwrap_or_else(|_| "{}".to_string());
 
         // Page content is attacker-controlled — the classic prompt-injection vector.
-        let body = format!(
-            "url: {}\ntitle: {}\n\n--- text ---\n{text}\n\n--- interactive elements ---\n{elements}\n\n--- observation ---\n{observation_json}",
-            observation.url,
-            observation.title
-        );
+        let body = if crate::tool_options::browser_compact_observations() {
+            // The observation already carries `dom_fallback`, so print it once, there.
+            format!(
+                "url: {}\ntitle: {}\n\n--- text ---\n{text}\n\n--- observation (interactive elements are in `domFallback`) ---\n{observation_json}",
+                observation.url,
+                observation.title
+            )
+        } else {
+            let elements = serde_json::to_string_pretty(&observation.dom_fallback)
+                .unwrap_or_else(|_| "[]".to_string());
+            format!(
+                "url: {}\ntitle: {}\n\n--- text ---\n{text}\n\n--- interactive elements ---\n{elements}\n\n--- observation ---\n{observation_json}",
+                observation.url,
+                observation.title
+            )
+        };
         ToolResult::ok(wrap_untrusted_web_text("browser_read", &body))
     }
+}
+
+/// After an action, keep only the added/changed elements when the page changed
+/// a little; the full snapshot stays when there is no baseline or the page
+/// changed wholesale. Returns a one-line note for the reply (empty if unchanged).
+fn shrink_observation_to_diff(observation: &mut BrowserObservationV1) -> String {
+    let diff = &observation.diff;
+    let changes = diff.added.len() + diff.removed.len() + diff.changed.len();
+    let total = observation.dom_fallback.len() + observation.ax_nodes.len();
+    let no_baseline = diff.removed.is_empty()
+        && diff.changed.is_empty()
+        && !diff.added.is_empty()
+        && diff.added.len() >= total;
+    if no_baseline || changes * 2 > total {
+        return String::new();
+    }
+    let keep: std::collections::HashSet<String> = diff
+        .added
+        .iter()
+        .chain(diff.changed.iter())
+        .cloned()
+        .collect();
+    observation
+        .dom_fallback
+        .retain(|node| keep.contains(&snapshot_dom_key(&node.frame_id, &node.selector)));
+    observation.ax_nodes.clear();
+    "page changed a little: showing only added/changed elements (see `diff`); unchanged elements keep their selectors, call browser_read for the full list.\n"
+        .to_string()
 }
 
 pub struct BrowserActTool;
@@ -2206,21 +3015,28 @@ impl Tool for BrowserActTool {
                     session.control.invalidate_actions();
                 }
                 match session.observe_locked().await {
-                    Ok(observation) => ToolResult::ok(format!(
-                        "{done}\n{}{}",
-                        // Compact: an action result rides in every later
-                        // request, so whitespace is pure token cost. Page-derived text goes
-                        // through the injection scan and the untrusted wrapper like
-                        // browser_read does (contract R9).
-                        wrap_untrusted_web_text(
-                            "browser_act",
-                            &serde_json::to_string(&observation).unwrap_or_default()
-                        ),
-                        watchdog_notice
-                            .as_deref()
-                            .map(|notice| format!("\nwatchdog: {notice}"))
-                            .unwrap_or_default(),
-                    )),
+                    Ok(mut observation) => {
+                        let note = if crate::tool_options::browser_compact_observations() {
+                            shrink_observation_to_diff(&mut observation)
+                        } else {
+                            String::new()
+                        };
+                        ToolResult::ok(format!(
+                            "{done}\n{note}{}{}",
+                            // Compact: an action result rides in every later
+                            // request, so whitespace is pure token cost. Page-derived text goes
+                            // through the injection scan and the untrusted wrapper like
+                            // browser_read does (contract R9).
+                            wrap_untrusted_web_text(
+                                "browser_act",
+                                &serde_json::to_string(&observation).unwrap_or_default()
+                            ),
+                            watchdog_notice
+                                .as_deref()
+                                .map(|notice| format!("\nwatchdog: {notice}"))
+                                .unwrap_or_default(),
+                        ))
+                    }
                     Err(error) => ToolResult::error(format!(
                         "action committed but post-action observation failed: {error}"
                     )),

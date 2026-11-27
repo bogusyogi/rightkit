@@ -105,7 +105,9 @@ fn fast_hash(bytes: &[u8]) -> String {
 }
 
 fn artifacts_root(workspace_root: &Path) -> PathBuf {
-    workspace_root.join(".rightkit").join("artifacts")
+    workspace_root
+        .join(rightkit_agent_config::state_dir_name())
+        .join("artifacts")
 }
 
 fn artifact_dir(workspace_root: &Path, id: &str) -> PathBuf {
@@ -659,7 +661,10 @@ impl Tool for ArtifactDeleteTool {
             return ToolResult::error(format!("Artifact not found: {id}"));
         }
 
-        let trash_root = ctx.workspace_root.join(".rightkit").join("artifacts_trash");
+        let trash_root = ctx
+            .workspace_root
+            .join(rightkit_agent_config::state_dir_name())
+            .join("artifacts_trash");
         if let Err(e) = std::fs::create_dir_all(&trash_root) {
             return ToolResult::error(format!("create artifacts trash directory: {e}"));
         }

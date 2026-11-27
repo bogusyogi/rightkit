@@ -188,16 +188,17 @@ fn binary_resource_profile(
 
 fn install_binary_resource_profile() -> Result<(), String> {
     use rightkit_agent_coding_tools::process_resource_authority::{
-        install_process_resource_profile, PROCESS_RESOURCE_PROFILE_ENV,
+        install_process_resource_profile, process_resource_profile_env_name,
     };
     let command = std::env::args_os().nth(1);
-    let raw = std::env::var_os(PROCESS_RESOURCE_PROFILE_ENV);
+    let env_name = process_resource_profile_env_name();
+    let raw = std::env::var_os(&env_name);
     let local_override = raw
         .as_deref()
         .map(|value| {
-            value.to_str().ok_or_else(|| {
-                format!("{PROCESS_RESOURCE_PROFILE_ENV} must be a UTF-8 profile name")
-            })
+            value
+                .to_str()
+                .ok_or_else(|| format!("{env_name} must be a UTF-8 profile name"))
         })
         .transpose()?;
     let profile = binary_resource_profile(command.as_deref(), local_override)?;

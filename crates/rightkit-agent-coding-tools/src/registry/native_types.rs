@@ -64,6 +64,8 @@ pub struct ToolRegistry {
     /// full-prelude behavior (back-compat) until a caller opts in via
     /// `with_lazy_loading(true)`.
     pub(super) lazy_loading: bool,
+    /// Deferred tools whose schema ships from the first request (`[tools] eager-tools`, `run --search`).
+    pub(super) eager_tools: Vec<String>,
     pub(super) model_interface: ModelToolInterface,
 }
 
@@ -148,7 +150,8 @@ pub fn tool_render_class(name: &str) -> ToolRenderClass {
 pub fn render_tool_capabilities_markdown(capabilities: &[ToolCapability]) -> String {
     let read_only = capabilities.iter().filter(|cap| cap.read_only).count();
     let mut out = format!(
-        "**Agent capabilities:** {} tools ({} read-only, {} mutating)",
+        "**{} capabilities:** {} tools ({} read-only, {} mutating)",
+        rightkit_agent_config::app_name(),
         capabilities.len(),
         read_only,
         capabilities.len().saturating_sub(read_only)

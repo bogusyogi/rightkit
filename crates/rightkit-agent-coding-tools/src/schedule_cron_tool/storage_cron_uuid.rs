@@ -7,7 +7,9 @@ fn default_job_mode() -> String {
 }
 
 fn schedules_path(ctx: &ToolContext) -> PathBuf {
-    ctx.workspace_root.join(".rightkit").join("schedules.json")
+    ctx.workspace_root
+        .join(rightkit_agent_config::state_dir_name())
+        .join("schedules.json")
 }
 
 fn load_workspace_schedules(ctx: &ToolContext) -> Result<HashMap<String, ScheduleEntry>, String> {
@@ -52,7 +54,16 @@ fn parse_cron(expr: &str) -> Result<CronSchedule, String> {
         hour: parse_cron_field(parts[1], 0, 23)?,
         day: parse_cron_field(parts[2], 1, 31)?,
         month: parse_cron_field(parts[3], 1, 12)?,
-        weekday: parse_cron_field(parts[4], 0, 6)?,
+        // `7` is accepted only with `set_schedule_cron_sunday_seven`.
+        weekday: parse_cron_field(
+            parts[4],
+            0,
+            if crate::tool_options::schedule_cron_sunday_seven() {
+                7
+            } else {
+                6
+            },
+        )?,
     })
 }
 

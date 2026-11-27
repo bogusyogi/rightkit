@@ -54,6 +54,25 @@ impl Tool for GitMergeTool {
         Some(CapabilityClass::GitWrite)
     }
 
+    /// A resolve step rewrites the conflicted file; the engine snapshots it before the call so a rewind
+    /// restores the conflicted version.
+    fn write_targets(&self, args: &Value, ctx: &ToolContext) -> Vec<std::path::PathBuf> {
+        if !matches!(
+            args["operation"].as_str(),
+            Some("resolve_ours" | "resolve_theirs" | "resolve_manual")
+        ) {
+            return Vec::new();
+        }
+        let Some(path) = args["path"].as_str().map(str::trim) else {
+            return Vec::new();
+        };
+        crate::git_read::open_workspace_repository(args["repo_path"].as_str(), ctx)
+            .ok()
+            .and_then(|repo| repo.workdir().map(|workdir| workdir.join(path)))
+            .into_iter()
+            .collect()
+    }
+
     async fn execute(&self, args: Value, ctx: &ToolContext) -> ToolResult {
         let operation = match args["operation"].as_str() {
             Some(
@@ -100,6 +119,7 @@ impl Tool for GitMergeTool {
             Ok(repo) => repo,
             Err(error) => return ToolResult::error(error),
         };
+        let mut mutations = Vec::new();
         let result = match operation {
             "merge_start" => merge_start(&repo, &args),
             "merge_conflicts" => list_conflicts(&repo),
@@ -109,14 +129,15 @@ impl Tool for GitMergeTool {
             "rebase_conflicts" => list_conflicts(&repo),
             "rebase_continue" => rebase_continue(&repo),
             "rebase_abort" => rebase_abort(&repo),
-            "resolve_ours" => resolve_side(&repo, &args, true),
-            "resolve_theirs" => resolve_side(&repo, &args, false),
-            "resolve_manual" => resolve_manual(&repo, &args),
+            "resolve_ours" => resolve_side(&repo, &args, true, ctx, &mut mutations),
+            "resolve_theirs" => resolve_side(&repo, &args, false, ctx, &mut mutations),
+            "resolve_manual" => resolve_manual(&repo, &args, ctx, &mut mutations),
             _ => unreachable!(),
         };
         match result {
             Ok(effect) => {
                 ToolResult::ok(json!({ "operation": operation, "effect": effect }).to_string())
+                    .with_mutations(mutations)
             }
             Err(error) => ToolResult::error(error),
         }
@@ -356,10 +377,61 @@ fn rebase_abort(repo: &Repository) -> Result<Value, String> {
     Ok(json!({"aborted": true}))
 }
 
+/// Write a resolved conflict file. The path is checked against the write deny list first. With
+/// host option `edit_read_discipline` on it goes through the FileService (atomic, locked, bound to
+/// the file's revision), the way CodeRight writes it; with the option off it is a plain write, as
+/// before. The caller named this exact conflicted path, so the write is anchored to the file as it
+/// is now.
+fn write_resolved(
+    repo: &Repository,
+    path: &str,
+    bytes: &[u8],
+    ctx: &ToolContext,
+    mutations: &mut Vec<crate::tool_trait::WorkspaceMutation>,
+) -> Result<(), String> {
+    let workdir = repo
+        .workdir()
+        .ok_or_else(|| "Cannot resolve conflicts in a bare repository.".to_string())?;
+    let target = workdir.join(path);
+    crate::read_file::enforce_path_deny(ctx, &target, crate::read_file::PathAccess::Write)?;
+    let existed = target.exists();
+    let previous = std::fs::read_to_string(&target).ok();
+    if crate::tool_options::edit_read_discipline() {
+        let kind = if existed {
+            crate::file_service::MutationIntentKind::Update
+        } else {
+            crate::file_service::MutationIntentKind::Create
+        };
+        let observed = ctx.file_service.observe_when_unread(&target);
+        ctx.file_service
+            .write_with_receipt_intent_from(kind, &target, bytes, true, observed.as_ref())
+            .map_err(|error| format!("Write resolved '{path}': {error}"))?;
+    } else {
+        std::fs::write(&target, bytes)
+            .map_err(|error| format!("Write resolved '{path}': {error}"))?;
+    }
+    mutations.push(crate::tool_trait::WorkspaceMutation {
+        path: target,
+        kind: if existed {
+            crate::tool_trait::WorkspaceMutationKind::Modified
+        } else {
+            crate::tool_trait::WorkspaceMutationKind::Created
+        },
+        previous_content: previous,
+    });
+    Ok(())
+}
+
 /// ENG-53: resolve one conflicted path by taking the `ours` or `theirs`
 /// side wholesale. Requires the exact path to already be a listed conflict —
 /// never a pathspec, never "resolve everything".
-fn resolve_side(repo: &Repository, args: &Value, ours: bool) -> Result<Value, String> {
+fn resolve_side(
+    repo: &Repository,
+    args: &Value,
+    ours: bool,
+    ctx: &ToolContext,
+    mutations: &mut Vec<crate::tool_trait::WorkspaceMutation>,
+) -> Result<Value, String> {
     let path = exact_source(args, "path")?;
     crate::git_read::validate_repo_relative_path(path)?;
     let mut index = repo
@@ -376,14 +448,10 @@ fn resolve_side(repo: &Repository, args: &Value, ours: bool) -> Result<Value, St
     let entry = entry.ok_or_else(|| {
         format!("Conflict '{path}' has no '{chosen}' side to resolve to (likely add/add or delete/modify).")
     })?;
-    let workdir = repo
-        .workdir()
-        .ok_or_else(|| "Cannot resolve conflicts in a bare repository.".to_string())?;
     let blob = repo
         .find_blob(entry.id)
         .map_err(|error| format!("Read '{chosen}' blob for '{path}': {error}"))?;
-    std::fs::write(workdir.join(path), blob.content())
-        .map_err(|error| format!("Write resolved '{path}': {error}"))?;
+    write_resolved(repo, path, blob.content(), ctx, mutations)?;
     index
         .remove_path(std::path::Path::new(path))
         .map_err(|error| format!("Clear conflict stages for '{path}': {error}"))?;
@@ -398,7 +466,12 @@ fn resolve_side(repo: &Repository, args: &Value, ours: bool) -> Result<Value, St
 
 /// ENG-53: resolve one conflicted path with caller-supplied exact content —
 /// the manual-resolution path, still one named file at a time.
-fn resolve_manual(repo: &Repository, args: &Value) -> Result<Value, String> {
+fn resolve_manual(
+    repo: &Repository,
+    args: &Value,
+    ctx: &ToolContext,
+    mutations: &mut Vec<crate::tool_trait::WorkspaceMutation>,
+) -> Result<Value, String> {
     let path = exact_source(args, "path")?;
     crate::git_read::validate_repo_relative_path(path)?;
     let content = args["content"]
@@ -410,11 +483,7 @@ fn resolve_manual(repo: &Repository, args: &Value) -> Result<Value, String> {
     if index.conflict_get(Path::new(path)).is_err() {
         return Err(format!("'{path}' is not a listed conflict."));
     }
-    let workdir = repo
-        .workdir()
-        .ok_or_else(|| "Cannot resolve conflicts in a bare repository.".to_string())?;
-    std::fs::write(workdir.join(path), content)
-        .map_err(|error| format!("Write resolved '{path}': {error}"))?;
+    write_resolved(repo, path, content.as_bytes(), ctx, mutations)?;
     index
         .remove_path(std::path::Path::new(path))
         .map_err(|error| format!("Clear conflict stages for '{path}': {error}"))?;

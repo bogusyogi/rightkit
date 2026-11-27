@@ -17,7 +17,18 @@ use tokio::io::{AsyncRead, AsyncWrite};
 mod error;
 pub use error::ProcessAdmissionError;
 
+/// The default name of the environment variable that selects the resource profile. A host that has
+/// set its own environment prefix (`rightkit_agent_config::set_env_prefix`) reads
+/// [`process_resource_profile_env_name`] instead; this constant is that name under the default
+/// prefix.
 pub const PROCESS_RESOURCE_PROFILE_ENV: &str = "RIGHTKIT_RESOURCE_PROFILE";
+
+/// The environment variable that selects the resource profile for this host:
+/// `<prefix>_RESOURCE_PROFILE` with the prefix of `rightkit_agent_config::set_env_prefix`
+/// (`RIGHTKIT_RESOURCE_PROFILE` by default, [`PROCESS_RESOURCE_PROFILE_ENV`]).
+pub fn process_resource_profile_env_name() -> String {
+    rightkit_agent_config::env_name("RESOURCE_PROFILE")
+}
 
 static PROCESS_GOVERNOR: OnceLock<Arc<ResourceGovernor>> = OnceLock::new();
 
@@ -33,7 +44,7 @@ pub fn local_resource_profile_from_value(raw: Option<&str>) -> Result<ResourcePr
 }
 
 pub fn local_resource_profile_from_env() -> Result<ResourceProfile, String> {
-    let raw = std::env::var(PROCESS_RESOURCE_PROFILE_ENV).ok();
+    let raw = std::env::var(process_resource_profile_env_name()).ok();
     local_resource_profile_from_value(raw.as_deref())
 }
 
@@ -156,6 +167,19 @@ fn reserve_specific_with_governor(
         .map(|specific| SpecificProcessAdmission {
             _specific: specific,
         })
+}
+
+/// The scope a session's own process is reserved under: the session when one is known, so the
+/// profile's per-session limit applies, otherwise the workspace (host-wide limit only).
+pub fn session_or_workspace_scope(
+    session_id: &str,
+    workspace_root: &std::path::Path,
+) -> ServiceScope {
+    if session_id.trim().is_empty() {
+        ServiceScope::Workspace(workspace_root.to_string_lossy().into_owned())
+    } else {
+        ServiceScope::Session(session_id.to_string())
+    }
 }
 
 /// Reserve one process-backed capability against an explicit governor. Kept

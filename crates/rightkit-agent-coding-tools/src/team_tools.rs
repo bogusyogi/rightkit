@@ -4,13 +4,49 @@ use crate::context::{TeamDefinition, ToolContext};
 use crate::tool_trait::{Tool, ToolResult};
 use serde_json::{json, Value};
 
-pub struct TeamCreateTool;
-pub struct TeamDeleteTool;
+/// The `team_create` tool.
+pub struct TeamCreateTool {
+    description: std::sync::OnceLock<String>,
+}
+/// The `team_delete` tool.
+pub struct TeamDeleteTool {
+    description: std::sync::OnceLock<String>,
+}
+
+impl TeamCreateTool {
+    /// A fresh tool; its description is composed on first use from the host's names and options.
+    pub fn new() -> Self {
+        Self {
+            description: std::sync::OnceLock::new(),
+        }
+    }
+}
+
+impl Default for TeamCreateTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TeamDeleteTool {
+    /// A fresh tool; its description is composed on first use from the host's names and options.
+    pub fn new() -> Self {
+        Self {
+            description: std::sync::OnceLock::new(),
+        }
+    }
+}
+
+impl Default for TeamDeleteTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 fn teams_dir() -> String {
     match rightkit_agent_config::state_root() {
         Some(root) => root.join("teams").to_string_lossy().into_owned(),
-        None => "/tmp/.rightkit/teams".to_string(),
+        None => format!("/tmp/{}/teams", rightkit_agent_config::state_dir_name()),
     }
 }
 
@@ -21,9 +57,16 @@ impl Tool for TeamCreateTool {
     }
 
     fn description(&self) -> &str {
-        "Create an agent team configuration file at ~/.host/teams/<name>.toml. \
-         Defines a named group of agent roles that can be spawned together. \
-         Returns 'Team created: {name}' on success."
+        // Composed on first ask and kept for this tool instance only, so it follows the names and
+        // options the host has set by the time the tool is built, not a process-wide first read.
+        self.description.get_or_init(|| {
+            format!(
+                "Create an agent team configuration file at ~/{}/teams/<name>.toml. \
+                 Defines a named group of agent roles that can be spawned together. \
+                 Returns 'Team created: {{name}}' on success.",
+                rightkit_agent_config::state_dir_name()
+            )
+        })
     }
 
     fn input_schema(&self) -> Value {
@@ -153,8 +196,15 @@ impl Tool for TeamDeleteTool {
     }
 
     fn description(&self) -> &str {
-        "Delete an agent team configuration file at ~/.host/teams/<name>.toml. \
-         Returns 'Team deleted: {name}' on success or an error if not found."
+        // Composed on first ask and kept for this tool instance only, so it follows the names and
+        // options the host has set by the time the tool is built, not a process-wide first read.
+        self.description.get_or_init(|| {
+            format!(
+                "Delete an agent team configuration file at ~/{}/teams/<name>.toml. \
+                 Returns 'Team deleted: {{name}}' on success or an error if not found.",
+                rightkit_agent_config::state_dir_name()
+            )
+        })
     }
 
     fn input_schema(&self) -> Value {

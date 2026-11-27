@@ -196,7 +196,10 @@ impl PromptMarkerIdleDetector {
             .map(|d| d.as_nanos())
             .unwrap_or(0);
         let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
-        format!("__RIGHTKIT_PROMPT_{session_id}_{nanos:x}_{seq:x}__")
+        format!(
+            "__{}_{session_id}_{nanos:x}_{seq:x}__",
+            rightkit_agent_config::env_name("PROMPT")
+        )
     }
 
     /// The marker this detector is watching for.
