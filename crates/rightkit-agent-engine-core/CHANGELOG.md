@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- New host option `verify_path_env_disabled` (default `false`, behaviour unchanged): when set, the verifiers do not read `<PREFIX>_VERIFY_PATH` and resolve executables on `PATH` only, so a host's release build can refuse an environment variable that chooses which programs the verifiers run.
+
 ## 0.2.0
 
 Upstreamed from CodeRight's private engine copy, in three parts (the turn loop and session controls; tool dispatch, approval and verification; compaction, transcript, usage and the shared files). A host that does nothing keeps the pre-0.2.0 behaviour except for the items under "Applies to every host". Every choice that is not a fix or strictly stricter sits behind a once-per-process option in the new `host_options` module (`set_<name>(true)`, first call wins, `false` until set, documented there); a CodeRight host sets the options listed at the end.

@@ -112,11 +112,12 @@ fn snapshot(kind: VendorCli) -> &'static VendorSnapshot {
     let mut snapshots = SNAPSHOTS
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some((_, _, known)) = snapshots
+    // `&(_, _, known)` copies the `&'static` snapshot out of the entry.
+    if let Some(&(_, _, known)) = snapshots
         .iter()
         .find(|(known_kind, known_variable, _)| *known_kind == kind && *known_variable == variable)
     {
-        return *known;
+        return known;
     }
     let taken: &'static VendorSnapshot = Box::leak(Box::new(probe(kind)));
     snapshots.push((kind, variable, taken));
