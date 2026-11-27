@@ -56,6 +56,15 @@ pub enum AuditEventKind {
     TurnInterrupted,
     /// A journal repair pass discarded a torn tail on startup.
     JournalRepaired { bytes_truncated: u64 },
+    /// An authorization decision for one tool (ENG-93). `outcome` is `allow`,
+    /// `deny` or `card`; `rule` is the policy source text. Never arguments or
+    /// secrets; both strings go through the same redact pass as every other
+    /// string field.
+    AuthorizationDecision {
+        tool_name: String,
+        outcome: String,
+        rule: String,
+    },
 }
 
 /// One durable observability record.
@@ -192,6 +201,46 @@ fn redact_string_leaves(value: &mut serde_json::Value) {
         }
         _ => {}
     }
+}
+
+/// Read every record of the audit log for `session_id` (ENG-41). Pure read: no
+/// write path is added, so the log stays append-only. A missing file is an
+/// empty log. A torn final line (a crash mid-append) is skipped; a line that
+/// does not parse is skipped too, so this never panics on a damaged file.
+///
+/// # Errors
+///
+/// Returns [`AuditLogError::Io`] when `session_id` is empty, is `.` or `..`, or
+/// contains a path separator or NUL (the id names a file under `storage_dir`
+/// and must not leave it), and when the file exists but cannot be read.
+pub fn read_all(storage_dir: &Path, session_id: &str) -> Result<Vec<AuditEvent>, AuditLogError> {
+    if session_id.is_empty()
+        || session_id.contains(['/', '\\', '\0'])
+        || session_id == "."
+        || session_id == ".."
+    {
+        return Err(AuditLogError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "invalid session id",
+        )));
+    }
+    let path = audit_log_path(storage_dir, session_id);
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(AuditLogError::Io(error)),
+    };
+    let text = String::from_utf8_lossy(&bytes);
+    let mut events = Vec::new();
+    for line in text.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Ok(event) = serde_json::from_str::<AuditEvent>(line) {
+            events.push(event);
+        }
+    }
+    Ok(events)
 }
 
 fn audit_log_path(storage_dir: &Path, session_id: &str) -> PathBuf {

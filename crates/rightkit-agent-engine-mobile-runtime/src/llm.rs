@@ -33,7 +33,9 @@ use rightkit_agent_engine_core::llm::{LlmClient, LlmResponse};
 use rightkit_agent_engine_protocol::ToolCall;
 use rightkit_agent_engine_protocol::TranscriptMessage;
 use rightkit_llm::agent_providers::anthropic_client::AnthropicCompatClient;
-use rightkit_llm::agent_providers::client::{CompletedTurn, OpenAiCompatClient};
+use rightkit_llm::agent_providers::client::{
+    CompletedTurn, OpenAiCompatClient, ProviderRequestMetadata,
+};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Duration;
@@ -175,8 +177,9 @@ pub struct NoLocalModelBackend;
 impl OnDeviceInferenceBackend for NoLocalModelBackend {
     async fn infer(
         &self,
-        _request: OnDeviceInferenceRequest,
+        request: OnDeviceInferenceRequest,
     ) -> Result<LlmResponse, OnDeviceInferenceError> {
+        drop(request);
         Err(OnDeviceInferenceError::NoLocalModelAvailable)
     }
 }
@@ -217,14 +220,19 @@ pub fn native_on_device_client(
 
     #[cfg(not(target_os = "ios"))]
     {
-        let _ = (github_configured, cloudflare_configured);
-        unavailable_on_device_client(limits)
+        // Deliberately unavailable: every request fails with `NoLocalModelAvailable`
+        // after its bounds are checked, so the schemas are never sent anywhere.
+        Arc::new(OnDeviceLlmClient {
+            backend: Arc::new(NoLocalModelBackend),
+            limits,
+            tool_schemas: tool_schemas_for_host(github_configured, cloudflare_configured),
+        })
     }
 }
 
 /// Foundation Models lives in Swift. This narrow ABI transports only the
 /// transcript, shared tool schemas, and fixed bounds; it has no URL, key, or
-/// network-capable input. Swift returns regular the host app tool calls, so Rust
+/// network-capable input. Swift returns regular host tool calls, so Rust
 /// still owns validation, approvals, execution, events, and persistence.
 #[cfg(target_os = "ios")]
 struct FoundationModelsBridgeBackend;
@@ -347,6 +355,10 @@ pub struct MobileLlmClient {
     /// model sees can never drift from the tools the host can run.
     tool_schemas: Vec<Value>,
     max_output_tokens: Option<u32>,
+    /// ENG-84: JSON Schema the answer must satisfy. Sent as the chat route's
+    /// native `response_format` where the pinned client carries it; a route
+    /// that cannot carry it ignores the field. `None` sends nothing.
+    response_format: Option<Value>,
 }
 
 /// A provider route plus the ordered fallback model slugs to fail over to
@@ -395,6 +407,7 @@ pub fn client_for(
         tool_schemas: tool_schemas_for_host(github_configured, cloudflare_configured),
         // Anthropic requires an explicit ceiling; OpenAI-compatible ignores it.
         max_output_tokens: Some(8_192),
+        response_format: None,
     }))
 }
 
@@ -402,6 +415,16 @@ pub fn client_for(
 /// session client it exposes no tool schemas, so recap, goal-audit, & diff
 /// narration requests cannot solicit a workspace mutation.
 pub fn assist_client_for(config: &ProviderConfig) -> Result<Arc<dyn LlmClient>, RuntimeError> {
+    assist_client_with_response_format(config, None)
+}
+
+/// [`assist_client_for`] with an optional JSON Schema the answer must satisfy
+/// (ENG-84). On-device routes and routes whose client cannot carry a schema
+/// ignore it, so callers must still parse plain text.
+pub fn assist_client_with_response_format(
+    config: &ProviderConfig,
+    response_format: Option<Value>,
+) -> Result<Arc<dyn LlmClient>, RuntimeError> {
     if matches!(
         config.protocol.trim().to_ascii_lowercase().as_str(),
         "on-device" | "foundation-models"
@@ -429,6 +452,7 @@ pub fn assist_client_for(config: &ProviderConfig) -> Result<Arc<dyn LlmClient>, 
         fallback: Vec::new(),
         tool_schemas: Vec::new(),
         max_output_tokens: Some(512),
+        response_format,
     }))
 }
 
@@ -455,6 +479,7 @@ pub fn client_for_route(
         fallback,
         tool_schemas: tool_schemas_for_host(github_configured, cloudflare_configured),
         max_output_tokens: Some(8_192),
+        response_format: None,
     }))
 }
 
@@ -896,7 +921,7 @@ fn responses_http_client(base_url: &str) -> Result<rightkit_http::AsyncClient, S
 
 fn responses_client_config(base_url: &str) -> rightkit_http::ClientConfig {
     rightkit_http::ClientConfig {
-        user_agent: "Agent/0.1".into(),
+        user_agent: format!("{}/0.1", rightkit_agent_config::app_name()),
         connect_timeout: Some(std::time::Duration::from_secs(10)),
         request_timeout: std::time::Duration::from_secs(120),
         response_timeout: Some(std::time::Duration::from_secs(120)),
@@ -958,10 +983,19 @@ impl MobileLlmClient {
     ) -> Result<LlmResponse, (bool, String)> {
         match route {
             Route::OpenAi(client) => client
-                .complete_with_tools(wire.to_vec(), self.tool_schemas.clone())
+                .complete_with_tools_metadata(
+                    wire.to_vec(),
+                    self.tool_schemas.clone(),
+                    &ProviderRequestMetadata {
+                        response_schema: self.response_format.clone(),
+                        ..ProviderRequestMetadata::default()
+                    },
+                )
                 .await
                 .map(into_llm_response)
                 .map_err(|error| (error_allows_failover(&error), error.to_string())),
+            // The pinned Anthropic client's `complete_with_tools` has no schema
+            // parameter, so `response_format` stays stored and unsent here.
             Route::Anthropic(client) => client
                 .complete_with_tools(
                     wire.to_vec(),

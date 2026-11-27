@@ -10160,11 +10160,12 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-mobile-runtime"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "git2",
  "rightkit-agent-coding-tools",
+ "rightkit-agent-config",
  "rightkit-agent-engine-core",
  "rightkit-agent-engine-history",
  "rightkit-agent-engine-protocol",

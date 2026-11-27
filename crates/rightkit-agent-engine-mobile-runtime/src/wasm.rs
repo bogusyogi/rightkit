@@ -6,8 +6,11 @@ use rightkit_agent_coding_tools::wasm_compute::{
 use std::ffi::{c_char, CStr, CString};
 use std::sync::{Arc, OnceLock};
 
-type ExecuteFn = unsafe extern "C" fn(*const c_char) -> *mut c_char;
-type FreeFn = unsafe extern "C" fn(*mut c_char);
+/// Host callback that runs one bounded WasmKit request: a NUL-terminated JSON request in, an
+/// owned NUL-terminated JSON response out (released with the paired [`FreeFn`]).
+pub type ExecuteFn = unsafe extern "C" fn(*const c_char) -> *mut c_char;
+/// Host callback that releases a response returned by an [`ExecuteFn`].
+pub type FreeFn = unsafe extern "C" fn(*mut c_char);
 
 #[derive(Clone, Copy)]
 struct WasmBridge {
@@ -26,25 +29,49 @@ pub fn is_wasm_executor_installed() -> bool {
     WASM_BRIDGE.get().is_some()
 }
 
-/// Install host callbacks before constructing a mobile runtime.
+/// Install host callbacks before constructing a mobile runtime. Returns 0 when both are
+/// present (the first install stays for the life of the process, and installing again is
+/// still a success) and -1 when either is `None`.
+///
+/// # Safety
+/// `execute` and `free` must stay valid and callable from any thread for the life of the
+/// process. `execute` must return null or an owned NUL-terminated string that `free`
+/// releases, must not keep the request pointer after it returns, and must enforce the
+/// memory, fuel and wall-clock bounds named in the request.
+pub unsafe fn install_wasm_executor(execute: Option<ExecuteFn>, free: Option<FreeFn>) -> i32 {
+    let (Some(execute), Some(free)) = (execute, free) else {
+        return -1;
+    };
+    match WASM_BRIDGE.set(WasmBridge { execute, free }) {
+        Ok(()) => 0,
+        // The first bridge stays for the life of the process (a running session may be calling
+        // it), and installing it again is still a success.
+        Err(_) => 0,
+    }
+}
+
+/// C symbol `host_mobile_install_wasm_executor`: forwards to [`install_wasm_executor`].
+///
+/// Declared without `unsafe`, as it always was: the callbacks are the Swift host's own and meet
+/// the contract documented on [`install_wasm_executor`].
+#[cfg(feature = "c-abi")]
 #[no_mangle]
 pub extern "C" fn host_mobile_install_wasm_executor(
     execute: Option<ExecuteFn>,
     free: Option<FreeFn>,
 ) -> i32 {
-    let (Some(execute), Some(free)) = (execute, free) else {
-        return -1;
-    };
-    let _ = WASM_BRIDGE.set(WasmBridge { execute, free });
-    0
+    // SAFETY: the Swift host passes its own WasmKit callbacks, valid for the life of the
+    // process, with `free` releasing what `execute` returns (the contract of
+    // `install_wasm_executor`).
+    unsafe { install_wasm_executor(execute, free) }
 }
 
 /// Exercise the production Rust tool -> iOS callback -> WasmKit path with a
 /// fixed, import-free module. This has no caller-controlled executable input;
 /// it exists solely for an iOS XCTest qualification of the FFI route.
-#[no_mangle]
-pub extern "C" fn host_mobile_wasm_executor_self_test() -> *mut c_char {
-    // (module (func (export "host_compute") (result i32) i32.const 42))
+pub fn wasm_executor_self_test() -> *mut c_char {
+    // An import-free module whose one exported function takes no parameter and returns
+    // `i32.const 42`; the export name is the 17-byte name the iOS WasmKit executor calls.
     const MODULE: &[u8] = &[
         0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7F,
         0x03, 0x02, 0x01, 0x00, 0x07, 0x15, 0x01, 0x11, 0x63, 0x6F, 0x64, 0x65, 0x72, 0x69, 0x67,
@@ -71,6 +98,13 @@ pub extern "C" fn host_mobile_wasm_executor_self_test() -> *mut c_char {
     CString::new(response.to_string())
         .map(CString::into_raw)
         .unwrap_or(std::ptr::null_mut())
+}
+
+/// C symbol `host_mobile_wasm_executor_self_test`: forwards to [`wasm_executor_self_test`].
+#[cfg(feature = "c-abi")]
+#[no_mangle]
+pub extern "C" fn host_mobile_wasm_executor_self_test() -> *mut c_char {
+    wasm_executor_self_test()
 }
 
 /// Adapter whose bounded implementation remains inside iOS's import-free

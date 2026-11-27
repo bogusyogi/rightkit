@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-engine-mobile-runtime"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Agent engine mobile runtime: in-process engine host for platforms without fork/exec (iOS), with journal, FFI-friendly session API and portable tool profile"
@@ -25,6 +25,8 @@ rightkit-agent-engine-history = {version = "0.1.1", path = "../rightkit-agent-en
 rightkit-memory-client = { version = "0.1.0", path = "../rightkit-memory-client"}
 rightkit-mcp = {version = "0.10.0", path = "../rightkit-mcp", features = ["agent_mcp"]}
 rightkit-agent-host-traits = {version = "0.1.0", path = "../rightkit-agent-host-traits"}
+# Host naming only (`app_name`, `state_dir_name`, `host_slug`); no `host-env`, so a phone build reads no environment.
+rightkit-agent-config = {version = "0.1.5", path = "../rightkit-agent-config"}
 rightkit-agent-orchestration = {version = "0.1.6", path = "../rightkit-agent-orchestration", default-features = false, features = ["coding-core"]}
 async-trait = {version = "0.1"}
 serde = {version = "1", features = ["derive"]}
@@ -39,6 +41,10 @@ rightkit-job-queue = {version = "0.6.0", default-features = false, path = "../ri
 wuff = {version = "0.2.9"}
 
 [features]
-default = []
+default = ["c-abi"]
+# The crate's own `host_mobile_*` C symbols (`#[no_mangle]` wrappers around the Rust functions of `ffi`, `team_fleet` and
+# `wasm` that are named like the symbols without the `host_mobile_` prefix). A host static library that exports its own symbol names wraps those Rust functions and
+# depends on this crate with `default-features = false`, so no second copy of the symbols is linked.
+c-abi = []
 # The OS credential store for provider, router and MCP secrets. Off by default: an iOS app has no host credential store to link.
 os-keyring = ["rightkit-llm/agent_providers-os-keyring", "rightkit-llm/agent_router-os-keyring", "rightkit-mcp/agent_mcp-os-keyring", "rightkit-agent-engine-core/os-keyring"]

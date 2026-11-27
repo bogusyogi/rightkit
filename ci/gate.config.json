@@ -677,6 +677,22 @@
         ]
       ]
     },
+    "rightkit-agent-engine-mobile-runtime": {
+      "featureSets": [
+        [],
+        [
+          "--no-default-features"
+        ],
+        [
+          "--no-default-features",
+          "--features",
+          "os-keyring"
+        ],
+        [
+          "--all-features"
+        ]
+      ]
+    },
     "rightkit-device": {
       "featureSets": [
         [],
