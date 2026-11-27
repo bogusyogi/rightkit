@@ -1244,6 +1244,16 @@ fn capability_description(name: &str, table: &str) -> String {
         "$RIGHTKIT_",
         &format!("${}_", rightkit_agent_config::env_prefix()),
     );
+    if crate::tool_options::skills_dir_env_disabled() {
+        // The host turned the `SKILLS_DIR` read off: the description names no such variable.
+        text = text.replace(
+            &format!(
+                "${}_SKILLS_DIR/<slug>.md or ",
+                rightkit_agent_config::env_prefix()
+            ),
+            "",
+        );
+    }
     let app = rightkit_agent_config::app_name();
     text = text.replace("No Agent account", &format!("No {app} account"));
     text = text.replace("Agent performs no", &format!("{app} performs no"));

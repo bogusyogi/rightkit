@@ -613,7 +613,10 @@ async fn github_call(
 ) -> Result<(u16, String), String> {
     let mut request = rightkit_http::Request::new(method, url)
         .bearer(token)
-        .header("User-Agent", "rightkit-agent/1.0")
+        .header(
+            "User-Agent",
+            format!("{}/1.0", crate::host_names::agent_slug()),
+        )
         .header("Accept", accept)
         .header("X-GitHub-Api-Version", "2022-11-28");
     if let Some(body) = body {

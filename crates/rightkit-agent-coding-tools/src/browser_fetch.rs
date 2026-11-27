@@ -440,7 +440,7 @@ async fn fetch_and_extract_inner(url: &str, stealth: bool) -> Result<FetchResult
     let policy =
         rightkit_http::AddressPolicy::public_web().allow_if(vec![host], |ip| ip.is_loopback());
     let client = rightkit_http::AsyncClient::new(rightkit_http::ClientConfig {
-        user_agent: "Agent/0.1".into(),
+        user_agent: crate::host_names::user_agent("0.1"),
         request_timeout: REQUEST_TIMEOUT,
         response_timeout: Some(REQUEST_TIMEOUT),
         retry: rightkit_http::RetryPolicy::none(),

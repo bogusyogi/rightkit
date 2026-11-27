@@ -331,8 +331,10 @@ pub fn disclosure_for(target: ExecutionTarget) -> ExecutionTargetDisclosure {
                 "Resumable session/event history".into(),
                 "Bound by the connected endpoint's own resource limits".into(),
             ],
-            payer: "You, via the cloud endpoint you connected (its own billing, outside Agent)"
-                .into(),
+            payer: format!(
+                "You, via the cloud endpoint you connected (its own billing, outside {})",
+                rightkit_agent_config::app_name()
+            ),
             data_location: "Workspace files and run output live on the connected cloud endpoint"
                 .into(),
         },

@@ -91,6 +91,7 @@ pub mod git_read;
 pub mod git_write;
 pub mod github;
 pub mod handoff;
+pub(crate) mod host_names;
 pub(crate) mod http_client;
 pub mod image_generate;
 pub mod list_files;

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-coding-tools"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "The coding agent's host tools (files, edit and patch, shell and PTY, git, browser, MCP, LSP, tasks, checkpoints, sandboxing) behind an async `Tool` trait and a `ToolRegistry`."
@@ -15,8 +15,8 @@ include = ["src/**", "licenses/**", "assets/**", "README.md", "CHANGELOG.md", "L
 default = []
 # The OS credential store for the MCP and provider secrets. Off by default; a host without one (an iOS app) leaves it out.
 os-keyring = ["rightkit-mcp/agent_mcp-os-keyring", "rightkit-llm/agent_providers-os-keyring"]
-# The host-process tools: browser, OCR, media, plugins, PTY, OS keyring (`os-keyring`) and host-environment overrides. Was `rightkit-agent-tools` `coding_tools-host`.
-host = ["code-mode", "dep:image", "dep:rightkit-browser", "dep:rightkit-ocr", "dep:rightkit-ffmpeg", "dep:rightkit-agent-plugins", "dep:portable-pty", "os-keyring", "rightkit-agent-config/host-env", "rightkit-mcp/agent_mcp-host-env", "rightkit-llm/agent_providers-host-env"]
+# The host-process tools: browser, OCR, media, plugins, PTY (`portable-pty` and `rightkit-sandbox/pty`, which links `rightkit-pty`), OS keyring (`os-keyring`) and host-environment overrides. Was `rightkit-agent-tools` `coding_tools-host`.
+host = ["code-mode", "rightkit-sandbox/pty", "dep:rightkit-browser", "dep:rightkit-ocr", "dep:rightkit-ffmpeg", "dep:rightkit-agent-plugins", "dep:portable-pty", "os-keyring", "rightkit-agent-config/host-env", "rightkit-mcp/agent_mcp-host-env", "rightkit-llm/agent_providers-host-env"]
 # The QuickJS code-mode tool. Was `coding_tools-code-mode`.
 code-mode = ["dep:rquickjs"]
 # Local embedding inference. Was `coding_tools-embeddings`.
@@ -45,7 +45,8 @@ rightkit-agent-config = { version = "0.1.5", path = "../rightkit-agent-config" }
 rightkit-mcp = { version = "0.10.0", path = "../rightkit-mcp", features = ["agent_mcp"] }
 rightkit-agent-engine-history = { version = "0.1.3", path = "../rightkit-agent-engine-history" }
 rightkit-agent-host-traits = { version = "0.1.0", path = "../rightkit-agent-host-traits" }
-rightkit-sandbox = { version = "0.7.0", path = "../rightkit-sandbox", features = ["execution"] }
+# `execution` (the launch-adapter types `ToolContext` carries) in every build; the PTY half (`pty`, which links `rightkit-pty`) only under `host`.
+rightkit-sandbox = { version = "0.7.0", path = "../rightkit-sandbox", default-features = false, features = ["execution"] }
 # The `search` tool's workspace grep (host option `search_workspace_grep`).
 rightkit-search = { version = "0.4.6", path = "../rightkit-search", default-features = false, features = ["workspace-grep"] }
 rightkit-llm = { version = "0.7.0", path = "../rightkit-llm", features = ["agent_providers"] }
@@ -70,7 +71,8 @@ rightkit-ocr = { version = "0.3.0", path = "../rightkit-ocr", default-features =
 rightkit-ffmpeg = { version = "0.3.0", path = "../rightkit-ffmpeg", features = ["agent_media"], optional = true }
 rightkit-agent-plugins = { version = "0.1.0", path = "../rightkit-agent-plugins", optional = true }
 portable-pty = { version = "0.9", optional = true }
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"], optional = true }
+# PNG and JPEG decode for the bounded image downscale (`tool_options::images_downscaled`), in every build.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 rquickjs = { version = "=0.14.0", features = ["futures"], optional = true }
 
 # One Cargo workspace and lock per crate (rightkit#1285).

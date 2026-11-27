@@ -11,7 +11,8 @@ pub struct WebSearchTool;
 
 /// Provider endpoint, overridable per provider through
 /// `RIGHTKIT_WEB_SEARCH_<PROVIDER>_URL` (a mirror, or a local fake in offline
-/// qualification). Unset or non-http(s) values fall back to the real service.
+/// qualification). Unset or non-http(s) values fall back to the real service. The host option
+/// `web_search_url_env_disabled` turns the read off, and the variables are then not read.
 #[cfg(not(feature = "host"))]
 fn provider_endpoint(_provider: &str, default: &str) -> String {
     default.to_string()
@@ -19,6 +20,9 @@ fn provider_endpoint(_provider: &str, default: &str) -> String {
 
 #[cfg(feature = "host")]
 fn provider_endpoint(provider: &str, default: &str) -> String {
+    if crate::tool_options::web_search_url_env_disabled() {
+        return default.to_string();
+    }
     std::env::var(rightkit_agent_config::env_name(&format!(
         "WEB_SEARCH_{}_URL",
         provider.to_ascii_uppercase()
@@ -118,7 +122,10 @@ async fn search_duckduckgo(query: &str, count: usize) -> Result<Vec<SearchResult
     let endpoint = provider_endpoint("duckduckgo", "https://html.duckduckgo.com/html/");
     let client = crate::http_client::client_following(&endpoint, Duration::from_secs(30))?;
     let request = Request::post(endpoint)
-        .header("User-Agent", "Agent/0.1 web_search")
+        .header(
+            "User-Agent",
+            format!("{} web_search", crate::host_names::user_agent("0.1")),
+        )
         .form(&[("q", query)]);
     let response = crate::http_client::send_any(&client, &request).await?;
     if !crate::http_client::is_success(&response) {

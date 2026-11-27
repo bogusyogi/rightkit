@@ -85,7 +85,7 @@ impl Tool for SpawnSubagentTool {
             (
                 "Optional PR-5 runtime selector. When omitted the spawner falls back to the legacy Agent-native session. When set to `{ kind: \"authenticated_cli\", ... }` the daemon routes the spawn through the CLI child executor.".to_string(),
                 "Selector for the runtime that should host the sub-agent. PR 5 only ships `authenticated_cli`; `rightkit_native` falls through to the legacy path.".to_string(),
-                "Opt-in only: open a real, visible `rightkit-agent attach` window (the actual interactive TUI) so an operator can watch this subagent work. Defaults to false \u{2014} spawns are never visible unless explicitly requested. On non-Windows platforms an explicit `true` fails the spawn with a typed unsupported-platform error rather than silently spawning invisibly.".to_string(),
+                format!("Opt-in only: open a real, visible `{} attach` window (the actual interactive TUI) so an operator can watch this subagent work. Defaults to false \u{2014} spawns are never visible unless explicitly requested. On non-Windows platforms an explicit `true` fails the spawn with a typed unsupported-platform error rather than silently spawning invisibly.", crate::host_names::agent_slug()),
             )
         };
         let mut schema = json!({

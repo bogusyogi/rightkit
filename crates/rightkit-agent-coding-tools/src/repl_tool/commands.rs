@@ -1,5 +1,7 @@
 use super::artifacts::{changed_artifacts, format_repl_artifacts, snapshot_workspace_artifacts};
-use super::helpers::{node_command, read_frame_bounded, NODE_HELPER, PYTHON_HELPER};
+use super::helpers::{
+    host_named_helper, node_command, read_frame_bounded, NODE_HELPER, PYTHON_HELPER,
+};
 use super::session_tool::{ReplSession, ReplTool, MAX_REPL_FRAME_BYTES};
 use crate::context::ToolContext;
 use crate::tool_trait::ToolResult;
@@ -50,7 +52,7 @@ impl ReplTool {
             ));
         };
 
-        let base_args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        let base_args: Vec<String> = args.iter().copied().map(host_named_helper).collect();
         let mut context = ctx.process_launch_context.clone();
         context.workspace_root = workspace_root.display().to_string();
         context.sandbox_profile = Some("repl".into());

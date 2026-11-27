@@ -146,8 +146,9 @@ host_option!(
 
 host_option!(
     /// `view_image` and `read_file` scale a PNG or JPEG whose longest edge is over 2 000 pixels down
-    /// to 2 000 before it is encoded for the model, keeping its type. Only in a build with the
-    /// `host` feature (the decoder is part of it); elsewhere the image is sent as it is. `false`
+    /// to 2 000 before it is encoded for the model, keeping its type, in every build (with or
+    /// without the `host` feature). The decode is bounded: an image whose header declares over
+    /// 40 000 000 pixels is sent as it is, and the decoder may allocate at most 256 MiB. `false`
     /// (the default) sends the original bytes.
     IMAGES_DOWNSCALED,
     set_images_downscaled,
@@ -335,4 +336,79 @@ host_option!(
     TASK_STORE_MERGED,
     set_task_store_merged,
     task_store_merged
+);
+
+host_option!(
+    /// The `repl` tool no longer reads the `NODE` environment variable of the host prefix (see
+    /// `rightkit_agent_config::env_name`), which otherwise names the Node executable it starts;
+    /// the variable is not read at all. Node is then the bundled runtime on Windows when present,
+    /// else `node` from `PATH`. A release build that must not let the environment choose which
+    /// program runs sets this. `false` (the default) reads the variable.
+    NODE_ENV_DISABLED,
+    set_node_env_disabled,
+    node_env_disabled
+);
+
+host_option!(
+    /// The browser tool no longer reads the `BROWSER_NO_SANDBOX` environment variable of the host
+    /// prefix, which otherwise starts the owned Chrome without its sandbox when the process runs
+    /// as root; the variable is not read at all, and a root launch is refused as it is when the
+    /// variable is unset. `false` (the default) reads the variable. Applies to builds with the
+    /// `host` feature.
+    BROWSER_NO_SANDBOX_ENV_DISABLED,
+    set_browser_no_sandbox_env_disabled,
+    browser_no_sandbox_env_disabled
+);
+
+host_option!(
+    /// `context7` no longer reads the `CONTEXT7_API_BASE` environment variable of the host prefix,
+    /// which otherwise redirects its lookups to another endpoint; the variable is not read at all
+    /// and the lookups always go to context7.com. `false` (the default) reads the variable in a
+    /// build with the `host` feature.
+    CONTEXT7_API_BASE_ENV_DISABLED,
+    set_context7_api_base_env_disabled,
+    context7_api_base_env_disabled
+);
+
+host_option!(
+    /// `web_search` no longer reads the `WEB_SEARCH_<PROVIDER>_URL` environment variables of the
+    /// host prefix, which otherwise redirect a provider's requests to another endpoint; the
+    /// variables are not read at all and each provider's own service is used. `false` (the
+    /// default) reads them in a build with the `host` feature.
+    WEB_SEARCH_URL_ENV_DISABLED,
+    set_web_search_url_env_disabled,
+    web_search_url_env_disabled
+);
+
+host_option!(
+    /// The `skill` tool no longer reads the `SKILLS_DIR` environment variable of the host prefix,
+    /// which otherwise adds a directory to look for skills in; the variable is not read at all,
+    /// the description does not name it, and skills come from the context's skill directories or
+    /// the state root's `skills` folder. `false` (the default) reads the variable in a build with
+    /// the `host` feature.
+    SKILLS_DIR_ENV_DISABLED,
+    set_skills_dir_env_disabled,
+    skills_dir_env_disabled
+);
+
+host_option!(
+    /// `local_resource_profile_from_env` no longer reads the `RESOURCE_PROFILE` environment
+    /// variable of the host prefix, which otherwise raises or lowers the process resource profile;
+    /// the variable is not read at all and the profile is Practical. `false` (the default) reads
+    /// the variable. Applies to builds with the `host` feature.
+    RESOURCE_PROFILE_ENV_DISABLED,
+    set_resource_profile_env_disabled,
+    resource_profile_env_disabled
+);
+
+host_option!(
+    /// `attach_verdict` and `finalize_artifact` no longer honour an override of the workspace
+    /// trust store given by the `RIGHTKIT_WORKSPACE_TRUST_STORE` environment variable (read by
+    /// `rightkit-agent-config` in a `host` build): this crate does not read the variable, and the
+    /// two tools accept the store only when it is under the state root, refusing otherwise.
+    /// `false` (the default) also accepts the store the variable names. This does not stop
+    /// `rightkit-agent-config` from reading the variable for its own callers.
+    WORKSPACE_TRUST_STORE_ENV_DISABLED,
+    set_workspace_trust_store_env_disabled,
+    workspace_trust_store_env_disabled
 );

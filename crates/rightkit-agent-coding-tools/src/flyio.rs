@@ -58,7 +58,7 @@ impl Tool for FlyioTool {
                 "machine_id": {"type":"string"},
                 "region": {"type":"string", "description":"Fly region code, e.g. iad, lhr, syd"},
                 "size": {"type":"string", "description":"Fly Machine guest size preset, e.g. shared-cpu-1x, performance-2x"},
-                "image": {"type":"string", "description":"OCI image reference for the Machine, e.g. the Agent daemon image"},
+                "image": {"type":"string", "description": format!("OCI image reference for the Machine, e.g. the {} daemon image", rightkit_agent_config::app_name())},
                 "volume_id": {"type":"string"},
                 "volume_name": {"type":"string"},
                 "volume_size_gb": {"type":"number", "description":"Persistent volume size in GiB"},

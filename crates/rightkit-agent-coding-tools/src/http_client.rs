@@ -42,7 +42,7 @@ fn config_for(url: &str, timeout: Duration, max_redirects: u32) -> ClientConfig 
         policy = policy.allow_if(vec![host], |_| true);
     }
     ClientConfig {
-        user_agent: "Agent/0.1".into(),
+        user_agent: crate::host_names::user_agent("0.1"),
         request_timeout: timeout,
         response_timeout: Some(timeout),
         retry: RetryPolicy::none(),
@@ -87,7 +87,7 @@ pub(crate) fn crawl_page_client(url: &str, timeout: Duration) -> Result<AsyncCli
         policy = policy.allow_if(vec![host], |ip| ip.is_loopback());
     }
     build(ClientConfig {
-        user_agent: "Agent/0.1".into(),
+        user_agent: crate::host_names::user_agent("0.1"),
         request_timeout: timeout,
         response_timeout: Some(timeout),
         retry: RetryPolicy::none(),

@@ -80,7 +80,7 @@ impl Tool for EnterWorktreeTool {
                         }
                     })
                     .collect();
-                tmp.join(format!("rightkit-agent-wt-{safe}"))
+                tmp.join(format!("{}-wt-{safe}", crate::host_names::agent_slug()))
                     .to_string_lossy()
                     .into_owned()
             }

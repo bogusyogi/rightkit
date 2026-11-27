@@ -34,9 +34,11 @@ pub(super) async fn read_frame_bounded(
 }
 
 pub(super) fn node_command() -> String {
-    if let Ok(path) = std::env::var(rightkit_agent_config::env_name("NODE")) {
-        if !path.trim().is_empty() {
-            return path;
+    if !crate::tool_options::node_env_disabled() {
+        if let Ok(path) = std::env::var(rightkit_agent_config::env_name("NODE")) {
+            if !path.trim().is_empty() {
+                return path;
+            }
         }
     }
 
@@ -83,8 +85,9 @@ pub(crate) fn available_languages() -> &'static [&'static str] {
 }
 
 pub(crate) fn node_runtime_available() -> bool {
-    // `node_command` resolves the host's `NODE` override variable, then the bundled runtime, then
-    // the bare PATH fallback — a non-"node" result means a concrete path won.
+    // `node_command` resolves the host's `NODE` override variable (unless the host option
+    // `node_env_disabled` is on), then the bundled runtime, then the bare PATH fallback — a
+    // non-"node" result means a concrete path won.
     node_command() != "node" || executable_on_path("node")
 }
 
@@ -112,6 +115,20 @@ pub(crate) fn executable_on_path(name: &str) -> bool {
             false
         }
     })
+}
+
+/// The file name the Python helper gives the code it compiles, which a traceback shows, as the
+/// default host spells it.
+const REPL_TRACEBACK_NAME: &str = "<rightkit-agent-repl>";
+
+/// `source` with the traceback file name of the default host replaced by the running host's
+/// (`<coderight-repl>` for a host named `CodeRight`); the default host's bytes are unchanged. Applied
+/// each time a session starts, so it follows the host's naming at that time.
+pub(super) fn host_named_helper(source: &str) -> String {
+    source.replace(
+        REPL_TRACEBACK_NAME,
+        &format!("<{}-repl>", crate::host_names::agent_slug()),
+    )
 }
 
 pub(super) const PYTHON_HELPER: &str = r#"

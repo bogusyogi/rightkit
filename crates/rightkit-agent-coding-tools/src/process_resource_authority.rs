@@ -43,7 +43,12 @@ pub fn local_resource_profile_from_value(raw: Option<&str>) -> Result<ResourcePr
     }
 }
 
+/// The local profile from [`process_resource_profile_env_name`]. With the host option
+/// `resource_profile_env_disabled` the variable is not read and the profile is Practical.
 pub fn local_resource_profile_from_env() -> Result<ResourceProfile, String> {
+    if crate::tool_options::resource_profile_env_disabled() {
+        return local_resource_profile_from_value(None);
+    }
     let raw = std::env::var(process_resource_profile_env_name()).ok();
     local_resource_profile_from_value(raw.as_deref())
 }

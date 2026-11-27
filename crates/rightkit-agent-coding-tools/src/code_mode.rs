@@ -421,7 +421,10 @@ async fn run_js(
     let js_allowed = allowed.clone();
     let (completed_tx, mut completed_rx) = oneshot::channel();
     std::thread::Builder::new()
-        .name("rightkit-agent-run-program-js".into())
+        .name(format!(
+            "{}-run-program-js",
+            crate::host_names::agent_slug()
+        ))
         .spawn(move || {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()

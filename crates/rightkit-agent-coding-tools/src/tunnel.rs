@@ -85,10 +85,10 @@ pub fn validate_local_target(host: &str, port: u16) -> Result<(), String> {
     }
     match host.trim() {
         "127.0.0.1" | "localhost" | "::1" => Ok(()),
-        _ => Err(
-            "Only a Agent loopback endpoint (127.0.0.1, ::1, or localhost) may be exposed."
-                .to_string(),
-        ),
+        _ => Err(format!(
+            "Only a {} loopback endpoint (127.0.0.1, ::1, or localhost) may be exposed.",
+            rightkit_agent_config::app_name()
+        )),
     }
 }
 
@@ -102,8 +102,12 @@ pub fn probe_local_target(host: &str, port: u16) -> Result<(), String> {
         "::1" => SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], port)),
         _ => unreachable!("validate_local_target accepted an unknown host"),
     };
-    TcpStream::connect_timeout(&address, Duration::from_secs(2))
-        .map_err(|_| format!("No Agent endpoint is listening at {host}:{port}."))?;
+    TcpStream::connect_timeout(&address, Duration::from_secs(2)).map_err(|_| {
+        format!(
+            "No {} endpoint is listening at {host}:{port}.",
+            rightkit_agent_config::app_name()
+        )
+    })?;
     Ok(())
 }
 
@@ -634,10 +638,8 @@ impl TunnelProvider for CloudflareTunnelProvider {
         config: &TunnelProviderConfig,
         request: &TunnelStartRequest,
     ) -> Result<TunnelHandle, String> {
-        let label = request
-            .label
-            .as_deref()
-            .unwrap_or("rightkit-agent-dev-tunnel");
+        let default_label = format!("{}-dev-tunnel", crate::host_names::agent_slug());
+        let label = request.label.as_deref().unwrap_or(&default_label);
         let created = Self::request(
             rightkit_http::Method::Post,
             config,
