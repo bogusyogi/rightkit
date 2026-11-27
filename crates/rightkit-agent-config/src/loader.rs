@@ -270,8 +270,9 @@ fn record_unknown_keys(layer: &'static str, path: &std::path::Path, keys: Vec<St
 }
 
 /// Key paths in `content` that the parsed `cfg` has no field for. `cfg` serializes every field
-/// except an unset `Option`, and a key the file set is never unset, so a raw key missing from
-/// the serialized form is one nothing reads. Free-form tables (provider routes, hooks, keymaps)
+/// except an unset `Option` and a key the host retired ([`crate::set_retired_config_keys`]), and a
+/// key the file set is never unset, so a raw key missing from the serialized form is one nothing
+/// reads: a retired key is reported like a misspelt one. Free-form tables (provider routes, hooks, keymaps)
 /// copy their own keys through, so they never show up here.
 fn find_unknown_keys(content: &str, cfg: &HostConfig) -> Vec<String> {
     fn walk(raw: &toml::Table, known: &toml::Table, prefix: &str, out: &mut Vec<String>) {

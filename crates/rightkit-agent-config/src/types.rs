@@ -109,6 +109,12 @@ pub struct HostConfig {
     pub remote: RemoteConfig,
     pub orchestration: OrchestrationConfig,
     pub prompt: PromptConfig,
+    /// `[memory]`. A host that retires it ([`crate::set_retired_config_keys`]) neither reads nor
+    /// writes the table.
+    #[serde(
+        deserialize_with = "crate::retired::read_memory",
+        skip_serializing_if = "crate::retired::skip_memory"
+    )]
     pub memory: MemoryConfig,
     pub tui: TuiConfig,
     /// Root-turn limits (`[turn]`).
@@ -473,9 +479,23 @@ pub struct FeatureConfig {
     /// When `None` or `false` — the V1 default — no workflow supervisor starts,
     /// no `/api/workflows` endpoints are mounted, and the desktop Automations
     /// surface stays hidden. See ADR-0021.
+    ///
+    /// A host that retires `features.workflows-enabled` ([`crate::set_retired_config_keys`])
+    /// neither reads nor writes it.
+    #[serde(
+        deserialize_with = "crate::retired::read_workflows_enabled",
+        skip_serializing_if = "crate::retired::skip_workflows_enabled"
+    )]
     pub workflows_enabled: Option<bool>,
     /// Ed25519 trust roots for signed workflow package imports. Empty is
     /// intentional & fail-closed; values are public keys, never secrets.
+    ///
+    /// A host that retires `features.workflow-import-trusted-public-keys`
+    /// ([`crate::set_retired_config_keys`]) neither reads nor writes it.
+    #[serde(
+        deserialize_with = "crate::retired::read_workflow_import_trusted_public_keys",
+        skip_serializing_if = "crate::retired::skip_workflow_import_trusted_public_keys"
+    )]
     pub workflow_import_trusted_public_keys: Vec<WorkflowImportTrustedPublicKey>,
     /// Opt-in per-turn git checkpoint: snapshot the workspace (private index,
     /// HEAD and refs untouched) at the start of every turn so a fork or resume
@@ -786,6 +806,10 @@ impl Default for PreGateCheckConfig {
 
 /// Budget ceilings and orchestration safety limits. Defaults mirror the
 /// daemon's in-memory defaults so an empty config still yields sane values.
+///
+/// A host may retire `global-monthly-max-usd`, `warning-at`, `max-jury-calls-per-run` and
+/// `max-escalation-depth` ([`crate::set_retired_config_keys`]): it then neither reads nor writes
+/// them, and the fields keep their defaults.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct BudgetConfig {
@@ -793,9 +817,25 @@ pub struct BudgetConfig {
     pub per_goal_max_usd: f64,
     pub per_session_max_usd: f64,
     pub per_agent_call_max_usd: f64,
+    #[serde(
+        deserialize_with = "crate::retired::read_global_monthly_max_usd",
+        skip_serializing_if = "crate::retired::skip_global_monthly_max_usd"
+    )]
     pub global_monthly_max_usd: f64,
+    #[serde(
+        deserialize_with = "crate::retired::read_warning_at",
+        skip_serializing_if = "crate::retired::skip_warning_at"
+    )]
     pub warning_at: f64,
+    #[serde(
+        deserialize_with = "crate::retired::read_max_jury_calls_per_run",
+        skip_serializing_if = "crate::retired::skip_max_jury_calls_per_run"
+    )]
     pub max_jury_calls_per_run: u32,
+    #[serde(
+        deserialize_with = "crate::retired::read_max_escalation_depth",
+        skip_serializing_if = "crate::retired::skip_max_escalation_depth"
+    )]
     pub max_escalation_depth: u32,
     pub max_retries_per_role: u32,
     pub max_wall_clock_minutes: u32,
@@ -922,6 +962,9 @@ impl PromptConfig {
 /// `Mid` → hybrid, `High` → full hybrid with wider candidate set.
 /// The bandit adapts per-tier rewards from run outcomes; when the embedder
 /// is unavailable the router falls back to lexical (`Low`).
+///
+/// A host that retires `memory` ([`crate::set_retired_config_keys`]) neither reads nor writes the
+/// table, and [`HostConfig::validate`] checks none of its fields.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct MemoryConfig {
@@ -1073,34 +1116,37 @@ impl HostConfig {
     pub fn validate(&self) -> Result<(), Vec<ValidationError>> {
         let mut errors = Vec::new();
 
-        // Memory bandit epsilon in [0, 0.5]
-        if let Some(eps) = self.memory.bandit_epsilon {
-            if !(0.0..=0.5).contains(&eps) || !eps.is_finite() {
+        // The `[memory]` checks, unless the host retired the table.
+        if !crate::retired::is_retired("memory") {
+            // Memory bandit epsilon in [0, 0.5]
+            if let Some(eps) = self.memory.bandit_epsilon {
+                if !(0.0..=0.5).contains(&eps) || !eps.is_finite() {
+                    errors.push(ValidationError {
+                        field: "memory.bandit_epsilon".into(),
+                        message: format!("must be in [0, 0.5], got {eps}"),
+                    });
+                }
+            }
+            // Memory bandit alpha in (0, 1)
+            if let Some(alpha) = self.memory.bandit_alpha {
+                if !(0.0..1.0).contains(&alpha) || !alpha.is_finite() {
+                    errors.push(ValidationError {
+                        field: "memory.bandit_alpha".into(),
+                        message: format!("must be in (0, 1), got {alpha}"),
+                    });
+                }
+            }
+            // retrieval_tier must be one of low|mid|high|auto
+            let tier = self.memory.retrieval_tier.trim().to_ascii_lowercase();
+            if !matches!(tier.as_str(), "low" | "mid" | "high" | "auto") {
                 errors.push(ValidationError {
-                    field: "memory.bandit_epsilon".into(),
-                    message: format!("must be in [0, 0.5], got {eps}"),
+                    field: "memory.retrieval_tier".into(),
+                    message: format!(
+                        "must be one of low|mid|high|auto, got '{}'",
+                        self.memory.retrieval_tier
+                    ),
                 });
             }
-        }
-        // Memory bandit alpha in (0, 1)
-        if let Some(alpha) = self.memory.bandit_alpha {
-            if !(0.0..1.0).contains(&alpha) || !alpha.is_finite() {
-                errors.push(ValidationError {
-                    field: "memory.bandit_alpha".into(),
-                    message: format!("must be in (0, 1), got {alpha}"),
-                });
-            }
-        }
-        // retrieval_tier must be one of low|mid|high|auto
-        let tier = self.memory.retrieval_tier.trim().to_ascii_lowercase();
-        if !matches!(tier.as_str(), "low" | "mid" | "high" | "auto") {
-            errors.push(ValidationError {
-                field: "memory.retrieval_tier".into(),
-                message: format!(
-                    "must be one of low|mid|high|auto, got '{}'",
-                    self.memory.retrieval_tier
-                ),
-            });
         }
 
         // Budget ceilings must be positive and finite. A key whose host default is `0.0` (the
@@ -1134,6 +1180,9 @@ impl HostConfig {
                 defaults.global_monthly_max_usd,
             ),
         ] {
+            if crate::retired::is_retired(field) {
+                continue;
+            }
             if default == 0.0 {
                 if !value.is_finite() || value < 0.0 {
                     errors.push(ValidationError {
@@ -1148,7 +1197,9 @@ impl HostConfig {
                 });
             }
         }
-        if !(0.0..=1.0).contains(&budget.warning_at) || !budget.warning_at.is_finite() {
+        if !crate::retired::is_retired("orchestration.budget.warning-at")
+            && (!(0.0..=1.0).contains(&budget.warning_at) || !budget.warning_at.is_finite())
+        {
             errors.push(ValidationError {
                 field: "orchestration.budget.warning_at".into(),
                 message: format!("must be in [0, 1], got {}", budget.warning_at),

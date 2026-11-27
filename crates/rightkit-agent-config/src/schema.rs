@@ -4,7 +4,8 @@
 //! `Deserialize` implementation of [`HostConfig`] by feeding it a probing deserializer. Each
 //! struct reports its field names (already renamed to the kebab-case a file uses), each field
 //! reports the kind of value it asks for, and the probe answers with a default so the walk goes
-//! on to the next field. A host that checks the schema in keeps it under [`config_schema_file`].
+//! on to the next field. A host that checks the schema in keeps it under [`config_schema_file`];
+//! a host that retired keys with [`crate::set_retired_config_keys`] gets a schema without them.
 
 use std::cell::RefCell;
 use std::fmt;
@@ -334,8 +335,28 @@ impl<'de, 'a> SeqAccess<'de> for OneElement<'a> {
     }
 }
 
+/// Remove the property at the dotted path `segments` (each segment a key under `properties`); a
+/// path that is not in the schema is left alone.
+fn remove_property(node: &mut Value, segments: &[&str]) {
+    let Some(properties) = node.get_mut("properties").and_then(Value::as_object_mut) else {
+        return;
+    };
+    match segments {
+        // `retain` keeps the order of the other properties whether or not serde_json keeps
+        // insertion order (`remove` would reorder them under `preserve_order`).
+        [last] => properties.retain(|name, _| name != last),
+        [first, rest @ ..] => {
+            if let Some(child) = properties.get_mut(*first) {
+                remove_property(child, rest);
+            }
+        }
+        [] => {}
+    }
+}
+
 /// The JSON Schema (draft 2020-12) for `config.toml` and `<state-dir>/config.toml`. `Err` names
-/// the type that the probe could not walk; the unit tests keep that from happening.
+/// the type that the probe could not walk. A key the host retired
+/// ([`crate::set_retired_config_keys`]) is not in the schema.
 pub fn config_json_schema() -> Result<Value, String> {
     let out = RefCell::new(json!({}));
     <HostConfig as serde::Deserialize>::deserialize(Probe {
@@ -344,6 +365,10 @@ pub fn config_json_schema() -> Result<Value, String> {
     })
     .map_err(|e| format!("config schema: {e}"))?;
     let mut schema = out.into_inner();
+    for key in crate::retired_config_keys() {
+        let segments: Vec<&str> = key.split('.').collect();
+        remove_property(&mut schema, &segments);
+    }
     if let Some(object) = schema.as_object_mut() {
         object.insert(
             "$schema".into(),

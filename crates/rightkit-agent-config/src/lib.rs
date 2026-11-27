@@ -6,6 +6,8 @@
 //! 3. workspace config (`<workspace>/<state-dir>/config.toml`)
 //! 4. env var overrides (`RIGHTKIT_*`, or the host's own prefix, see [`env_prefix`])
 //! 5. session overrides (a passed-in map)
+//!
+//! A host may retire configuration keys it does not have ([`set_retired_config_keys`]).
 
 pub mod accounts;
 pub mod agent_config;
@@ -18,6 +20,7 @@ mod loader;
 mod merge;
 pub mod okf;
 pub mod presets;
+mod retired;
 pub mod schema;
 pub mod session_secrets;
 pub mod state_root;
@@ -40,6 +43,7 @@ pub use okf::{
     compress_prose, emit_bundle as emit_okf_bundle, parse_bundle as parse_okf_bundle, OkfBundle,
     OkfBundleStats, OkfConcept, OkfEmitOptions, OkfError, OkfLink, OKF_VERSION,
 };
+pub use retired::{retired_config_keys, set_retired_config_keys, RETIRABLE_CONFIG_KEYS};
 pub use state_root::{
     app_name, ensure_host_names, env_name, env_prefix, host_slug, os_home_dir,
     os_home_dir_required, set_app_name, set_env_prefix, set_state_dir_name, state_dir_name,
