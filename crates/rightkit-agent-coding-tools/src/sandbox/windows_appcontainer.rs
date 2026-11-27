@@ -273,7 +273,7 @@ mod imp {
                 .filter(|(key, _)| {
                     !key.eq_ignore_ascii_case("NODE_OPTIONS")
                         && !key.eq_ignore_ascii_case("GIT_CEILING_DIRECTORIES")
-                        && !key.eq_ignore_ascii_case(super::SANDBOX_READ_ROOTS_ENV)
+                        && !key.eq_ignore_ascii_case(&super::sandbox_read_roots_env_name())
                 })
                 .map(|(key, value)| format!("{key}={value}")),
         );
@@ -1226,6 +1226,9 @@ mod imp {
     /// tests). Idle grants are revoked immediately; grants still used by a
     /// running command are revoked when its last launch ends.
     pub fn release_pinned_read_roots() {
+        // The shared sandbox's pins (`pin_interpreter_read_roots`) hold their own ACEs on the
+        // interpreter folders; drop them too. The count is not needed.
+        rightkit_sandbox::PinHandle::release_all();
         pinned_read_roots().request_release_all();
     }
 

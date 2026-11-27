@@ -96,6 +96,12 @@ impl Tool for FlyioTool {
                 return ToolResult::error(format!("Permission denied: {}", verdict.reason))
             }
         }
+        // Refuse a call that could not run (unknown action, missing argument)
+        // before any credential card opens. `build_request` is pure; the org
+        // slug it embeds is only a placeholder for this check.
+        if let Err(error) = build_request(action, &args, "validation") {
+            return error;
+        }
         // Prefer a mid-session refreshed credential over the session-start
         // clone, mirroring `crate::cloudflare::CloudflareTool::execute`.
         let config = if let Some(value) =

@@ -140,7 +140,16 @@ impl ReplTool {
     /// duration and only reinserted on a correlated response: on timeout or
     /// protocol desync the helper may still be executing, so the child is
     /// killed — a late frame must never be consumed by the next evaluation.
-    pub(super) async fn eval_code(&self, session_id: &str, code: &str) -> ToolResult {
+    ///
+    /// `timeout_ms` is `Some` with host option `repl_eval_timeout`: the helper interrupts its own
+    /// evaluation after that many milliseconds and keeps the session. `None` keeps the fixed 10 s
+    /// deadline with no interrupt.
+    pub(super) async fn eval_code(
+        &self,
+        session_id: &str,
+        code: &str,
+        timeout_ms: Option<u64>,
+    ) -> ToolResult {
         let mut session = {
             let mut sessions = self.sessions.lock().await;
             match sessions.remove(session_id) {
@@ -151,7 +160,7 @@ impl ReplTool {
             }
         };
 
-        match self.eval_round_trip(&mut session, code).await {
+        match self.eval_round_trip(&mut session, code, timeout_ms).await {
             Ok(result) => {
                 self.sessions
                     .lock()
@@ -177,13 +186,18 @@ impl ReplTool {
         &self,
         session: &mut ReplSession,
         code: &str,
+        timeout_ms: Option<u64>,
     ) -> Result<ToolResult, ToolResult> {
         let request_id = session.next_request_id;
         session.next_request_id += 1;
 
         let before_artifacts = snapshot_workspace_artifacts(&session.workspace_root);
 
-        let payload = match serde_json::to_string(&json!({ "id": request_id, "code": code })) {
+        let request = match timeout_ms {
+            Some(timeout_ms) => json!({ "id": request_id, "code": code, "timeout_ms": timeout_ms }),
+            None => json!({ "id": request_id, "code": code }),
+        };
+        let payload = match serde_json::to_string(&request) {
             Ok(p) => p,
             Err(e) => {
                 return Err(ToolResult::error(format!(
@@ -211,8 +225,17 @@ impl ReplTool {
             )));
         }
 
+        // With a `timeout_ms` the helper interrupts its own evaluation at that limit and keeps the
+        // session; the extra seconds are for a helper stuck where it cannot interrupt (then the
+        // child is killed).
+        let deadline = match timeout_ms {
+            Some(timeout_ms) => {
+                std::time::Duration::from_millis(timeout_ms) + std::time::Duration::from_secs(5)
+            }
+            None => std::time::Duration::from_secs(10),
+        };
         let frame = match tokio::time::timeout(
-            std::time::Duration::from_secs(10),
+            deadline,
             read_frame_bounded(&mut session.stdout, MAX_REPL_FRAME_BYTES),
         )
         .await
@@ -232,8 +255,9 @@ impl ReplTool {
             }
             Err(_) => {
                 return Err(ToolResult::error(format!(
-                    "REPL '{}' timed out after 10s",
-                    session.id
+                    "REPL '{}' timed out after {}s",
+                    session.id,
+                    deadline.as_secs()
                 )))
             }
         };

@@ -3070,7 +3070,7 @@
       "pkId": "PK75",
       "id": "ci/consumers/rightkit-agent-orchestration/src/main.rs",
       "files": {
-        "Cargo.toml": "aff4f0e611d1d15ef47cac3b0e61b4bf3d8b5442745056a57e38142e64405ff6",
+        "Cargo.toml": "7209c806208f1246715e32d281e69c6e3e58a592c7552da46dfbe7686a8cb6e2",
         "README.md": "8c11cf6b00919b37e1490c56b1775e887be2c3107f473ba18748b47f94261687",
         "src/main.rs": "c9d49582aa1bcb19eb54d17ed826da3e9419db931901eb92af08ba744a7c793f"
       }
@@ -4283,7 +4283,7 @@
       "pkId": "PK251",
       "id": "ci/consumers/rightkit-agent-coding-tools/src/main.rs",
       "files": {
-        "Cargo.toml": "417a6b9b358cca2d0606bab411725d692325d01c2976a3188f287558dfcca51c",
+        "Cargo.toml": "98af003791fc7a34847d4d447403e8057293ab0f2329c837e5862c7ad018d027",
         "README.md": "869a94a5e9d713d8a403923427381947e95f3b61ab0ebea9ec8d28a851b036b7",
         "src/main.rs": "84a6ef8ee020b776525e6efd185c1e649458f162e44450a3d5df504951d37273"
       }

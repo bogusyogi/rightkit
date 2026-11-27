@@ -48,8 +48,6 @@
 //! `execute()`, which holds this handle across the `spawner.spawn().await`
 //! and kills it in every branch of that `match`, success or error).
 
-use std::process::Child;
-
 /// `CREATE_NEW_CONSOLE` — the Windows `CreateProcess` flag that opens a real,
 /// visible console for the child. Deliberately the mirror image of the
 /// `CREATE_NO_WINDOW` (`0x0800_0000`) flag used everywhere else in this
@@ -138,7 +136,7 @@ impl std::error::Error for VisibleWindowError {}
 /// cancelled) so the console does not outlive its subagent.
 pub struct VisibleWindowHandle {
     session_id: String,
-    child: Child,
+    child: rightkit_child_process::OwnedChild,
 }
 
 impl VisibleWindowHandle {
@@ -159,8 +157,11 @@ impl VisibleWindowHandle {
     /// when the daemon session ends is a courtesy on top of this, not a
     /// substitute for it).
     pub fn close(mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        if let Err(error) = self.child.terminate_tree() {
+            tracing::debug!(
+                "visible subagent window: the console process tree was not terminated: {error}"
+            );
+        }
     }
 }
 
@@ -170,25 +171,17 @@ impl VisibleWindowHandle {
 /// failure — every error path here is a hard `Err`.
 #[cfg(windows)]
 pub fn spawn_visible_window(session_id: &str) -> Result<VisibleWindowHandle, VisibleWindowError> {
-    use std::os::windows::process::CommandExt as _;
-
     let exe =
         std::env::current_exe().map_err(|error| VisibleWindowError::ExecutableUnresolvable {
             message: error.to_string(),
         })?;
     let command_spec = VisibleWindowCommand::attach(&exe.to_string_lossy(), session_id);
 
-    // Sanctioned exception: operator-requested visible window (CREATE_NEW_CONSOLE).
-    #[allow(clippy::disallowed_methods)]
-    let mut command = std::process::Command::new(&command_spec.program);
-    command.args(&command_spec.args);
-    // `expect`: `VisibleWindowCommand::attach` always sets `creation_flags`;
-    // this branch only exists under `cfg(windows)`.
-    command.creation_flags(
-        command_spec
-            .creation_flags
-            .expect("attach() always sets creation_flags"),
-    );
+    // RightKit `OwnedCommand::windows_new_console` (`CREATE_NEW_CONSOLE`): an owned child, so it is
+    // contained with this process and terminated as a tree on close.
+    let mut command = rightkit_child_process::OwnedCommand::new(&command_spec.program);
+    command.command_mut().args(&command_spec.args);
+    command.windows_new_console();
 
     let child = command
         .spawn()

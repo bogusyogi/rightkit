@@ -59,6 +59,15 @@ impl Tool for GitHubTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolContext) -> ToolResult {
+        // A write that lacks its explicit confirmation is refused first: it needs
+        // neither a token nor the network to be refused.
+        if let Some(action) = args["action"].as_str() {
+            if action == "add_comment" && !confirmed(&args) {
+                return ToolResult::error(
+                    "add_comment requires confirm=true to execute (explicit confirmation).",
+                );
+            }
+        }
         let token = match &ctx.github_token {
             Some(t) => t.clone(),
             None => return ToolResult::error("Connect GitHub in Settings."),
@@ -134,6 +143,11 @@ impl Tool for GitHubTool {
                     Some(b) => b,
                     None => return ToolResult::error("Missing argument: body"),
                 };
+                if !confirmed(&args) {
+                    return ToolResult::error(
+                        "add_comment requires confirm=true to execute (explicit confirmation).",
+                    );
+                }
                 let url = format!(
                     "{}/repos/{}/{}/issues/{}/comments",
                     base_url, owner, repo, pr_number
@@ -617,6 +631,10 @@ fn github_result(
     match outcome {
         Err(e) => ToolResult::error(format!("GitHub request failed: {}", e)),
         Ok((status, body)) if (200..300).contains(&status) => ToolResult::ok(ok(body)),
+        Ok((401, _)) => ToolResult::error(format!(
+            "GitHub rejected the stored sign-in (it was revoked or has expired). No change was made. Reconnect with `{} login github` (or Settings > GitHub in the apps), then retry.",
+            rightkit_agent_config::host_slug()
+        )),
         Ok((status, body)) => ToolResult::error(format!("GitHub API error {}: {}", status, body)),
     }
 }

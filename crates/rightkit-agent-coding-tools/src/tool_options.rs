@@ -153,3 +153,186 @@ host_option!(
     set_images_downscaled,
     images_downscaled
 );
+
+host_option!(
+    /// `attach_verdict` checks `confidence` (a number from 0 to 1, as its schema requires: a missing
+    /// or out-of-range value is refused) and stores it with the verdict. `false` (the default)
+    /// stores the verdict without a confidence and accepts a call that omits it.
+    ATTACH_VERDICT_CONFIDENCE,
+    set_attach_verdict_confidence,
+    attach_verdict_confidence
+);
+
+host_option!(
+    /// `send_message` always writes to the state root's `messages` folder and ignores the
+    /// `MESSAGES_DIR` environment variable of the host prefix (see
+    /// `rightkit_agent_config::env_name`), which in a build with the `host` feature otherwise
+    /// relocates the drop directory. `false` (the default) honours the variable in that build.
+    SEND_MESSAGE_FIXED_DIR,
+    set_send_message_fixed_dir,
+    send_message_fixed_dir
+);
+
+host_option!(
+    /// `spawn_subagent` offers and honours `background`, `fork`, `handoff_summary` and `bare`:
+    /// a background child returns `{agentId, status}` at once and `wait_for_subagents` collects
+    /// its final response from an in-process mailbox (`queued` when the spawner reports a full
+    /// concurrent cap through `SubagentSpawner::concurrent_cap`); a forked or summarised child
+    /// starts from the parent's transcript or a summary of it and a bare child from nothing but
+    /// the task, all three carried to the host in `SubagentSpawnOptions`; the model's call id is
+    /// passed on as `SubagentSpawnOptions::tool_call_id`. The tool descriptions and schemas say so.
+    /// The host's spawner must act on those option fields. `false` (the default) ignores those
+    /// four arguments, offers none of them and leaves the schema and descriptions as they were.
+    SPAWN_SUBAGENT_EXTENDED,
+    set_spawn_subagent_extended,
+    spawn_subagent_extended
+);
+
+host_option!(
+    /// `tool_search` describes itself as the way to find and load every tool that is not in the
+    /// current tool list (git, web search, browser, sub-agents, skills and MCP tools), and the
+    /// capability catalog (`default_tool_capabilities`) carries the same text. `false` (the
+    /// default) keeps the short description.
+    TOOL_SEARCH_ON_DEMAND_DESCRIPTION,
+    set_tool_search_on_demand_description,
+    tool_search_on_demand_description
+);
+
+host_option!(
+    /// Tool definitions sent to a provider (`tool_defs_for_messages`, `deferred_tool_defs`) and the
+    /// MCP schema texts (`list_mcp_tools`, the hint after a failed `mcp_call`) rewrite a `oneOf` or
+    /// `anyOf` list of string constants as `{"type": "string", "enum": [...]}`, which strict
+    /// validators require. `false` (the default) sends each schema as the tool wrote it.
+    TOOL_SCHEMA_STRICT_ENUMS,
+    set_tool_schema_strict_enums,
+    tool_schema_strict_enums
+);
+
+host_option!(
+    /// `run_program` (code mode) with no context worker to compress through returns the program's own
+    /// output, cut to the result limit, with a note that context is off, instead of an error.
+    /// `false` (the default) returns the error "Pull result compression unavailable".
+    CODE_MODE_UNCOMPRESSED_FALLBACK,
+    set_code_mode_uncompressed_fallback,
+    code_mode_uncompressed_fallback
+);
+
+host_option!(
+    /// The capability catalog (`default_tool_capabilities`) lists the newer descriptions of
+    /// `edit_file`, `multi_edit`, `read_file`, `write_file`, `git_write` and `search` (the text those
+    /// tools give with their own host options on). `false` (the default) keeps the earlier catalog
+    /// text.
+    CAPABILITY_CATALOG_NEWER,
+    set_capability_catalog_newer,
+    capability_catalog_newer
+);
+
+host_option!(
+    /// `schedule_cron` accepts the value `7` in the weekday field (`0` to `7`). `false` (the default)
+    /// accepts `0` to `6` only.
+    SCHEDULE_CRON_SUNDAY_SEVEN,
+    set_schedule_cron_sunday_seven,
+    schedule_cron_sunday_seven
+);
+
+host_option!(
+    /// `list_mcp_tools` takes `server` (waits for that server to start) and `query` filters, bounds
+    /// each description to 2 048 bytes, carries input schemas for a narrowed or short list
+    /// (parameter names only for a long one), and `mcp_call`
+    /// appends the expected input schema to a failed call (inside the wrapped error). The
+    /// description and schema of `list_mcp_tools` say so. `false` (the default) keeps the plain
+    /// listing.
+    MCP_LISTING_NEWER,
+    set_mcp_listing_newer,
+    mcp_listing_newer
+);
+
+host_option!(
+    /// MCP tool-definition pinning (trust on first use): the first time a tool's name, description,
+    /// annotations and input schema are seen they are pinned in `pins/mcp-tool-definitions.json` of
+    /// the state root; a later different definition is withheld from `list_mcp_tools` and refused
+    /// by `mcp_call`, with the remedy named, and `mcp_tools::mcp_definition_changed` reports it.
+    /// `false` (the default) pins nothing and refuses nothing.
+    MCP_DEFINITION_PINS,
+    set_mcp_definition_pins,
+    mcp_definition_pins
+);
+
+host_option!(
+    /// `invoke_skill` accepts `file` (a text file inside the skill's folder or the shared folder next
+    /// to the skills) and `query` (a search over the slugs and descriptions of the active skills),
+    /// and its description and schema say so; the schema no longer requires `skill`. `false` (the
+    /// default) keeps the slug-only schema and ignores both arguments.
+    SKILL_FILES_AND_SEARCH,
+    set_skill_files_and_search,
+    skill_files_and_search
+);
+
+host_option!(
+    /// `recursive_fetch` caps each page's text at 4 000 bytes and the whole answer at 40 000, and
+    /// says so in its description. `false` (the default) returns the pages uncapped.
+    RECURSIVE_FETCH_CAPPED_OUTPUT,
+    set_recursive_fetch_capped_output,
+    recursive_fetch_capped_output
+);
+
+host_option!(
+    /// `browser_fetch` returns the readable text of a page as Markdown (headings, lists, links)
+    /// instead of flattened plain text. `false` (the default) keeps the plain text.
+    BROWSER_FETCH_MARKDOWN_TEXT,
+    set_browser_fetch_markdown_text,
+    browser_fetch_markdown_text
+);
+
+host_option!(
+    /// `browser` returns compact page observations (the trimmed element list) instead of the full
+    /// ones. `false` (the default) keeps the full observations.
+    BROWSER_COMPACT_OBSERVATIONS,
+    set_browser_compact_observations,
+    browser_compact_observations
+);
+
+host_option!(
+    /// `search` runs on `rightkit-search`'s workspace grep: workspace-relative paths, `multiline`
+    /// supported, `max_results` capped at 200. `false` (the default) keeps this crate's own walk
+    /// and match, with absolute paths and no cap.
+    SEARCH_WORKSPACE_GREP,
+    set_search_workspace_grep,
+    search_workspace_grep
+);
+
+host_option!(
+    /// `git_write` shows the model the full description of each action. `false` (the default)
+    /// keeps the short description.
+    GIT_WRITE_FULL_DESCRIPTION,
+    set_git_write_full_description,
+    git_write_full_description
+);
+
+host_option!(
+    /// `repl` accepts `timeout_ms` (default 10 000, max 300 000): the helper interrupts the
+    /// evaluation at the limit and keeps the session; the call is cut off 5 s later if the helper
+    /// cannot interrupt. Adds `timeout_ms` to the schema. `false` (the default) keeps the fixed
+    /// 10 s cut-off that ends the session.
+    REPL_EVAL_TIMEOUT,
+    set_repl_eval_timeout,
+    repl_eval_timeout
+);
+
+host_option!(
+    /// `repl` start and `task_create` with a command refuse when the session configures resource
+    /// limits (cpu, memory, disk) that local execution cannot enforce. `false` (the default) runs
+    /// them.
+    REFUSE_UNENFORCED_RESOURCE_LIMITS,
+    set_refuse_unenforced_resource_limits,
+    refuse_unenforced_resource_limits
+);
+
+host_option!(
+    /// `tasks.json` is written under a process lock, merged by `updated_at` stamp with what is on
+    /// disk, and replaced atomically; in-memory copies never roll back a newer disk record. `false`
+    /// (the default) overwrites the file with the caller's records.
+    TASK_STORE_MERGED,
+    set_task_store_merged,
+    task_store_merged
+);

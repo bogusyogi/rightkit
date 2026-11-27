@@ -1,5 +1,5 @@
 fn sandbox_operator_tier_value() -> Option<String> {
-    std::env::var("RIGHTKIT_SANDBOX_TIER")
+    std::env::var(rightkit_agent_config::env_name("SANDBOX_TIER"))
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
@@ -7,7 +7,7 @@ fn sandbox_operator_tier_value() -> Option<String> {
 
 fn sandbox_tier_value_from_workspace_file(workspace_root: &Path) -> Option<String> {
     let path = workspace_root
-        .join(".rightkit")
+        .join(rightkit_agent_config::state_dir_name())
         .join("sandbox-settings.json");
     let content = std::fs::read_to_string(path).ok()?;
     let value: serde_json::Value = serde_json::from_str(&content).ok()?;

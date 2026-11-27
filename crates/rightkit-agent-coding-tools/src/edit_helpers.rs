@@ -524,7 +524,7 @@ fn line_similarity(expected: &[char], actual: &[char]) -> f32 {
 /// HashLine-anchored blocks and `replace_all` are never insert-only. An inserted line can still
 /// change what a test does (an early `return`, a skip decorator); the rule narrows the protection
 /// to rewrites, it does not prove the addition is honest.
-pub(crate) fn edit_only_inserts(old_string: &str, new_string: &str, replace_all: bool) -> bool {
+pub fn edit_only_inserts(old_string: &str, new_string: &str, replace_all: bool) -> bool {
     if replace_all || old_string.trim().is_empty() || new_string.len() <= old_string.len() {
         return false;
     }
@@ -536,7 +536,7 @@ pub(crate) fn edit_only_inserts(old_string: &str, new_string: &str, replace_all:
 
 /// [`edit_only_inserts`] for a `multi_edit` call's `edits` array: true only when every edit is
 /// insert-only and there is at least one.
-pub(crate) fn edits_only_insert(edits: &[serde_json::Value]) -> bool {
+pub fn edits_only_insert(edits: &[serde_json::Value]) -> bool {
     !edits.is_empty()
         && edits.iter().all(|edit| {
             match (edit["old_string"].as_str(), edit["new_string"].as_str()) {

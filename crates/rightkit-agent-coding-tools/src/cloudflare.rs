@@ -81,6 +81,12 @@ impl Tool for CloudflareTool {
                 return ToolResult::error(format!("Permission denied: {}", verdict.reason))
             }
         }
+        // Refuse a call that could not run (unknown action, missing argument)
+        // before any credential card opens: asking for a token to run a call
+        // that is then refused wastes the user's attention.
+        if let Err(error) = validate_action_args(action, &args) {
+            return error;
+        }
         // A mid-session `update_cloudflare_credential` call lands in the
         // session-keyed cell (see `crate::context::update_cloudflare_credential`)
         // without going through the per-turn engine lock. Prefer it when
@@ -254,6 +260,28 @@ impl Tool for CloudflareTool {
         }
         ToolResult::ok(bounded(&body))
     }
+}
+
+/// Per-action required arguments, checked before the credential branch.
+fn validate_action_args(action: &str, args: &Value) -> Result<(), ToolResult> {
+    let needs: &[&str] = match action {
+        "list_pages_projects" | "list_r2_buckets" | "list_workers" => &[],
+        "list_pages_deployments" => &["project"],
+        "retry_pages_deployment" | "rollback_pages_deployment" => &["project", "deployment_id"],
+        "list_r2_objects" => &["bucket"],
+        "upload_r2_object" => &["bucket", "object_key", "workspace_path"],
+        "list_worker_deployments" => &["worker"],
+        "trigger_worker_build" => &["trigger_id"],
+        _ => {
+            return Err(ToolResult::error(format!(
+                "Unsupported Cloudflare action: {action}"
+            )))
+        }
+    };
+    for name in needs {
+        required(args, name)?;
+    }
+    Ok(())
 }
 
 fn required<'a>(args: &'a Value, name: &str) -> Result<&'a str, ToolResult> {

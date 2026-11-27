@@ -11,13 +11,21 @@ pub fn shell_job() -> std::io::Result<WindowsJob> {
 }
 include!("windows_appcontainer.rs");
 
-/// Reserved launch-environment key carrying extra read/execute roots for one
-/// confined launch. The Windows AppContainer backend consumes (and removes) it
+/// The default name of the reserved launch-environment key carrying extra read/execute roots for
+/// one confined launch. The Windows AppContainer backend consumes (and removes) it
 /// in `prepare_launch`, leasing each root read-only to the per-command
 /// container SID for the lifetime of that command. Entries are separated by
 /// [`SANDBOX_READ_ROOTS_SEPARATOR`] (`|` cannot appear in a Windows path).
-/// Other backends ignore it.
+/// Other backends ignore it. The key in force is [`sandbox_read_roots_env_name`], which follows
+/// the host's environment prefix; this constant is that name under the default prefix.
 pub const SANDBOX_READ_ROOTS_ENV: &str = "RIGHTKIT_SANDBOX_READ_ROOTS";
+
+/// The launch-environment key that carries read/execute roots for this host:
+/// `<prefix>_SANDBOX_READ_ROOTS` with the prefix of `rightkit_agent_config::set_env_prefix`
+/// (`RIGHTKIT_SANDBOX_READ_ROOTS` by default, [`SANDBOX_READ_ROOTS_ENV`]).
+pub fn sandbox_read_roots_env_name() -> String {
+    rightkit_agent_config::env_name("SANDBOX_READ_ROOTS")
+}
 
 /// Separator between roots in [`SANDBOX_READ_ROOTS_ENV`].
 pub const SANDBOX_READ_ROOTS_SEPARATOR: char = '|';
@@ -34,7 +42,7 @@ pub fn sandbox_read_roots_env(roots: &[std::path::PathBuf]) -> Vec<(String, Stri
     if joined.is_empty() {
         Vec::new()
     } else {
-        vec![(SANDBOX_READ_ROOTS_ENV.to_string(), joined)]
+        vec![(sandbox_read_roots_env_name(), joined)]
     }
 }
 
@@ -45,8 +53,9 @@ pub fn sandbox_read_roots_env(roots: &[std::path::PathBuf]) -> Vec<(String, Stri
 /// directory, the one purpose this channel exists for. Anything else is
 /// dropped, so the key cannot open arbitrary directories to a confined child.
 pub fn parse_sandbox_read_roots(env: &[(String, String)]) -> Vec<std::path::PathBuf> {
+    let name = sandbox_read_roots_env_name();
     env.iter()
-        .filter(|(key, _)| key.eq_ignore_ascii_case(SANDBOX_READ_ROOTS_ENV))
+        .filter(|(key, _)| key.eq_ignore_ascii_case(&name))
         .flat_map(|(_, value)| value.split(SANDBOX_READ_ROOTS_SEPARATOR))
         .filter(|root| !root.is_empty())
         .map(std::path::PathBuf::from)
@@ -65,3 +74,28 @@ pub fn is_interpreter_install_dir(dir: &std::path::Path) -> bool {
 /// True when `root` is, or contains, a per-user directory, the user profile or a protected
 /// secret folder (RightKit's check; stricter than the previous local one).
 pub use rightkit_sandbox::read_root_is_too_broad;
+
+/// The process-wide RightKit sandbox that owns the pinned read roots. Unlimited because a host
+/// that admits every launch through `process_resource_authority` before it reaches the sandbox
+/// needs no second cap, and the Practical profile would cap confined children at 4.
+fn process_sandbox() -> &'static rightkit_sandbox::Sandbox {
+    static SANDBOX: std::sync::OnceLock<rightkit_sandbox::Sandbox> = std::sync::OnceLock::new();
+    SANDBOX.get_or_init(|| {
+        rightkit_sandbox::Sandbox::new(rightkit_sandbox::ResourceAuthority::unlimited())
+    })
+}
+
+/// Pin interpreter install directories as read/execute roots for the children confined through
+/// `rightkit-sandbox` in this process. RightKit refuses a root that is too broad or not an
+/// interpreter directory, and shares one pin per root. The caller holds the returned handle for as
+/// long as the roots must stay readable; dropping the last handle on a root removes its pin.
+///
+/// On Windows these pins reach the `rightkit-sandbox` AppContainer backend only, not this crate's
+/// own AppContainer launches, which take their extra roots from [`sandbox_read_roots_env`].
+pub fn pin_interpreter_read_roots(
+    roots: &[std::path::PathBuf],
+) -> std::io::Result<rightkit_sandbox::PinHandle> {
+    process_sandbox()
+        .pin_read_roots(roots)
+        .map_err(|error| std::io::Error::other(error.to_string()))
+}

@@ -2,6 +2,8 @@
 
 ## 0.2.0 (unpublished)
 
+- Requires `rightkit-agent-coding-tools` 0.2.0. The resource-profile variable is read under the host's environment prefix (`process_resource_profile_env_name()`), the workspace task file is found under the host's state folder name, and the process list reads each lease once per row.
+
 - Requires `rightkit-agent-config` 0.1.5: the `ProviderRouteConfig` and `AgentOverride` literals (onboarding, local models, promotion, settings) fill the fields 0.1.5 added from `Default`. No behaviour change here.
 
 - Requires `rightkit-terminal-ui` 0.2.0 (breaking; see its changelog). The event match covers the new `ToolArgumentsPartial` and `RateLimit` variants (no row; this host emits neither), the two `Usage` literals set `completion: 0`, `cost_billed: false`, `rate_limit: None`, `cache_ttl_ms: None` (no source on the wire event here), session picker rows carry `root` with `unread` and `pinned` false, and the `*` pin key answers "Pinning sessions is not available in this host." (no pin store). Approval cards now get `with_composer_had_text` from the composer's state after each key, so the letter keys `y a s n t` decide while the composer is empty, from 400 ms after the first draw, in addition to digits, arrows with Enter, Esc and Ctrl-Y/Ctrl-N; the card names the permission mode (`Ask mode`). The dead click test for the removed `copy · c` row is gone; the `c` key still copies. Written, not compiled.

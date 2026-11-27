@@ -9950,7 +9950,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-coding-tools"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -9986,6 +9986,7 @@ dependencies = [
  "rightkit-ocr",
  "rightkit-sandbox",
  "rightkit-scheduler",
+ "rightkit-search",
  "rightkit-time",
  "rquickjs",
  "scraper",
@@ -10283,7 +10284,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-orchestration"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "async-trait",
  "hex",

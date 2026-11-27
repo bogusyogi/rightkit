@@ -106,7 +106,9 @@ pub fn ignore_runtime_worktrees(workspace: &std::path::Path) -> Result<(), Strin
     let relative = workspace
         .strip_prefix(&workdir)
         .map_err(|error| error.to_string())?;
-    let runtime_path = relative.join(".rightkit/worktrees");
+    let runtime_path = relative
+        .join(rightkit_agent_config::state_dir_name())
+        .join("worktrees");
     let mut rule = String::from("/");
     for ch in runtime_path.to_string_lossy().replace('\\', "/").chars() {
         if matches!(ch, '*' | '?' | '[' | ']' | ' ' | '#' | '!') {

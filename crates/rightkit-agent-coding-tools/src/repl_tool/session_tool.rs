@@ -72,7 +72,7 @@ impl Tool for ReplTool {
     }
 
     fn input_schema(&self) -> Value {
-        json!({
+        let mut schema = json!({
             "type": "object",
             "required": ["operation"],
             "properties": {
@@ -95,7 +95,14 @@ impl Tool for ReplTool {
                     "description": "Code to evaluate (eval operation)"
                 }
             }
-        })
+        });
+        if crate::tool_options::repl_eval_timeout() {
+            schema["properties"]["timeout_ms"] = json!({
+                "type": "integer",
+                "description": "Eval time limit in milliseconds (default 10000, max 300000); on expiry the evaluation is interrupted and the session keeps its variables"
+            });
+        }
+        schema
     }
 
     async fn execute(&self, args: Value, ctx: &ToolContext) -> ToolResult {
@@ -116,6 +123,11 @@ impl Tool for ReplTool {
                 if let Some(message) = ctx.unenforced_network_profile_error("repl") {
                     return ToolResult::error(message);
                 }
+                if crate::tool_options::refuse_unenforced_resource_limits() {
+                    if let Some(message) = ctx.unenforced_resource_limits_error("repl") {
+                        return ToolResult::error(message);
+                    }
+                }
                 self.start_session(language, ctx).await
             }
             "eval" => {
@@ -127,7 +139,22 @@ impl Tool for ReplTool {
                     Some(c) => c,
                     None => return ToolResult::error("Missing code for eval"),
                 };
-                self.eval_code(session_id, code).await
+                let timeout_ms = if crate::tool_options::repl_eval_timeout() {
+                    match args.get("timeout_ms") {
+                        None | Some(Value::Null) => Some(10_000),
+                        Some(value) => match value.as_u64() {
+                            Some(ms) if ms > 0 => Some(ms.min(300_000)),
+                            _ => {
+                                return ToolResult::error(
+                                    "invalid_request: timeout_ms must be a positive whole number of milliseconds (max 300000)",
+                                )
+                            }
+                        },
+                    }
+                } else {
+                    None
+                };
+                self.eval_code(session_id, code, timeout_ms).await
             }
             "status" => {
                 let session_id = args["session_id"].as_str();

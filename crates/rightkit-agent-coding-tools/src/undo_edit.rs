@@ -108,7 +108,11 @@ impl Tool for UndoEditTool {
             }
         }
 
-        let store = HistoryStore::new(&ctx.workspace_root, ".rightkit", &ctx.session_id);
+        let store = HistoryStore::new(
+            &ctx.workspace_root,
+            rightkit_agent_config::state_dir_name(),
+            &ctx.session_id,
+        );
         match store.peek_latest_bytes(&path) {
             Err(e) => ToolResult::error(format!(
                 "Failed to access history for '{}': {}",
@@ -154,7 +158,10 @@ impl Tool for UndoEditTool {
                     ));
                 }
 
-                let current = std::fs::read_to_string(&path).unwrap_or_default();
+                // Bytes, not text: a file that is not valid UTF-8 still gets a
+                // readable diff (lossy) while the restore itself is byte-exact.
+                let current = std::fs::read(&path).unwrap_or_default();
+                let current = String::from_utf8_lossy(&current);
                 let intent = crate::file_service::MutationIntent::restore(&path, expected);
                 match ctx
                     .file_service

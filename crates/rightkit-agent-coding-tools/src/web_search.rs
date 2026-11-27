@@ -19,10 +19,10 @@ fn provider_endpoint(_provider: &str, default: &str) -> String {
 
 #[cfg(feature = "host")]
 fn provider_endpoint(provider: &str, default: &str) -> String {
-    std::env::var(format!(
-        "RIGHTKIT_WEB_SEARCH_{}_URL",
+    std::env::var(rightkit_agent_config::env_name(&format!(
+        "WEB_SEARCH_{}_URL",
         provider.to_ascii_uppercase()
-    ))
+    )))
     .ok()
     .map(|value| value.trim().to_string())
     .filter(|value| value.starts_with("http://") || value.starts_with("https://"))

@@ -567,7 +567,21 @@ impl FileService {
         bytes: &[u8],
         hashline_validated: bool,
     ) -> Result<MutationReceipt, MutationError> {
-        self.write_with_receipt_intent_from(kind, path, bytes, hashline_validated, None)
+        // A caller that computed `bytes` without taking a revision first: with host option
+        // `edit_read_discipline`, an anchored edit of a file with no read receipt is bound to the
+        // revision as it is now (the write still fails if the file changes before it commits).
+        let observed = if hashline_validated && crate::tool_options::edit_read_discipline() {
+            self.observe_when_unread(path)
+        } else {
+            None
+        };
+        self.write_with_receipt_intent_from(
+            kind,
+            path,
+            bytes,
+            hashline_validated,
+            observed.as_ref(),
+        )
     }
 
     /// [`Self::write_with_receipt_intent`] for a caller that took `observed` (see
@@ -760,10 +774,11 @@ impl FileService {
         source: &Path,
         expected_source: FileRevision,
         intent: MutationIntent,
+        workspace_root: &Path,
     ) -> Result<MutationReceipt, MutationError> {
         let destination = intent.path().to_path_buf();
         self.with_locked_paths_typed(&[source.to_path_buf(), destination], || {
-            self.copy_intent_locked(source, &expected_source, &intent)
+            self.copy_intent_locked(source, &expected_source, &intent, workspace_root)
         })
     }
 
@@ -772,6 +787,7 @@ impl FileService {
         source: &Path,
         expected_source: &FileRevision,
         intent: &MutationIntent,
+        workspace_root: &Path,
     ) -> Result<MutationReceipt, MutationError> {
         if !matches!(
             intent,
@@ -797,9 +813,29 @@ impl FileService {
             })?;
         }
         let temporary = mutation_sibling(&destination, "copy");
-        if let Err(error) = copy_tree(source, &temporary) {
+        // The copy refuses every link in the source tree and stays inside the two roots: the
+        // workspace when the path is in it, otherwise the path's own parent folder.
+        let src_root = if source.starts_with(workspace_root) {
+            workspace_root
+        } else {
+            source.parent().unwrap_or(source)
+        };
+        let dst_root = if temporary.starts_with(workspace_root) {
+            workspace_root
+        } else {
+            temporary.parent().unwrap_or(&temporary)
+        };
+        if let Err(error) = rightkit_fs::copy_tree_confined(
+            source,
+            &temporary,
+            &rightkit_fs::ConfinedCopy::new(src_root, dst_root),
+        ) {
             let _ = remove_existing(&temporary);
-            return Err(MutationError::Io(error));
+            return Err(MutationError::Io(format!(
+                "copy '{}' to '{}': {error}",
+                source.display(),
+                destination.display()
+            )));
         }
         self.assert_preimage(
             source,
@@ -964,12 +1000,15 @@ impl FileService {
     /// settlement path. The crash this atom is about kills the
     /// process BEFORE partial/complete settlement, so it must exit rather than
     /// unwind - destructors must not get a chance to settle the journal.
-    #[cfg(not(feature = "host"))]
+    ///
+    /// Compiled only into `qualification` builds: a release build must not exit because an
+    /// environment variable says so.
+    #[cfg(not(all(feature = "host", feature = "qualification")))]
     fn eff006_qualification_fault(_committed: usize) {}
 
-    #[cfg(feature = "host")]
+    #[cfg(all(feature = "host", feature = "qualification"))]
     fn eff006_qualification_fault(committed: usize) {
-        if let Ok(spec) = std::env::var("RIGHTKIT_QUAL_EFF006_FAULT") {
+        if let Ok(spec) = std::env::var(rightkit_agent_config::env_name("QUAL_EFF006_FAULT")) {
             if let Some(threshold) = spec.strip_prefix("after_commits:") {
                 if threshold.trim().parse::<usize>() == Ok(committed) {
                     std::process::exit(88);
@@ -1109,7 +1148,7 @@ impl FileService {
                 return Err(BatchMutationFailure { receipt });
             }
 
-            match self.commit_batch_entry_locked(entry) {
+            match self.commit_batch_entry_locked(entry, workspace_root) {
                 Ok(mutation) => {
                     receipts[index].outcome = BatchEntryOutcome::Committed;
                     receipts[index].mutation = Some(mutation);
@@ -1179,6 +1218,7 @@ impl FileService {
     fn commit_batch_entry_locked(
         &self,
         entry: &MutationBatchEntry,
+        workspace_root: &Path,
     ) -> Result<MutationReceipt, MutationError> {
         match entry {
             MutationBatchEntry::Write { intent, bytes } => {
@@ -1191,7 +1231,7 @@ impl FileService {
                 source,
                 expected_source,
                 intent,
-            } => self.copy_intent_locked(source, expected_source, intent),
+            } => self.copy_intent_locked(source, expected_source, intent, workspace_root),
             MutationBatchEntry::Move { intent } => self.move_intent_locked(intent),
             MutationBatchEntry::Delete { intent, recursive } => {
                 self.delete_intent_locked(intent, *recursive)
@@ -1220,7 +1260,9 @@ impl FileService {
         entries: &[MutationBatchEntry],
         receipt: Option<&BatchMutationReceipt>,
     ) -> Result<(), MutationError> {
-        let journal_dir = workspace_root.join(".rightkit").join("mutation-journal");
+        let journal_dir = workspace_root
+            .join(rightkit_agent_config::state_dir_name())
+            .join("mutation-journal");
         std::fs::create_dir_all(&journal_dir).map_err(|error| {
             MutationError::Io(format!(
                 "create mutation journal '{}': {error}",
@@ -1777,7 +1819,9 @@ impl JournalReconciliation {
 pub fn recover_mutation_journals(
     workspace_root: &Path,
 ) -> Result<Vec<JournalReconciliation>, String> {
-    let journal_dir = workspace_root.join(".rightkit").join("mutation-journal");
+    let journal_dir = workspace_root
+        .join(rightkit_agent_config::state_dir_name())
+        .join("mutation-journal");
     let entries = match std::fs::read_dir(&journal_dir) {
         Ok(entries) => entries,
         // No journal directory means no interrupted batches.
@@ -2247,7 +2291,10 @@ fn execute_batch(args: &Value, ctx: &ToolContext) -> ToolResult {
                 };
                 let batch_index = entries.len();
                 if operation.operation == "trash" {
-                    let trash_root = ctx.workspace_root.join(".rightkit").join("trash");
+                    let trash_root = ctx
+                        .workspace_root
+                        .join(rightkit_agent_config::state_dir_name())
+                        .join("trash");
                     let name = path
                         .file_name()
                         .and_then(|name| name.to_str())
@@ -2524,7 +2571,11 @@ fn mutation_sibling(destination: &Path, label: &str) -> PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    destination.with_file_name(format!(".rightkit-{label}-{}-{nonce}", std::process::id()))
+    destination.with_file_name(format!(
+        "{}-{label}-{}-{nonce}",
+        rightkit_agent_config::state_dir_name(),
+        std::process::id()
+    ))
 }
 
 fn copy_or_move(
@@ -2575,7 +2626,7 @@ fn copy_or_move(
         };
         let receipt = ctx
             .file_service
-            .copy_with_intent(&source, expected_source, intent)
+            .copy_with_intent(&source, expected_source, intent, &ctx.workspace_root)
             .map_err(|error| error.to_string())?;
         Ok((
             format!(
@@ -2645,47 +2696,6 @@ fn copy_or_move(
     }
 }
 
-fn copy_tree(source: &Path, destination: &Path) -> Result<(), String> {
-    let source_is_file = std::fs::symlink_metadata(source)
-        .map(|metadata| metadata.file_type().is_file())
-        .unwrap_or(false);
-    if source_is_file {
-        // RightKit's no-follow copy: a symlink (or reparse point) at the source is refused at open
-        // time, so a link swapped in after `reject_symlink` is never followed. No hard link: the
-        // copy must be independent of the source.
-        rightkit_fs::clone_or_link_or_copy_nofollow_with(
-            source,
-            destination,
-            &rightkit_fs::CloneOptions::default().without_hard_link(),
-        )
-        .map(|_| ())
-        .map_err(|error| {
-            format!(
-                "copy '{}' to '{}': {error}",
-                source.display(),
-                destination.display()
-            )
-        })
-    } else if source.is_dir() {
-        std::fs::create_dir(destination).map_err(|error| {
-            format!(
-                "create copied directory '{}': {error}",
-                destination.display()
-            )
-        })?;
-        for entry in std::fs::read_dir(source)
-            .map_err(|error| format!("read directory '{}': {error}", source.display()))?
-        {
-            let entry = entry.map_err(|error| format!("read directory entry: {error}"))?;
-            reject_symlink(&entry.path())?;
-            copy_tree(&entry.path(), &destination.join(entry.file_name()))?;
-        }
-        Ok(())
-    } else {
-        Err(format!("Unsupported source type '{}'.", source.display()))
-    }
-}
-
 fn trash_path(
     path: PathBuf,
     ctx: &ToolContext,
@@ -2707,7 +2717,10 @@ fn trash_path(
             ))
         }
     };
-    let trash_root = ctx.workspace_root.join(".rightkit").join("trash");
+    let trash_root = ctx
+        .workspace_root
+        .join(rightkit_agent_config::state_dir_name())
+        .join("trash");
     let name = path
         .file_name()
         .and_then(|name| name.to_str())
@@ -2846,7 +2859,8 @@ fn hash_workspace_revision_dir(
         let path = entry.path();
         let relative = path.strip_prefix(workspace_root).unwrap_or(&path);
         if relative.components().count() == 1
-            && matches!(entry.file_name().to_str(), Some(".git" | ".rightkit"))
+            && (entry.file_name() == ".git"
+                || entry.file_name().to_str() == Some(rightkit_agent_config::state_dir_name()))
         {
             continue;
         }
@@ -3016,4 +3030,12 @@ fn revision(path: &Path) -> Result<FileRevision, String> {
         fast_hash: hasher.finish(),
         content_digest,
     })
+}
+
+/// Observe a path's current authoritative revision.
+///
+/// Exposed so a consumer crate can construct a journal fixture with genuine
+/// pre-images rather than fabricated ones.
+pub fn observe_revision_for_tests(path: &Path) -> Result<FileRevision, String> {
+    revision(path)
 }

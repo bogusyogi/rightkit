@@ -340,7 +340,19 @@ pub async fn execute_program_with_profile(
         Ok(output) => ToolResult::ok(output),
         Err(error) => return ToolResult::error(error),
     };
+    // With `set_code_mode_uncompressed_fallback` and no Membrane to compress through ("context
+    // off"), keep working visibly: return the raw output capped to the result limit with a note,
+    // instead of never returning a result.
+    let uncompressed_fallback = crate::tool_options::code_mode_uncompressed_fallback();
+    let raw = if uncompressed_fallback {
+        result.content.clone()
+    } else {
+        String::new()
+    };
     let Some(pull) = context_dispatcher else {
+        if uncompressed_fallback {
+            return uncompressed_program_result(raw, "no context worker");
+        }
         return ToolResult::error("Pull result compression unavailable");
     };
     result = match tokio::time::timeout_at(
@@ -352,6 +364,12 @@ pub async fn execute_program_with_profile(
         Ok(result) => result,
         Err(_) => return ToolResult::error("run_program timed out during Pull compression"),
     };
+    if uncompressed_fallback
+        && result.is_error
+        && result.content.starts_with(PULL_UNAVAILABLE_PREFIX)
+    {
+        return uncompressed_program_result(raw, &result.content);
+    }
     if result.is_error {
         return result;
     }
@@ -360,6 +378,30 @@ pub async fn execute_program_with_profile(
     } else {
         ToolResult::error("Pull compressed program result exceeds output byte limit")
     }
+}
+
+/// Start of the message a context dispatcher returns when it has no Membrane to compress through.
+pub const PULL_UNAVAILABLE_PREFIX: &str = "Pull result compression unavailable";
+
+/// The program's own output, capped to the result limit, with a note that context is off.
+fn uncompressed_program_result(raw: String, reason: &str) -> ToolResult {
+    let reason = reason
+        .strip_prefix(PULL_UNAVAILABLE_PREFIX)
+        .unwrap_or(reason)
+        .trim_start_matches(':')
+        .trim();
+    let note = format!("\n[context off: this output was not compressed ({reason})]");
+    let mut text = raw;
+    if text.len() + note.len() > PROGRAM_OUTPUT_LIMIT {
+        let mut cut = PROGRAM_OUTPUT_LIMIT.saturating_sub(note.len() + 24);
+        while cut > 0 && !text.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        text.truncate(cut);
+        text.push_str("\n[output truncated]");
+    }
+    text.push_str(&note);
+    ToolResult::ok(text)
 }
 
 async fn run_js(

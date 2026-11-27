@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-coding-tools"
-version = "0.1.9"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "The coding agent's host tools (files, edit and patch, shell and PTY, git, browser, MCP, LSP, tasks, checkpoints, sandboxing) behind an async `Tool` trait and a `ToolRegistry`."
@@ -23,6 +23,8 @@ code-mode = ["dep:rquickjs"]
 embeddings = ["rightkit-embed/inference"]
 # Test doubles for dependents' tests. Was `coding_tools-test-support`.
 test-support = []
+# Crash-window fault points for a host's qualification runs (`file_service`, with `host`). Never in a release build.
+qualification = []
 
 [dependencies]
 rightkit-daemon = { version = "0.9.0", path = "../rightkit-daemon" }
@@ -39,11 +41,13 @@ rightkit-fs = { version = "0.5.0", features = ["fs", "lock", "json", "digest", "
 rightkit-crypto = { version = "0.1.0", path = "../rightkit-crypto" }
 rightkit-time = { version = "0.1.1", path = "../rightkit-time" }
 rightkit-agent-policy = { version = "0.2.0", path = "../rightkit-agent-policy" }
-rightkit-agent-config = { version = "0.1.3", path = "../rightkit-agent-config" }
+rightkit-agent-config = { version = "0.1.5", path = "../rightkit-agent-config" }
 rightkit-mcp = { version = "0.10.0", path = "../rightkit-mcp", features = ["agent_mcp"] }
 rightkit-agent-engine-history = { version = "0.1.3", path = "../rightkit-agent-engine-history" }
 rightkit-agent-host-traits = { version = "0.1.0", path = "../rightkit-agent-host-traits" }
 rightkit-sandbox = { version = "0.7.0", path = "../rightkit-sandbox", features = ["execution"] }
+# The `search` tool's workspace grep (host option `search_workspace_grep`).
+rightkit-search = { version = "0.4.6", path = "../rightkit-search", default-features = false, features = ["workspace-grep"] }
 rightkit-llm = { version = "0.7.0", path = "../rightkit-llm", features = ["agent_providers"] }
 rightkit-agent-telemetry = { version = "0.1.0", path = "../rightkit-agent-telemetry" }
 thiserror = "2"
@@ -52,7 +56,7 @@ rightkit-http = { version = "0.4.0", features = ["gzip", "untrusted", "async"], 
 url = "2"
 async-trait = "0.1"
 rightkit-embed = { version = "0.7.0", default-features = false, features = ["vector"], path = "../rightkit-embed" }
-rightkit-child-process = { version = "0.5.7", features = ["tokio"], path = "../rightkit-child-process" }
+rightkit-child-process = { version = "0.5.16", features = ["tokio"], path = "../rightkit-child-process" }
 futures = "0.3"
 tempfile = "3"
 scraper = "0.29"

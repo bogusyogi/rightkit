@@ -388,6 +388,18 @@ fn restore_checkpoint(
     if let Err(error) = validate_tree_readable(repo, &tree) {
         return ToolResult::error(format!("Checkpoint tree failed validation: {error}"));
     }
+    // The restore removes every file made since the checkpoint, so snapshot the workspace as it is now
+    // first: a restore can then be undone by restoring that snapshot.
+    let safety = create_checkpoint(repo, store, Some(&format!("before-restore:{}", record.id)));
+    let safety_id = (!safety.is_error)
+        .then(|| {
+            safety
+                .content
+                .strip_prefix("Checkpoint created: ")
+                .and_then(|rest| rest.split_whitespace().next())
+                .map(str::to_string)
+        })
+        .flatten();
     let mut index = match Index::new() {
         Ok(index) => index,
         Err(error) => return ToolResult::error(format!("Failed to create private index: {error}")),
@@ -420,6 +432,7 @@ fn restore_checkpoint(
             json!({
                 "message": format!("Restored checkpoint {} (commit {})", record.id, record.commit_oid),
                 "restoreReceipt": receipt,
+                "safetyCheckpoint": safety_id,
             })
             .to_string(),
         ),

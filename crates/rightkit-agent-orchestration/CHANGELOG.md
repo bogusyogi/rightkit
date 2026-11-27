@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.8
+
+- Requires `rightkit-agent-coding-tools` 0.2.0 (dependency requirement raised; no API change here).
+
 ## 0.1.7
 
 - Publish the dependency requirements main already declares: `rightkit-sandbox` 0.7.0, where the published 0.1.6 requires 0.6.3; `rightkit-fs` 0.5.0, where the published 0.1.6 requires 0.4.9. The 0.1.6 manifest on crates.io stays as published; this version carries the new requirements.

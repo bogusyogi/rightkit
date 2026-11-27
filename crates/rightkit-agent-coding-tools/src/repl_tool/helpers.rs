@@ -34,7 +34,7 @@ pub(super) async fn read_frame_bounded(
 }
 
 pub(super) fn node_command() -> String {
-    if let Ok(path) = std::env::var("RIGHTKIT_NODE") {
+    if let Ok(path) = std::env::var(rightkit_agent_config::env_name("NODE")) {
         if !path.trim().is_empty() {
             return path;
         }
@@ -83,7 +83,7 @@ pub(crate) fn available_languages() -> &'static [&'static str] {
 }
 
 pub(crate) fn node_runtime_available() -> bool {
-    // `node_command` resolves RIGHTKIT_NODE, then the bundled runtime, then
+    // `node_command` resolves the host's `NODE` override variable, then the bundled runtime, then
     // the bare PATH fallback — a non-"node" result means a concrete path won.
     node_command() != "node" || executable_on_path("node")
 }
@@ -119,10 +119,51 @@ import ast
 import contextlib
 import io
 import json
+import signal
 import sys
+import threading
 import traceback
 
 ns = {}
+
+# A BaseException, so a snippet's own `except Exception` cannot swallow the interrupt.
+class EvalTimeout(BaseException):
+    pass
+
+def on_alarm(signum, frame):
+    raise EvalTimeout()
+
+def start_timer(ms):
+    """Stop the evaluation after `ms` milliseconds. An interval timer when the confinement allows it; otherwise a watcher
+    thread that raises the same exception in this thread (it cannot cut a blocking call short, the caller's own deadline
+    still covers that). Returns a stop function, or None when neither is available."""
+    if hasattr(signal, "setitimer"):
+        try:
+            signal.signal(signal.SIGALRM, on_alarm)
+            signal.setitimer(signal.ITIMER_REAL, ms / 1000.0)
+            return lambda: signal.setitimer(signal.ITIMER_REAL, 0)
+        except (OSError, ValueError):
+            pass
+    try:
+        import ctypes
+        target = threading.get_ident()
+        state = {"done": False}
+
+        def fire():
+            if not state["done"]:
+                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(target), ctypes.py_object(EvalTimeout))
+
+        watcher = threading.Timer(ms / 1000.0, fire)
+        watcher.daemon = True
+        watcher.start()
+
+        def stop():
+            state["done"] = True
+            watcher.cancel()
+
+        return stop
+    except Exception:
+        return None
 
 def split_expr(src):
     tree = ast.parse(src, mode="exec")
@@ -143,17 +184,32 @@ for line in sys.stdin:
         out = io.StringIO()
         err = io.StringIO()
         result = None
-        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            mod, expr = split_expr(code)
-            exec(compile(mod, "<rightkit-agent-repl>", "exec"), ns, ns)
-            if expr is not None:
-                result = eval(compile(expr, "<rightkit-agent-repl>", "eval"), ns, ns)
+        timeout_ms = req.get("timeout_ms")
+        stop_timer = start_timer(timeout_ms) if timeout_ms else None
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                mod, expr = split_expr(code)
+                exec(compile(mod, "<rightkit-agent-repl>", "exec"), ns, ns)
+                if expr is not None:
+                    result = eval(compile(expr, "<rightkit-agent-repl>", "eval"), ns, ns)
+        finally:
+            if stop_timer is not None:
+                stop_timer()
         print(json.dumps({
             "ok": True,
             "id": req.get("id"),
             "stdout": out.getvalue(),
             "stderr": err.getvalue(),
             "result": "" if result is None else repr(result),
+        }), flush=True)
+    except EvalTimeout:
+        # The evaluation stopped; the namespace and the process are intact.
+        print(json.dumps({
+            "ok": False,
+            "id": req.get("id"),
+            "stdout": locals().get("out", io.StringIO()).getvalue(),
+            "stderr": locals().get("err", io.StringIO()).getvalue(),
+            "error": "Evaluation interrupted after %s ms; the session and its variables are kept." % req.get("timeout_ms"),
         }), flush=True)
     except Exception:
         print(json.dumps({
@@ -181,7 +237,8 @@ rl.on('line', (line) => {
   console.error = (...args) => { stderr += args.map(String).join(' ') + '\n'; };
   try {
     req = JSON.parse(line);
-    const result = vm.runInContext(req.code || '', context);
+    // `timeout` stops a runaway synchronous snippet without ending the process or its variables.
+    const result = vm.runInContext(req.code || '', context, req.timeout_ms ? { timeout: req.timeout_ms } : {});
     console.log = originalLog;
     console.error = originalError;
     process.stdout.write(JSON.stringify({

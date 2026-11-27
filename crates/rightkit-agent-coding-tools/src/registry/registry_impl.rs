@@ -4,6 +4,7 @@ use super::native_types::{
     ToolCapability, ToolRegistry,
 };
 use crate::tool_trait::Tool;
+#[cfg(feature = "host")]
 use std::path::PathBuf;
 
 impl ToolRegistry {
@@ -12,6 +13,7 @@ impl ToolRegistry {
             tools: Vec::new(),
             scope_owners: std::collections::BTreeMap::new(),
             lazy_loading: false,
+            eager_tools: Vec::new(),
             model_interface: ModelToolInterface::default(),
         }
     }
@@ -119,6 +121,26 @@ impl ToolRegistry {
 
     pub fn is_prelude_tool(&self, name: &str) -> bool {
         !self.lazy_loading || is_core_tool(name)
+    }
+
+    /// Name deferred tools whose schema ships in every request from the first turn.
+    pub fn with_eager_tools(mut self, names: Vec<String>) -> Self {
+        self.eager_tools = names;
+        self
+    }
+
+    /// Add to the eager names (see [`Self::with_eager_tools`]) without replacing them.
+    pub fn add_eager_tools(&mut self, names: impl IntoIterator<Item = String>) {
+        for name in names {
+            if !self.eager_tools.contains(&name) {
+                self.eager_tools.push(name);
+            }
+        }
+    }
+
+    /// Whether `name` was named eager, so it is never withheld from the tool block.
+    pub fn is_eager_tool(&self, name: &str) -> bool {
+        self.eager_tools.iter().any(|eager| eager == name)
     }
 
     pub fn with_model_interface(mut self, interface: ModelToolInterface) -> Self {
@@ -660,22 +682,22 @@ impl ToolRegistry {
             (
                 "send_message",
                 || true,
-                || Some(Box::new(crate::send_message::SendMessageTool)),
+                || Some(Box::new(crate::send_message::SendMessageTool::new())),
             ),
             (
                 "invoke_skill",
                 || true,
-                || Some(Box::new(crate::skill_tool::SkillTool)),
+                || Some(Box::new(crate::skill_tool::SkillTool::new())),
             ),
             (
                 "team_create",
                 || true,
-                || Some(Box::new(crate::team_tools::TeamCreateTool)),
+                || Some(Box::new(crate::team_tools::TeamCreateTool::new())),
             ),
             (
                 "team_delete",
                 || true,
-                || Some(Box::new(crate::team_tools::TeamDeleteTool)),
+                || Some(Box::new(crate::team_tools::TeamDeleteTool::new())),
             ),
             (
                 "followup_subagent",
@@ -1183,6 +1205,57 @@ fn advertised_builtin_names() -> std::collections::HashSet<&'static str> {
     names
 }
 
+/// The descriptions of the tools whose text changed with the newer host options (read-before-edit
+/// rules, tolerant edits, full git write set, search status), listed by
+/// `default_tool_capabilities` with `tool_options::set_capability_catalog_newer`.
+const NEWER_CAPABILITY_DESCRIPTIONS: &[(&str, &str)] = &[
+    ("edit_file", "Replace exact substring in a file. An exact old_string match needs no prior read. An inexact (tolerant) match needs the whole file read with read_file first. Hashline-prefixed old_string values from read_file are validated against their original line anchors and stale anchors are rejected with fresh anchors. Plain old_string must be unique unless replace_all=true. With no exact match, a whitespace- or punctuation-tolerant match is used and the result says so. Newlines in new_string become CRLF where the matched text or the whole file uses CRLF; otherwise new_string is written verbatim."),
+    ("git_write", "Guarded Git mutations (stage, unstage, discard, commit, push, init, set_remote, branch_create, branch_switch, branch_delete) with exact repository/path/ref/remote inputs and machine-readable approval/effect receipts. Destructive: discard overwrites the working-tree files at the given paths with their staged content, permanently losing uncommitted edits; branch_delete with force deletes an unmerged branch. Force and wildcard pushes are refused."),
+    ("multi_edit", "Apply multiple edits atomically to one file. An exact old_string match needs no prior read. An inexact (tolerant) match needs the whole file read with read_file first. Edits array: each {old_string, new_string, replace_all?} runs on prior result. Hashline-prefixed old_string values from read_file are validated against their line anchors. With no exact match for an old_string, a whitespace- or punctuation-tolerant match is used. Newlines in new_string become CRLF where the matched text or the whole file uses CRLF; otherwise new_string is written verbatim. All succeed or none written."),
+    ("read_file", "Read file content with hashline prefixes (e.g., '     1:a3f: fn main() {'). Each call returns at most 2000 lines or 128 KB; for a larger file page with offset/limit (limit up to 2000), starting at line 1 and continuing from the offset the result names. Reading every range from line 1 to the end counts as reading the whole file. A path must resolve inside the workspace root: an absolute path inside it works, one outside it, or one that climbs with ../ past the root, fails."),
+    ("search", "Search file contents for a regex; respects .gitignore. Modes: 'content' (matching lines, default), 'files_with_matches' (paths only), 'count' (per-file). Matches only, no ranking. Says whether the search was Complete, Truncated, Cancelled or hit its deadline, with a continuation cursor when it can resume. If it truncates, narrow the pattern or the glob, or use files_with_matches."),
+    ("write_file", "Write content to a file (creates or overwrites). Auto-creates parent directories. Overwriting an existing file requires a complete read_file of it in this session first; otherwise it is refused. Fail if path escapes workspace or permission denied."),
+];
+
+/// The catalog text for `name`: the table's own, or with `tool_options::set_capability_catalog_newer`
+/// the newer text of the tools that have one; `tool_search` always carries the description in
+/// effect (`tool_search::tool_search_description`). The state folder, environment prefix and
+/// application name in the text are the host's.
+fn capability_description(name: &str, table: &str) -> String {
+    let text = if name == "tool_search" {
+        crate::tool_search::tool_search_description()
+    } else if crate::tool_options::capability_catalog_newer() {
+        NEWER_CAPABILITY_DESCRIPTIONS
+            .iter()
+            .find(|(candidate, _)| *candidate == name)
+            .map_or(table, |(_, newer)| *newer)
+    } else {
+        table
+    };
+    let mut text = text.replace(
+        "~/.rightkit/",
+        &format!("~/{}/", rightkit_agent_config::state_dir_name()),
+    );
+    text = text.replace(
+        " .rightkit/",
+        &format!(" {}/", rightkit_agent_config::state_dir_name()),
+    );
+    text = text.replace(
+        "$RIGHTKIT_",
+        &format!("${}_", rightkit_agent_config::env_prefix()),
+    );
+    let app = rightkit_agent_config::app_name();
+    text = text.replace("No Agent account", &format!("No {app} account"));
+    text = text.replace("Agent performs no", &format!("{app} performs no"));
+    if app == rightkit_agent_config::APP_NAME {
+        return text;
+    }
+    text.replace(
+        "through the agent's dedicated image-model catalog",
+        &format!("through {app}'s dedicated image-model catalog"),
+    )
+}
+
 /// Metadata-only view of the default tool catalog. Frontends consume this
 /// instead of constructing the executable registry authority themselves —
 /// it is answered from `BUILTIN_CAPABILITY_META`, so no tool handler is
@@ -1221,7 +1294,7 @@ pub fn default_tool_capabilities() -> Vec<ToolCapability> {
             });
             ToolCapability {
                 name: (*name).to_string(),
-                description: (*description).to_string(),
+                description: capability_description(name, description),
                 category: tool_category(name).to_string(),
                 read_only: *read_only,
                 effect_class,

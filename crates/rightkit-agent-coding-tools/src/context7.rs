@@ -25,7 +25,7 @@ fn api_base() -> String {
 
 #[cfg(feature = "host")]
 fn api_base() -> String {
-    std::env::var("RIGHTKIT_CONTEXT7_API_BASE")
+    std::env::var(rightkit_agent_config::env_name("CONTEXT7_API_BASE"))
         .ok()
         .map(|value| value.trim().trim_end_matches('/').to_string())
         .filter(|value| value.starts_with("http://") || value.starts_with("https://"))

@@ -208,6 +208,10 @@ pub struct BgShell {
     launch_proof: Option<rightkit_sandbox::execution::SandboxProcessProof>,
     pid: Mutex<Option<u32>>,
     started_at_ns: u128,
+    /// When output last arrived and when the process ended, for the
+    /// "running for / quiet for" figures. One mutex, written in `append`
+    /// (every output path funnels through it) and `set_status`.
+    clock: Mutex<ShellClock>,
     output: Mutex<BoundedOutput>,
     /// Byte offset already returned by `get_shell_output`, for incremental reads.
     cursor: Mutex<usize>,
@@ -296,8 +300,16 @@ impl BgShell {
 
     fn append(&self, chunk: &[u8]) {
         lock_recover(&self.output, "background_shell.output").push(chunk);
+        if !chunk.is_empty() {
+            lock_recover(&self.clock, "background_shell.clock").last_output_ns = Some(now_ns());
+        }
     }
     fn set_status(&self, st: BgStatus) {
+        if !matches!(st, BgStatus::Running | BgStatus::Unknown) {
+            lock_recover(&self.clock, "background_shell.clock")
+                .ended_ns
+                .get_or_insert_with(now_ns);
+        }
         *lock_recover(&self.status, "background_shell.status") = st;
         notify_shell_event();
     }
@@ -385,12 +397,24 @@ impl BgShell {
     pub fn persistence(&self) -> ProcessPersistence {
         self.persistence
     }
+    /// Lease state for a synchronous caller that cannot await.
+    ///
+    /// Panics when the lease is locked at this instant (an input flush holds
+    /// it across its write). Callers that can meet that contention use
+    /// [`Self::try_lease_snapshot_now`] or [`Self::lease_snapshot`] instead.
     pub fn lease_snapshot_now(&self) -> ProcessLeaseSnapshot {
         let lease = self
             .lease
             .try_lock()
             .expect("process lease is not synchronously contended");
         lease.snapshot()
+    }
+    /// Lease state for a synchronous caller, read with one `try_lock`: it never
+    /// blocks and never panics. `None` means the lease was locked at that
+    /// instant (an input flush is in progress), so no state was read; the
+    /// caller reports the values as unavailable rather than inventing them.
+    pub fn try_lease_snapshot_now(&self) -> Option<ProcessLeaseSnapshot> {
+        self.lease.try_lock().ok().map(|lease| lease.snapshot())
     }
     pub async fn lease_snapshot(&self) -> ProcessLeaseSnapshot {
         let lease = self.lease.lock().await;
@@ -459,10 +483,11 @@ impl BgShell {
         if sequence >= lease.next_input_sequence {
             return Err("cannot acknowledge unsent input sequence".into());
         }
-        if sequence < lease.last_acked_input_sequence {
+        if acknowledged_after(sequence) < lease.last_acked_input_sequence {
             return Err("input acknowledgement must be monotonic".into());
         }
-        lease.last_acked_input_sequence = sequence;
+        // Acknowledging sequence n acknowledges n and everything before it.
+        lease.last_acked_input_sequence = acknowledged_after(sequence);
         Ok(lease.snapshot())
     }
     pub async fn write_stdin_bytes_with_lease(
@@ -486,7 +511,8 @@ impl BgShell {
         }
         self.write_stdin_bytes(input).await?;
         lease.next_input_sequence = lease.next_input_sequence.saturating_add(1);
-        lease.last_acked_input_sequence = sequence;
+        // A delivered write acknowledges itself.
+        lease.last_acked_input_sequence = acknowledged_after(sequence);
         Ok(lease.snapshot())
     }
     /// #291: a human client attached to (or detached from) this PTY.
@@ -593,8 +619,8 @@ impl BgShell {
                 ));
                 return Err(error);
             }
-            if queued.sequence >= lease.last_acked_input_sequence {
-                lease.last_acked_input_sequence = queued.sequence;
+            if acknowledged_after(queued.sequence) >= lease.last_acked_input_sequence {
+                lease.last_acked_input_sequence = acknowledged_after(queued.sequence);
             }
         }
         Ok(())
@@ -602,7 +628,7 @@ impl BgShell {
     /// Tell the agent a held write was lost: a line in the process output (read with the next
     /// output poll) and an entry for [`Self::take_input_failures`].
     fn report_lost_input(&self, reason: String) {
-        self.append(format!("\n[rightkit: {reason}]\n").as_bytes());
+        self.append(format!("\n[{}: {reason}]\n", crate::shell::shell_notice_label()).as_bytes());
         lock_recover(&self.human, "background_shell.human")
             .failures
             .push(reason);
@@ -661,7 +687,8 @@ impl BgShell {
         }
         self.close_stdin().await?;
         lease.next_input_sequence = lease.next_input_sequence.saturating_add(1);
-        lease.last_acked_input_sequence = sequence;
+        // A delivered write acknowledges itself.
+        lease.last_acked_input_sequence = acknowledged_after(sequence);
         Ok(lease.snapshot())
     }
     pub fn execution_channel(&self) -> rightkit_sandbox::execution::ExecutionChannel {
@@ -718,6 +745,21 @@ impl BgShell {
     pub fn started_at_ns(&self) -> u128 {
         self.started_at_ns
     }
+    /// When the process last printed (`None`: never) and when it ended
+    /// (`None`: still running), in nanoseconds since the Unix epoch.
+    pub fn activity(&self) -> ShellActivity {
+        let clock = *lock_recover(&self.clock, "background_shell.clock");
+        ShellActivity {
+            started_at_ns: self.started_at_ns,
+            last_output_at_ns: clock.last_output_ns,
+            ended_at_ns: clock.ended_ns,
+        }
+    }
+    /// Last non-empty line of output, plain text, at most
+    /// [`LAST_LINE_MAX_CHARS`] characters.
+    pub fn last_line(&self) -> String {
+        last_line_of(&self.output_snapshot())
+    }
     fn set_pid(&self, pid: Option<u32>) {
         *lock_recover(&self.pid, "background_shell.pid") = pid;
     }
@@ -773,6 +815,114 @@ impl BgShell {
         }
         Err("execution process stdin is not available".to_string())
     }
+}
+
+pub(crate) fn now_ns() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos()
+}
+
+/// The value `last_acked_input_sequence` takes once input `sequence` is acknowledged: `sequence`
+/// itself by default, `sequence + 1` (the number of inputs acknowledged) with
+/// `shell::set_process_lease_ack_counts`.
+fn acknowledged_after(sequence: u64) -> u64 {
+    if crate::shell::process_lease_ack_counts() {
+        sequence.saturating_add(1)
+    } else {
+        sequence
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct ShellClock {
+    last_output_ns: Option<u128>,
+    ended_ns: Option<u128>,
+}
+
+/// Timing facts of one background process (nanoseconds since the Unix epoch).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ShellActivity {
+    /// When the process was started.
+    pub started_at_ns: u128,
+    /// When it last printed; `None` when it never has.
+    pub last_output_at_ns: Option<u128>,
+    /// When it ended; `None` while it is still running.
+    pub ended_at_ns: Option<u128>,
+}
+
+impl ShellActivity {
+    /// Whole seconds the process has run; stops at its end time.
+    pub fn running_seconds(&self, now_ns: u128) -> u64 {
+        let end = self.ended_at_ns.unwrap_or(now_ns);
+        (end.saturating_sub(self.started_at_ns) / 1_000_000_000) as u64
+    }
+    /// Whole seconds since it last printed, or since it started when it has
+    /// printed nothing; stops at its end time.
+    pub fn quiet_seconds(&self, now_ns: u128) -> u64 {
+        let end = self.ended_at_ns.unwrap_or(now_ns);
+        let since = self.last_output_at_ns.unwrap_or(self.started_at_ns);
+        (end.saturating_sub(since) / 1_000_000_000) as u64
+    }
+}
+
+/// The longest last line [`BgShell::last_line`] returns, in characters.
+pub const LAST_LINE_MAX_CHARS: usize = 200;
+
+/// Remove terminal escape sequences (CSI, OSC, two-character escapes) and
+/// other control characters except tab.
+pub fn strip_terminal_escapes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\u{1b}' => match chars.next() {
+                Some('[') => {
+                    for next in chars.by_ref() {
+                        if ('\u{40}'..='\u{7e}').contains(&next) {
+                            break;
+                        }
+                    }
+                }
+                Some(']') => {
+                    // OSC ends with BEL or ESC \.
+                    while let Some(next) = chars.next() {
+                        if next == '\u{7}' {
+                            break;
+                        }
+                        if next == '\u{1b}' {
+                            chars.next();
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            },
+            '\t' => out.push(c),
+            c if c.is_control() => {}
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// The last non-empty line of `output` with escape sequences removed, cut to
+/// [`LAST_LINE_MAX_CHARS`] characters. A carriage return redraws the line, so
+/// only the text after the last one counts.
+pub fn last_line_of(output: &str) -> String {
+    for line in output.lines().rev() {
+        let plain = strip_terminal_escapes(
+            line.rsplit('\r')
+                .find(|seg| !strip_terminal_escapes(seg).trim().is_empty())
+                .unwrap_or(""),
+        );
+        let trimmed = plain.trim();
+        if !trimmed.is_empty() {
+            return trimmed.chars().take(LAST_LINE_MAX_CHARS).collect();
+        }
+    }
+    String::new()
 }
 
 pub type BgStore = Arc<Mutex<HashMap<String, Arc<BgShell>>>>;

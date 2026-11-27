@@ -34,27 +34,60 @@ fn is_terminal_state(state: &TaskState) -> bool {
 }
 
 fn tasks_path(ctx: &ToolContext) -> PathBuf {
-    ctx.workspace_root.join(".rightkit").join("tasks.json")
+    ctx.workspace_root
+        .join(rightkit_agent_config::state_dir_name())
+        .join("tasks.json")
+}
+
+/// `unix-ms:N` stamp as a number; 0 for anything else.
+fn record_stamp(record: &TaskRecord) -> u128 {
+    record
+        .node
+        .updated_at
+        .strip_prefix("unix-ms:")
+        .and_then(|ms| ms.parse().ok())
+        .unwrap_or(0)
+}
+
+/// Serializes the read-merge-write of `tasks.json` between the parent and its parallel children
+/// (host option `task_store_merged`).
+static TASKS_FILE_LOCK: Mutex<()> = Mutex::new(());
+
+fn read_tasks_file(path: &std::path::Path) -> Result<HashMap<String, TaskRecord>, String> {
+    if !path.exists() {
+        return Ok(HashMap::new());
+    }
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read tasks '{}': {e}", path.display()))?;
+    serde_json::from_str(&text).map_err(|e| format!("Invalid tasks JSON '{}': {e}", path.display()))
 }
 
 fn load_effective_records(ctx: &ToolContext) -> Result<HashMap<String, TaskRecord>, String> {
-    let mut merged = HashMap::new();
-    let path = tasks_path(ctx);
-    if path.exists() {
-        let text = std::fs::read_to_string(&path)
-            .map_err(|e| format!("Failed to read tasks '{}': {e}", path.display()))?;
-        merged = serde_json::from_str(&text)
-            .map_err(|e| format!("Invalid tasks JSON '{}': {e}", path.display()))?;
-    }
+    let merged_store = crate::tool_options::task_store_merged();
+    let mut merged = read_tasks_file(&tasks_path(ctx))?;
     if let Some(store) = &ctx.task_store {
         for (id, record) in store.lock().unwrap().iter() {
-            merged.insert(id.clone(), record.clone());
+            // With host option `task_store_merged`, a copy kept in memory never rolls back a newer
+            // write by another session.
+            if !merged_store
+                || merged
+                    .get(id)
+                    .is_none_or(|on_disk| record_stamp(record) >= record_stamp(on_disk))
+            {
+                merged.insert(id.clone(), record.clone());
+            }
         }
     }
     Ok(merged)
 }
 
-fn save_records(ctx: &ToolContext, records: &HashMap<String, TaskRecord>) -> Result<(), String> {
+/// Writes the records. With host option `task_store_merged` they are written under a lock, merged
+/// with what is on disk now, so a task another session created or changed since this caller loaded
+/// is kept, and the file is replaced atomically; otherwise the file is overwritten as it is.
+fn save_records(
+    ctx: &ToolContext,
+    records: &mut HashMap<String, TaskRecord>,
+) -> Result<(), String> {
     let path = tasks_path(ctx);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| {
@@ -64,10 +97,42 @@ fn save_records(ctx: &ToolContext, records: &HashMap<String, TaskRecord>) -> Res
             )
         })?;
     }
-    let text = serde_json::to_string_pretty(records)
+    if !crate::tool_options::task_store_merged() {
+        let text = serde_json::to_string_pretty(&*records)
+            .map_err(|e| format!("Failed to serialize tasks: {e}"))?;
+        return std::fs::write(&path, text)
+            .map_err(|e| format!("Failed to write tasks '{}': {e}", path.display()));
+    }
+    let _guard = TASKS_FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // Two processes on one workspace (two terminals, or a terminal and the daemon) would each
+    // read, merge and replace the file; the lock file makes that one at a time across processes.
+    let _file_guard = lock_tasks_file(&path)?;
+    for (id, on_disk) in read_tasks_file(&path).unwrap_or_default() {
+        match records.get(&id) {
+            Some(mine) if record_stamp(mine) >= record_stamp(&on_disk) => {}
+            _ => {
+                records.insert(id, on_disk);
+            }
+        }
+    }
+    let text = serde_json::to_string_pretty(&*records)
         .map_err(|e| format!("Failed to serialize tasks: {e}"))?;
-    std::fs::write(&path, text)
+    rightkit_fs::atomic_write(&path, text.as_bytes())
         .map_err(|e| format!("Failed to write tasks '{}': {e}", path.display()))
+}
+
+/// Holds an exclusive lock on `tasks.json.lock` until dropped (the OS releases it if the process dies).
+fn lock_tasks_file(path: &std::path::Path) -> Result<std::fs::File, String> {
+    let lock_path = path.with_extension("json.lock");
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&lock_path)
+        .map_err(|e| format!("Failed to open tasks lock '{}': {e}", lock_path.display()))?;
+    file.lock()
+        .map_err(|e| format!("Failed to lock tasks '{}': {e}", lock_path.display()))?;
+    Ok(file)
 }
 
 fn set_memory_records(ctx: &ToolContext, records: HashMap<String, TaskRecord>) {

@@ -104,9 +104,63 @@ impl SandboxConfig {
         )
     }
 
+    /// The RightKit policy for this whole request (any platform; used by `SandboxConfig::confine`
+    /// on Linux with `shell::set_sandbox_policy_confinement` and by the streamed PTY in
+    /// `managed_pty.rs`). Landlock grants ONLY the listed paths (`SystemRoots::None`),
+    /// `withheld_read_paths` become `deny_read`, the Landlock signal scope is `Own`, and the
+    /// network is denied with the strict allowlist (`seccomp_enabled`) or the network-only filter
+    /// (`network_denied`). With no path in either list only the seccomp half applies. A relative
+    /// path is refused rather than resolved against the child's working directory.
+    pub fn rightkit_policy(&self) -> Result<rightkit_sandbox::SandboxPolicy, std::io::Error> {
+        if let Some(path) = self
+            .allowed_read_paths
+            .iter()
+            .chain(&self.allowed_write_paths)
+            .find(|path| !path.is_absolute())
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("sandbox path must be absolute: {}", path.display()),
+            ));
+        }
+        let mut policy = rightkit_sandbox::SandboxPolicy::new()
+            .system_roots(rightkit_sandbox::SystemRoots::None);
+        for path in &self.allowed_read_paths {
+            policy = policy.allow_read(path);
+        }
+        for path in &self.allowed_write_paths {
+            policy = policy.allow_write(path);
+        }
+        for path in &self.withheld_read_paths {
+            policy = policy.deny_read(path);
+        }
+        let wants_network_filter = self.network_denied || self.seccomp_enabled;
+        if wants_network_filter {
+            policy = policy
+                .network(rightkit_sandbox::NetworkPolicy::Deny)
+                .seccomp(if self.seccomp_enabled {
+                    rightkit_sandbox::SeccompMode::Allowlist
+                } else {
+                    rightkit_sandbox::SeccompMode::NetworkOnly
+                });
+        }
+        if self.allowed_read_paths.is_empty() && self.allowed_write_paths.is_empty() {
+            policy = policy.landlock(rightkit_sandbox::LandlockMode::SkipWhenNoPaths);
+            if wants_network_filter {
+                policy = policy.signal_scope(rightkit_sandbox::SignalScope::Own);
+            }
+        } else {
+            policy = policy.signal_scope(rightkit_sandbox::SignalScope::Own);
+        }
+        Ok(policy)
+    }
+
     /// Confine `command` (Linux) to this request: Landlock for the listed paths (local, see
     /// `sandbox::landlock`), then RightKit's seccomp program when the network is denied. Each
     /// is prepared in the parent and applied by a syscall-only `pre_exec` hook, in that order.
+    /// With `shell::set_sandbox_policy_confinement` the whole request goes through one RightKit
+    /// policy instead ([`SandboxConfig::rightkit_policy`]: Landlock for the listed paths, the
+    /// signal scope and, when the network is denied, seccomp).
     /// Call it after any earlier `pre_exec` closure that needs the pre-confinement state.
     /// Fails closed: an error means the command must not run. A read path is read plus
     /// execute, a write path everything; a relative path is refused rather than resolved
@@ -114,6 +168,10 @@ impl SandboxConfig {
     #[cfg(target_os = "linux")]
     pub fn confine(&self, command: &mut std::process::Command) -> std::io::Result<()> {
         use std::os::unix::process::CommandExt as _;
+        if crate::shell::sandbox_policy_confinement() {
+            let policy = self.rightkit_policy()?;
+            return rightkit_sandbox::confine_command(command, &policy);
+        }
         if let Some(path) = self
             .allowed_read_paths
             .iter()
@@ -172,6 +230,16 @@ pub fn confine_driver_command(
             .allow_read(cwd)
             .allow_write(home)
             .network(rightkit_sandbox::NetworkPolicy::Allow);
+        // With `shell::set_sandbox_strict_driver_profile`: a driver talks over pipes, never a
+        // terminal, so no write or ioctl on terminal devices, and metadata only on the granted
+        // roots and their ancestors (RightKit #711). The blanket /etc read goes with it, so the
+        // certificate store is listed, as on Linux.
+        if crate::shell::sandbox_strict_driver_profile() {
+            policy = policy
+                .allow_tty(false)
+                .allow_global_metadata(false)
+                .allow_read("/private/etc/ssl");
+        }
         // The driver's MCP config launches the host app's own executable (the session gateway).
         if let Ok(own) = std::env::current_exe() {
             policy = policy.allow_exec(own);

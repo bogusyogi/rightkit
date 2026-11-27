@@ -548,7 +548,7 @@
   "stagedCargo": {
     "rightkit-adapt": "0.2.1",
     "rightkit-adapt-taste": "0.1.3",
-    "rightkit-agent-coding-tools": "0.1.9",
+    "rightkit-agent-coding-tools": "0.2.0",
     "rightkit-agent-config": "0.1.5",
     "rightkit-agent-daemon": "0.2.0",
     "rightkit-agent-demo": "0.2.1",
@@ -571,7 +571,7 @@
     "rightkit-agent-host-traits": "0.1.3",
     "rightkit-agent-learning": "0.1.2",
     "rightkit-agent-local-models": "0.1.3",
-    "rightkit-agent-orchestration": "0.1.7",
+    "rightkit-agent-orchestration": "0.1.8",
     "rightkit-agent-orchestration-handoff": "0.1.2",
     "rightkit-agent-plugins": "0.1.4",
     "rightkit-agent-policy": "0.2.4",
@@ -1831,7 +1831,8 @@
       "0.3.0"
     ],
     "rightkit-agent-orchestration": [
-      "0.1.6"
+      "0.1.6",
+      "0.1.7"
     ],
     "rightkit-agent-telemetry": [
       "0.1.0"

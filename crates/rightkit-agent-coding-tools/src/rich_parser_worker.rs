@@ -15,13 +15,24 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 
-const WORKER_ENV: &str = "RIGHTKIT_INTERNAL_RICH_PARSER_WORKER";
+/// Environment variable naming the worker mode (`<prefix>_INTERNAL_RICH_PARSER_WORKER`).
+fn worker_env() -> String {
+    rightkit_agent_config::env_name("INTERNAL_RICH_PARSER_WORKER")
+}
 const WORKER_TOKEN: &str = "v1:8f6c1d98f6a8465eb77b6efc9bb62a51";
 /// Set in the worker's environment when the host turned on `tool_options::set_images_downscaled`,
 /// so the worker (a separate process, where the host's once-per-process choice was never made)
 /// scales an image it reads.
-const DOWNSCALE_ENV: &str = "RIGHTKIT_INTERNAL_RICH_PARSER_DOWNSCALE";
-const RESPONSE_PREFIX: &str = "RIGHTKIT_RICH_PARSER_RESPONSE_V1:";
+fn downscale_env() -> String {
+    rightkit_agent_config::env_name("INTERNAL_RICH_PARSER_DOWNSCALE")
+}
+/// Line prefix of the worker's protocol response (`<prefix>_RICH_PARSER_RESPONSE_V1:`).
+fn response_prefix() -> String {
+    format!(
+        "{}:",
+        rightkit_agent_config::env_name("RICH_PARSER_RESPONSE_V1")
+    )
+}
 const MAX_REQUEST_BYTES: usize = 16 * 1024;
 const MAX_RESPONSE_BYTES: usize = 24 * 1024 * 1024;
 const MAX_DIAGNOSTIC_BYTES: usize = 16 * 1024;
@@ -113,7 +124,7 @@ async fn run_worker(request: WorkerRequest) -> ToolResult {
         }
     };
     let mut argv = Vec::new();
-    let mut env = vec![(WORKER_ENV.to_string(), WORKER_TOKEN.to_string())];
+    let mut env = vec![(worker_env(), WORKER_TOKEN.to_string())];
     configure_worker_args(&mut argv, &mut env);
     let context = ProcessLaunchContext {
         workspace_root: request.workspace_root.display().to_string(),
@@ -210,10 +221,11 @@ async fn read_limited(
 fn decode_response(stdout: &[u8]) -> Result<ToolResult, String> {
     let text = std::str::from_utf8(stdout)
         .map_err(|error| format!("Isolated rich parser returned invalid UTF-8: {error}"))?;
+    let prefix = response_prefix();
     let start = text
-        .rfind(RESPONSE_PREFIX)
+        .rfind(&prefix)
         .ok_or_else(|| "Isolated rich parser returned no protocol response".to_string())?;
-    let payload = text[start + RESPONSE_PREFIX.len()..]
+    let payload = text[start + prefix.len()..]
         .lines()
         .next()
         .unwrap_or_default();
@@ -234,17 +246,17 @@ fn worker_launch_adapter() -> Arc<dyn ProcessLaunchAdapter> {
 
 fn configure_worker_args(_args: &mut Vec<String>, env: &mut Vec<(String, String)>) {
     if crate::tool_options::images_downscaled() {
-        env.push((DOWNSCALE_ENV.to_string(), "1".to_string()));
+        env.push((downscale_env(), "1".to_string()));
     }
 }
 
 /// Run the private worker protocol when invoked by the daemon's pre-CLI gate.
 /// Returns false for every ordinary invocation.
 pub fn run_if_requested() -> bool {
-    if std::env::var(WORKER_ENV).as_deref() != Ok(WORKER_TOKEN) {
+    if std::env::var(worker_env()).as_deref() != Ok(WORKER_TOKEN) {
         return false;
     }
-    if std::env::var(DOWNSCALE_ENV).as_deref() == Ok("1") {
+    if std::env::var(downscale_env()).as_deref() == Ok("1") {
         crate::tool_options::set_images_downscaled(true);
     }
     run_worker_stdio();
@@ -267,7 +279,7 @@ fn run_worker_stdio() {
         )
     });
     let mut stdout = std::io::stdout().lock();
-    let _ = writeln!(stdout, "{RESPONSE_PREFIX}{encoded}");
+    let _ = writeln!(stdout, "{}{encoded}", response_prefix());
     let _ = stdout.flush();
 }
 

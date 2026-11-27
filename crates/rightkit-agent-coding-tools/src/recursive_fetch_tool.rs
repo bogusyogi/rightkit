@@ -11,6 +11,11 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+/// Per-page and whole-result text caps (bytes) for the crawl output, used when the host sets
+/// `tool_options::set_recursive_fetch_capped_output`.
+const MAX_PAGE_BYTES: usize = 4000;
+const MAX_TOTAL_BYTES: usize = 40_000;
+
 pub struct RecursiveFetchTool;
 
 #[async_trait::async_trait]
@@ -28,7 +33,11 @@ impl Tool for RecursiveFetchTool {
     }
 
     fn description(&self) -> &str {
-        "Crawl a URL and follow same-origin links breadth-first. Returns {url, text}[] up to max_depth and max_pages. Fail: invalid URL, max exceeded, network error."
+        if crate::tool_options::recursive_fetch_capped_output() {
+            "Crawl a URL and follow same-origin links breadth-first. Returns {url, text}[] up to max_depth and max_pages; each page's text is capped at 4000 bytes and the whole result at 40000 bytes. Fail: invalid URL, max exceeded, network error."
+        } else {
+            "Crawl a URL and follow same-origin links breadth-first. Returns {url, text}[] up to max_depth and max_pages. Fail: invalid URL, max exceeded, network error."
+        }
     }
 
     fn input_schema(&self) -> Value {
@@ -80,7 +89,11 @@ impl Tool for RecursiveFetchTool {
             Err(_) => return ToolResult::error(format!("Invalid URL: {}", start_url)),
         };
 
-        let origin = format!("{}://{}", base_url.scheme, base_url.host);
+        // Compare parsed origins (scheme, host, port), never a string prefix.
+        let origin = match url::Url::parse(&start_url) {
+            Ok(u) => u.origin().ascii_serialization(),
+            Err(_) => format!("{}://{}", base_url.scheme, base_url.host),
+        };
 
         let visited = Arc::new(Mutex::new(HashSet::new()));
         let results = Arc::new(Mutex::new(Vec::new()));
@@ -98,17 +111,39 @@ impl Tool for RecursiveFetchTool {
         let final_results = results.lock().await;
         let mut output = String::from("Crawled pages:\n");
 
-        for (url, text) in final_results.iter() {
-            let preview = if text.len() > 100 {
-                let mut end = 100;
-                while !text.is_char_boundary(end) {
-                    end -= 1;
+        if crate::tool_options::recursive_fetch_capped_output() {
+            let mut total = 0usize;
+            for (url, text) in final_results.iter() {
+                if total >= MAX_TOTAL_BYTES {
+                    output.push_str("[… remaining pages omitted: total cap reached …]\n");
+                    break;
                 }
-                format!("{}...", &text[..end])
-            } else {
-                text.clone()
-            };
-            output.push_str(&format!("- {}: {}\n", url, preview));
+                let limit = MAX_PAGE_BYTES.min(MAX_TOTAL_BYTES - total);
+                let preview = if text.len() > limit {
+                    let mut end = limit;
+                    while !text.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    format!("{}… [{} of {} bytes shown]", &text[..end], end, text.len())
+                } else {
+                    text.clone()
+                };
+                total += preview.len();
+                output.push_str(&format!("- {}: {}\n", url, preview));
+            }
+        } else {
+            for (url, text) in final_results.iter() {
+                let preview = if text.len() > 100 {
+                    let mut end = 100;
+                    while !text.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    format!("{}...", &text[..end])
+                } else {
+                    text.clone()
+                };
+                output.push_str(&format!("- {}: {}\n", url, preview));
+            }
         }
 
         // Crawled pages are untrusted external content — wrap so the model treats
@@ -250,7 +285,10 @@ fn extract_links(html: &str, origin: &str) -> Vec<String> {
             };
 
             // Check if same origin
-            if absolute_url.starts_with(origin) {
+            let same_origin = url::Url::parse(&absolute_url)
+                .map(|u| u.origin().ascii_serialization() == origin)
+                .unwrap_or(false);
+            if same_origin {
                 // Clean up query params and fragments
                 if let Some(pos) = absolute_url.find('#') {
                     links.push(absolute_url[..pos].to_string());

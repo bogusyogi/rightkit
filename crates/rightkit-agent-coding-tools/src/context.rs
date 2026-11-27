@@ -52,6 +52,19 @@ pub trait CredentialRequester: Send + Sync {
     }
 }
 
+/// Host callback behind the opt-in `advisor` tool: asks the configured stronger model one question
+/// about the session so far and returns its verdict text. The host owns the provider route, the
+/// model and the spend; the tool only carries the question and the bounded transcript.
+pub trait AdvisorBackend: Send + Sync {
+    /// Put `question` to the advisor model with the bounded `transcript` of the session and return
+    /// its answer, or the reason it could not answer.
+    fn advise(
+        &self,
+        question: String,
+        transcript: String,
+    ) -> Pin<Box<dyn std::future::Future<Output = Result<String, String>> + Send>>;
+}
+
 /// Process-wide, session-keyed store for a Cloudflare credential refreshed
 /// mid-session (`update_cloudflare_credential`). This exists alongside
 /// `ToolContext::cloudflare_config` — which the engine clones fresh from its
@@ -175,7 +188,9 @@ pub fn retire_flyio_credential(session_id: &str) {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SpawnRuntimeKind {
-    /// A the host app-native spawned session (the existing path).
+    /// A the host app-native spawned session (the existing path). A record written by the
+    /// earlier CodeRight-only build names this kind `code_right_native`; it still reads.
+    #[serde(alias = "code_right_native")]
     HostNative {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         provider_id: Option<String>,
@@ -252,7 +267,7 @@ impl SpawnRuntimeKind {
                     account_profile_id,
                 }))
             }
-            "rightkit_native" => {
+            kind if kind == "rightkit_native" || kind == host_native_kind() => {
                 let provider_id = obj
                     .get("providerId")
                     .and_then(serde_json::Value::as_str)
@@ -278,7 +293,8 @@ impl SpawnRuntimeKind {
                 }))
             }
             other => Err(format!(
-                "spawn options: 'runtime.kind' must be 'authenticated_cli' or 'rightkit_native', got {other:?}"
+                "spawn options: 'runtime.kind' must be 'authenticated_cli' or '{}', got {other:?}",
+                host_native_kind()
             )),
         }
     }
@@ -297,6 +313,13 @@ impl SpawnRuntimeKind {
         (!provider_id.is_empty() && !model_id.is_empty())
             .then(|| (provider_id.to_string(), model_id.to_string()))
     }
+}
+
+/// The `runtime.kind` a model gives for the host's own session: `<host slug>_native`
+/// (`rightkit_native` for the default host; see `rightkit_agent_config::host_slug`). The default
+/// host's name is accepted whatever the host slug is.
+fn host_native_kind() -> String {
+    format!("{}_native", rightkit_agent_config::host_slug())
 }
 
 impl Default for SpawnRuntimeKind {
@@ -350,6 +373,26 @@ pub struct SubagentSpawnOptions {
     /// this id for the child instead of minting one; when `None` it mints as
     /// before. Ignored by hosts that do not create sessions.
     pub child_session_id: Option<String>,
+    /// Wait for a free per-session concurrent slot instead of being refused
+    /// when the cap is full. Set only by the spawn tool's background path
+    /// (whose spawn runs in a detached task, so a wait blocks no turn); model
+    /// JSON never sets it directly. Blocking spawns keep immediate refusal.
+    /// The cumulative and run-tree caps still refuse at once.
+    pub queue_when_full: bool,
+    /// Zero-context child (for reviewers): no AGENTS.md/CLAUDE.md or other
+    /// instruction files, skills, plugin prompts, persona, instincts or
+    /// environment snapshot. It sees only the task payload and its tools.
+    pub bare: bool,
+    /// Context fork: the child starts from the parent's transcript so far (its completed
+    /// messages) and receives the task as its next user message, instead of starting empty.
+    pub fork: bool,
+    /// Summary start: the child starts from a short, deterministic summary of the parent session
+    /// (each earlier user message cut to 500 characters, as one user message) plus the task, instead
+    /// of the whole transcript. No model call. Exclusive with `fork` and `bare`.
+    pub handoff_summary: bool,
+    /// The id of the model's `spawn_subagent` call that asked for this child. Set by the spawn tool from its
+    /// call context; a host publishes it on the child's `subAgentSpawned` / `subAgentCompleted` events.
+    pub tool_call_id: Option<String>,
 }
 
 /// Continuity preference for a sub-agent spawn.
@@ -423,6 +466,13 @@ pub trait SubagentSpawner: Send + Sync {
         parent_session_id: &str,
         options: SubagentSpawnOptions,
     ) -> Pin<Box<dyn std::future::Future<Output = Result<String, String>> + Send>>;
+
+    /// Effective per-session concurrent sub-agent cap for `parent_session_id`,
+    /// or `None` when the host enforces no such cap (or cannot report it).
+    /// The spawn tool uses it to label an over-cap background spawn `queued`.
+    fn concurrent_cap(&self, _parent_session_id: &str) -> Option<usize> {
+        None
+    }
 }
 
 /// Terminal state reported for one supervised child.  This lives beside the
@@ -631,6 +681,9 @@ pub struct ToolContext {
     pub execution_resource_limits: Option<ExecutionResourceLimits>,
     /// Optional plan-exit callback for the `exit_plan_mode` tool.
     pub plan_exit: Option<Arc<dyn PlanExit>>,
+    /// Advisor backend and the session transcript it is shown, set by the host only when the
+    /// advisor feature is on and an advisor model is configured.
+    pub advisor: Option<(Arc<dyn AdvisorBackend>, String)>,
     /// Optional live message dispatcher for the `send_message` tool.
     pub message_dispatcher: Option<Arc<dyn MessageDispatcher>>,
     /// Optional live team directory for team tools.
@@ -706,6 +759,7 @@ impl ToolContext {
             execution_network_profile: None,
             execution_resource_limits: None,
             plan_exit: None,
+            advisor: None,
             message_dispatcher: None,
             team_directory: None,
             mcp: None,
@@ -945,8 +999,49 @@ impl ToolContext {
         ))
     }
 
+    /// Windows only: a user `deny-read-globs` entry inside a granted folder cannot be enforced by
+    /// the AppContainer sandbox (a lowbox token ignores DENY entries, rightkit#887, and the host
+    /// writes none), so only the file tools enforce it. Refuse the launch instead of leaving the glob
+    /// silently unenforced. The always-on default denies are excluded: the grant
+    /// planner already refuses a grant that contains a protected secret.
+    pub fn unenforced_path_deny_error(
+        &self,
+        surface: &str,
+        sandbox_disabled: bool,
+    ) -> Option<String> {
+        if !cfg!(windows) || sandbox_disabled {
+            return None;
+        }
+        let defaults = rightkit_agent_policy::default_read_deny();
+        let user: Vec<&str> = self
+            .path_deny
+            .as_deref()
+            .map(|set| {
+                set.read_patterns()
+                    .iter()
+                    .map(String::as_str)
+                    .filter(|p| !defaults.iter().any(|d| d.as_str() == *p))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if user.is_empty() {
+            return None;
+        }
+        Some(format!(
+            "{surface} refused: [permissions] deny-read-globs ({}) cannot be enforced by the Windows AppContainer sandbox inside a granted folder (a lowbox token ignores DENY entries, rightkit#887, and {} writes none); remove those deny-read-globs entries or turn the sandbox off for this workspace explicitly",
+            user.join(", "),
+            rightkit_agent_config::app_name()
+        ))
+    }
+
     pub fn with_plan_exit(mut self, plan_exit: Arc<dyn PlanExit>) -> Self {
         self.plan_exit = Some(plan_exit);
+        self
+    }
+
+    /// Attach the advisor backend with the bounded transcript it is shown.
+    pub fn with_advisor(mut self, backend: Arc<dyn AdvisorBackend>, transcript: String) -> Self {
+        self.advisor = Some((backend, transcript));
         self
     }
 

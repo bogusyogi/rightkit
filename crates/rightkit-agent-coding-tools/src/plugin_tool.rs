@@ -44,7 +44,10 @@ impl PluginTool {
         let plugin_id = plugin_id.into();
         Self {
             description: if metadata.description.trim().is_empty() {
-                format!("Tool contributed by Agent plugin {plugin_id}")
+                format!(
+                    "Tool contributed by {} plugin {plugin_id}",
+                    rightkit_agent_config::app_name()
+                )
             } else {
                 metadata.description
             },

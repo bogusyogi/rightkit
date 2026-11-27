@@ -78,6 +78,17 @@ impl AttachVerdictTool {
             None => return ToolResult::error("Missing required argument: verdict"),
         };
         let reasoning = args["reasoning"].as_str().unwrap_or("").to_string();
+        // With `set_attach_verdict_confidence` the schema's `confidence` in [0, 1] is enforced and
+        // kept with the verdict instead of being dropped.
+        let confidence = if crate::tool_options::attach_verdict_confidence() {
+            match args["confidence"].as_f64() {
+                Some(c) if (0.0..=1.0).contains(&c) => Some(c),
+                Some(_) => return ToolResult::error("confidence must be a number from 0 to 1"),
+                None => return ToolResult::error("Missing required argument: confidence"),
+            }
+        } else {
+            None
+        };
 
         let passed = verdict_str == "approved";
         let verdict = ArtifactVerdict {
@@ -85,7 +96,7 @@ impl AttachVerdictTool {
             juror: ctx.session_id.clone(),
             bound_hash: String::new(),
             summary: reasoning,
-            confidence: None,
+            confidence,
         };
 
         let store =

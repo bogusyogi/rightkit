@@ -112,6 +112,7 @@ impl ScheduleTrigger {
 
 pub struct ScheduleCronTool {
     schedules: Arc<Mutex<HashMap<String, ScheduleEntry>>>,
+    description: std::sync::OnceLock<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -170,6 +171,7 @@ impl ScheduleCronTool {
     pub fn new() -> Self {
         Self {
             schedules: Arc::new(Mutex::new(HashMap::new())),
+            description: std::sync::OnceLock::new(),
         }
     }
 }
@@ -198,7 +200,14 @@ impl Tool for ScheduleCronTool {
     }
 
     fn description(&self) -> &str {
-        "Register/list/cancel durable cron-style scheduled prompt records in .rightkit/schedules.json. Ops: register(cron_expr, prompt), list(), cancel(id). Cron: '*/5 * * * *' = every 5min; '0 9 * * *' = 9am daily. The daemon runner claims due records once per minute and submits prompts into schedule-<id> sessions. Fail: invalid cron syntax."
+        // Composed on first ask and kept for this tool instance only, so it follows the names and
+        // options the host has set by the time the tool is built, not a process-wide first read.
+        self.description.get_or_init(|| {
+            format!(
+                "Register/list/cancel durable cron-style scheduled prompt records in {}/schedules.json. Ops: register(cron_expr, prompt), list(), cancel(id). Cron: '*/5 * * * *' = every 5min; '0 9 * * *' = 9am daily. The daemon runner claims due records once per minute and submits prompts into schedule-<id> sessions. Fail: invalid cron syntax.",
+                rightkit_agent_config::state_dir_name()
+            )
+        })
     }
 
     fn input_schema(&self) -> Value {

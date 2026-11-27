@@ -319,7 +319,9 @@ pub fn tool_defs_for_messages(
             let deferred_by_tool = tool.defer_schema_by_default();
             let deferred_by_lazy_mode = !tools.is_prelude_tool(tool.name());
             let is_deferred = deferred_by_tool || deferred_by_lazy_mode;
-            !is_deferred || scoped_deferred_tools.contains(tool.name())
+            !is_deferred
+                || tools.is_eager_tool(tool.name())
+                || scoped_deferred_tools.contains(tool.name())
         })
         .collect();
     selected.sort_by(|a, b| a.name().cmp(b.name()));
@@ -331,11 +333,52 @@ pub fn tool_defs_for_messages(
                 "function": {
                     "name": tool.name(),
                     "description": tool.description(),
-                    "parameters": tool.input_schema(),
+                    "parameters": tool_parameters(tool.input_schema()),
                 }
             })
         })
         .collect()
+}
+
+/// Every deferred tool's definition, sorted by name, for providers that surface a deferred tool
+/// inside the conversation (Anthropic inline tool additions) instead of editing the tools array.
+/// Empty for the fixed interface, which has no deferred tools. The set is stable for the session
+/// (it does not depend on what `tool_search` has scoped), so the tools block stays byte-identical.
+pub fn deferred_tool_defs(tools: &ToolRegistry) -> Vec<serde_json::Value> {
+    if tools.model_interface() == ModelToolInterface::FixedV1 {
+        return Vec::new();
+    }
+    let mut deferred: Vec<&Box<dyn Tool>> = tools
+        .all()
+        .iter()
+        .filter(|tool| process_resource_available(tool.as_ref()))
+        .filter(|tool| tool.defer_schema_by_default() || !tools.is_prelude_tool(tool.name()))
+        .filter(|tool| !tools.is_eager_tool(tool.name()))
+        .collect();
+    deferred.sort_by(|a, b| a.name().cmp(b.name()));
+    deferred
+        .into_iter()
+        .map(|tool| {
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": tool.name(),
+                    "description": tool.description(),
+                    "parameters": tool_parameters(tool.input_schema()),
+                }
+            })
+        })
+        .collect()
+}
+
+/// A tool's input schema as it goes into a provider request: with
+/// `tool_options::set_tool_schema_strict_enums`, through [`enum_for_strict_validators`].
+fn tool_parameters(schema: serde_json::Value) -> serde_json::Value {
+    if crate::tool_options::tool_schema_strict_enums() {
+        enum_for_strict_validators(schema)
+    } else {
+        schema
+    }
 }
 
 pub fn fixed_v1_tool_defs(tools: &ToolRegistry) -> Vec<serde_json::Value> {
@@ -348,7 +391,7 @@ pub fn fixed_v1_tool_defs(tools: &ToolRegistry) -> Vec<serde_json::Value> {
                 "function": {
                     "name": tool.name(),
                     "description": tool.description(),
-                    "parameters": tool.input_schema(),
+                    "parameters": tool_parameters(tool.input_schema()),
                 }
             })
         })
@@ -388,4 +431,52 @@ pub fn tool_defs_for_full_history(
     let mut promoted = PromotedToolState::new();
     promoted.accumulate(messages);
     tool_defs_for_messages(tools, &promoted)
+}
+
+/// Strict validators reject `oneOf`/`anyOf` lists of string `const`s, so such a
+/// list is sent as `{"type": "string", "enum": [...]}` (description kept).
+/// Walks `properties` and `items`; every other shape is left as it is.
+pub fn enum_for_strict_validators(mut schema: serde_json::Value) -> serde_json::Value {
+    use serde_json::Value;
+    let Some(object) = schema.as_object_mut() else {
+        return schema;
+    };
+    for key in ["oneOf", "anyOf"] {
+        let consts: Option<Vec<Value>> =
+            object
+                .get(key)
+                .and_then(Value::as_array)
+                .and_then(|variants| {
+                    if variants.is_empty() {
+                        return None;
+                    }
+                    variants
+                        .iter()
+                        .map(|variant| {
+                            let variant = variant.as_object()?;
+                            let value = variant.get("const").filter(|v| v.is_string())?;
+                            let only_known = variant.keys().all(|k| {
+                                matches!(k.as_str(), "const" | "type" | "title" | "description")
+                            });
+                            let type_ok = variant.get("type").is_none_or(|t| t == "string");
+                            (only_known && type_ok).then(|| value.clone())
+                        })
+                        .collect()
+                });
+        if let Some(values) = consts {
+            object.remove(key);
+            object.insert("type".into(), Value::String("string".into()));
+            object.insert("enum".into(), Value::Array(values));
+            break;
+        }
+    }
+    if let Some(Value::Object(properties)) = object.get_mut("properties") {
+        for value in properties.values_mut() {
+            *value = enum_for_strict_validators(value.take());
+        }
+    }
+    if let Some(items) = object.get_mut("items") {
+        *items = enum_for_strict_validators(items.take());
+    }
+    schema
 }
