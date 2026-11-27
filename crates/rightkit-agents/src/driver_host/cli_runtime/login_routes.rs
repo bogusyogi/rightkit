@@ -23,12 +23,13 @@ use crate::driver_host::cli_runtime::qualification::now_iso;
 
 use serde::{Deserialize, Serialize};
 
-use crate::driver_host::cli_runtime::auth::FORBIDDEN_BYOK_ENV_VARS;
 use crate::driver_host::cli_runtime::ids::{CliAuthMode, CliProviderId};
 use crate::driver_host::cli_runtime::profile::{
     delete_profile, ensure_managed_home, fingerprint_from_label, list_profiles, managed_home,
     profile_for, sanitize_label, save_profile, ProfileStoreError,
 };
+use crate::driver_host::host_names;
+use crate::driver_host::host_options;
 
 /// Result returned by [`login`]. `provider_id` and `profile_id` are
 /// echoed back so the UI can update the same profile it requested;
@@ -192,9 +193,11 @@ pub const LOGIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30
 ///
 /// Claude has none: Claude account sign-in is not in the product until Anthropic approval is
 /// applied for and granted (providers R42, B68). A person's own `claude` login stays the CLI's.
+/// Codex has one, unless the host does not offer Codex
+/// ([`host_options::set_built_in_providers`]).
 fn vendor_login_argv(provider: &CliProviderId) -> Option<(&'static str, &'static [&'static str])> {
     match provider.as_str() {
-        "codex" => Some(("codex", &["login"])),
+        "codex" if host_options::built_in_provider_offered("codex") => Some(("codex", &["login"])),
         _ => None,
     }
 }
@@ -204,7 +207,7 @@ fn vendor_login_argv(provider: &CliProviderId) -> Option<(&'static str, &'static
 /// Codex (`<home>/auth.json`).
 fn config_dir_variable(provider: &CliProviderId) -> Option<&'static str> {
     match provider.as_str() {
-        "codex" => Some("CODEX_HOME"),
+        "codex" if host_options::built_in_provider_offered("codex") => Some("CODEX_HOME"),
         _ => None,
     }
 }
@@ -277,19 +280,16 @@ pub fn redact_credential_bytes(text: &str) -> Option<String> {
 }
 
 /// Inspect the ambient environment for any entry in
-/// [`FORBIDDEN_BYOK_ENV_VARS`]. Returns the first match as
+/// [`host_names::forbidden_byok_env_vars`]. Returns the first match as
 /// `Some(name)`, or `None` if no BYOK env var is leaking into the
 /// login subprocess. The check is intentionally a hard tripwire:
 /// launching the vendor CLI with `ANTHROPIC_API_KEY` or
 /// `OPENAI_API_KEY` already in scope would re-create exactly the
 /// BYOK surface this PR removes.
 pub fn ambient_forbidden_env() -> Option<String> {
-    for name in FORBIDDEN_BYOK_ENV_VARS {
-        if std::env::var(name).is_ok() {
-            return Some((*name).to_string());
-        }
-    }
-    None
+    host_names::forbidden_byok_env_vars()
+        .into_iter()
+        .find(|name| std::env::var(name).is_ok())
 }
 
 /// Run a native login for `<provider>/<label>`. Returns a

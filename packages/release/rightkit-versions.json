@@ -585,7 +585,7 @@
     "rightkit-agent-telemetry": "0.1.1",
     "rightkit-agent-tools": "0.4.4",
     "rightkit-agent-transcript": "0.1.4",
-    "rightkit-agents": "0.2.8",
+    "rightkit-agents": "0.3.0",
     "rightkit-ai-accounts": "0.1.4",
     "rightkit-ai-keys": "0.1.1",
     "rightkit-android": "0.3.3",
@@ -978,7 +978,8 @@
     "rightkit-agents": [
       "0.1.0",
       "0.2.0",
-      "0.2.7"
+      "0.2.7",
+      "0.2.8"
     ],
     "rightkit-ai-accounts": [
       "0.1.1",

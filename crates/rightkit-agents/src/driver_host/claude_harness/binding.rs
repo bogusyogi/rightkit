@@ -77,9 +77,11 @@ pub fn transition_is_valid(from: HarnessBindingStatus, to: HarnessBindingStatus)
 
 /// One persistent Claude root-runtime binding. Serialized as JSON
 /// (camelCase, matching `crate::driver_host::contracts` wire conventions) by the
-/// reference stores.
+/// reference stores. The id of the host session is stored under `hostSessionId`, or under
+/// `<host slug>SessionId` (`coderightSessionId` for the host `CODERIGHT`) for a host that named
+/// itself; both keys are read (see the module `wire_keys`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(remote = "Self", rename_all = "camelCase")]
 pub struct ClaudeHarnessBindingRecord {
     pub binding_id: String,
     /// Stamped [`HARNESS_ENGINE`]; guards a record from being loaded
@@ -117,6 +119,8 @@ pub struct ClaudeHarnessBindingRecord {
     pub created_at_unix_ms: u64,
     pub updated_at_unix_ms: u64,
 }
+
+crate::driver_host::wire_keys::session_keyed_serde!(ClaudeHarnessBindingRecord);
 
 impl ClaudeHarnessBindingRecord {
     /// Construct the initial record for a freshly opened binding

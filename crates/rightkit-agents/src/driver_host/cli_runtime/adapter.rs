@@ -9,7 +9,7 @@
 //! - [`CliTransport`] — owns the protocol-level session lifecycle
 //!   for one transport kind (Claude stream JSON, Codex app-server,
 //!   ACP, or resumable NDJSON). Independent of provider identity.
-//! - [`AgentRuntimeBackend`] — the closed enum a the host app agent
+//! - [`AgentRuntimeBackend`] — the closed enum a host app agent
 //!   executor dispatches against. `CodeRightNative` keeps the
 //!   existing spawned session; `AuthenticatedCli` is the new path.
 //! - [`AgentRuntimeExecutor`] — the common execution contract used
@@ -364,7 +364,7 @@ impl AgentRuntimeBackend {
     }
 }
 
-/// Logical role of a the host app agent. Same backend type may act as a
+/// Logical role of a host app agent. Same backend type may act as a
 /// root user-facing session or as a child agent delegated to by a
 /// parent. The role is attached to the backend and turn request so
 /// the executor can enforce per-role policy (e.g. children carry
@@ -372,8 +372,8 @@ impl AgentRuntimeBackend {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentKind {
-    /// The user-facing session for the the host app run. Roots own the
-    /// conductor surface and do not carry a the host app handoff brief.
+    /// The user-facing session for the host app run. Roots own the
+    /// conductor surface and do not carry a host app handoff brief.
     #[default]
     Root,
     /// An agent spawned by a parent. Children carry delegation
@@ -382,7 +382,7 @@ pub enum AgentKind {
 }
 
 impl AgentKind {
-    /// True for the user-facing root session of a the host app run.
+    /// True for the user-facing root session of a host app run.
     pub fn is_root(self) -> bool {
         matches!(self, AgentKind::Root)
     }
@@ -512,7 +512,7 @@ pub trait AgentRuntimeExecutor: Send + Sync {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutorKind {
-    /// The executor drives the the host app-native session runtime.
+    /// The executor drives the host app-native session runtime.
     Native,
     /// The executor drives an authenticated vendor CLI through the
     /// CLI host bridge.

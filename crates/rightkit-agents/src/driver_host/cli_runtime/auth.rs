@@ -15,6 +15,7 @@
 use std::collections::BTreeSet;
 
 use crate::driver_host::cli_runtime::ids::{AuthEvidence, CliAuthMode};
+use crate::driver_host::host_names;
 
 /// Errors raised by the auth layer. The single variant that matters
 /// for launches is [`CliAuthError::ByokOrExternalApiRejected`] — it
@@ -41,7 +42,11 @@ impl std::fmt::Display for CliAuthError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CliAuthError::ByokOrExternalApiRejected => {
-                write!(f, "BYOK and external-API modes are forbidden by Agent")
+                write!(
+                    f,
+                    "BYOK and external-API modes are forbidden by {}",
+                    host_names::display_name()
+                )
             }
             CliAuthError::InvalidEvidence(reason) => write!(f, "invalid auth evidence: {reason}"),
             CliAuthError::Unknown(reason) => write!(f, "auth classification failed: {reason}"),
@@ -55,7 +60,7 @@ impl std::error::Error for CliAuthError {}
 /// a vendor subprocess before launch. This list is the union of:
 ///
 /// - the existing `DENIED_VENDOR_SUBPROCESS_ENV_VARS` declared in
-///   `driver_host::lib` (which already covers the the host app daemon
+///   `driver_host::lib` (which already covers the host app daemon
 ///   bootstrap and gateway tokens), and
 /// - the BYOK and provider-API environment variables enumerated in
 ///   `docs/architecture/CLI-RUNTIME-SCOPE.md`, section 4.
@@ -63,8 +68,10 @@ impl std::error::Error for CliAuthError {}
 /// A scoped lease token (`RIGHTKIT_GATEWAY_TOKEN` for one binding)
 /// is deliberately re-added after the strip pass by the common
 /// launch layer; this list only governs ambient inheritance.
-// This is the host app's own scrub list, passed to the child as `env_remove`
-// (rightkit-agents `SessionConfig.extras.env_remove` is caller-supplied).
+// This is the default host's own scrub list, passed to the child as `env_remove`
+// (rightkit-agents `SessionConfig.extras.env_remove` is caller-supplied). Launches use
+// `host_names::forbidden_byok_env_vars`, which is this list plus the daemon token, gateway token
+// and driver instance secret under the prefix of a host that named itself.
 pub const FORBIDDEN_BYOK_ENV_VARS: &[&str] = &[
     // Anthropic / Claude.
     "ANTHROPIC_API_KEY",
@@ -100,14 +107,14 @@ pub const FORBIDDEN_BYOK_ENV_VARS: &[&str] = &[
 
 /// Build a `BTreeSet<String>` of forbidden env-var names for fast
 /// containment checks during launch prep.
+///
+/// The set is [`host_names::forbidden_byok_env_vars`]: [`FORBIDDEN_BYOK_ENV_VARS`] plus, for a
+/// host that named itself, the host's own secrets under its prefix.
 pub fn forbidden_env_var_set() -> BTreeSet<String> {
-    FORBIDDEN_BYOK_ENV_VARS
-        .iter()
-        .map(|s| (*s).to_string())
-        .collect()
+    host_names::forbidden_byok_env_vars().into_iter().collect()
 }
 
-/// Strip every entry in [`FORBIDDEN_BYOK_ENV_VARS`] from a process
+/// Strip every entry in [`forbidden_env_var_set`] from a process
 /// environment. Returns the filtered environment, leaving the input
 /// untouched.
 pub fn strip_forbidden_env<I, K, V>(env: I) -> Vec<(String, String)>
@@ -172,8 +179,8 @@ pub fn classify_auth_mode(
 /// the vendor CLI launched with `ANTHROPIC_API_KEY` already in scope
 /// would defeat every other defense in this module.
 pub fn assert_no_forbidden_env() -> Result<(), CliAuthError> {
-    for name in FORBIDDEN_BYOK_ENV_VARS {
-        if std::env::var(name).is_ok() {
+    for name in host_names::forbidden_byok_env_vars() {
+        if std::env::var(&name).is_ok() {
             return Err(CliAuthError::InvalidEvidence(format!(
                 "forbidden BYOK env var present: {name}"
             )));

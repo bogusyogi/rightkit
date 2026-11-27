@@ -101,7 +101,7 @@ pub enum RuntimeResolutionSource {
     SessionDefault,
     /// Inherited the root provider.
     InheritRoot,
-    /// Fell back to a the host app-native executor.
+    /// Fell back to a host app-native executor.
     NativeFallback,
 }
 
@@ -403,7 +403,7 @@ pub fn resolve_child_runtime(
     }
 
     // Step 4: nothing requested — fall back to the default child
-    // provider if the policy names one, otherwise to the the host app-
+    // provider if the policy names one, otherwise to the host app-
     // native path.
     if let Some(default) = &policy.default_child_provider {
         if !registered.contains(default) {

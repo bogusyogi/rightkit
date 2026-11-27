@@ -16,9 +16,7 @@
 
 use std::path::PathBuf;
 
-use serde_json::{json, Value};
-
-use crate::driver_host::cli_runtime::auth::FORBIDDEN_BYOK_ENV_VARS;
+use crate::driver_host::host_names;
 use crate::driver_host::{invalid, validate_model_id, DriverHostError, DriverKind, LaunchSpec};
 
 /// Launch options for one `agy` print-mode turn.
@@ -26,7 +24,7 @@ use crate::driver_host::{invalid, validate_model_id, DriverHostError, DriverKind
 pub struct AgyLaunchOptions {
     pub executable: PathBuf,
     /// Turn cwd — normally the session workspace root. `agy` spawns its MCP
-    /// servers in its own cwd, so the registered `host app` stdio server
+    /// servers in its own cwd, so the registered host stdio server
     /// (no `--workspace` arg) projects this directory.
     pub cwd: PathBuf,
     /// Vendor conversation id from a previous `init` event, passed back as
@@ -70,10 +68,7 @@ impl AgyLaunchOptions {
             program: self.executable.clone(),
             args,
             env: Default::default(),
-            env_remove: FORBIDDEN_BYOK_ENV_VARS
-                .iter()
-                .map(|name| (*name).to_string())
-                .collect(),
+            env_remove: host_names::forbidden_byok_env_vars().into_iter().collect(),
             cwd: self.cwd.clone(),
         })
     }
@@ -88,7 +83,7 @@ pub fn user_prompt_frame(prompt: &str) -> Vec<String> {
     vec!["-p".into(), prompt.to_string()]
 }
 
-/// Build the `agy mcp add` argv that registers the the host app stdio gateway.
+/// Build the `agy mcp add` argv that registers the host app stdio gateway.
 /// Extracted so the registration helper and its tests share one source of
 /// argv truth: `agy mcp add --type stdio <name> <command> -- <args...>`.
 pub fn mcp_add_argv(server_name: &str, command: &std::path::Path, args: &[String]) -> Vec<String> {
@@ -103,15 +98,4 @@ pub fn mcp_add_argv(server_name: &str, command: &std::path::Path, args: &[String
     ];
     argv.extend(args.iter().cloned());
     argv
-}
-
-/// Serialize a `tools/list`-shaped MCP server entry — kept for parity with the
-/// Claude harness's `mcp_config` JSON where a config file is expected.
-#[allow(dead_code)]
-pub(crate) fn mcp_server_json(command: &std::path::Path, args: &[String]) -> Value {
-    json!({
-        "type": "stdio",
-        "command": command.to_string_lossy(),
-        "args": args,
-    })
 }

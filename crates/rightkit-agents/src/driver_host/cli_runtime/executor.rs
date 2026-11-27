@@ -2,7 +2,7 @@
 //!
 //! PR 4 of the architecture plan. Two concrete executors live here:
 //!
-//! - `CodeRightNativeExecutor` wraps the existing the host app-native
+//! - `HostNativeExecutor` wraps the existing the host app-native
 //!   session runtime. The root session is still launched by the
 //!   daemon's existing native spawner (later PRs migrate that path);
 //!   the executor is the new dispatch seam for child agents and is
@@ -37,6 +37,7 @@ use crate::driver_host::cli_runtime::ids::CliProviderId;
 use crate::driver_host::cli_runtime::recovery::BindingResumeGuard;
 use crate::driver_host::cli_runtime::registry::CliAdapterRegistry;
 use crate::driver_host::contracts::{DriverCursor, NormalizedEvent, NormalizedEventKind};
+use crate::driver_host::host_names;
 
 /// One resolved handoff brief that a parent runtime gives to a child.
 /// PR 5 fills in the construction logic; PR 4 only lays down the
@@ -301,7 +302,7 @@ impl AgentRuntimeExecutor for HostNativeExecutor {
         if let AgentRuntimeBackend::AuthenticatedCli { .. } = &request.backend {
             return Err(AgentRuntimeError::new(
                 "backend_mismatch",
-                "CodeRightNativeExecutor only accepts CodeRightNative backends",
+                "HostNativeExecutor only accepts HostNative backends",
             ));
         }
         let handle = AgentRuntimeHandle {
@@ -564,7 +565,10 @@ impl AuthenticatedCliExecutor {
         let contexts = self.launch_contexts.as_ref().ok_or_else(|| {
             AgentRuntimeError::new(
                 "launch_context_unavailable",
-                "daemon must provide managed profile, scoped Agent MCP, and run policy",
+                format!(
+                    "daemon must provide managed profile, scoped {} MCP, and run policy",
+                    host_names::display_name()
+                ),
             )
         })?;
         let context = contexts.resolve(
@@ -589,10 +593,13 @@ impl AuthenticatedCliExecutor {
                 "provider must have a verified native CLI account profile",
             ));
         }
-        if context.mcp_server.name != "rightkit-agent" {
+        if context.mcp_server.name != host_names::mcp_server_name() {
             return Err(AgentRuntimeError::new(
                 "launch_context_mcp",
-                "launch context must expose exactly Agent MCP",
+                format!(
+                    "launch context must expose exactly {} MCP",
+                    host_names::display_name()
+                ),
             ));
         }
         let request = crate::driver_host::cli_runtime::adapter::CliLaunchRequest {
@@ -613,7 +620,7 @@ impl AuthenticatedCliExecutor {
         })?;
         if let Some(model_id) = model_id {
             spec.env
-                .push(("RIGHTKIT_INTERNAL_MODEL_ID".to_string(), model_id));
+                .push((host_names::internal_model_id_env_name(), model_id));
         }
         let mut current = context.attestation_inputs;
         let discovery = adapter.discover(&request.profile).await.map_err(|error| {
@@ -759,7 +766,11 @@ impl AuthenticatedCliExecutor {
             .await
             .map_err(|error| AgentRuntimeError::new("bridge_recover_failed", error.to_string()))?;
         if started.vendor_session_id != vendor_session_id {
-            let _ = self.bridge.shutdown(&binding_id).await;
+            // The mismatch is the error returned; a failed shutdown on top of it must not
+            // vanish, because the unwanted provider process may still be running (#376).
+            if let Err(error) = self.bridge.shutdown(&binding_id).await {
+                tracing::warn!(%binding_id, %error, "provider shutdown failed after a session mismatch; the process may still be running");
+            }
             return Err(AgentRuntimeError::new(
                 "vendor_session_mismatch",
                 "provider resumed a different native session",

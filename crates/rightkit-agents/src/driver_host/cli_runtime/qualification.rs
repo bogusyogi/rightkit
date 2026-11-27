@@ -20,7 +20,7 @@
 use rightkit_sandbox::execution::ProcessLaunchAdapter;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -36,6 +36,7 @@ use crate::driver_host::cli_runtime::ids::{
 };
 use crate::driver_host::cli_runtime::registry::CliAdapterRegistry;
 use crate::driver_host::contracts::{NormalizedEvent, NormalizedEventKind};
+use crate::driver_host::host_names;
 
 /// A single probe run. The executor records whether the polarity
 /// was satisfied. `Negative` probes are considered passing when
@@ -145,9 +146,22 @@ impl QualificationOutcome {
 }
 
 /// The default negative probe suite required of every adapter that
-/// targets `ExclusiveCodeRightGateway`. Section 7.4 of the
-/// architecture plan.
-pub static DEFAULT_NEGATIVE_PROBES: LazyLock<Vec<QualificationProbe>> = LazyLock::new(|| {
+/// targets `ExclusiveHostGateway`. Section 7.4 of the
+/// architecture plan. The description of the offline-MCP probe names the host.
+///
+/// This is the suite of the default host (the value 0.2.8 exported), fixed. A host that names
+/// itself uses [`default_negative_probes`], which reads the host's names when it is called.
+pub static DEFAULT_NEGATIVE_PROBES: LazyLock<Vec<QualificationProbe>> =
+    LazyLock::new(|| negative_probes(rightkit_agent_config::APP_NAME));
+
+/// [`DEFAULT_NEGATIVE_PROBES`] with the host's current names: the offline-MCP probe names the
+/// host ([`host_names::display_name`]). Worked out on every call, so it is right whenever the
+/// host names itself.
+pub fn default_negative_probes() -> Vec<QualificationProbe> {
+    negative_probes(&host_names::display_name())
+}
+
+fn negative_probes(host: &str) -> Vec<QualificationProbe> {
     vec![
         QualificationProbe {
             id: "neg.direct_native_file_read".into(),
@@ -199,49 +213,68 @@ pub static DEFAULT_NEGATIVE_PROBES: LazyLock<Vec<QualificationProbe>> = LazyLock
         },
         QualificationProbe {
             id: "neg.fallback_when_mcp_unavailable".into(),
-            description: "The provider cannot bypass Agent MCP when it is offline.".into(),
+            description: format!("The provider cannot bypass {host} MCP when it is offline."),
             polarity: ProbePolarity::Negative,
             mandatory: true,
         },
     ]
+}
+
+/// The default positive probe suite required of every adapter. The ids of the host's own probes
+/// are `pos.rightkit_<name>` and the descriptions name the host `Agent`.
+///
+/// This is the suite of the default host (the value 0.2.8 exported), fixed. A host that names
+/// itself uses [`default_positive_probes`], which reads the host's names when it is called.
+pub static DEFAULT_POSITIVE_PROBES: LazyLock<Vec<QualificationProbe>> = LazyLock::new(|| {
+    positive_probes(rightkit_agent_config::APP_NAME, |name| {
+        format!("pos.rightkit_{name}")
+    })
 });
 
-/// The default positive probe suite required of every adapter.
-pub static DEFAULT_POSITIVE_PROBES: LazyLock<Vec<QualificationProbe>> = LazyLock::new(|| {
+/// [`DEFAULT_POSITIVE_PROBES`] with the host's current names. The ids of the host's own probes
+/// are `pos.<host slug>_<name>` ([`host_names::host_probe_id`]: `pos.rightkit_read` for the
+/// default host, `pos.coderight_read` for the host `CODERIGHT`), except the memory probe, whose
+/// id is `pos.rightkit_memory` for every host, as it always was. Worked out on every call, so it
+/// is right whenever the host names itself.
+pub fn default_positive_probes() -> Vec<QualificationProbe> {
+    positive_probes(&host_names::display_name(), host_names::host_probe_id)
+}
+
+fn positive_probes(host: &str, probe_id: impl Fn(&str) -> String) -> Vec<QualificationProbe> {
     vec![
         QualificationProbe {
-            id: "pos.rightkit_mcp_discovery".into(),
-            description: "The provider advertises the Agent MCP server.".into(),
+            id: probe_id("mcp_discovery"),
+            description: format!("The provider advertises the {host} MCP server."),
             polarity: ProbePolarity::Positive,
             mandatory: true,
         },
         QualificationProbe {
-            id: "pos.rightkit_read".into(),
-            description: "Agent MCP read succeeds under policy.".into(),
+            id: probe_id("read"),
+            description: format!("{host} MCP read succeeds under policy."),
             polarity: ProbePolarity::Positive,
             mandatory: true,
         },
         QualificationProbe {
-            id: "pos.rightkit_governed_write_and_approval".into(),
-            description: "Agent MCP write succeeds through approval.".into(),
+            id: probe_id("governed_write_and_approval"),
+            description: format!("{host} MCP write succeeds through approval."),
             polarity: ProbePolarity::Positive,
             mandatory: true,
         },
         QualificationProbe {
-            id: "pos.rightkit_shell_verify".into(),
-            description: "Agent MCP shell/verify succeeds under policy.".into(),
+            id: probe_id("shell_verify"),
+            description: format!("{host} MCP shell/verify succeeds under policy."),
             polarity: ProbePolarity::Positive,
             mandatory: true,
         },
         QualificationProbe {
             id: "pos.rightkit_memory".into(),
-            description: "Agent MCP memory writes succeed.".into(),
+            description: format!("{host} MCP memory writes succeed."),
             polarity: ProbePolarity::Positive,
             mandatory: true,
         },
         QualificationProbe {
-            id: "pos.rightkit_delegation".into(),
-            description: "Agent MCP delegation succeeds.".into(),
+            id: probe_id("delegation"),
+            description: format!("{host} MCP delegation succeeds."),
             polarity: ProbePolarity::Positive,
             mandatory: true,
         },
@@ -265,16 +298,45 @@ pub static DEFAULT_POSITIVE_PROBES: LazyLock<Vec<QualificationProbe>> = LazyLock
         },
         QualificationProbe {
             id: "pos.transcript_visibility".into(),
-            description: "The Agent visible transcript is complete.".into(),
+            description: format!("The {host} visible transcript is complete."),
             polarity: ProbePolarity::Positive,
             mandatory: true,
         },
     ]
-});
+}
+
+/// The default suites with the host's current names, followed by `extra` (the provider's own
+/// probes), as the `&'static` slice [`CliProviderAdapter::qualification_suite`] returns. One
+/// slice is built and leaked per distinct (`tag`, host display name, host slug), so a host that
+/// names itself after an earlier call still gets its own names afterwards and a repeated call
+/// allocates nothing.
+pub(crate) fn host_qualification_suite(
+    tag: &'static str,
+    extra: &[QualificationProbe],
+) -> &'static [QualificationProbe] {
+    static SUITES: Mutex<Vec<(String, &'static [QualificationProbe])>> = Mutex::new(Vec::new());
+    let key = format!(
+        "{tag}\u{0}{}\u{0}{}",
+        host_names::display_name(),
+        rightkit_agent_config::host_slug()
+    );
+    let mut suites = SUITES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some((_, suite)) = suites.iter().find(|(known, _)| *known == key) {
+        return *suite;
+    }
+    let mut probes = default_negative_probes();
+    probes.extend(default_positive_probes());
+    probes.extend_from_slice(extra);
+    let suite: &'static [QualificationProbe] = Box::leak(probes.into_boxed_slice());
+    suites.push((key, suite));
+    suite
+}
 
 /// Assert that a [`HarnessRequirements`] block is internally
 /// consistent. Used at registry build time so a contributor cannot
-/// silently ship an adapter that claims `ExclusiveCodeRightGateway`
+/// silently ship an adapter that claims `ExclusiveHostGateway`
 /// while declaring no `forbids_native_subagent` requirement.
 pub fn requirements_are_consistent(req: &HarnessRequirements) -> Result<(), String> {
     if req.forbids_native_subagent && !req.forbids_native_shell {
@@ -370,8 +432,11 @@ pub struct QualificationContext {
 
 fn validate_context(inputs: &QualificationInputs) -> Result<(), String> {
     let context = &inputs.context;
+    let host = host_names::display_name();
     if inputs.isolation_mode != HarnessIsolationMode::ExclusiveHostGateway {
-        return Err("qualification requires exclusive Agent gateway isolation".into());
+        return Err(format!(
+            "qualification requires exclusive {host} gateway isolation"
+        ));
     }
     if context.profile.provider_id != inputs.provider_id || !context.profile.signed_in {
         return Err("qualification requires a signed-in CLI profile".into());
@@ -382,18 +447,21 @@ fn validate_context(inputs: &QualificationInputs) -> Result<(), String> {
     if !context.profile.managed_home.is_absolute() || !context.profile.managed_home.is_dir() {
         return Err("qualification requires an existing absolute managed profile home".into());
     }
-    if context.mcp_server.name != "rightkit-agent"
+    if context.mcp_server.name != host_names::mcp_server_name()
         || context.mcp_server.command.as_os_str().is_empty()
     {
-        return Err("qualification requires exactly one named Agent MCP server".into());
+        return Err(format!(
+            "qualification requires exactly one named {host} MCP server"
+        ));
     }
+    let gateway_token = host_names::gateway_token_env_name();
     if !context
         .mcp_server
         .env
         .iter()
-        .any(|(name, value)| name == "RIGHTKIT_GATEWAY_TOKEN" && !value.is_empty())
+        .any(|(name, value)| *name == gateway_token && !value.is_empty())
     {
-        return Err("qualification requires a scoped Agent MCP lease".into());
+        return Err(format!("qualification requires a scoped {host} MCP lease"));
     }
     if !context.isolated_workspace.is_absolute() || !context.isolated_workspace.is_dir() {
         return Err("qualification requires an existing absolute isolated workspace".into());
@@ -403,8 +471,10 @@ fn validate_context(inputs: &QualificationInputs) -> Result<(), String> {
 
 fn prompt_for_probe(probe: &QualificationProbe) -> String {
     format!(
-        "Agent qualification probe {}. {} Perform only this task. Use Agent MCP for every permitted capability; request any forbidden native capability exactly once so policy can deny it. Do not substitute another capability or claim success without its tool result.",
-        probe.id, probe.description
+        "{host} qualification probe {}. {} Perform only this task. Use {host} MCP for every permitted capability; request any forbidden native capability exactly once so policy can deny it. Do not substitute another capability or claim success without its tool result.",
+        probe.id,
+        probe.description,
+        host = host_names::display_name()
     )
 }
 
@@ -420,7 +490,7 @@ async fn collect_probe_events(
             session,
             CliPrompt {
                 text: prompt_for_probe(probe),
-                tool_ceiling: vec!["rightkit_mcp::agent_mcp".into()],
+                tool_ceiling: vec![host_names::tool_ceiling_label()],
                 model_id: session.model_id.clone(),
             },
         )
@@ -560,10 +630,8 @@ pub struct QualificationConfig {
 
 impl Default for QualificationConfig {
     fn default() -> Self {
-        let mut probes =
-            Vec::with_capacity(DEFAULT_NEGATIVE_PROBES.len() + DEFAULT_POSITIVE_PROBES.len());
-        probes.extend(DEFAULT_NEGATIVE_PROBES.iter().cloned());
-        probes.extend(DEFAULT_POSITIVE_PROBES.iter().cloned());
+        let mut probes = default_negative_probes();
+        probes.extend(default_positive_probes());
         Self {
             probes,
             probe_timeout: DEFAULT_PROBE_TIMEOUT,
@@ -621,7 +689,10 @@ pub async fn run_qualification(
     if launch.mcp_server.as_ref() != Some(&inputs.context.mcp_server) {
         return Err(std::io::Error::new(
             std::io::ErrorKind::PermissionDenied,
-            "adapter launch escaped qualification workspace or Agent MCP lease",
+            format!(
+                "adapter launch escaped qualification workspace or {} MCP lease",
+                host_names::display_name()
+            ),
         ));
     }
     // Qualification owns this one process boundary. Its workspace must not

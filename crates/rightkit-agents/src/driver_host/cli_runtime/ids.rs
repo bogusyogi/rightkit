@@ -13,7 +13,7 @@
 //!   action. There is no path from `Unknown` to `NativeCliAccount`
 //!   that does not pass through an explicit user login or operator
 //!   probe.
-//! - `HarnessIsolationMode::ExclusiveCodeRightGateway` is the target
+//! - `HarnessIsolationMode::ExclusiveHostGateway` is the target
 //!   isolation for every new adapter. Compatibility mode is a
 //!   temporary transition state, not a steady-state design.
 //! - `ResumeStrategy::ProcessRestartWithResumeFlag` is the only
@@ -153,7 +153,7 @@ impl CliTransportKind {
 }
 
 /// How a binding isolates the provider process from the surrounding
-/// trust domain. `ExclusiveCodeRightGateway` is the target state.
+/// trust domain. `ExclusiveHostGateway` is the target state.
 /// `NativeReadOnlyCompatibility` is a documented transition mode and
 /// must be visible in the UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -169,9 +169,15 @@ pub enum HarnessIsolationMode {
 }
 
 impl HarnessIsolationMode {
+    /// The label stored in attestation rows and hashed into the attestation address:
+    /// `exclusive_<host slug>_gateway` for [`HarnessIsolationMode::ExclusiveHostGateway`]
+    /// (`exclusive_rightkit_gateway` for the default host, `exclusive_coderight_gateway` for the
+    /// host `CODERIGHT`) and `native_read_only_compatibility`.
     pub fn label(self) -> &'static str {
         match self {
-            HarnessIsolationMode::ExclusiveHostGateway => "exclusive_rightkit_gateway",
+            HarnessIsolationMode::ExclusiveHostGateway => {
+                crate::driver_host::host_names::exclusive_gateway_label_static()
+            }
             HarnessIsolationMode::NativeReadOnlyCompatibility => "native_read_only_compatibility",
         }
     }
@@ -223,7 +229,7 @@ pub enum ContextEpochReason {
 
 /// UI- and dispatch-facing eligibility state for a provider.
 ///
-/// Only `Ready` is launchable as a the host app harness root or child.
+/// Only `Ready` is launchable as a host app harness root or child.
 /// `CompatibilityReadOnly` is launchable as a separately labeled
 /// transition state. Every other variant produces a disabled row with
 /// the concrete reason. There is no warning-then-launch path.

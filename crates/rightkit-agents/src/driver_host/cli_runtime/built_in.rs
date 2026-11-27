@@ -28,6 +28,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::driver_host::cli_runtime::adapter::CliTransport;
 use crate::driver_host::cli_runtime::ids::{CliProviderId, CliTransportKind, HarnessIsolationMode};
+use crate::driver_host::host_options::built_in_provider_offered;
 
 /// A static descriptor for one built-in provider. Carries the
 /// provider identity, the transport it uses, and the display label
@@ -41,10 +42,12 @@ pub struct BuiltInProviderSpec {
     pub isolation_mode: HarnessIsolationMode,
 }
 
-/// The canonical list. The order is the picker default order and
-/// the implementation sequence (see the architecture plan,
-/// section 16). Adding a provider means appending an entry here
-/// **and** shipping the matching adapter in its own PR.
+/// The canonical list of every built-in provider this crate knows. The order is the picker
+/// default order and the implementation sequence (see the architecture plan, section 16).
+/// Adding a provider means appending an entry here **and** shipping the matching adapter in its
+/// own PR. A host that chose its providers with
+/// [`crate::driver_host::host_options::set_built_in_providers`] offers only those: [`iter`],
+/// [`spec_for`] and [`seed_registry`] follow that choice, this list does not.
 pub static BUILT_IN_SPECS: LazyLock<Vec<BuiltInProviderSpec>> = LazyLock::new(|| {
     vec![
         BuiltInProviderSpec {
@@ -86,17 +89,19 @@ pub static BUILT_IN_SPECS: LazyLock<Vec<BuiltInProviderSpec>> = LazyLock::new(||
     ]
 });
 
-/// Iterate the canonical six in order. Returns an iterator over
-/// borrowed `BuiltInProviderSpec` entries.
+/// Iterate the built-in providers this host offers (the canonical six, in order, unless the host
+/// chose its providers). Returns an iterator over borrowed `BuiltInProviderSpec` entries.
 pub fn iter() -> impl Iterator<Item = &'static BuiltInProviderSpec> {
-    BUILT_IN_SPECS.iter()
+    BUILT_IN_SPECS
+        .iter()
+        .filter(|spec| built_in_provider_offered(spec.id.as_str()))
 }
 
 /// Look up a spec by id. Returns `None` for any provider that is
-/// not in the built-in table. Use this rather than scanning
+/// not in the built-in table or that this host does not offer. Use this rather than scanning
 /// [`BUILT_IN_SPECS`] from caller code.
 pub fn spec_for(id: &CliProviderId) -> Option<&'static BuiltInProviderSpec> {
-    BUILT_IN_SPECS.iter().find(|spec| &spec.id == id)
+    iter().find(|spec| &spec.id == id)
 }
 
 /// Seed a registry with the built-in descriptors and the
@@ -105,7 +110,8 @@ pub fn spec_for(id: &CliProviderId) -> Option<&'static BuiltInProviderSpec> {
 /// transports; PR 9 adds the Cline adapter; PR 11 adds the
 /// Command Code adapter **and** the ResumableNdjson transport it
 /// pairs with. The remaining two providers (Grok, Cursor) share
-/// the ACP transport that lands with PR 7.
+/// the ACP transport that lands with PR 7. Only the providers this host offers are registered
+/// (all six unless the host chose its providers).
 ///
 /// `register` errors propagate immediately; the daemon must not
 /// come up with a partial seed list. The function is idempotent
@@ -114,61 +120,75 @@ pub fn spec_for(id: &CliProviderId) -> Option<&'static BuiltInProviderSpec> {
 pub fn seed_registry(
     registry: &crate::driver_host::cli_runtime::registry::CliAdapterRegistry,
 ) -> Result<(), SeedError> {
-    for spec in BUILT_IN_SPECS.iter() {
+    for spec in iter() {
         if spec.id.as_str().is_empty() {
             return Err(SeedError::EmptyProviderId);
         }
         if spec.display_name.is_empty() {
             return Err(SeedError::EmptyDisplayName(spec.id.clone()));
         }
-        let _ = registry.adapter(&spec.id);
     }
 
     // PR 6: install Claude + Codex adapters and the matching
     // transports. The adapter construction is unconditional; the
     // readiness gate (PR 3) is what actually blocks a launch
     // before attestation succeeds.
-    let claude: Arc<dyn crate::driver_host::cli_runtime::adapter::CliProviderAdapter> =
-        Arc::new(crate::driver_host::cli_runtime::providers::claude::ClaudeAdapter::new());
-    registry
-        .register_adapter(claude)
-        .map_err(seed_error_from_registry)?;
+    if built_in_provider_offered("claude") {
+        let claude: Arc<dyn crate::driver_host::cli_runtime::adapter::CliProviderAdapter> =
+            Arc::new(crate::driver_host::cli_runtime::providers::claude::ClaudeAdapter::new());
+        registry
+            .register_adapter(claude)
+            .map_err(seed_error_from_registry)?;
+    }
 
-    let codex: Arc<dyn crate::driver_host::cli_runtime::adapter::CliProviderAdapter> =
-        Arc::new(crate::driver_host::cli_runtime::providers::codex::CodexAdapter::new());
-    registry
-        .register_adapter(codex)
-        .map_err(seed_error_from_registry)?;
+    if built_in_provider_offered("codex") {
+        let codex: Arc<dyn crate::driver_host::cli_runtime::adapter::CliProviderAdapter> =
+            Arc::new(crate::driver_host::cli_runtime::providers::codex::CodexAdapter::new());
+        registry
+            .register_adapter(codex)
+            .map_err(seed_error_from_registry)?;
+    }
 
-    let claude_transport: Arc<dyn CliTransport> = Arc::new(
-        crate::driver_host::cli_runtime::transports::claude_stream_json::ClaudeStreamJsonTransport::new(),
-    );
-    registry
-        .register_transport(claude_transport)
-        .map_err(seed_error_from_registry)?;
+    if built_in_provider_offered("claude") {
+        let claude_transport: Arc<dyn CliTransport> = Arc::new(
+            crate::driver_host::cli_runtime::transports::claude_stream_json::ClaudeStreamJsonTransport::new(),
+        );
+        registry
+            .register_transport(claude_transport)
+            .map_err(seed_error_from_registry)?;
+    }
 
-    let codex_transport: Arc<dyn CliTransport> = Arc::new(
-        crate::driver_host::cli_runtime::transports::codex_app_server::CodexAppServerTransport::new(
-        ),
-    );
-    registry
-        .register_transport(codex_transport)
-        .map_err(seed_error_from_registry)?;
+    if built_in_provider_offered("codex") {
+        let codex_transport: Arc<dyn CliTransport> = Arc::new(
+            crate::driver_host::cli_runtime::transports::codex_app_server::CodexAppServerTransport::new(
+            ),
+        );
+        registry
+            .register_transport(codex_transport)
+            .map_err(seed_error_from_registry)?;
+    }
 
-    let acp_transport: Arc<dyn CliTransport> =
-        Arc::new(crate::driver_host::cli_runtime::transports::acp::AcpTransport::new());
-    registry
-        .register_transport(acp_transport)
-        .map_err(seed_error_from_registry)?;
+    if ["grok", "cursor", "cline"]
+        .into_iter()
+        .any(built_in_provider_offered)
+    {
+        let acp_transport: Arc<dyn CliTransport> =
+            Arc::new(crate::driver_host::cli_runtime::transports::acp::AcpTransport::new());
+        registry
+            .register_transport(acp_transport)
+            .map_err(seed_error_from_registry)?;
+    }
 
     // PR 9: install the Cline adapter so the registry can resolve
     // the Cline provider the moment the daemon comes up. The Cline
     // transport is shared with Grok and Cursor.
-    let cline: Arc<dyn crate::driver_host::cli_runtime::adapter::CliProviderAdapter> =
-        Arc::new(crate::driver_host::cli_runtime::providers::cline::ClineAdapter::new());
-    registry
-        .register_adapter(cline)
-        .map_err(seed_error_from_registry)?;
+    if built_in_provider_offered("cline") {
+        let cline: Arc<dyn crate::driver_host::cli_runtime::adapter::CliProviderAdapter> =
+            Arc::new(crate::driver_host::cli_runtime::providers::cline::ClineAdapter::new());
+        registry
+            .register_adapter(cline)
+            .map_err(seed_error_from_registry)?;
+    }
 
     // PR 8: install the Grok adapter so the registry can resolve
     // the Grok provider the moment the daemon comes up. The Grok
@@ -180,12 +200,14 @@ pub fn seed_registry(
     // `--resume <vendor_session_id>`, and disables every provider-
     // native orchestration surface (leader, team, native tools,
     // skills) so the only capability surface the model can reach is
-    // the the host app MCP server.
-    let grok: Arc<dyn crate::driver_host::cli_runtime::adapter::CliProviderAdapter> =
-        Arc::new(crate::driver_host::cli_runtime::providers::grok::GrokAdapter::new());
-    registry
-        .register_adapter(grok)
-        .map_err(seed_error_from_registry)?;
+    // the host app MCP server.
+    if built_in_provider_offered("grok") {
+        let grok: Arc<dyn crate::driver_host::cli_runtime::adapter::CliProviderAdapter> =
+            Arc::new(crate::driver_host::cli_runtime::providers::grok::GrokAdapter::new());
+        registry
+            .register_adapter(grok)
+            .map_err(seed_error_from_registry)?;
+    }
 
     // PR 10: install the Cursor adapter so the registry can resolve
     // the Cursor provider the moment the daemon comes up. The Cursor
@@ -197,11 +219,13 @@ pub fn seed_registry(
     // `CliProviderEligibility::VersionUnsupported` with a repair
     // message. Cursor shares the ACP transport with Grok and
     // Cline, so no transport is registered here.
-    let cursor: Arc<dyn crate::driver_host::cli_runtime::adapter::CliProviderAdapter> =
-        Arc::new(crate::driver_host::cli_runtime::providers::cursor::CursorAdapter::new());
-    registry
-        .register_adapter(cursor)
-        .map_err(seed_error_from_registry)?;
+    if built_in_provider_offered("cursor") {
+        let cursor: Arc<dyn crate::driver_host::cli_runtime::adapter::CliProviderAdapter> =
+            Arc::new(crate::driver_host::cli_runtime::providers::cursor::CursorAdapter::new());
+        registry
+            .register_adapter(cursor)
+            .map_err(seed_error_from_registry)?;
+    }
 
     // PR 11: install the Command Code adapter **and** its matching
     // ResumableNdjson transport. The adapter is default-off until
@@ -210,22 +234,26 @@ pub fn seed_registry(
     // both halves of the open contract so the dispatch layer can
     // resolve the provider (e.g. for UI listings) without re-
     // deriving the provider id.
-    let commandcode: Arc<dyn crate::driver_host::cli_runtime::adapter::CliProviderAdapter> =
-        Arc::new(
-            crate::driver_host::cli_runtime::providers::commandcode::CommandCodeAdapter::new(),
-        );
-    registry
-        .register_adapter(commandcode)
-        .map_err(seed_error_from_registry)?;
+    if built_in_provider_offered("commandcode") {
+        let commandcode: Arc<dyn crate::driver_host::cli_runtime::adapter::CliProviderAdapter> =
+            Arc::new(
+                crate::driver_host::cli_runtime::providers::commandcode::CommandCodeAdapter::new(),
+            );
+        registry
+            .register_adapter(commandcode)
+            .map_err(seed_error_from_registry)?;
+    }
 
-    let commandcode_transport: Arc<dyn CliTransport> = Arc::new(
-        crate::driver_host::cli_runtime::transports::resumable_ndjson::ResumableNdjsonTransport::new(Box::new(
-            crate::driver_host::cli_runtime::transports::resumable_ndjson::CommandCodeDialect::new(),
-        )),
-    );
-    registry
-        .register_transport(commandcode_transport)
-        .map_err(seed_error_from_registry)?;
+    if built_in_provider_offered("commandcode") {
+        let commandcode_transport: Arc<dyn CliTransport> = Arc::new(
+            crate::driver_host::cli_runtime::transports::resumable_ndjson::ResumableNdjsonTransport::new(Box::new(
+                crate::driver_host::cli_runtime::transports::resumable_ndjson::CommandCodeDialect::new(),
+            )),
+        );
+        registry
+            .register_transport(commandcode_transport)
+            .map_err(seed_error_from_registry)?;
+    }
 
     Ok(())
 }

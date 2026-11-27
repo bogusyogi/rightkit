@@ -2,6 +2,8 @@
 
 ## 0.2.0 (unpublished)
 
+- Requires `rightkit-agents` 0.3.0 (dependency requirement raised; this crate names no re-typed item).
+
 - Requires `rightkit-agent-engine-core` 0.2.0: the two `CompactionCommandV1` literals set `instructions: None`. No behaviour change here.
 
 - Requires `rightkit-agent-coding-tools` 0.2.0. The resource-profile variable is read under the host's environment prefix (`process_resource_profile_env_name()`), the workspace task file is found under the host's state folder name, and the process list reads each lease once per row.

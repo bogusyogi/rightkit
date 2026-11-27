@@ -62,8 +62,11 @@ pub struct DriverCursor {
     pub last_event_key: Option<String>,
 }
 
+/// One driver binding. The id of the host session is persisted under `hostSessionId`, or under
+/// `<host slug>SessionId` for a host that named itself (see [`crate::driver_host::host_names`]
+/// and the module `wire_keys`); both keys are read.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(remote = "Self", rename_all = "camelCase")]
 pub struct DriverBinding {
     pub id: String,
     pub host_session_id: String,
@@ -76,6 +79,8 @@ pub struct DriverBinding {
     pub capabilities: Vec<CapabilityRecord>,
     pub cursor: DriverCursor,
 }
+
+crate::driver_host::wire_keys::session_keyed_serde!(DriverBinding);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

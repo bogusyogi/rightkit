@@ -53,3 +53,12 @@ let frame = user_turn_frame("summarise the diff"); // write to the child's stdin
 The host dispatches that request & owns its producer's cancellation/cleanup; this helper
 spawns no callback thread. No receiver, disconnect or timeout fails closed. A timeout
 drops that request's receiver, so a late send fails; it does not cancel host work.
+
+## Driver host (feature `driver_host`)
+
+The `driver_host` module hosts the external coding-agent CLIs (Claude Code, Codex, Antigravity and the ACP vendors): launch specifications, persisted bindings and cursors, the Claude persistent harness (`claude_harness`, supervised through `rightkit-job-queue`'s `ChildSupervisor`), managed and linked account profiles, qualification, recovery and resume guards. It is a superset of CodeRight's private `coderight-driver-host`.
+
+- **Names.** Every name it writes (MCP server, tool scope, run-scoped policy, state folder, environment variables, probe ids, isolation label, stderr prefix, the host session id key of persisted records) comes from `driver_host::host_names`, which reads `rightkit_agent_config`'s host names at the moment of use. A host that never names itself gets the strings 0.2.8 hard-coded. The denied environment list always carries the `RIGHTKIT_` daemon token, gateway token and driver instance secret and, for a named host, the same three under its own prefix (`driver_host::denied_vendor_subprocess_env_vars`).
+- **Options.** `driver_host::host_options` holds the once-per-process choices (linked profiles, best-effort Windows job, Claude housekeeping messages, the offered built-in providers). Parent-process anchoring and the parent Claude Code session scrub follow `rightkit_agent_coding_tools::shell::set_anchor_children_to_parent` and `set_strip_parent_claude_session_env`.
+- **Persisted data.** A host that named itself writes the host session id under `<host slug>SessionId` and reads that key and `hostSessionId`; the default host writes `hostSessionId`.
+

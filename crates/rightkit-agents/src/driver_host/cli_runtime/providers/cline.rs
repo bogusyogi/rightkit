@@ -11,7 +11,7 @@
 //! - ACP launch (`cline --acp`) with `--no-teams` and explicit
 //!   plugin/skill isolation (`--disable-plugins`,
 //!   `--disable-skills`, `--no-marketplace`) so the only capability
-//!   surface available to the model is the the host app MCP server;
+//!   surface available to the model is the host app MCP server;
 //! - `cline auth status` and `cline login` for native account auth;
 //! - `cline session resume <id>` for vendor session resume via
 //!   [`ResumeStrategy::ProtocolLoadById`];
@@ -32,9 +32,7 @@ use crate::driver_host::cli_runtime::ids::{
     CliAccountProfile, CliProviderCapabilities, CliProviderId, CliTransportKind,
     HarnessRequirements, QualificationProbe, ResumeStrategy,
 };
-use crate::driver_host::cli_runtime::qualification::{
-    DEFAULT_NEGATIVE_PROBES, DEFAULT_POSITIVE_PROBES,
-};
+use crate::driver_host::cli_runtime::qualification::host_qualification_suite;
 use crate::driver_host::contracts::{NormalizedEvent, NormalizedEventKind};
 
 pub const PROVIDER_ID: &str = "cline";
@@ -209,7 +207,7 @@ impl CliProviderAdapter for ClineAdapter {
         // 2. Plugin/skill isolation. Cline supports a native plugin
         //    loader, a marketplace skill catalog, and a built-in
         //    skill mechanism. All three must be disabled so the only
-        //    capability surface the model can reach is the the host app
+        //    capability surface the model can reach is the host app
         //    MCP server attached below.
         argv.push("--disable-plugins".into());
         argv.push("--disable-skills".into());
@@ -221,7 +219,7 @@ impl CliProviderAdapter for ClineAdapter {
         argv.push("--no-teams".into());
         // 4. Managed data directory. All credential files, plugin
         //    state, skill cache, and conversation history land under
-        //    the the host app-managed profile directory.
+        //    the host app-managed profile directory.
         argv.push("--data-dir".into());
         argv.push(request.profile.managed_home.display().to_string());
         // 5. Vendor session id. `cline session resume <id>` is the
@@ -254,19 +252,22 @@ impl CliProviderAdapter for ClineAdapter {
         //    process environment. Cline reads several of these for
         //    BYOK routing, so the strip list is the union of the
         //    common forbidden set and the Cline-specific key vars.
-        let env_remove = vec![
-            "ANTHROPIC_API_KEY".into(),
-            "OPENAI_API_KEY".into(),
-            "OPENROUTER_API_KEY".into(),
-            "MINIMAX_API_KEY".into(),
-            "XAI_API_KEY".into(),
-            "CURSOR_API_KEY".into(),
-            "CLINE_API_KEY".into(),
-            "CLINE_BYOK_KEY".into(),
-            "RIGHTKIT_DAEMON_TOKEN".into(),
-            "RIGHTKIT_GATEWAY_TOKEN".into(),
-            "RIGHTKIT_DRIVER_INSTANCE_SECRET".into(),
-        ];
+        let mut env_remove: Vec<String> = [
+            "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
+            "OPENROUTER_API_KEY",
+            "MINIMAX_API_KEY",
+            "XAI_API_KEY",
+            "CURSOR_API_KEY",
+            "CLINE_API_KEY",
+            "CLINE_BYOK_KEY",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+        // The host's own daemon token, gateway token and driver instance secret, under the
+        // `RIGHTKIT_` spelling and the host's own prefix.
+        env_remove.extend(crate::driver_host::host_names::host_secret_env_names());
 
         Ok(CliLaunchSpec {
             provider_id: self.provider_id.clone(),
@@ -310,11 +311,11 @@ impl CliProviderAdapter for ClineAdapter {
     fn qualification_suite(&self) -> &'static [QualificationProbe] {
         // Full default suite. The negative probes confirm Cline's
         // native routes are denied (including plugins/skills and
-        // teams). The positive probes confirm the the host app MCP is
+        // teams). The positive probes confirm the host app MCP is
         // the only capability surface, including `pos.resume` for
         // `cline session resume <id>` continuity and
         // `pos.transcript_visibility` for the same-vendor-session-id
-        // invariant. Built once via a `OnceLock` so the trait method
+        // invariant. Built once per host naming so the trait method
         // can return a `&'static [QualificationProbe]` without a
         // full inline copy of the default suite.
         cline_qualification_suite()
@@ -328,35 +329,14 @@ impl CliProviderAdapter for ClineAdapter {
     }
 }
 
-/// Full default qualification suite for Cline. Concatenates the
-/// default negative and positive probes from
-/// [`crate::driver_host::cli_runtime::qualification::DEFAULT_NEGATIVE_PROBES`] and
-/// [`crate::driver_host::cli_runtime::qualification::DEFAULT_POSITIVE_PROBES`].
-/// Returned by [`CliProviderAdapter::qualification_suite`] so the
-/// runner can verify the live binary before launch.
-///
-/// Returning a `&'static [QualificationProbe]` requires a single
-/// compile-time-allocated slice; the helper
-/// [`cline_qualification_suite`] builds the slice lazily via a
-/// `OnceLock` and leaks the resulting boxed slice into `'static`.
-/// The set of probes is fixed at compile time; the leak is one-shot
-/// at first call and never freed because the registry holds the
-/// pointer for the daemon's lifetime.
-static CLINE_QUALIFICATION_SUITE: std::sync::OnceLock<Vec<QualificationProbe>> =
-    std::sync::OnceLock::new();
-
-/// Return the Cline qualification suite. The result is cached after
-/// the first call so repeated invocations do not re-allocate.
+/// Full default qualification suite for Cline: the default negative and positive probes of
+/// [`crate::driver_host::cli_runtime::qualification::default_negative_probes`] and
+/// [`crate::driver_host::cli_runtime::qualification::default_positive_probes`] with the host's
+/// current names. Returned by [`CliProviderAdapter::qualification_suite`] so the runner can
+/// verify the live binary before launch. The `&'static` slice is built and leaked once per host
+/// naming (see `host_qualification_suite`) and reused afterwards.
 fn cline_qualification_suite() -> &'static [QualificationProbe] {
-    CLINE_QUALIFICATION_SUITE
-        .get_or_init(|| {
-            let mut probes: Vec<QualificationProbe> =
-                Vec::with_capacity(DEFAULT_NEGATIVE_PROBES.len() + DEFAULT_POSITIVE_PROBES.len());
-            probes.extend_from_slice(&DEFAULT_NEGATIVE_PROBES);
-            probes.extend_from_slice(&DEFAULT_POSITIVE_PROBES);
-            probes
-        })
-        .as_slice()
+    host_qualification_suite("cline", &[])
 }
 
 /// Encode the open session-id field into the wire form the launch

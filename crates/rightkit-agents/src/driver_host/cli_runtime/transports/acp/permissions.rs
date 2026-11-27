@@ -85,7 +85,7 @@ pub struct AcpPermissionContext {
     /// the broker refuses any call whose `server_name` does not
     /// match.
     pub attested_mcp_server_name: String,
-    /// Tools the model is allowed to invoke on the the host app MCP
+    /// Tools the model is allowed to invoke on the host app MCP
     /// server. Anything outside this set is denied, because the
     /// harness owns the tool inventory and the broker must not
     /// invent extra capabilities.
