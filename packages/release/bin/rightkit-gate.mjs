@@ -111,7 +111,7 @@ import { buildCoverageReport, limitedEvidenceOf, seconds, writeCoverageReport } 
 import { renderViews, renderViewsOf } from "../render-views.mjs";
 import { LINUX_BROKER_ROUTE, NO_BROKER_ENV, directCargoPath, directPlatform, managedRuntimeClient, realCargoOf, runCargoSync } from "../managed-cargo.mjs";
 import { createBrokerLive } from "../broker-admission.mjs";
-import { bindingOf, builtBinsOfRun, compileOutputsRecord, compileReuseProblem, endRun, readReceipt, RECEIPT_SCHEMA, receiptKey, sameBinding, sameSource, sealedFor, stagesTo, startRun, STAGES, STAGE_SOURCES, writeReceipt } from "../gate-stages.mjs";
+import { bindingOf, builtBinsOfRun, compileOutputsRecord, compileReuseProblem, compileStageReuse, endRun, readReceipt, RECEIPT_SCHEMA, receiptKey, sameBinding, sameSource, sealedFor, stagesTo, startRun, STAGES, STAGE_SOURCES, writeReceipt } from "../gate-stages.mjs";
 import { spawnSync as spawnInherit } from "../background-process.mjs";
 // GC-A21: a run that stamps its own lines also stamps its inherited-output children's lines, through stamp-relay.mjs in front of the child
 // (the launch stays synchronous and the output still streams). Set by main() when the run stamps; off for machine-readable runs.
@@ -2315,8 +2315,14 @@ async function runStages(o, args, root, git, io) {
       // GB-13 (GATE E6/E7/E16): a recorded compile stands only while the outputs it recorded are still on disk and the compile environment is
       // the one it ran in; otherwise the compile runs again, warm (never a cleared target), unless the sealed bytes below carry it.
       const outputsProblem = (o.compileReuseProblem ?? compileReuseProblem)(receipt.stages.compile, { env: o.env });
-      if (!outputsProblem) { o.out(`${tag} [${stage}] already passed for this exact input (commit, tree, lockfiles, gate, toolchain) and its outputs are intact`); continue; }
-      if (!sealedIntact) o.out(`${tag} [${stage}] the recorded compile no longer stands: ${outputsProblem}; running it again (warm)`);
+      // On a broker host a package stage that will run needs each Cargo workspace's broker output folder, which only the compile stage hands on
+      // (onCompileOutputs). The recorded compile keeps the folders, not which workspace each belongs to, so skipping the stage whole left the package
+      // admission with no target and it refused RK_SPLIT_TARGET_UNRESOLVED (CodeRight qualify on the Mac, 27 Nov, eaef5f533). There the compile takes
+      // its ordinary path instead: every row is a cache hit, the broker is asked nothing, and the cached rows' receipts name the folders (rightkit#1800).
+      const reuse = compileStageReuse({ outputsProblem, executorKind: executor.kind, stages, sealedIntact });
+      if (reuse === "rows") o.out(`${tag} [${stage}] already passed for this exact input and its outputs are intact; its rows are read again from the cache so the package stage knows each workspace's Cargo target`);
+      else if (reuse === "skip") { o.out(`${tag} [${stage}] already passed for this exact input (commit, tree, lockfiles, gate, toolchain) and its outputs are intact`); continue; }
+      if (outputsProblem && !sealedIntact) o.out(`${tag} [${stage}] the recorded compile no longer stands: ${outputsProblem}; running it again (warm)`);
     }
     if (((stage === "check" && publisherUploadOnly) || stage === "compile" || stage === "package") && sealedIntact) {
       o.out(`${tag} [${stage}] already passed for the sealed set ${sealedNow.id} (manifest ${sealedNow.digest.slice(0, 12)})`); continue;

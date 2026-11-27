@@ -177,7 +177,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | policy-rules | `rightkit-policy-rules` | none | declaration-only | 0 | rightkit-policy-rules: staged 0.1.1, not published |
 | privileged-helper | `rightkit-privileged-helper` | none | declaration-only | 0 | rightkit-privileged-helper: staged 0.2.1, not published |
 | qa-evidence | `@rightkit/qa` | advise | fingerprinted | 2 (0 block, 2 advise) | @rightkit/qa: published 0.7.0 (npm) |
-| release-tooling | `@rightkit/release` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/release: published 0.6.91 (npm) |
+| release-tooling | `@rightkit/release` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/release: published 0.6.92 (npm) |
 | remote-agent-gateway | `rightkit-remote-gateway` | none | declaration-only | 0 | rightkit-remote-gateway: staged 0.1.6, not published |
 | remote-compute | `rightkit-remote-compute` | none | declaration-only | 0 | rightkit-remote-compute: staged 0.2.2, not published |
 | repo-graph | `rightkit-repo-graph` | none | declaration-only | 0 | rightkit-repo-graph: staged 0.3.3, not published |

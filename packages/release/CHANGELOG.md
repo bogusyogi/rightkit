@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.93
+
+- A qualify or package run on a broker host no longer refuses `RK_SPLIT_TARGET_UNRESOLVED` after a compile that had already passed. A recorded passing compile was skipped whole, so nothing told the package stage where each Cargo workspace's broker target folder is; rightkit#1800 had fixed that only for a compile that ran with every row cached (CodeRight qualify on the Mac, 27 Nov, eaef5f533: "the Cargo target directory <snapshot>/apps/coderight-tauri/src-tauri/target is inside the snapshot"). When a package stage will run, the compile stage now takes its ordinary path: each row answers from the cache, the broker is asked nothing, and the cached rows' receipts name the folders. `--to compile`, a sealed set that is intact, and a direct host skip the recorded compile as before.
+
 ## 0.6.92
 
 - The acceptance run's "killed midway" case ends every program of the killed gate on Windows. `taskkill /T` walks the tree once, so a child the gate started in the milliseconds of the kill could outlive it: on 27 Nov a `cargo tree` started 4 ms before the gate died ran on with no recorded exit, and NN08 failed (0.6.92 acceptance). The runner now repeats the walk, ending every live process descended from the gate's tree (by parent pid, started no earlier than the gate), until a walk finds none, bounded at 10 s.

@@ -350,6 +350,18 @@ export function compileReuseProblem(recorded, { env = {}, census = outputCensus 
   return null;
 }
 
+/**
+ * What a door run does with a recorded passing compile: "skip" (it stands; the stage is not run), "rows" (it stands, but the stage takes its
+ * ordinary path so each row answers from the cache and names its workspace's broker output folder), or "rerun" (it no longer stands).
+ * "rows" is for a broker host whose package stage will run: the package admission resolves each Cargo workspace's target from the folders the
+ * compile stage hands on, and the record keeps the folders but not which workspace each belongs to. Skipping the stage left that admission with no
+ * target: RK_SPLIT_TARGET_UNRESOLVED (CodeRight qualify on the Mac, 27 Nov 2026, after a compile that had already passed).
+ */
+export function compileStageReuse({ outputsProblem, executorKind, stages, sealedIntact }) {
+  if (outputsProblem) return "rerun";
+  return executorKind === "broker" && (stages ?? []).includes("package") && !sealedIntact ? "rows" : "skip";
+}
+
 /** The sealed release directory build-release wrote for `commit` on `platform`: { id, manifest, digest } or null. */
 export function sealedFor({ root, commit, platform, readdir = fs.readdirSync, readFile = (f) => fs.readFileSync(f) }) {
   const base = path.join(root, ".right-release", "sealed");
