@@ -204,12 +204,17 @@ fn load_verification_config(
 // ─── Executable & Python project discovery (read-only) ─────────────────────
 
 /// Resolve a bare executable name against the search path
-/// (`<PREFIX>_VERIFY_PATH` override, else `PATH`), honoring `PATHEXT`
+/// (`<PREFIX>_VERIFY_PATH` override unless the host turned that read off, else `PATH`),
+/// honoring `PATHEXT`
 /// suffixes on Windows. Returns the resolved file path.
 #[cfg(feature = "host")]
 pub(crate) fn find_on_path(name: &str) -> Option<PathBuf> {
-    let dirs = std::env::var_os(rightkit_agent_config::env_name("VERIFY_PATH"))
-        .or_else(|| std::env::var_os("PATH"))?;
+    let override_dirs = if crate::host_options::verify_path_env_disabled() {
+        None
+    } else {
+        std::env::var_os(rightkit_agent_config::env_name("VERIFY_PATH"))
+    };
+    let dirs = override_dirs.or_else(|| std::env::var_os("PATH"))?;
     let pathext: Vec<String> = if cfg!(windows) {
         std::env::var("PATHEXT")
             .map(|value| {

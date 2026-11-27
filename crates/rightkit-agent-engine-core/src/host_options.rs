@@ -258,3 +258,13 @@ host_option!(
     set_mcp_read_only_hint_concurrent,
     mcp_read_only_hint_concurrent
 );
+
+host_option!(
+    /// The verifiers resolve executables on `PATH` only: the `<PREFIX>_VERIFY_PATH` environment
+    /// variable, which replaces that search path, is not read. A host whose release build must
+    /// not let the environment choose which programs the verifiers run sets this. `false` (the
+    /// default) reads the variable and falls back to `PATH`.
+    VERIFY_PATH_ENV_DISABLED,
+    set_verify_path_env_disabled,
+    verify_path_env_disabled
+);

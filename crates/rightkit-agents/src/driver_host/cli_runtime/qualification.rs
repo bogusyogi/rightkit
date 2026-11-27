@@ -323,8 +323,10 @@ pub(crate) fn host_qualification_suite(
     let mut suites = SUITES
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some((_, suite)) = suites.iter().find(|(known, _)| *known == key) {
-        return *suite;
+    // `&(_, suite)` copies the `&'static` slice out of the entry; a deref through the lock's
+    // borrow would shorten its lifetime.
+    if let Some(&(_, suite)) = suites.iter().find(|(known, _)| *known == key) {
+        return suite;
     }
     let mut probes = default_negative_probes();
     probes.extend(default_positive_probes());
