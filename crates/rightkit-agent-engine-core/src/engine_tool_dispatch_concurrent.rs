@@ -87,7 +87,7 @@ impl SessionEngine {
         });
         if let Err(repair) = self.checkpoint_sentinel(&call, &result).await {
             self.transcript
-                .push_user(format!("[Sentinel repair] {repair}"));
+                .push_nudge(format!("[Sentinel repair] {repair}"));
         }
     }
 
@@ -103,7 +103,11 @@ impl SessionEngine {
         // classifier already excludes them, but keep this boundary defensive
         // so a direct internal consumer cannot publish an origin for the
         // proposal before its hook transform and final policy evaluation.
-        if self.hook_bus.is_some() {
+        if self
+            .hook_bus
+            .as_ref()
+            .is_some_and(|bus| bus.has_pre_tool_use_hooks())
+        {
             for call in calls {
                 self.dispatch_tool_call(call, turn_results).await;
             }
@@ -132,10 +136,15 @@ impl SessionEngine {
                     Some(&call.name),
                     self.repair_attribution.as_ref(),
                 );
-                transformed_call.arguments_json = serde_json::to_string(&arguments)
+                // Compare against the canonical form of the arguments, not the model's own
+                // text: `{"path": "x"}` and `{"path":"x"}` are the same call. Comparing with
+                // the raw text marked every call whose JSON had a space as transformed, so it
+                // went serial (three reads in one response still ran one at a time).
+                let canonical = serde_json::to_string(&arguments)
                     .expect("serde_json::Value always serializes into tool arguments");
+                transformed_call.arguments_json = canonical.clone();
                 self.apply_pre_tool_arg_transforms(&mut transformed_call);
-                transformed_call.arguments_json != call.arguments_json
+                transformed_call.arguments_json != canonical
             } else {
                 false
             };
@@ -299,12 +308,15 @@ impl SessionEngine {
         let image_provider_keys = self.image_provider_keys.clone();
         let cloudflare_config = self.cloudflare_config.clone();
         let github_token = self.github_token.clone();
-        let await_deadline =
-            crate::tool_await::non_provider_await_deadline(self.iteration_budget.max());
+        let await_deadline = crate::tool_await::await_deadline(
+            self.loop_detector_config.tool_await_secs,
+            self.iteration_budget.max(),
+        );
         let mcp = self.mcp.clone();
         let tool_result_dir = self.tool_result_dir.clone();
         let skill_dirs = self.skill_dirs.clone();
         let path_deny = self.deny_globs.clone();
+        let model_window_tokens = self.compaction_policy.context_window_tokens;
         let owned_calls: Vec<ToolCall> = calls
             .iter()
             .filter(|call| admitted_concurrent_ids.contains(&call.id))
@@ -420,7 +432,14 @@ impl SessionEngine {
                     let mut hook_denied = false;
                     if arg_parse_error.is_none() {
                         if let Some(bus) = &hook_bus {
-                            match bus.run_pre_tool_use(&session_id, &call.name, &args).await {
+                            match bus
+                                .run_pre_tool_use(
+                                    &session_id,
+                                    &crate::tool_policy::hook_tool_name(&call),
+                                    &args,
+                                )
+                                .await
+                            {
                                 rightkit_hooks::agent_hooks::bus::PreToolUseOutcome::Transform(
                                     transformed,
                                 ) => {
@@ -487,6 +506,7 @@ impl SessionEngine {
                     .with_tool_result_dir(tool_result_dir)
                     .with_skill_dirs(skill_dirs)
                     .with_path_deny(path_deny);
+                    ctx.model_window_tokens = model_window_tokens;
                     for (provider, api_key) in &image_provider_keys {
                         ctx = ctx.with_image_provider_key(provider.clone(), api_key.clone());
                     }
@@ -573,19 +593,31 @@ impl SessionEngine {
                         );
                         match tools.get(&call.name) {
                             Some(tool) => {
-                                crate::tool_await::supervise_tool_await(
+                                crate::tool_await::traced_tool_call(
+                                    &session_id,
+                                    &call.id,
                                     &call.name,
-                                    await_deadline,
-                                    tool.execute(args, &ctx),
+                                    crate::tool_await::supervise_tool_await(
+                                        &call.name,
+                                        await_deadline,
+                                        tool.execute(args, &ctx),
+                                    ),
                                 )
                                 .await
                             }
-                            None => rightkit_agent_coding_tools::ToolResult::error(format!(
-                                "unknown tool: {}",
-                                call.name
-                            )),
+                            None => rightkit_agent_coding_tools::ToolResult::error(
+                                unknown_tool_message(&call.name, &tools),
+                            ),
                         }
                     };
+                    let mut result = result;
+                    super::rewrite_tool_result_with_hooks(
+                        &hook_bus,
+                        &session_id,
+                        &call.name,
+                        &mut result,
+                    )
+                    .await;
                     if let Some(bus) = &hook_bus {
                         bus.publish(rightkit_hooks::agent_hooks::HookEvent::PostToolUse {
                             session_id: session_id.clone(),
@@ -671,7 +703,7 @@ impl SessionEngine {
             });
             if let Err(repair) = self.checkpoint_sentinel(&call, &result).await {
                 self.transcript
-                    .push_user(format!("[Sentinel repair] {repair}"));
+                    .push_nudge(format!("[Sentinel repair] {repair}"));
             }
             crate::tool_dispatch_plumbing::record_production_admission_stage(
                 &call.id,
@@ -700,5 +732,56 @@ impl SessionEngine {
                 });
             }
         }
+    }
+}
+
+/// Edit distance, for the did-you-mean of an unknown tool name.
+fn tool_name_distance(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut prev = row[0];
+        row[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let cur = row[j + 1];
+            row[j + 1] = (prev + usize::from(ca != *cb)).min(row[j] + 1).min(cur + 1);
+            prev = cur;
+        }
+    }
+    row[b.len()]
+}
+
+/// The answer for a tool name nobody registered: names the closest real tool
+/// when there is an obvious one (a well-known alias, else a near spelling).
+pub(super) fn unknown_tool_message(
+    name: &str,
+    tools: &rightkit_agent_coding_tools::ToolRegistry,
+) -> String {
+    let lowered = name.trim().to_ascii_lowercase();
+    let alias = match lowered.as_str() {
+        "bash" | "sh" | "zsh" | "terminal" | "run_command" | "execute_bash" => Some("shell"),
+        "read" | "cat" | "view" => Some("read_file"),
+        "write" | "create_file" => Some("write_file"),
+        "edit" | "str_replace" | "str_replace_editor" | "replace" => Some("edit_file"),
+        "grep" | "rg" | "ripgrep" | "find_in_files" => Some("search"),
+        "glob" | "ls" | "list" | "list_dir" => Some("list_files"),
+        _ => None,
+    };
+    let mut suggestion = alias
+        .filter(|real| tools.get(real).is_some())
+        .map(str::to_string);
+    if suggestion.is_none() && lowered.chars().count() >= 4 {
+        suggestion = tools
+            .all()
+            .iter()
+            .map(|tool| tool.name())
+            .map(|real| (tool_name_distance(&lowered, real), real))
+            .filter(|(distance, _)| *distance <= 2)
+            .min_by_key(|(distance, _)| *distance)
+            .map(|(_, real)| real.to_string());
+    }
+    match suggestion {
+        Some(real) => format!("unknown tool: {name}. Did you mean `{real}`?"),
+        None => format!("unknown tool: {name}"),
     }
 }

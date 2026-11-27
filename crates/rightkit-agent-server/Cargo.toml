@@ -29,7 +29,7 @@ rightkit-agent-plugins = { version = "0.1.1", path = "../rightkit-agent-plugins"
 rightkit-agent-recipes = { version = "0.1.0", path = "../rightkit-agent-recipes" }
 rightkit-onnx = { version = "0.3.0", path = "../rightkit-onnx", features = ["agent_ort"], default-features = false }
 rightkit-agent-engine-protocol = { version = "0.4.0", path = "../rightkit-agent-engine-protocol" }
-rightkit-agent-engine-core = { version = "0.1.1", path = "../rightkit-agent-engine-core" }
+rightkit-agent-engine-core = { version = "0.2.0", path = "../rightkit-agent-engine-core" }
 rightkit-hooks = { version = "0.3.0", path = "../rightkit-hooks", features = ["agent_hooks", "agent_hooks-host-env"] }
 rightkit-llm = { version = "0.7.0", path = "../rightkit-llm", features = ["agent_providers", "agent_providers-os-keyring", "agent_providers-host-env", "agent_router", "agent_router-os-keyring"] }
 rightkit-memory-client = { version = "0.1.0", path = "../rightkit-memory-client", features = ["agent_host"] }

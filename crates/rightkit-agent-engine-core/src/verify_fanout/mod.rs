@@ -50,7 +50,9 @@ pub use verifiers::{
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use rightkit_agent_coding_tools::{ToolContext, ToolResult, WorkspaceMutation};
+#[cfg(feature = "host")]
+use rightkit_agent_coding_tools::ToolContext;
+use rightkit_agent_coding_tools::{ToolResult, WorkspaceMutation};
 use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
 
 /// Sort, dedupe, and absolute-resolve a list of mutations the engine just
@@ -87,12 +89,15 @@ pub(crate) fn normalize_workspace_mutations(
 /// Tool-context inputs shared by every verifier unit.
 #[derive(Clone, Debug)]
 pub(crate) struct FanoutToolContext {
+    #[cfg(feature = "host")]
     pub session_id: String,
     pub workspace_root: PathBuf,
+    #[cfg(feature = "host")]
     pub permission_mode: PermissionMode,
     pub workspace_trust: WorkspaceTrust,
 }
 
+#[cfg(feature = "host")]
 impl FanoutToolContext {
     pub(crate) fn tool_context(&self) -> ToolContext {
         ToolContext::new(
@@ -222,8 +227,10 @@ pub async fn run_verify_fanout(request: FanoutRequest<'_>) -> FanoutReport {
         .collect();
 
     let tool_ctx = FanoutToolContext {
+        #[cfg(feature = "host")]
         session_id: request.session_id.to_string(),
         workspace_root: request.workspace_root.to_path_buf(),
+        #[cfg(feature = "host")]
         permission_mode: request.permission_mode,
         workspace_trust: request.workspace_trust,
     };
@@ -255,6 +262,35 @@ pub async fn run_verify_fanout(request: FanoutRequest<'_>) -> FanoutReport {
             requirement: VerifierRequirement::Required,
             covered_paths: Vec::new(),
         });
+    }
+
+    // A host that sets `config_error_predating_edit_not_reported` reports only a config failure the
+    // edit introduced or changed: a file that already failed to parse the same way before this
+    // turn's edit is not this edit's fault.
+    if crate::host_options::config_error_predating_edit_not_reported() {
+        for outcome in outcomes.iter_mut() {
+            if outcome.verifier.0 != VerifierId::CONFIG || outcome.findings.is_empty() {
+                continue;
+            }
+            let Some(subject) = outcome.subject.clone() else {
+                continue;
+            };
+            let Some(previous) = normalized
+                .iter()
+                .find(|m| m.path == subject)
+                .and_then(|m| m.previous_content.as_deref())
+            else {
+                continue;
+            };
+            let now = std::fs::read_to_string(&subject).ok();
+            let before = verifiers::config_error_key(&subject, previous);
+            if before.is_some()
+                && before == now.and_then(|text| verifiers::config_error_key(&subject, &text))
+            {
+                outcome.status = VerifierStatus::Clean;
+                outcome.findings.clear();
+            }
+        }
     }
 
     let budget_exhausted = outcomes.iter().any(|o| o.verifier.0 == VerifierId::BUDGET);

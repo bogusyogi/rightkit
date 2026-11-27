@@ -6,7 +6,7 @@
 //! ([`super::authority::ApplicationAuthorityGate`]).
 //!
 //! Shapes follow the Membrane/Adapt H7 handoff contract
-//! (`docs/pending/CODERIGHT-MEMBRANE-INTEGRATION.md` §10):
+//! (the host product's Membrane integration contract §10):
 //! `SealedRemediationProposalV1` carries an `intervention_target`, a
 //! mutation-eligible `InterventionAttributionV1` (required for mutable
 //! instruction surfaces), an `expected_base_digest` binding the candidate to

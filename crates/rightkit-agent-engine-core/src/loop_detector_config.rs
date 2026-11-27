@@ -43,6 +43,9 @@ pub struct LoopDetectorConfig {
     /// exists at 30/40; this is the new LOWER-warn trigger so the
     /// model sees the message earlier than the existing hard-stop.
     pub same_name_varying_warn_threshold: usize,
+    /// `[turn] tool-timeout-secs`: the deadline of a tool that waits on a peer. `None` keeps
+    /// the one derived from the turn's iteration budget (`tool_await.rs`).
+    pub tool_await_secs: Option<u64>,
 }
 
 impl Default for LoopDetectorConfig {
@@ -63,6 +66,7 @@ impl Default for LoopDetectorConfig {
             mutating_repeat_warn_threshold: 2,
             read_only_repeat_warn_threshold: 4,
             same_name_varying_warn_threshold: 6,
+            tool_await_secs: None,
         }
     }
 }

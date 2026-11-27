@@ -207,7 +207,7 @@ impl PreparedImageHistory {
         let mut projected_parts_json = Vec::new();
         let mut surviving_inline_image_count: u64 = 0;
         for message in source {
-            let Some((content, _pinned)) = user_content_and_pin(message) else {
+            let Some((content, _)) = user_content_and_pin(message) else {
                 continue;
             };
             let Some(mut parts) = multipart_parts(content) else {
@@ -291,9 +291,9 @@ fn set_user_content(message: &mut TranscriptMessage, content: String) {
     }
 }
 
-/// Exact JSON byte count of assembled transcript history without repeatedly
-/// scanning multi-megabyte base64 strings during serialization.
-fn assembled_history_bytes(messages: &[TranscriptMessage]) -> (usize, usize) {
+/// Copy of `messages` with every inline image data URL blanked, plus the
+/// removed URL bytes and image count.
+fn blank_inline_images(messages: &[TranscriptMessage]) -> (Vec<TranscriptMessage>, usize, usize) {
     let mut blanked = messages.to_vec();
     let mut image_url_bytes = 0usize;
     let mut image_count = 0usize;
@@ -322,10 +322,23 @@ fn assembled_history_bytes(messages: &[TranscriptMessage]) -> (usize, usize) {
             set_user_content(message, content);
         }
     }
+    (blanked, image_url_bytes, image_count)
+}
+
+/// Exact JSON byte count of assembled transcript history without repeatedly
+/// scanning multi-megabyte base64 strings during serialization.
+fn assembled_history_bytes(messages: &[TranscriptMessage]) -> (usize, usize) {
+    let (blanked, image_url_bytes, image_count) = blank_inline_images(messages);
     (
         serialized_json_bytes(&blanked).saturating_add(image_url_bytes),
         image_count,
     )
+}
+
+/// `messages` with inline image data URLs blanked, so a text token estimate
+/// does not tokenize base64 payloads (audit C8).
+pub fn without_inline_image_payloads(messages: &[TranscriptMessage]) -> Vec<TranscriptMessage> {
+    blank_inline_images(messages).0
 }
 
 /// Count inline (`data:image/...;base64,`) attachments currently present in

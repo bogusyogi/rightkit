@@ -113,6 +113,10 @@ pub struct Conduit {
     /// approval or a question). Headless streams, orchestrators and tests use plain
     /// [`Conduit::subscribe`] and are not counted.
     human_subscribers: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    /// Highest durable-fact seq handed to the persistence queue, and the highest one the queue
+    /// reported committed. [`Conduit::durable_settled`] compares them.
+    durable_enqueued: std::sync::atomic::AtomicI64,
+    durable_committed: tokio::sync::watch::Sender<i64>,
 }
 
 /// A durable fact was refused because session persistence has failed.
@@ -137,7 +141,7 @@ impl Conduit {
     /// event published will be seq 1.
     pub fn with_high_water_mark(buffer: usize, high_water: i64) -> Self {
         let history_cap = buffer.clamp(1, MAX_HISTORY_EVENTS);
-        let (tx, _rx) = broadcast::channel(history_cap);
+        let tx = broadcast::channel(history_cap).0;
         let start = if high_water < 0 {
             1
         } else {
@@ -155,6 +159,8 @@ impl Conduit {
             persistence_failure: Mutex::new(None),
             latch_signal: tokio::sync::watch::channel(None).0,
             human_subscribers: Default::default(),
+            durable_enqueued: std::sync::atomic::AtomicI64::new(0),
+            durable_committed: tokio::sync::watch::channel(0).0,
         }
     }
 
@@ -251,7 +257,38 @@ impl Conduit {
     /// committed. This path deliberately bypasses the persistence ingress so
     /// the committed fact cannot be re-enqueued and persisted twice.
     pub fn publish_committed(&self, event: ProtocolEvent) {
+        let seq = seq_of(&event);
         self.publish_live(event);
+        self.durable_committed
+            .send_modify(|committed| *committed = (*committed).max(seq));
+    }
+
+    /// Wait until every durable fact handed to the persistence queue so far is committed, or
+    /// persistence latches as failed, or `max_wait` passes. The engine loop calls it before a
+    /// model request: a tool result whose append is still being retried must not be sent to the
+    /// provider, because the retry may end in a latch and the fact would then exist nowhere but
+    /// in that request. Returns at once when no queue is installed or nothing is outstanding.
+    pub async fn durable_settled(&self, max_wait: std::time::Duration) {
+        let settle_seq = self
+            .durable_enqueued
+            .load(std::sync::atomic::Ordering::SeqCst);
+        if settle_seq == 0 || self.persistence_failure().is_some() {
+            return;
+        }
+        let mut committed = self.durable_committed.subscribe();
+        let mut latch = self.latch_signal.subscribe();
+        let settled = async {
+            tokio::select! {
+                committed_result = committed.wait_for(|seq| *seq >= settle_seq) => committed_result.is_ok(),
+                latch_result = latch.wait_for(|reason| reason.is_some()) => latch_result.is_ok(),
+            }
+        };
+        if tokio::time::timeout(max_wait, settled).await.is_err() {
+            tracing::warn!(
+                settle_seq,
+                "durable facts were still uncommitted when the wait for them ended"
+            );
+        }
     }
 
     /// Publish an event. The caller's `seq` field on the event payload is
@@ -266,7 +303,9 @@ impl Conduit {
     /// latch (see [`Self::persistence_failure`]) is already set and the engine
     /// loop stops on it. Producers that can act on refusal use [`Self::try_publish`].
     pub fn publish(&self, event: ProtocolEvent) {
-        let _ = self.try_publish(event);
+        if let Err(latched) = self.try_publish(event) {
+            tracing::debug!(reason = %latched.reason, "durable fact refused: persistence has latched");
+        }
     }
 
     /// Fallible publish. A durable fact returns `Err` (without allocating a
@@ -281,7 +320,7 @@ impl Conduit {
         if !event.is_durable_fact() {
             let anchor = self.current_high_water();
             event.canonicalize_identity(anchor);
-            let _ = self.tx.send(event);
+            self.send_live(event);
             return Ok(());
         }
         if let Some(reason) = self.persistence_failure() {
@@ -306,7 +345,12 @@ impl Conduit {
             // Only durable facts reach here (live projections returned above).
             // Fail closed if the persistence worker has disappeared: a
             // durable fact must never become visible without its commit.
-            if gate.send(event).is_err() {
+            let sent = gate.send(event);
+            if sent.is_ok() {
+                self.durable_enqueued
+                    .fetch_max(canonical_seq, std::sync::atomic::Ordering::SeqCst);
+            }
+            if sent.is_err() {
                 let reason = "persistence worker stopped; durable fact not stored".to_string();
                 self.latch_persistence_failure(reason.clone());
                 return Err(PersistenceLatched {
@@ -356,7 +400,18 @@ impl Conduit {
                 });
             }
         }
-        let _ = self.tx.send(event);
+        self.send_live(event);
+    }
+
+    /// Fan `event` out to the live subscribers. No subscriber is a normal state (nothing is
+    /// attached), not a failure.
+    fn send_live(&self, event: ProtocolEvent) {
+        if let Err(undelivered) = self.tx.send(event) {
+            tracing::trace!(
+                seq = seq_of(&undelivered.0),
+                "no live subscriber for the event"
+            );
+        }
     }
 
     /// All buffered events with seq strictly greater than `after_seq`, in order.

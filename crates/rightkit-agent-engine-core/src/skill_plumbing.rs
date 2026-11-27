@@ -89,6 +89,9 @@ fn triggered_skills_for_context(
         return Vec::new();
     };
     let mut matched = catalog.triggered_skills(skill_dirs, &ctx);
+    // The catalog contract orders by slug; sorting here too keeps the first few (and so the
+    // effects enforced) the same whichever catalog is installed.
+    matched.sort_by(|a, b| a.slug.cmp(&b.slug));
     matched.truncate(MAX_TRIGGERED_SKILLS);
     matched
 }

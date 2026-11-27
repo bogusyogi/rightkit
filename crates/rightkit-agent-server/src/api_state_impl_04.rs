@@ -190,6 +190,7 @@ where
         permit.send(rightkit_agent_engine_core::CompactionCommandV1 {
             id: rightkit_agent_engine_core::compactor::next_compaction_command_id(),
             kind: rightkit_agent_engine_core::CompactionCommandKindV1::AutomaticRetry,
+            instructions: None,
             response: None,
         });
     }

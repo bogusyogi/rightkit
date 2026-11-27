@@ -1,4 +1,4 @@
-//! Persistent Sentinel/Beacon MCP transport for the the host app host.
+//! Persistent Sentinel/Beacon MCP transport for the host.
 //!
 //! One client process serves a session.  Calls are serialized over its stdio
 //! transport; no tool event creates a child process.
@@ -22,10 +22,9 @@ impl SentinelClient {
     pub async fn spawn(node: &str, server: &str) -> std::io::Result<Self> {
         #[cfg(not(feature = "host"))]
         {
-            let _ = (node, server);
-            Err(std::io::Error::other(
-                "Sentinel requires the host feature; process launch is unavailable in the portable profile",
-            ))
+            Err(std::io::Error::other(format!(
+                "Sentinel requires the host feature; process launch is unavailable in the portable profile (server {server} on {node} was not started)"
+            )))
         }
         #[cfg(feature = "host")]
         {
@@ -52,13 +51,13 @@ impl SentinelClient {
                     cwd: Some(cwd),
                 };
                 let options = ClientOptions {
-                    client_name: "rightkit-agent-host".into(),
+                    client_name: crate::assurance_broker::host_issuer(),
                     client_version: "h2-v1".into(),
                     ..ClientOptions::default()
                 };
                 McpClient::connect_with_extensions(
                     "sentinel",
-                    // Host-configured server (RIGHTKIT_SENTINEL_SERVER), not workspace-declared.
+                    // Host-configured server (<PREFIX>_SENTINEL_SERVER), not workspace-declared.
                     &ServerSource::User,
                     &TrustStore::new(),
                     spec,
@@ -94,10 +93,12 @@ impl SentinelClient {
     /// environment. The portable (mobile) profile reads neither variable.
     #[cfg(feature = "host")]
     pub async fn spawn_from_env() -> std::io::Result<Option<Self>> {
-        let Some(server) = std::env::var_os("RIGHTKIT_SENTINEL_SERVER") else {
+        let Some(server) = std::env::var_os(rightkit_agent_config::env_name("SENTINEL_SERVER"))
+        else {
             return Ok(None);
         };
-        let node = std::env::var("RIGHTKIT_SENTINEL_NODE").unwrap_or_else(|_| "node".into());
+        let node = std::env::var(rightkit_agent_config::env_name("SENTINEL_NODE"))
+            .unwrap_or_else(|_| "node".into());
         Ok(Some(Self::spawn(&node, &server.to_string_lossy()).await?))
     }
 
@@ -138,9 +139,15 @@ impl Drop for CancellationGuard {
 impl Drop for SentinelClient {
     fn drop(&mut self) {
         let client = self.client.clone();
-        let _ = std::thread::Builder::new()
-            .name("rightkit-agent-sentinel-close".into())
-            .spawn(move || client.close());
+        if let Err(error) = std::thread::Builder::new()
+            .name(format!(
+                "{}-sentinel-close",
+                crate::assurance_broker::host_agent_name()
+            ))
+            .spawn(move || client.close())
+        {
+            tracing::warn!(%error, "could not start the thread that closes the Sentinel client");
+        }
     }
 }
 

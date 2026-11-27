@@ -10120,11 +10120,12 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-engine-core"
-version = "0.1.4"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "futures",
  "rightkit-agent-coding-tools",
+ "rightkit-agent-config",
  "rightkit-agent-engine-history",
  "rightkit-agent-engine-protocol",
  "rightkit-agent-engine-runtime-middleware",
@@ -10141,6 +10142,7 @@ dependencies = [
  "rquickjs",
  "serde",
  "serde_json",
+ "serde_yaml",
  "thiserror 2.0.21",
  "tokio",
  "toml 1.2.0+spec-1.1.0",
@@ -11983,7 +11985,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-hooks"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "regex",

@@ -14,15 +14,8 @@ pub(crate) const GOAL_CONTINUE_NUDGE: &str =
      redo or undo work that is already complete. If the goal is fully achieved, \
      say so and stop.";
 
-#[allow(dead_code)]
 pub(crate) struct GoalContinuationUpdate {
     pub(crate) decision: ContinueDecision,
-    pub(crate) goal_id: String,
-    pub(crate) status: String,
-    pub(crate) tokens_used: i64,
-    pub(crate) budget_tokens: i64,
-    pub(crate) continuation_count: i64,
-    pub(crate) no_progress_count: i64,
     pub(crate) snapshot: rightkit_agent_engine_protocol::event::GoalSnapshotV1,
 }
 
@@ -45,12 +38,6 @@ pub(crate) fn update_goal_state(
     }
     Some(GoalContinuationUpdate {
         decision,
-        goal_id: gs.id.clone(),
-        status: gs.status.clone(),
-        tokens_used: gs.tokens_used,
-        budget_tokens: gs.budget_tokens,
-        continuation_count: gs.continuation_count,
-        no_progress_count: gs.no_progress_count,
         snapshot: gs.snapshot(),
     })
 }

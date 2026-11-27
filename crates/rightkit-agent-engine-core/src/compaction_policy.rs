@@ -86,6 +86,47 @@ impl CompactionModelPolicy {
         }
     }
 
+    /// Default automatic-compaction trigger when the user sets a window for
+    /// a model the catalogue does not know.
+    pub const USER_DEFAULT_TRIGGER_PERCENT: u8 = 80;
+
+    /// Apply user-configured limits (`context-window`,
+    /// `compaction-trigger-percent` from a provider route or `model-limits`)
+    /// over the catalogue policy. A user window makes an uncatalogued model's
+    /// capacity known, so automatic compaction runs for it. Reserve and
+    /// summary budget keep the catalogue values while they still fit the
+    /// window and are otherwise derived from it. Invalid input leaves the
+    /// policy unchanged.
+    pub fn with_user_limits(
+        self,
+        context_window: Option<u64>,
+        trigger_percent: Option<u8>,
+    ) -> Self {
+        if context_window.is_none() && trigger_percent.is_none() {
+            return self;
+        }
+        let Some(window) = context_window.or(self.context_window_tokens) else {
+            return self;
+        };
+        let trigger = trigger_percent
+            .or(self.trigger_percent)
+            .unwrap_or(Self::USER_DEFAULT_TRIGGER_PERCENT);
+        let reserve = self
+            .reserve_tokens
+            .filter(|r| *r < window / 2)
+            .unwrap_or_else(|| (window / 10).max(1));
+        let summary = self
+            .summary_max_output_tokens
+            .filter(|s| u64::from(*s) < window / 4)
+            .unwrap_or_else(|| u32::try_from((window / 8).clamp(1, 8_192)).unwrap_or(8_192));
+        let updated = Self::known(self.model_id.clone(), window, trigger, reserve, summary);
+        if updated.capacity_known {
+            updated
+        } else {
+            self
+        }
+    }
+
     /// Headroom kept between the reserve-derived trigger and the send gate
     /// (`window - reserve`, enforced by the provider capacity gate). The
     /// trigger reads the PREVIOUS call's envelope, while the next request adds
@@ -101,14 +142,33 @@ impl CompactionModelPolicy {
             .saturating_sub(Self::reserve_headroom_margin(window))
     }
 
+    /// Reserve-derived trigger boundary of a host that sets `compaction_full_reserve_trigger`: one
+    /// full `reserve` below the send gate (`window - reserve`, enforced by the provider capacity
+    /// gate). The trigger reads the PREVIOUS call's input envelope, while the next request adds
+    /// the assistant reply, tool results and user input -- the growth `compaction_reserve_tokens`
+    /// is documented to cover (audit C9: the old fixed margin left only ~6-8k tokens on 128k
+    /// models). Returns 0 when `2 * reserve >= window` (no such boundary exists).
+    fn full_reserve_boundary(window: u64, reserve: u64) -> u64 {
+        window.saturating_sub(reserve).saturating_sub(reserve)
+    }
+
     /// Automatic boundary is the earlier of the per-model ratio and the
     /// reserved-headroom boundary (reserve plus a safety margin so the
-    /// trigger fires before the send gate can refuse).
+    /// trigger fires before the send gate can refuse). With the host option
+    /// `compaction_full_reserve_trigger` the reserve boundary is a full reserve below the send
+    /// gate and is ignored when it does not exist (`2 * reserve >= window`): it must never
+    /// collapse the trigger to zero.
     pub fn auto_trigger_tokens(&self) -> Option<u64> {
         let window = self.context_window_tokens?;
         let percent = u64::from(self.trigger_percent?);
         let reserve = self.reserve_tokens?;
         let ratio_boundary = window.saturating_mul(percent) / 100;
+        if crate::host_options::compaction_full_reserve_trigger() {
+            return Some(match Self::full_reserve_boundary(window, reserve) {
+                0 => ratio_boundary,
+                reserve_boundary => ratio_boundary.min(reserve_boundary),
+            });
+        }
         Some(ratio_boundary.min(Self::reserve_boundary(window, reserve)))
     }
 
@@ -132,6 +192,13 @@ impl CompactionModelPolicy {
     /// mirroring `auto_trigger_tokens`.
     pub fn prefire_trigger_tokens(&self, prefire_lead_percent: u8) -> Option<u64> {
         let window = self.context_window_tokens?;
+        if crate::host_options::compaction_full_reserve_trigger() {
+            // Lead below the EFFECTIVE trigger. Capping at the reserve boundary itself made
+            // prefire equal the trigger whenever that boundary bound, so `prefire_due` could
+            // never fire.
+            let lead = window.saturating_mul(u64::from(prefire_lead_percent)) / 100;
+            return Some(self.auto_trigger_tokens()?.saturating_sub(lead));
+        }
         let trigger_percent = self.trigger_percent?;
         let reserve = self.reserve_tokens?;
         let lead_percent = u64::from(trigger_percent.saturating_sub(prefire_lead_percent));
@@ -162,7 +229,7 @@ impl CompactionModelPolicy {
         // window itself, never to `window - reserve`. Capping it the same
         // way as `auto_trigger_tokens` would collapse the critical tier into
         // the automatic tier and silently drop the hard-sync safety net.
-        let _reserve = self.reserve_tokens?;
+        self.reserve_tokens?;
         let critical_percent = u64::from(
             trigger_percent
                 .saturating_add(critical_lead_percent)
@@ -256,12 +323,42 @@ pub struct PostCallEnvelope {
 }
 
 impl PostCallEnvelope {
-    /// Total tokens actually consumed by context, as reported by the
-    /// provider for the just-completed call.
-    pub fn context_tokens(&self) -> u64 {
+    /// Input context the provider reported for the just-completed call (uncached prompt plus
+    /// cache read/creation).
+    fn input_tokens(&self) -> u64 {
         self.prompt_tokens
-            .saturating_add(self.completion_tokens)
             .saturating_add(self.cache_read_tokens)
             .saturating_add(self.cache_creation_tokens)
     }
+
+    /// Tokens actually consumed by context, as reported by the provider for the just-completed
+    /// call: the input context plus the completion tokens. With the host option
+    /// `compaction_full_reserve_trigger` completion tokens are output, not context occupancy
+    /// (audit C8), so the figure is the input context alone; the reply's resend cost is covered by
+    /// the reserve-derived trigger headroom.
+    pub fn context_tokens(&self) -> u64 {
+        if crate::host_options::compaction_full_reserve_trigger() {
+            self.input_tokens()
+        } else {
+            self.input_tokens().saturating_add(self.completion_tokens)
+        }
+    }
+}
+
+/// Usage-reported window exhaustion: the provider accepted the call, but its
+/// reported input plus output already reached the known window, so the next
+/// request (which resends the reply) cannot fit. `false` when capacity is
+/// unknown. This is not truncation detection: a server that truncates
+/// silently reports post-truncation counts, which the local estimate in the
+/// pressure meter covers instead.
+pub fn is_silent_usage_overflow(
+    policy: &CompactionModelPolicy,
+    envelope: &PostCallEnvelope,
+) -> bool {
+    policy.context_window_tokens.is_some_and(|window| {
+        envelope
+            .input_tokens()
+            .saturating_add(envelope.completion_tokens)
+            >= window
+    })
 }

@@ -109,6 +109,19 @@ fn compaction_system_prompt() -> String {
     )
 }
 
+/// The summarizer's system prompt with the user's own `/compact` focus text
+/// appended after the fixed protocol (the protocol and the summary schema keep
+/// precedence: the text only steers what to keep).
+fn compaction_system_prompt_with(instructions: Option<&str>) -> String {
+    let base = compaction_system_prompt();
+    match instructions.map(str::trim).filter(|text| !text.is_empty()) {
+        Some(text) => format!(
+            "{base}\n\nThe user asked for this focus in the summary (it never overrides the format above):\n{text}"
+        ),
+        None => base,
+    }
+}
+
 /// Bounded retries keep summary generation isolated from the turn loop.
 const MAX_COMPACTION_ATTEMPTS: usize = 3;
 
@@ -122,6 +135,10 @@ struct ActiveModelCompactionSummarizer {
     route_resolver: Option<Arc<dyn CompactionModelRouteResolver>>,
     usage: Mutex<Option<CompactionUsage>>,
     max_output_tokens: AtomicU32,
+    /// One-shot focus text from `/compact <instructions>`: appended to the
+    /// summarizer's system prompt for the next summarization, then cleared
+    /// by the engine when that command finishes.
+    instructions: Mutex<Option<String>>,
     binding: WorkflowStageBindingV1,
 }
 
@@ -144,9 +161,8 @@ impl ActiveModelCompactionSummarizer {
     async fn resolve_client(&self, attempt: usize) -> Arc<dyn LlmClient> {
         if let Some(resolver) = self.route_resolver.as_ref() {
             for slug in self.candidate_slugs().skip(attempt) {
-                match resolver.resolve(slug).await {
-                    Ok(client) => return client,
-                    Err(_error) => continue,
+                if let Ok(client) = resolver.resolve(slug).await {
+                    return client;
                 }
             }
         }
@@ -168,15 +184,50 @@ impl FallibleSummarizer for ActiveModelCompactionSummarizer {
             formatted.push_str(prior);
             formatted.push_str("\n\nNew messages to integrate:\n");
         }
-        for message in messages {
-            formatted.push_str(&format_message_for_summarizer(message));
+        // With the host option `compaction_input_budget` on, keep the input inside the stage's
+        // context budget (leaving room for the output), dropping the oldest messages first so
+        // the newest evidence, including the trailing tool-evidence block, survives. Off, every
+        // message is sent and an input over the model's window fails the attempt.
+        let input_budget_bytes = if crate::host_options::compaction_input_budget() {
+            usize::try_from(
+                self.binding
+                    .context_budget_tokens
+                    .saturating_sub(u64::from(self.binding.max_output_tokens)),
+            )
+            .unwrap_or(usize::MAX)
+            .saturating_mul(3)
+        } else {
+            usize::MAX
+        };
+        let lines: Vec<String> = messages.iter().map(format_message_for_summarizer).collect();
+        let mut total = formatted.len();
+        for line in &lines {
+            total = total.saturating_add(line.len() + 1);
+        }
+        let mut first = 0usize;
+        while total > input_budget_bytes && first + 1 < lines.len() {
+            total -= lines[first].len() + 1;
+            first += 1;
+        }
+        if first > 0 {
+            formatted.push_str(&format!(
+                "[{first} oldest messages omitted: input exceeded the summarizer context budget]\n"
+            ));
+        }
+        for line in &lines[first..] {
+            formatted.push_str(line);
             formatted.push('\n');
         }
         let mut request = vec![
             rightkit_agent_engine_protocol::TranscriptMessage::System {
                 id: "compaction-system".into(),
                 created_at: rightkit_agent_engine_protocol::now_iso(),
-                content: compaction_system_prompt(),
+                content: compaction_system_prompt_with(
+                    self.instructions
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .as_deref(),
+                ),
                 pinned: false,
             },
             rightkit_agent_engine_protocol::TranscriptMessage::User {
@@ -199,6 +250,8 @@ impl FallibleSummarizer for ActiveModelCompactionSummarizer {
             // Standalone stage request: never reuse the chat turn's cache key.
             stable_prefix_key: None,
             max_output_tokens: Some(effective_max_output_tokens),
+            // One-shot request whose prefix is never read again: pay no cache write premium.
+            cache_retention: Some(crate::llm::CacheRetention::None),
             ..LlmRequestMetadata::default()
         };
         let mut last_error = None;
@@ -270,6 +323,12 @@ impl FallibleSummarizer for ActiveModelCompactionSummarizer {
         self.usage.lock().unwrap().take()
     }
 
+    fn set_instructions(&self, instructions: Option<String>) {
+        *self.instructions.lock().unwrap_or_else(|p| p.into_inner()) = instructions
+            .map(|text| text.trim().to_string())
+            .filter(|text| !text.is_empty());
+    }
+
     fn set_max_output_tokens(&self, tokens: Option<u32>) {
         self.max_output_tokens
             .store(tokens.unwrap_or(0), Ordering::Relaxed);
@@ -290,6 +349,7 @@ pub(crate) fn build_default_summarizer_with_route_resolver(
         route_resolver,
         usage: Mutex::new(None),
         max_output_tokens: AtomicU32::new(0),
+        instructions: Mutex::new(None),
         binding: compaction_stage_binding(),
     })
 }

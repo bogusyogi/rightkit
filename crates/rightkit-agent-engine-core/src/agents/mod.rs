@@ -4,4 +4,6 @@
 
 pub mod website_designer;
 
-pub use website_designer::{is_website_task, WEBSITE_DESIGNER_SYSTEM_PROMPT};
+pub use website_designer::{
+    is_website_task, website_designer_system_prompt, WEBSITE_DESIGNER_SYSTEM_PROMPT,
+};

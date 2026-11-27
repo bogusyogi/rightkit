@@ -1,14 +1,12 @@
 use super::*;
 
-impl SessionEngine {}
-
 // ---------------------------------------------------------------------------
 // CR-18 (mechanism 3-1): the post-call envelope meter.
 //
-// `UsageAccount::context_tokens` is a running local estimate that keeps only
-// prompt + completion of the last call; the provider bills against -- and
-// reports context occupancy across -- all four token kinds (prompt,
-// completion, cache_read, cache_creation; see
+// `UsageAccount::context_tokens` is a running local estimate of the last
+// call's input buckets; the provider reports context occupancy across the
+// input token kinds (prompt, cache_read, cache_creation; completion is
+// output and excluded, audit C8 -- see
 // `PostCallEnvelope::context_tokens`). Triggering compaction off that
 // estimate therefore drifts from the very meter that produces the pressure.
 // This ledger reconstructs the just-completed call's logged envelope by
@@ -351,6 +349,15 @@ impl SessionEngine {
         self.github_token = Some(token.into());
     }
 
+    /// Give the `advisor` tool its backend. Called by the host only when `[features] advisor` is on
+    /// and an advisor model is configured; without it the tool refuses every call.
+    pub fn set_advisor_backend(
+        &mut self,
+        backend: Arc<dyn rightkit_agent_coding_tools::AdvisorBackend>,
+    ) {
+        self.advisor_backend = Some(backend);
+    }
+
     /// Override the summarizer with an infallible implementation. Production
     /// compaction uses the fail-closed default; this adapter primarily keeps
     /// deterministic test/custom summarizers source-compatible.
@@ -483,7 +490,10 @@ impl SessionEngine {
         // later turn interrupt still reaches shells started by that turn.
         let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
         drop(cancel_tx);
-        self.propagate_cancel_to_background_shells("session-interrupt", cancel_rx);
+        self.propagate_cancel_to_background_shells(
+            crate::engine::tool_dispatch::SESSION_INTERRUPT_WATCHER_ID,
+            cancel_rx,
+        );
     }
 
     /// Attach a live permission-mode channel; the current value is adopted at the
@@ -673,11 +683,14 @@ impl SessionEngine {
         if context.is_empty() {
             return;
         }
+        // Bounded like Stop-gate text: a hook's stdout may be 256 KiB and this
+        // runs once per tool call, so large context spills to the result store.
+        let context = crate::tool_result_store::bound_gate_text(&mut self.tool_results, context);
         self.transcript
             .push_system(format!("[Hook context: {source}] {context}"));
     }
 
-    /// Run the `RIGHTKIT_HOOKS_JSON` chain for a lifecycle event, forward any
+    /// Run the `<PREFIX>_HOOKS_JSON` chain for a lifecycle event, forward any
     /// `additionalContext` to the model, and log non-blocking errors. Returns
     /// the aggregated report so callers can honor a deny.
     pub(super) async fn run_lifecycle_hooks(
@@ -696,9 +709,35 @@ impl SessionEngine {
             self.push_hook_context(event, context);
         }
         for error in &report.errors {
-            eprintln!("[hook] {event} error (non-blocking): {error}");
+            // A host that sets `hook_errors_as_tracing` gets a `tracing` event on the
+            // `rightkit_hook` target (filterable with `RUST_LOG`); otherwise stderr.
+            if crate::host_options::hook_errors_as_tracing() {
+                tracing::warn!(target: "rightkit_hook", %event, %error, "hook error (non-blocking)");
+            } else {
+                eprintln!("[hook] {event} error (non-blocking): {error}");
+            }
         }
         report
+    }
+
+    /// Tell `FileChanged` hooks about each file this reply's own tool calls changed. Edits made
+    /// outside the agent's tools are not seen: the engine runs no file watcher.
+    pub(super) async fn run_file_changed_hooks(
+        &mut self,
+        turn_results: &std::collections::HashMap<String, rightkit_agent_coding_tools::ToolResult>,
+    ) {
+        if self.hook_bus.is_none() {
+            return;
+        }
+        let paths: std::collections::BTreeSet<String> = turn_results
+            .values()
+            .flat_map(|result| result.mutations.iter())
+            .map(|mutation| mutation.path.display().to_string())
+            .collect();
+        for path in paths {
+            self.run_lifecycle_hooks("FileChanged", &[("RIGHTKIT_HOOK_FILE", path)])
+                .await;
+        }
     }
 
     pub fn set_spawner(&mut self, spawner: Arc<dyn SubagentSpawner>) {
@@ -741,6 +780,26 @@ impl SessionEngine {
         priced: bool,
     ) {
         self.usage = UsageAccount::with_known_pricing(prompt_per_1k, completion_per_1k, priced);
+    }
+
+    /// Price each request at the rates `resolver` returns for the model answering it, or at the
+    /// session's own when it returns `None`.
+    pub fn set_price_resolver(
+        &mut self,
+        resolver: std::sync::Arc<dyn Fn() -> Option<crate::usage::ModelPrices> + Send + Sync>,
+    ) {
+        self.price_resolver = Some(resolver);
+    }
+
+    /// Set the prompt-cache read and write prices (USD per 1k tokens) so cached turns are priced.
+    /// Call after [`Self::set_pricing_with_known`], which resets the account.
+    pub fn set_cache_prices_per_1k(&mut self, read: Option<f64>, creation: Option<f64>) {
+        self.usage.set_cache_prices_per_1k(read, creation);
+    }
+
+    /// Set the long-prompt price tier; call after [`Self::set_pricing_with_known`], which resets the account.
+    pub fn set_long_context_tier(&mut self, tier: Option<(u64, f64, f64)>) {
+        self.usage.set_long_context_tier(tier);
     }
 
     /// Set the context window capacity (in tokens) for the active model so that
@@ -982,9 +1041,16 @@ impl SessionEngine {
             command_id: command_id.clone(),
         });
         self.refresh_compaction_policy();
+        // `/compact <instructions>`: the user's focus text steers this one
+        // summarization only; it is cleared whether or not the run succeeds.
+        self.summarizer
+            .set_instructions(command.instructions.clone());
+        // Dropping the future mid-compaction (an interrupt) clears it too, through the guard.
+        let instructions_guard = ClearCompactionInstructions(self.summarizer.clone());
         let result = self
             .compact_context_with_kind(command.kind, command_id.clone())
             .await;
+        drop(instructions_guard);
         match &result {
             Ok(outcome) if !outcome.compacted => self.emit_compaction_failed(
                 command.kind,
@@ -1023,28 +1089,58 @@ impl SessionEngine {
         // text-only envelope count. This is the single production dispatch
         // point for the retained four-tier policy (was test-only before).
         let envelope = self.observe_post_call_envelope();
-        let context_tokens =
-            envelope
-                .context_tokens()
-                .max(u64::from(crate::compactor::estimate_transcript_tokens(
-                    self.transcript.messages(),
-                )));
         let inline_images = crate::image_eviction::inline_image_count(self.transcript.messages());
-        // Audit C8: the provider-reported envelope already counts the images
-        // it saw, and the transcript estimate is text-only. Project image cost
-        // only on top of the estimate, never on top of a measured envelope.
-        let measured_includes_images = envelope.context_tokens()
-            >= u64::from(crate::compactor::estimate_transcript_tokens(
-                self.transcript.messages(),
-            ));
-        let projected_images = if measured_includes_images {
-            0
-        } else {
-            inline_images
-        };
+        // `pressure` is the figure the tier is decided on; `projected_images` is the image count
+        // `ensure_context_fits` still adds on top of it; `prefire_pressure` and `prefire_images`
+        // are the same two figures for the prefire gate.
+        let (pressure, projected_images, prefire_pressure, prefire_images) =
+            if crate::host_options::compaction_flat_image_tokens() {
+                // Audit C8: count each image exactly once. The provider envelope already includes
+                // the images it saw; the local estimate tokenizes text with base64 payloads
+                // blanked and adds IMAGE_TOKEN_COST per image.
+                let text_estimate = u64::from(crate::compactor::estimate_transcript_tokens(
+                    &crate::image_eviction::without_inline_image_payloads(
+                        self.transcript.messages(),
+                    ),
+                ));
+                let image_estimate =
+                    inline_images.saturating_mul(crate::compaction_policy::IMAGE_TOKEN_COST);
+                let pressure = std::cmp::max(
+                    envelope.context_tokens(),
+                    text_estimate.saturating_add(image_estimate),
+                );
+                (pressure, 0, pressure, 0)
+            } else {
+                let estimate = u64::from(crate::compactor::estimate_transcript_tokens(
+                    self.transcript.messages(),
+                ));
+                let context_tokens = envelope.context_tokens().max(estimate);
+                // Audit C8: the provider-reported envelope already counts the images it saw, and
+                // the transcript estimate is text-only. Project image cost only on top of the
+                // estimate, never on top of a measured envelope.
+                let measured_includes_images = envelope.context_tokens() >= estimate;
+                let projected_images = if measured_includes_images {
+                    0
+                } else {
+                    inline_images
+                };
+                (
+                    context_tokens,
+                    projected_images,
+                    self.pressure_meter_tokens(),
+                    inline_images,
+                )
+            };
+        // Usage-reported window exhaustion: the last call's input plus output
+        // already filled the known window, so compact before the next request
+        // whatever tier the pressure meter alone would pick.
+        if crate::compaction_policy::is_silent_usage_overflow(&self.compaction_policy, &envelope) {
+            self.flag_silent_usage_overflow(&envelope);
+            return true;
+        }
         let action = crate::compaction_policy::ensure_context_fits(
             &self.compaction_policy,
-            context_tokens,
+            pressure,
             projected_images,
             crate::compaction_policy::DEFAULT_PREFIRE_LEAD_PERCENT,
             crate::compaction_policy::DEFAULT_CRITICAL_LEAD_PERCENT,
@@ -1056,7 +1152,7 @@ impl SessionEngine {
             // before the real trigger) so a valid result is cached by the
             // time `compact_context` fires for real.
             crate::compaction_policy::CompactionAction::Prefire => {
-                self.maybe_spawn_prefire(inline_images);
+                self.maybe_spawn_prefire(prefire_pressure, prefire_images);
                 false
             }
             // At/over the automatic trigger: block the hot path and compact now.
@@ -1096,6 +1192,28 @@ impl SessionEngine {
         });
     }
 
+    /// Record that the provider's reported usage filled the known window and the
+    /// session is being compacted before the next provider call.
+    fn flag_silent_usage_overflow(&self, envelope: &crate::compaction_policy::PostCallEnvelope) {
+        self.emit(|seq| ProtocolEvent::OrchestrationObservationRecorded {
+            session_id: self.session_id.clone(),
+            seq,
+            created_at: now_iso(),
+            observation: rightkit_agent_engine_protocol::OrchestrationObservation {
+                id: format!("silent-overflow-{}", self.session_id),
+                kind: "compaction_usage_window_exhausted".to_string(),
+                subject: self.session_id.to_string(),
+                summary: "usage-reported window exhaustion: the last call's input plus output reached the context window; compacting before the next provider call".to_string(),
+                fields: std::collections::HashMap::from([
+                    ("sessionId".to_string(), self.session_id.to_string()),
+                    ("contextTokens".to_string(), envelope.context_tokens().to_string()),
+                    ("completionTokens".to_string(), envelope.completion_tokens.to_string()),
+                ]),
+                created_at: now_iso(),
+            },
+        });
+    }
+
     /// CR-17 (mechanism 2, background half, wired to the live path): if the
     /// session has crossed the prefire boundary but not yet the real
     /// compaction trigger, and no valid prefire is already cached for the
@@ -1105,13 +1223,16 @@ impl SessionEngine {
     /// it via `prefire_still_valid` inside `prepare_authoritative` with zero
     /// additional model calls, PROVIDED the prefix has not mutated in the
     /// meantime (a rewind/edit invalidates it, exactly as designed).
-    fn maybe_spawn_prefire(&mut self, inline_images: u64) {
-        // FM-065: gate on the same projected policy used by the trigger so
-        // the prefire window is decided on image-projected cost.
+    fn maybe_spawn_prefire(&mut self, pressure: u64, projected_images: u64) {
+        // FM-065 and audit C8 (#380): gate on the same projected policy used by the trigger, on
+        // the caller's own figures. With the host option `compaction_flat_image_tokens` the
+        // pressure already holds each inline image once, so no image count is added here
+        // (`projected_images` is 0); passing the meter reading plus the image count counted every
+        // image twice.
         let action = crate::compaction_policy::ensure_context_fits(
             &self.compaction_policy,
-            self.pressure_meter_tokens(),
-            inline_images,
+            pressure,
+            projected_images,
             crate::compaction_policy::DEFAULT_PREFIRE_LEAD_PERCENT,
             crate::compaction_policy::DEFAULT_CRITICAL_LEAD_PERCENT,
         );
@@ -1187,7 +1308,11 @@ impl SessionEngine {
             .remove(&self.session_id);
         if let Some((_, task)) = pending_prefire {
             task.abort();
-            let _ = task.await;
+            if let Err(error) = task.await {
+                if error.is_panic() {
+                    tracing::error!(%error, "the compaction prefire task panicked");
+                }
+            }
         }
         if self.usage.exceeds_budget(self.budget_ceiling_usd) {
             let (used, ceiling) = (self.usage.cost_usd, self.budget_ceiling_usd);
@@ -1675,6 +1800,95 @@ impl SessionEngine {
         })
     }
 
+    /// The operator approved a plan with "approve and clear context": the engine context before the
+    /// planning turn is replaced by one message holding the plan, so the work starts from the plan
+    /// alone (A209-2). Model-free: the same authoritative boundary a replay applies, recorded as a
+    /// `SessionCompacted` event (tier `plan`, one retained turn) so a restart rebuilds the same
+    /// context. The human-facing transcript stays complete.
+    pub(super) fn apply_plan_context_reset(&mut self, plan: &str) {
+        // The compactor keeps pinned messages and the latest user message before its cut through a
+        // rebuild, so the earlier chat would survive it. "Clear context" means it is gone: everything
+        // before the newest user message (the turn that asked for the plan) is dropped first, except
+        // the pinned system messages that carry the session's own instructions.
+        {
+            let messages = self.transcript.messages().to_vec();
+            let newest_user = messages
+                .iter()
+                .rposition(|message| {
+                    matches!(
+                        message,
+                        rightkit_agent_engine_protocol::TranscriptMessage::User { .. }
+                    )
+                })
+                .unwrap_or(0);
+            let kept: Vec<rightkit_agent_engine_protocol::TranscriptMessage> = messages
+                .into_iter()
+                .enumerate()
+                .filter(|(index, message)| {
+                    *index >= newest_user
+                        || matches!(
+                            message,
+                            rightkit_agent_engine_protocol::TranscriptMessage::System {
+                                pinned: true,
+                                ..
+                            }
+                        )
+                })
+                .map(|(_, message)| message)
+                .collect();
+            self.transcript.replace(kept);
+        }
+        let tokens_before = u64::from(crate::compactor::estimate_transcript_tokens(
+            self.transcript.messages(),
+        ));
+        let before_len = self.transcript.messages().len();
+        let summary = format!(
+            "The operator approved the plan below and cleared the earlier conversation. \
+             Continue from this plan only.\n\n{plan}"
+        );
+        let epoch = self.compaction_epoch.saturating_add(1);
+        let compactor = {
+            let built = crate::compactor::Compactor::new(0, 1);
+            match self.memory_block_provider.clone() {
+                Some(provider) => built.with_memory_block_provider(provider),
+                None => built,
+            }
+        };
+        let workspace_root = self.workspace_root.clone();
+        compactor.replay_authoritative_boundary(
+            &mut self.transcript,
+            format!("compact-plan-{epoch}"),
+            now_iso(),
+            summary.clone(),
+            0,
+            &self.session_id,
+            &workspace_root,
+        );
+        let after_len = self.transcript.messages().len();
+        let dropped = before_len.saturating_sub(after_len);
+        self.read_cache.clear();
+        self.compaction_epoch = epoch;
+        let tokens_after = u64::from(crate::compactor::estimate_transcript_tokens(
+            self.transcript.messages(),
+        ));
+        let sid = self.session_id.clone();
+        self.emit(|seq| ProtocolEvent::SessionCompacted {
+            session_id: sid,
+            seq,
+            created_at: now_iso(),
+            summary,
+            dropped_count: dropped as i32,
+            tier: "plan".into(),
+            tokens_before,
+            tokens_after,
+            epoch,
+            command_id: String::new(),
+            retained_turns: 1,
+        });
+        self.usage.context_tokens = tokens_after;
+        self.reset_pressure_from_rebuilt_context(tokens_after);
+    }
+
     /// Current compaction epoch (HCTX-004). Zero until the first successful
     /// compaction; strictly increases by one per compaction.
     pub fn compaction_epoch(&self) -> u64 {
@@ -1803,8 +2017,8 @@ impl SessionEngine {
             context_percent: self.usage.context_percent(0),
             cache_read_tokens: self.usage.cache_read_tokens as i32,
             cache_creation_tokens: self.usage.cache_creation_tokens as i32,
-            cost_known: self.usage.is_priced(),
-            cost_billed: false,
+            cost_known: self.usage.cost_is_known(),
+            cost_billed: self.usage.cost_is_billed(),
         });
         // The summarizer is a real model call. If it pushes this session over
         // its ceiling, surface that immediately; the updated UsageAccount then
@@ -1935,7 +2149,13 @@ impl SessionEngine {
         cache_creation: u32,
         output: u32,
         reasoning: u32,
+        ttft_ms: Option<u64>,
+        total_ms: Option<u64>,
+        rate_limit: Option<rightkit_agent_engine_protocol::event::RateLimitObserved>,
     ) {
+        let cache_ttl_ms = self
+            .prompt_cache_break
+            .remaining_ttl_ms(super::prompt_cache_plumbing::now_ms());
         let input_total = prompt as i64 + cache_read as i64 + cache_creation as i64;
         let window = self.usage.window_tokens as i64;
         let used = input_total + output as i64;
@@ -1963,10 +2183,10 @@ impl SessionEngine {
                 u64::from(cache_creation),
             ),
             session_cache_hit_pct: self.usage.cache_hit_rate_pct(),
-            ttft_ms: None,
-            total_ms: None,
-            rate_limit: None,
-            cache_ttl_ms: None,
+            ttft_ms,
+            total_ms,
+            rate_limit,
+            cache_ttl_ms,
         });
     }
 }
@@ -1975,4 +2195,14 @@ impl SessionEngine {
 /// `before` context. Equal or larger replacements are no-gain.
 fn compaction_reduces_tokens(before: u64, after: u64) -> bool {
     after < before
+}
+
+/// Clears the one-shot `/compact` focus text from the shared summarizer when dropped, so a
+/// compaction that is cancelled part-way does not leave it steering the next automatic one.
+struct ClearCompactionInstructions(Arc<dyn crate::compactor::FallibleSummarizer>);
+
+impl Drop for ClearCompactionInstructions {
+    fn drop(&mut self) {
+        self.0.set_instructions(None);
+    }
 }

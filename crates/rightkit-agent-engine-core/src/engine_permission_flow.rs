@@ -48,6 +48,17 @@ impl SessionEngine {
                     "a new test file weakens no existing test",
                     "test-file:new",
                 );
+            } else if rightkit_agent_coding_tools::tool_options::edit_test_file_additions()
+                && call_only_inserts(call)
+            {
+                // An edit that only adds whole lines keeps every existing character (a new test
+                // case added next to the old ones) and changes no existing test text. A rewrite
+                // or removal still asks. Only a host that set the option gets this allow.
+                base = rightkit_agent_policy::PermissionVerdict::new(
+                    PermissionDecision::Allow,
+                    "an insert-only edit keeps all existing test text",
+                    "test-file:addition",
+                );
             }
         }
 
@@ -64,12 +75,11 @@ impl SessionEngine {
             let mut v = base;
             if v.decision != PermissionDecision::Deny {
                 if let Some(rules) = &self.permission_rules {
-                    let target = rule_target_for_call(call);
-                    let denied = rules
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .effective_match_for(&target)
-                        .filter(|rule| rule.effect == PermissionDecision::Deny);
+                    let denied = effective_rule_match_for_call(
+                        &rules.lock().unwrap_or_else(|e| e.into_inner()),
+                        call,
+                    )
+                    .filter(|rule| rule.effect == PermissionDecision::Deny);
                     if let Some(rule) = denied {
                         v = PermissionVerdict::new(
                             PermissionDecision::Deny,
@@ -90,12 +100,10 @@ impl SessionEngine {
             // rule Allow/Ask (e.g. a session grant); a rule Deny is redundant.
             let base_denied = v.decision == PermissionDecision::Deny;
             if let (false, Some(rules)) = (base_denied, &self.permission_rules) {
-                let target = rule_target_for_call(call);
-                if let Some(rule) = rules
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .effective_match_for(&target)
-                {
+                if let Some(rule) = effective_rule_match_for_call(
+                    &rules.lock().unwrap_or_else(|e| e.into_inner()),
+                    call,
+                ) {
                     let source =
                         format!("rule:{}:{}", rule_source_label(rule.source), rule.pattern);
                     v = PermissionVerdict::new(
@@ -126,10 +134,21 @@ impl SessionEngine {
             None => verdict,
         };
 
-        // Command classification is escalation-only. Windows shell calls use PowerShell, whose classifier
+        // Command classification is escalation-only & must also fence cached
+        // adaptive allows. Windows shell calls use PowerShell, whose classifier
         // deliberately requires explicit approval until parsing is supported.
+        // An ABAC Allow for the shell tool with no condition on the command grants every
+        // command; outside Bypass it still passes the classifier, so only routine commands
+        // run without a card (the rule can only ever make the verdict stricter here).
+        let unconditional_abac_shell_allow = is_abac
+            && capability == rightkit_agent_policy::CapabilityClass::Shell
+            && self.permission_mode != PermissionMode::Bypass
+            && self.abac_pdp.as_ref().is_some_and(|pdp| {
+                pdp.matched_rule(&request)
+                    .is_some_and(|rule| rule.conditions.is_empty())
+            });
         if capability == rightkit_agent_policy::CapabilityClass::Shell
-            && self.permission_mode == PermissionMode::AutoSafe
+            && (self.permission_mode == PermissionMode::AutoSafe || unconditional_abac_shell_allow)
             && final_verdict.decision == PermissionDecision::Allow
         {
             let command = extract_command_arg(&call.arguments_json).unwrap_or_default();
@@ -139,7 +158,7 @@ impl SessionEngine {
                 rightkit_agent_policy::ShellDialect::Posix
             };
             let shell_verdict = engine.evaluate_shell_command_in(
-                self.permission_mode,
+                PermissionMode::AutoSafe,
                 self.workspace_trust,
                 &command,
                 dialect,
@@ -216,8 +235,8 @@ fn build_policy_request(
         req = req.with_attribute("file", path);
     }
     req = req.with_attribute("tool", call.name.clone());
-    req = req.with_attribute("mode", format!("{:?}", mode));
-    req = req.with_attribute("trust", format!("{:?}", trust));
+    req = req.with_attribute("mode", format!("{mode:?}"));
+    req = req.with_attribute("trust", format!("{trust:?}"));
     // Collect any extra JSON attributes as generic ABAC attributes so
     // callers can author rules on `attribute: env value: prod` etc.
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(&call.arguments_json) {
@@ -239,4 +258,26 @@ fn build_policy_request(
         }
     }
     req
+}
+
+/// Whether an `edit_file` or `multi_edit` call only inserts text (see
+/// `rightkit_agent_coding_tools::edit_helpers::edit_only_inserts`).
+fn call_only_inserts(call: &ToolCall) -> bool {
+    let Ok(args) = serde_json::from_str::<serde_json::Value>(&call.arguments_json) else {
+        return false;
+    };
+    match call.name.as_str() {
+        "edit_file" => match (args["old_string"].as_str(), args["new_string"].as_str()) {
+            (Some(old), Some(new)) => rightkit_agent_coding_tools::edit_helpers::edit_only_inserts(
+                old,
+                new,
+                args["replace_all"].as_bool().unwrap_or(false),
+            ),
+            _ => false,
+        },
+        "multi_edit" => args["edits"].as_array().is_some_and(|edits| {
+            rightkit_agent_coding_tools::edit_helpers::edits_only_insert(edits)
+        }),
+        _ => false,
+    }
 }

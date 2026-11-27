@@ -19,6 +19,14 @@ struct StreamPersistence {
     /// Reasoning tokens itemized by the provider for this response (subset of
     /// `completion_tokens`); carried here so `LlmResponse` keeps its shape.
     reasoning_tokens: u32,
+    /// The provider's own charge for this response's request(s), when it reported one.
+    provider_cost_usd: Option<f64>,
+    /// The rate-limit budget the provider reported on this response's headers.
+    rate_limit: Option<rightkit_agent_engine_protocol::event::RateLimitObserved>,
+    /// Request start to the first streamed text, reasoning or tool call, and to
+    /// the end of the stream, in milliseconds; `None` when the reply was not streamed.
+    ttft_ms: Option<u64>,
+    total_ms: Option<u64>,
 }
 
 fn frame_live_interjection(note: &str, text: &str) -> String {
@@ -57,14 +65,35 @@ async fn wait_for_interrupt_signal(mut rx: tokio::sync::watch::Receiver<bool>) {
     }
 }
 
+/// Wait for the stream pump task to end. A pump stopped with `abort` ends as cancelled, the
+/// expected end; one that panicked is logged, since nothing else reports it.
+async fn settle_stream_pump(pump: tokio::task::JoinHandle<()>) {
+    if let Err(error) = pump.await {
+        if error.is_panic() {
+            tracing::error!(%error, "the provider stream pump panicked");
+        }
+    }
+}
+
 impl SessionEngine {
     /// One user turn, from submission to the run's final outcome (including
     /// every early error exit). Wall-clock duration of the whole span is
     /// recorded per turn via `rightkit_agent_telemetry::record_turn_latency`, so
     /// this wrapper owns the timer and the inner body keeps every return path.
     pub async fn submit_user_message(&mut self, text: &str) -> Result<String, EngineError> {
+        use tracing::Instrument as _;
         let turn_started = std::time::Instant::now();
-        let result = self.submit_user_message_turn(text).await;
+        // PERF-08: the whole turn runs under a `turn` span (target `rightkit_turn`) with the session id and a
+        // fresh turn id; neither the prompt nor the answer is ever a field.
+        let turn_span = tracing::info_span!(target: "rightkit_turn", "turn", session_id = %self.session_id, turn_id = %rightkit_agent_engine_protocol::uuid_v7());
+        let result = async {
+            tracing::info!(target: "rightkit_turn", "turn started");
+            let result = self.submit_user_message_turn(text).await;
+            tracing::info!(target: "rightkit_turn", outcome = if result.is_ok() { "ok" } else { "error" }, "turn finished");
+            result
+        }
+        .instrument(turn_span)
+        .await;
         rightkit_agent_telemetry::record_turn_latency(rightkit_agent_telemetry::TurnLatencyEvent {
             latency_ms: u64::try_from(turn_started.elapsed().as_millis()).unwrap_or(u64::MAX),
         });
@@ -137,7 +166,7 @@ impl SessionEngine {
                             "[Assurance contract] task_id={} trace_id={} issuer={} receipts=host-issued; gate={gate_state}; repair=exact-missing-evidence",
                             contract.task_id,
                             contract.trace_id,
-                            crate::assurance_broker::HOST_ISSUER,
+                            crate::assurance_broker::host_issuer(),
                         ));
                         self.assurance_context_injected = true;
                     }
@@ -161,7 +190,7 @@ impl SessionEngine {
             let assessed = client
                 .beacon(serde_json::json!({
                     "operation": "assess",
-                    "summary": "Agent host task started",
+                    "summary": format!("{} host task started", rightkit_agent_config::app_name()),
                     "task_id": contract.task_id,
                     "session_id": contract.session_id,
                     "acceptance_criteria": contract.criteria.iter().map(|criterion| criterion.criterion_id.clone()).collect::<Vec<_>>(),
@@ -195,6 +224,9 @@ impl SessionEngine {
         // Adopt any live permission-mode change before this turn's tool calls.
         self.refresh_permission_mode();
         self.refresh_compaction_policy();
+        // Paired with `note_session_end` in `record_session_end`, which every path out of this
+        // turn calls: a short-lived process waits for the pair before exiting.
+        rightkit_hooks::agent_hooks::note_session_start();
         if !self.session_start_hooks_fired {
             self.session_start_hooks_fired = true;
             self.publish_hook(rightkit_hooks::agent_hooks::HookEvent::SessionStart {
@@ -222,7 +254,13 @@ impl SessionEngine {
                 )
                 .await;
             for error in &report.errors {
-                eprintln!("[hook] UserPromptSubmit error (non-blocking): {error}");
+                // A host that sets `hook_errors_as_tracing` gets a `tracing` event on the
+                // `rightkit_hook` target (filterable with `RUST_LOG`); otherwise stderr.
+                if crate::host_options::hook_errors_as_tracing() {
+                    tracing::warn!(target: "rightkit_hook", event = "UserPromptSubmit", %error, "hook error (non-blocking)");
+                } else {
+                    eprintln!("[hook] UserPromptSubmit error (non-blocking): {error}");
+                }
             }
             if report.is_denied() {
                 let message = format!(
@@ -255,9 +293,12 @@ impl SessionEngine {
         if prompt_context.is_empty() {
             self.transcript.push_user(text);
         } else {
+            let context = crate::tool_result_store::bound_gate_text(
+                &mut self.tool_results,
+                &prompt_context.join("\n"),
+            );
             self.transcript.push_user(format!(
-                "{text}\n\n[Hook context: UserPromptSubmit]\n{}",
-                prompt_context.join("\n")
+                "{text}\n\n[Hook context: UserPromptSubmit]\n{context}"
             ));
         }
 
@@ -268,9 +309,19 @@ impl SessionEngine {
         // Thresholds are now lifted into the unified LoopDetectorConfig
         // (parity P-3) so all three loop-guard axes share one config
         // surface. Defaults reproduce the pre-P-3 hard-coded values.
+        // A host that sets `reset_loop_counters_per_turn` bounds a loop within one user turn
+        // (sessions-and-turn-loop rule 32: "a turn is also bounded across iterations"): a new
+        // user message starts every repeat count afresh, so an identical call the person asks
+        // for again in a later turn is not taken for the loop of an earlier one, and a resumed
+        // process (which starts with fresh counters) behaves exactly as the live one did.
+        // Otherwise the counts of the engine's lifetime carry over from turn to turn.
+        if crate::host_options::reset_loop_counters_per_turn() {
+            self.stall_guardrail.reset();
+            self.idempotency_axis.reset();
+        }
         let cfg = &self.loop_detector_config;
         let mut mop = crate::mop::MopDetector::new(cfg.mop_window_size, cfg.mop_repeat_threshold);
-        let mut loop_detector = crate::mop::ToolLoopDetector::default();
+        let mut loop_detector = crate::mop::ToolLoopDetector::from_config(cfg);
         let mut post_turn_gate = crate::post_turn_gate::PostTurnGateState::default();
         // Turn-scoped pending required verification (PL-007): armed by the
         // post-edit fan-out when a required verifier produced no verdict or
@@ -287,6 +338,15 @@ impl SessionEngine {
         // tool call) produced nothing to act on. Re-ask a bounded number of
         // times instead of ending the turn on an error the user did not cause.
         let mut empty_completion_retries: u32 = 0;
+        // A stream that fails midway (cut connection, in-stream overloaded event) is
+        // re-asked a bounded number of times; reset once a provider response arrives.
+        let mut stream_retries: u32 = 0;
+        // A reply cut off at the provider's output limit is re-asked a bounded
+        // number of times in smaller pieces; the counter resets after a good reply.
+        let mut output_limit_retries: u32 = 0;
+        // The output cap a truncated reply is re-asked with: `None` leaves the
+        // provider's default; each output-limit retry doubles it.
+        let mut output_cap: Option<u32> = None;
         // [F2] Count tool activity since the last goal continuation, so a turn
         // that did nothing flips the no-progress cap toward `blocked`.
         let mut tool_calls_since_continuation: usize = 0;
@@ -298,12 +358,21 @@ impl SessionEngine {
         // turns cost 1.0. When the budget is exhausted the loop falls
         // through to `attempt_graceful_summary` (one final turn with
         // tools stripped) before the existing `RunFailed` regression
-        // path fires.
+        // path fires. The budget is per user turn: the engine outlives turns,
+        // so a fresh balance is set here like the other turn-scoped state.
+        self.iteration_budget =
+            crate::engine::iteration_budget::IterationBudget::new(self.iteration_budget.max());
         let mut iteration: usize = 0;
         while !self.iteration_budget.is_exhausted() {
             // Persistence failure is latched on the conduit: no further
             // semantic work. Stop through the interrupt path, but emit nothing
             // durable (it would be refused and would recurse into the failure).
+            // The facts of the previous iteration (tool results) are still on their way to
+            // storage; wait for them, so one that cannot be stored stops the turn here and is
+            // not sent to the provider first.
+            self.conduit
+                .durable_settled(std::time::Duration::from_secs(5))
+                .await;
             if let Some(reason) = self.conduit.persistence_failure() {
                 tracing::error!(%reason, "stopping owned execution: session persistence failed");
                 self.record_session_end(session_span_id.as_deref(), "interrupted", None);
@@ -442,14 +511,25 @@ impl SessionEngine {
             }
             repair_dangling_tool_calls(&mut self.transcript);
             if let Some(warning) = pending_loop_warning.take() {
-                self.transcript.push_user(format!(
+                let nudge = format!(
                     "[Loop warning] {warning}. {}",
                     crate::stall_strategy::STRATEGY_RESET_DIRECTIVE
-                ));
+                );
+                let created_at = now_iso();
+                self.transcript
+                    .push_nudge_at(nudge.clone(), created_at.clone());
+                // The model reads the nudge as a message, so it is part of the history a resumed
+                // process must send: the stored observation carries its exact text and time
+                // (`LOOP_WARNING_NUDGE_FIELD`), and replay puts it back at this position.
+                let mut fields = std::collections::HashMap::new();
+                fields.insert(
+                    crate::transcript::LOOP_WARNING_NUDGE_FIELD.to_string(),
+                    nudge,
+                );
                 self.emit(|seq| ProtocolEvent::OrchestrationObservationRecorded {
                     session_id: sid.clone(),
                     seq,
-                    created_at: now_iso(),
+                    created_at: created_at.clone(),
                     observation: rightkit_agent_engine_protocol::OrchestrationObservation {
                         id: format!("loop-warning-{iteration}"),
                         kind: "loop_warning".into(),
@@ -457,8 +537,8 @@ impl SessionEngine {
                         summary: format!(
                             "loop warning at iteration {iteration}; injected strategy-reset directive"
                         ),
-                        fields: std::collections::HashMap::new(),
-                        created_at: now_iso(),
+                        fields,
+                        created_at: created_at.clone(),
                     },
                 });
             }
@@ -481,6 +561,7 @@ impl SessionEngine {
                     .execute_compaction_command(crate::compactor::CompactionCommandV1 {
                         id: crate::compactor::next_compaction_command_id(),
                         kind: crate::compactor::CompactionCommandKindV1::Automatic,
+                        instructions: None,
                         response: None,
                     })
                     .await
@@ -491,6 +572,16 @@ impl SessionEngine {
                         "automatic compaction failed closed; full transcript retained"
                     );
                 }
+            }
+
+            // "Approve and clear context" on a plan card (A209-2): the tool result is in the transcript
+            // now, so the earlier conversation can be replaced by the plan before the next request.
+            if let Some(plan) = self
+                .plan_exit
+                .as_ref()
+                .and_then(|plan_exit| plan_exit.take_context_reset())
+            {
+                self.apply_plan_context_reset(&plan);
             }
 
             // Budget check.
@@ -526,6 +617,27 @@ impl SessionEngine {
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .clone();
             let messages_slice = self.transcript.messages();
+            // A host that sets `loop_progress_resets_repeats` tells the loop detector what the
+            // last calls returned, so a repeat that brought a new result counts as progress.
+            if crate::host_options::loop_progress_resets_repeats() {
+                for message in messages_slice.iter().rev() {
+                    match message {
+                        TranscriptMessage::Tool {
+                            tool_call_id,
+                            summary,
+                            is_error,
+                            ..
+                        } => {
+                            if loop_detector.observe_result(tool_call_id, summary, *is_error) {
+                                mop.reset();
+                            }
+                        }
+                        // A loop warning pushed just above sits after the results it follows.
+                        TranscriptMessage::User { .. } => {}
+                        _ => break,
+                    }
+                }
+            }
 
             // Hermes three-tier split: observe only the stable tier (identity +
             // day). The volatile prefix argument carries any per-turn memory or
@@ -543,7 +655,7 @@ impl SessionEngine {
             // folded into the same observation and reported as a cache
             // Break rather than a silent Hit. `CacheTracker` (rightkit-cache)
             // takes the digest as a caller-supplied `Option<&str>` instead of
-            // depending on `host_tools` itself.
+            // depending on `rightkit-agent-coding-tools` itself.
             // CR-33: use the SAME accumulated promotion state the provider
             // client puts on the wire (see `LlmClient::promoted_tool_state_snapshot`),
             // never a fresh/empty one — otherwise a promotion changes the
@@ -617,7 +729,21 @@ impl SessionEngine {
                     ))
                 }
             };
+            // The model that answers this request is the one the route names now: the tool calls of
+            // the reply may end plan mode (and so change the route) before the reply is recorded.
+            let request_prices = self.price_resolver.as_ref().map(|resolver| resolver());
+            // The 1-hour write costs 2x the input price against 1.25x for 5 minutes, and only pays
+            // when the prefix is read again after a pause longer than 5 minutes. Only a person
+            // pauses that long between requests, so only a root session with a human client
+            // attached (TUI, desktop, web) asks for an hour. A subagent, a headless `run`, a
+            // one-shot review and any other unattended loop sends its next request within seconds:
+            // the 5-minute write covers every read it will make.
+            let request_cache_retention = cache_retention_for(
+                self.subagent_role.is_some(),
+                self.conduit.human_subscriber_count(),
+            );
             let request_metadata = LlmRequestMetadata {
+                cache_retention: Some(request_cache_retention),
                 request_identity: Some(crate::llm::LlmRequestIdentity::new(
                     self.session_id.clone(),
                     self.active_run_id().to_string(),
@@ -625,7 +751,7 @@ impl SessionEngine {
                     u64::try_from(iteration).expect("request iteration fits u64"),
                 )),
                 stable_prefix_key,
-                max_output_tokens: None,
+                max_output_tokens: output_cap,
                 provider_boundary_generation: Some(self.provider_boundary_projection.generation()),
                 context_fingerprint: self.provider_boundary_projection.context_fingerprint(),
                 retry_notifier: {
@@ -697,12 +823,22 @@ impl SessionEngine {
             // Projection already owns the provider request vector. Append the
             // volatile goal overlay there so goal-bearing turns do not first
             // clone the entire stable transcript into a second temporary Vec.
-            let mut stream_messages = self.wire_projection.project(messages_slice);
+            let mut stream_messages = self
+                .wire_projection
+                .project_with_window(messages_slice, self.compaction_policy.context_window_tokens);
             stream_messages.retain(|message| message.is_provider_visible());
             let injection_budget = self.compaction_policy.context_window_tokens.map(|window| {
-                let used = serde_json::to_string(&stream_messages)
-                    .map(|body| body.len() as u64 / 4)
-                    .unwrap_or(0);
+                // Blank inline base64 images and charge a flat per-image cost,
+                // as the compaction trigger does, so images don't read as text.
+                let used = serde_json::to_string(
+                    &crate::image_eviction::without_inline_image_payloads(&stream_messages),
+                )
+                .map(|body| body.len() as u64 / 4)
+                .unwrap_or(0)
+                .saturating_add(
+                    crate::image_eviction::inline_image_count(&stream_messages)
+                        .saturating_mul(crate::compaction_policy::IMAGE_TOKEN_COST),
+                );
                 crate::provider_turn_boundary::remaining_injection_budget(
                     window,
                     used,
@@ -715,7 +851,7 @@ impl SessionEngine {
                 stream_messages.push(TranscriptMessage::System {
                     id: "goal-reminder".into(),
                     created_at: now_iso(),
-                    content: format!("Persistent goal (track until complete): {goal}"),
+                    content: format!("{}{goal}", crate::GOAL_REMINDER_PREFIX),
                     pinned: false,
                 });
             }
@@ -735,9 +871,28 @@ impl SessionEngine {
                 &[("RIGHTKIT_HOOK_ITERATION", iteration.to_string())],
             )
             .await;
-            let model_request = self
-                .collect_streaming_response(&stream_messages, &request_metadata, &sid)
-                .await;
+            let transcript_len_before_request = self.transcript.len();
+            // PERF-08: one `provider_request` span per request (target `rightkit_provider`), session id and iteration only.
+            let provider_span = tracing::info_span!(target: "rightkit_provider", "provider_request", session_id = %sid, iteration = iteration);
+            let model_request = tracing::Instrument::instrument(
+                async {
+                    tracing::info!(target: "rightkit_provider", "provider request started");
+                    let outcome = self
+                        .collect_streaming_response(
+                            &stream_messages,
+                            &request_metadata,
+                            &sid,
+                            &mut loop_detector,
+                            &mut pending_loop_warning,
+                            iteration,
+                        )
+                        .await;
+                    tracing::info!(target: "rightkit_provider", outcome = if outcome.is_ok() { "ok" } else { "error" }, "provider request finished");
+                    outcome
+                },
+                provider_span,
+            )
+            .await;
             let model_request_status = match &model_request {
                 Ok(_) => "ok",
                 Err(EngineError::Interrupted) => "interrupted",
@@ -780,6 +935,14 @@ impl SessionEngine {
                             && empty_completion_retries < MAX_EMPTY_COMPLETION_RETRIES
                         {
                             empty_completion_retries += 1;
+                            // Retry with the failed attempt's history: the
+                            // streamed reasoning-only assistant would end in a
+                            // thinking block, which Anthropic rejects (#453).
+                            self.transcript
+                                .pop_reasoning_only_assistant(transcript_len_before_request);
+                            if empty_completion_retries == 1 {
+                                self.transcript.push_nudge(EMPTY_REPLY_HINT);
+                            }
                             self.emit(|seq| ProtocolEvent::ProviderRetrying {
                                 session_id: sid.clone(),
                                 seq,
@@ -792,17 +955,71 @@ impl SessionEngine {
                             });
                             continue;
                         }
-                        if crate::overflow_recovery::is_reactive_context_overflow(&e) {
-                            match reactive_overflow_recovery.overflow_detected() {
-                                Ok(_) => {}
-                                Err(_) => {
-                                    self.record_session_end(
-                                        session_span_id.as_deref(),
-                                        "failed",
-                                        Some(&e),
-                                    );
-                                    return Err(EngineError::Llm(e));
+                        if crate::failure::is_retryable_stream_failure(&e)
+                            && stream_retries < MAX_STREAM_RETRIES
+                        {
+                            // An Anthropic history may not end in a thinking block.
+                            self.transcript
+                                .pop_reasoning_only_assistant(transcript_len_before_request);
+                            // The failed attempt's partial reply and its 'never dispatched'
+                            // results stay: they are durable events and every tool_use
+                            // keeps its tool_result.
+                            if self.transcript.len() > transcript_len_before_request {
+                                self.transcript.push_nudge(STREAM_INTERRUPTED_HINT);
+                            }
+                            stream_retries += 1;
+                            let delay = crate::failure::stream_retry_delay(stream_retries);
+                            let delay_ms = delay.as_millis() as u64;
+                            self.emit(|seq| ProtocolEvent::ProviderRetrying {
+                                session_id: sid.clone(),
+                                seq,
+                                created_at: now_iso(),
+                                provider: String::new(),
+                                reason: "stream interrupted".into(),
+                                attempt: stream_retries,
+                                max_attempts: MAX_STREAM_RETRIES,
+                                delay_ms,
+                            });
+                            self.record_runtime_span(
+                                MiddlewarePhase::PostLlmCall,
+                                "error",
+                                Some(&llm_turn_id),
+                                llm_span_id.as_deref(),
+                                serde_json::json!({
+                                    "iteration": iteration,
+                                    "error": e,
+                                    "kind": "stream_retry",
+                                    "attempt": stream_retries,
+                                }),
+                            );
+                            if let Some(rx) = self.interrupt_rx.clone() {
+                                tokio::select! {
+                                    () = tokio::time::sleep(delay) => {}
+                                    () = wait_for_interrupt_signal(rx) => {
+                                        self.emit(|seq| ProtocolEvent::RunInterrupted {
+                                            session_id: sid.clone(),
+                                            seq,
+                                            created_at: now_iso(),
+                                            reason: Some("interrupted by user while waiting to retry the provider request".into()),
+                                        });
+                                        self.record_session_end(session_span_id.as_deref(), "interrupted", None);
+                                        return Err(EngineError::Interrupted);
+                                    }
                                 }
+                            } else {
+                                tokio::time::sleep(delay).await;
+                            }
+                            continue;
+                        }
+                        if crate::overflow_recovery::is_reactive_context_overflow(&e) {
+                            // The call performs the transition; a refused one ends the run.
+                            if reactive_overflow_recovery.overflow_detected().is_err() {
+                                self.record_session_end(
+                                    session_span_id.as_deref(),
+                                    "failed",
+                                    Some(&e),
+                                );
+                                return Err(EngineError::Llm(e));
                             }
                             if reactive_overflow_recovery.retry_budget_exhausted() {
                                 reactive_overflow_recovery.exhaust();
@@ -840,7 +1057,14 @@ impl SessionEngine {
                                 return Err(EngineError::Llm(e));
                             }
 
-                            let _ = reactive_overflow_recovery.begin_compaction();
+                            if reactive_overflow_recovery.begin_compaction().is_err() {
+                                self.record_session_end(
+                                    session_span_id.as_deref(),
+                                    "failed",
+                                    Some(&e),
+                                );
+                                return Err(EngineError::Llm(e));
+                            }
                             match self
                                 .execute_compaction_command(crate::compactor::CompactionCommandV1 {
                                     id: crate::compactor::next_compaction_command_id(),
@@ -848,6 +1072,7 @@ impl SessionEngine {
                                     // have no pending retry decision; it is a
                                     // fresh automatic compaction in that case.
                                     kind: crate::compactor::CompactionCommandKindV1::Overflow,
+                                    instructions: None,
                                     response: None,
                                 })
                                 .await
@@ -894,6 +1119,7 @@ impl SessionEngine {
                             }
                         }
                         let kind = classify_failure(&e);
+                        let (kind_str, hint_str) = (kind.as_str(), kind.hint());
                         self.record_runtime_span(
                             MiddlewarePhase::PostLlmCall,
                             "error",
@@ -902,7 +1128,7 @@ impl SessionEngine {
                             serde_json::json!({
                                 "iteration": iteration,
                                 "error": e,
-                                "kind": kind.as_str(),
+                                "kind": kind_str,
                             }),
                         );
                         self.emit(|seq| ProtocolEvent::RunFailed {
@@ -910,8 +1136,8 @@ impl SessionEngine {
                             seq,
                             created_at: now_iso(),
                             error: e.clone(),
-                            kind: kind.as_str().into(),
-                            hint: kind.hint().into(),
+                            kind: kind_str.into(),
+                            hint: hint_str.into(),
                         });
                         self.record_session_end(session_span_id.as_deref(), "failed", Some(&e));
                         return Err(EngineError::Llm(e));
@@ -928,6 +1154,7 @@ impl SessionEngine {
                 );
             }
             reactive_overflow_recovery.recovered();
+            stream_retries = 0;
             self.record_runtime_span(
                 MiddlewarePhase::PostLlmCall,
                 "completed",
@@ -951,11 +1178,9 @@ impl SessionEngine {
                 // Only a `Complete` generation may keep its tool calls.
                 enforce_generation_completeness_gate(&mut response);
                 strip_safety_terminated_tool_calls(&mut response);
-                let prior_ids =
-                    crate::transcript_plumbing::prior_tool_call_ids(&self.transcript, None);
                 for dropped in crate::transcript_plumbing::drop_cross_turn_duplicate_tool_calls(
                     &mut response.tool_calls,
-                    &prior_ids,
+                    &self.transcript,
                 ) {
                     if !response.text.is_empty() {
                         response.text.push_str("\n\n");
@@ -968,7 +1193,12 @@ impl SessionEngine {
                 }
             }
             if response.has_tool_calls() {
-                match loop_detector.record(&response.tool_calls) {
+                // The streamed path already ran the detector before dispatch.
+                match if streamed_tool_calls {
+                    None
+                } else {
+                    loop_detector.record(&response.tool_calls)
+                } {
                     Some(crate::mop::LoopSignal::Warn(message)) => {
                         pending_loop_warning = Some(message);
                     }
@@ -1020,12 +1250,21 @@ impl SessionEngine {
                 self.enforce_worker_tool_limit(&mut response);
             }
 
-            self.usage.record(
+            if let Some(prices) = &request_prices {
+                self.usage.use_prices(prices.as_ref());
+            }
+            self.usage.record_with_retention(
                 response.prompt_tokens,
                 response.completion_tokens,
                 response.cache_read_tokens,
                 response.cache_creation_tokens,
+                request_cache_retention,
             );
+            // A charge the provider itself reported is the cost of this request: it replaces the
+            // estimate just added.
+            if let Some(billed) = stream_persistence.provider_cost_usd {
+                self.usage.bill_last_record(billed);
+            }
             self.usage
                 .record_reasoning(stream_persistence.reasoning_tokens);
             self.observe_compaction_accounting();
@@ -1054,7 +1293,8 @@ impl SessionEngine {
                 self.usage.cost_usd,
                 self.usage.context_tokens as i32,
             );
-            let cost_known = self.usage.is_priced();
+            let cost_known = self.usage.cost_is_known();
+            let cost_billed = self.usage.cost_is_billed();
             self.emit(|seq| ProtocolEvent::UsageUpdated {
                 session_id: sid.clone(),
                 seq,
@@ -1067,7 +1307,7 @@ impl SessionEngine {
                 cache_read_tokens: self.usage.cache_read_tokens as i32,
                 cache_creation_tokens: self.usage.cache_creation_tokens as i32,
                 cost_known,
-                cost_billed: false,
+                cost_billed,
             });
             self.emit_turn_usage(
                 &sid,
@@ -1076,6 +1316,9 @@ impl SessionEngine {
                 response.cache_creation_tokens,
                 response.completion_tokens,
                 stream_persistence.reasoning_tokens,
+                stream_persistence.ttft_ms,
+                stream_persistence.total_ms,
+                stream_persistence.rate_limit,
             );
             // VG-001 phase 2: did the provider reuse the cached prefix?
             self.check_prompt_cache_break(
@@ -1125,16 +1368,24 @@ impl SessionEngine {
                     response.reasoning.clone(),
                     response.tool_calls.clone(),
                 );
+                self.transcript
+                    .tag_last_assistant_origin(self.llm.message_origin());
             }
 
-            self.observe_response_tool_activity(
-                &response,
-                &sid,
-                iteration,
-                &mut mop,
-                &mut tool_calls_since_continuation,
-            )
-            .await;
+            // On the non-streaming path the calls have not run yet: a loop directive or a
+            // compaction now would sit between the assistant's tool calls and their results,
+            // so it waits until the results are in (see the dispatch below).
+            let tools_pending_dispatch = response.has_tool_calls() && !streamed_tool_calls;
+            if !tools_pending_dispatch {
+                self.observe_response_tool_activity(
+                    &response,
+                    &sid,
+                    iteration,
+                    &mut mop,
+                    &mut tool_calls_since_continuation,
+                )
+                .await;
+            }
 
             // FEATURE-MATRIX par §#141: charge the iteration budget for this
             // turn. Programmatic turns (read-only tool chaining with no
@@ -1159,8 +1410,99 @@ impl SessionEngine {
             // empty-turn case is separately bounded by post_turn_gate's
             // ForceFinish cap, so this refund cannot enable an infinite loop.
             if !response.has_tool_calls() && response.text.trim().is_empty() {
-                self.iteration_budget
-                    .refund(cost, "no-op turn: no tool calls, no assistant text");
+                // A no-op turn (no tool calls, no assistant text) gives its charge back.
+                self.iteration_budget.refund(cost);
+            }
+
+            // A reply cut off at the provider output limit had its tool calls
+            // withheld by the completeness gate above. Ask the model to continue
+            // in smaller pieces a bounded number of times, then fail loudly
+            // instead of ending the turn on a truncated "answer".
+            let output_limited = !response.has_tool_calls()
+                && !streamed_tool_calls
+                && matches!(
+                    crate::tool_dispatch_plumbing::classify_generation_completeness(&response),
+                    crate::tool_dispatch_plumbing::GenerationCompleteness::IncompleteGeneration
+                );
+            if output_limited && output_limit_retries < MAX_OUTPUT_LIMIT_RETRIES {
+                output_limit_retries += 1;
+                // Re-asking at the same cap truncates the same way: double it
+                // (the provider default is 16,000 with thinking), within a
+                // ceiling most current models accept.
+                output_cap = Some(
+                    output_cap
+                        .map_or(OUTPUT_CAP_FIRST_RETRY, |cap| cap.saturating_mul(2))
+                        .min(OUTPUT_CAP_CEILING),
+                );
+                // The retry is the engine's recovery, not the model's progress:
+                // give back this turn's charge so `--max-turns` still leaves room
+                // for it. An empty-text turn was already refunded above.
+                if !response.text.trim().is_empty() {
+                    // Output-limit retry: the reply was cut off, its tool calls withheld.
+                    self.iteration_budget.refund(cost);
+                }
+                // The truncated text was shown: complete it as interim before the
+                // retry hint joins the transcript.
+                let reasoning = self.current_turn_reasoning();
+                self.emit_assistant_completed(
+                    &sid,
+                    rightkit_agent_engine_protocol::AssistantMessagePhase::Interim,
+                    response.text.clone(),
+                    reasoning,
+                );
+                self.transcript.push_nudge(OUTPUT_LIMIT_RETRY_HINT);
+                self.emit(|seq| ProtocolEvent::ProviderRetrying {
+                    session_id: sid.clone(),
+                    seq,
+                    created_at: now_iso(),
+                    provider: String::new(),
+                    reason: "output limit reached".into(),
+                    attempt: output_limit_retries,
+                    max_attempts: MAX_OUTPUT_LIMIT_RETRIES,
+                    delay_ms: 0,
+                });
+                if !response.text.trim().is_empty() {
+                    self.emit(|seq| ProtocolEvent::AssistantDelta {
+                        session_id: sid.clone(),
+                        seq,
+                        created_at: now_iso(),
+                        text: "\n\n".into(),
+                        is_reasoning: false,
+                    });
+                }
+                continue;
+            } else if output_limited {
+                let error = format!(
+                    "the model's reply was cut off at the provider output limit {} times in a row; any tool calls in those replies were not run",
+                    MAX_OUTPUT_LIMIT_RETRIES + 1
+                );
+                self.record_runtime_span(
+                    MiddlewarePhase::PostLlmCall,
+                    "error",
+                    Some(&llm_turn_id),
+                    llm_span_id.as_deref(),
+                    serde_json::json!({
+                        "iteration": iteration,
+                        "error": error,
+                        "kind": INCOMPLETE_OUTPUT_KIND,
+                    }),
+                );
+                self.emit(|seq| ProtocolEvent::RunFailed {
+                    session_id: sid.clone(),
+                    seq,
+                    created_at: now_iso(),
+                    error: error.clone(),
+                    kind: INCOMPLETE_OUTPUT_KIND.into(),
+                    hint: INCOMPLETE_OUTPUT_HINT.into(),
+                });
+                self.record_session_end(session_span_id.as_deref(), "failed", Some(&error));
+                return Err(EngineError::Llm(error));
+            } else {
+                // Both retry counters mean "since the last complete reply": an
+                // output-limited reply does not reset the empty-reply counter.
+                output_limit_retries = 0;
+                output_cap = None;
+                empty_completion_retries = 0;
             }
 
             if !response.has_tool_calls() && !streamed_tool_calls {
@@ -1241,8 +1583,25 @@ impl SessionEngine {
                 )
                 .await
             {
-                super::engine_loop_dispatch::ToolDispatchOutcome::Proceed => {}
+                super::engine_loop_dispatch::ToolDispatchOutcome::Proceed => {
+                    self.observe_response_tool_activity(
+                        &response,
+                        &sid,
+                        iteration,
+                        &mut mop,
+                        &mut tool_calls_since_continuation,
+                    )
+                    .await;
+                }
                 super::engine_loop_dispatch::ToolDispatchOutcome::Continue => {
+                    self.observe_response_tool_activity(
+                        &response,
+                        &sid,
+                        iteration,
+                        &mut mop,
+                        &mut tool_calls_since_continuation,
+                    )
+                    .await;
                     continue;
                 }
                 super::engine_loop_dispatch::ToolDispatchOutcome::Finished(warning) => {
@@ -1267,6 +1626,9 @@ impl SessionEngine {
         messages: &[TranscriptMessage],
         metadata: &LlmRequestMetadata,
         sid: &str,
+        loop_detector: &mut crate::mop::ToolLoopDetector,
+        pending_loop_warning: &mut Option<String>,
+        iteration: usize,
     ) -> Result<
         (
             crate::llm::LlmResponse,
@@ -1276,6 +1638,7 @@ impl SessionEngine {
         ),
         EngineError,
     > {
+        let request_started = std::time::Instant::now();
         // Opening a stream can wait on response headers before a stream exists.
         // Keep that provider request under the same interrupt authority as reads.
         let opening = self.llm.stream_with_metadata(messages, metadata);
@@ -1358,7 +1721,7 @@ impl SessionEngine {
                         item = rx.recv() => item,
                         () = wait_for_interrupt_signal(interrupt_rx) => {
                             pump.abort();
-                            let _ = pump.await;
+                            settle_stream_pump(pump).await;
                             // The stream may already have yielded tool calls
                             // before this interrupt won the receive race. Keep
                             // their authorization envelope ahead of any
@@ -1401,7 +1764,7 @@ impl SessionEngine {
                     item = rx.recv() => item,
                     () = wait_for_interrupt_signal(interrupt_rx) => {
                         pump.abort();
-                        let _ = pump.await;
+                        settle_stream_pump(pump).await;
                         // P1-8: every started invocation records terminal
                         // disposition even across interruption — drain the
                         // read-only in-flight futures and record their actual
@@ -1446,7 +1809,7 @@ impl SessionEngine {
                 Ok(event) => event,
                 Err(error) => {
                     pump.abort();
-                    let _ = pump.await;
+                    settle_stream_pump(pump).await;
                     while let Some((call, result)) = in_flight.next().await {
                         completed_streaming_results.push((call, result));
                     }
@@ -1469,6 +1832,16 @@ impl SessionEngine {
                     return Err(EngineError::Llm(error));
                 }
             };
+            if stream_persistence.ttft_ms.is_none()
+                && matches!(
+                    event,
+                    crate::llm::LlmStreamEvent::Text(_)
+                        | crate::llm::LlmStreamEvent::Reasoning(_)
+                        | crate::llm::LlmStreamEvent::ToolCall(_)
+                )
+            {
+                stream_persistence.ttft_ms = Some(request_started.elapsed().as_millis() as u64);
+            }
             match event {
                 crate::llm::LlmStreamEvent::Response(full) => {
                     let tool_calls = std::mem::take(&mut response.tool_calls);
@@ -1496,14 +1869,22 @@ impl SessionEngine {
                         &mut stream_persistence,
                     );
                 }
-                crate::llm::LlmStreamEvent::ToolCall(call) => {
+                crate::llm::LlmStreamEvent::ToolCall(mut call) => {
                     streamed_tool_calls = true;
-                    if crate::transcript_plumbing::prior_tool_call_ids(
-                        &self.transcript,
-                        assistant_id.as_deref(),
-                    )
-                    .contains(&call.id)
-                    {
+                    let taken: std::collections::HashSet<String> = response
+                        .tool_calls
+                        .iter()
+                        .map(|item| item.id.clone())
+                        .collect();
+                    if matches!(
+                        crate::transcript_plumbing::resolve_reused_tool_call_id(
+                            &mut call,
+                            &self.transcript,
+                            assistant_id.as_deref(),
+                            &taken,
+                        ),
+                        crate::transcript_plumbing::ReusedId::Replay
+                    ) {
                         if !response.text.is_empty() {
                             response.text.push_str("\n\n");
                         }
@@ -1514,7 +1895,14 @@ impl SessionEngine {
                     }
                     response.tool_calls.push(call.clone());
                     if assistant_id.is_none() {
-                        let message = self.transcript.push_assistant("", None, Vec::new());
+                        self.transcript.push_assistant("", None, Vec::new());
+                        self.transcript
+                            .tag_last_assistant_origin(self.llm.message_origin());
+                        let message = self
+                            .transcript
+                            .messages()
+                            .last()
+                            .expect("assistant just pushed");
                         if let TranscriptMessage::Assistant { id, .. } = message {
                             assistant_id = Some(id.clone());
                         }
@@ -1583,6 +1971,28 @@ impl SessionEngine {
                         stream_persistence.reasoning_tokens = reasoning_tokens;
                     }
                 }
+                crate::llm::LlmStreamEvent::UsageCost { cost_usd } => {
+                    stream_persistence.provider_cost_usd =
+                        Some(if stream_persistence.assistant_precommitted {
+                            stream_persistence.provider_cost_usd.unwrap_or(0.0) + cost_usd
+                        } else {
+                            cost_usd
+                        });
+                }
+                crate::llm::LlmStreamEvent::RateLimit {
+                    remaining_requests,
+                    remaining_tokens,
+                    reset_requests_secs,
+                    reset_tokens_secs,
+                } => {
+                    stream_persistence.rate_limit =
+                        Some(rightkit_agent_engine_protocol::event::RateLimitObserved {
+                            remaining_requests,
+                            remaining_tokens,
+                            reset_requests_secs,
+                            reset_tokens_secs,
+                        });
+                }
                 crate::llm::LlmStreamEvent::OutputLimitCheckpoint {
                     finish_reason,
                     acknowledge,
@@ -1596,6 +2006,22 @@ impl SessionEngine {
                     );
                     acknowledge.notify_one();
                 }
+                // Display only: a live view of a call still streaming. The call itself waits
+                // for the complete generation (EFF-009) and never reads this.
+                crate::llm::LlmStreamEvent::ToolArgumentsPartial {
+                    id,
+                    name,
+                    arguments_json,
+                } => {
+                    self.emit(|seq| ProtocolEvent::ToolArgumentsPartial {
+                        session_id: sid.to_string(),
+                        seq,
+                        created_at: now_iso(),
+                        call_id: id,
+                        name,
+                        arguments_json,
+                    });
+                }
                 crate::llm::LlmStreamEvent::Finished(reason) => {
                     response.finish_reason = reason;
                     stream_finished = true;
@@ -1604,7 +2030,7 @@ impl SessionEngine {
         }
         if !stream_finished {
             pump.abort();
-            let _ = pump.await;
+            settle_stream_pump(pump).await;
             while let Some((call, result)) = in_flight.next().await {
                 completed_streaming_results.push((call, result));
             }
@@ -1631,7 +2057,7 @@ impl SessionEngine {
         while let Some((call, result)) = in_flight.next().await {
             completed_streaming_results.push((call, result));
         }
-        let _ = pump.await;
+        settle_stream_pump(pump).await;
         // Apply the completeness gate before finalizing the assistant
         // envelope or dispatching any deferred call. Clearing the queue
         // makes an incomplete streamed generation tool-free downstream.
@@ -1639,6 +2065,41 @@ impl SessionEngine {
         if generation_gate.is_some() {
             deferred_calls.clear();
             streamed_tool_calls = false;
+        }
+        // The loop detector must decide before the calls run, not after: a
+        // hard stop here drops the repeated calls so none of them executes.
+        if !deferred_calls.is_empty() {
+            match loop_detector.record(&deferred_calls) {
+                Some(crate::mop::LoopSignal::Warn(message)) => {
+                    *pending_loop_warning = Some(message);
+                }
+                Some(crate::mop::LoopSignal::HardStop(message)) => {
+                    let reason = crate::stall_strategy::stalled_reason(&message);
+                    self.emit(|seq| ProtocolEvent::OrchestrationObservationRecorded {
+                        session_id: sid.to_string(),
+                        seq,
+                        created_at: now_iso(),
+                        observation: rightkit_agent_engine_protocol::OrchestrationObservation {
+                            id: format!("stalled-{iteration}"),
+                            kind: "stalled".into(),
+                            subject: sid.to_string(),
+                            summary: reason,
+                            fields: std::collections::HashMap::new(),
+                            created_at: now_iso(),
+                        },
+                    });
+                    deferred_calls.clear();
+                    response.tool_calls.clear();
+                    streamed_tool_calls = false;
+                    if !response.text.trim().is_empty() {
+                        response.text.push_str("\n\n");
+                    }
+                    response.text.push_str(&format!(
+                        "[Forced stop: loop detector halted tool execution. {message}.]"
+                    ));
+                }
+                None => {}
+            }
         }
         if let Some(id) = assistant_id.as_deref() {
             self.finalize_streaming_assistant(id, &response);
@@ -1651,19 +2112,105 @@ impl SessionEngine {
         // CR-08/EFF-009: only now — after the stream has reached a terminal
         // event, completeness has been established, and the assistant
         // envelope has been finalized — is it safe to dispatch these calls.
-        // Execute strictly in issue order, one at a time; a user interrupt
-        // here still aborts before any not-yet-started deferred call runs.
-        for (index, call) in deferred_calls.iter().enumerate() {
+        // Execute in issue order. A maximal consecutive run of concurrency-safe
+        // (read-only) calls overlaps as one bounded batch, exactly as the
+        // non-streaming path does (`engine_loop_dispatch.rs`, `ToolRun::Read`);
+        // every other call runs alone. Five parallel reads used to cost five
+        // serial executions (audit 2026-11-10, LOOP-01). A user interrupt still
+        // aborts before any not-yet-started deferred call runs.
+        let mut index = 0usize;
+        while index < deferred_calls.len() {
             if self.conduit.persistence_failure().is_some() {
                 // Results could not be stored; do not start more owned work.
                 return Err(EngineError::Interrupted);
             }
+            // A steer or cancel that arrives while earlier calls ran is read before the next
+            // call starts, not after the whole reply: the remaining calls are recorded as not
+            // run and the next iteration applies the directive.
+            if index > 0 && self.steer_is_pending() {
+                let unfinished: Vec<ToolCall> = deferred_calls[index..]
+                    .iter()
+                    .filter(|call| !turn_results.contains_key(&call.id))
+                    .cloned()
+                    .collect();
+                self.record_undispatched_streaming_calls(
+                    sid,
+                    unfinished,
+                    "a new instruction from the user arrived before it started",
+                    &mut turn_results,
+                );
+                break;
+            }
+            let mut end = index;
+            while end < deferred_calls.len()
+                && self.streaming_tool_is_concurrent_safe(&deferred_calls[end])
+            {
+                end += 1;
+            }
             let interrupt_rx = self.interrupt_rx.clone();
+            if end - index >= 2 {
+                let batch: Vec<&ToolCall> = deferred_calls[index..end].iter().collect();
+                let overlapped = self.dispatch_concurrent_batch_bounded(&batch, &mut turn_results);
+                if let Some(interrupt_rx) = interrupt_rx {
+                    tokio::select! {
+                        _ = overlapped => {}
+                        () = wait_for_interrupt_signal(interrupt_rx) => {
+                            // Batch calls without a result were running: they get a
+                            // truthful result of their own. Later calls never started.
+                            // Materialised first: the filter borrows `turn_results`, and the
+                            // body below takes it by `&mut`, so the iterator must not stay live.
+                            let interrupted: Vec<_> = deferred_calls[index..end]
+                                .iter()
+                                .filter(|call| !turn_results.contains_key(&call.id))
+                                .cloned()
+                                .collect();
+                            for call in &interrupted {
+                                self.record_tool_error(
+                                    sid,
+                                    call,
+                                    format!(
+                                        "Tool call '{}' ({}) was interrupted while it ran: the turn was stopped. \
+                                         It only reads, so repeating it is safe, but its result was lost.",
+                                        call.id, call.name
+                                    ),
+                                    &mut turn_results,
+                                );
+                            }
+                            self.record_undispatched_streaming_calls(
+                                sid,
+                                deferred_calls[end..].iter().cloned(),
+                                "the turn was interrupted before dispatch completed",
+                                &mut turn_results,
+                            );
+                            return Err(EngineError::Interrupted);
+                        }
+                    }
+                } else {
+                    overlapped.await;
+                }
+                index = end;
+                continue;
+            }
+            let call = &deferred_calls[index];
             let serial = self.dispatch_streaming_tool_call(call, &mut turn_results);
             if let Some(interrupt_rx) = interrupt_rx {
                 tokio::select! {
                     _ = serial => {}
                     () = wait_for_interrupt_signal(interrupt_rx) => {
+                        // The call that was running had its future dropped: it needs a
+                        // result of its own, or the provider sees a tool call with no answer.
+                        if !turn_results.contains_key(&call.id) {
+                            self.record_tool_error(
+                                sid,
+                                call,
+                                format!(
+                                    "Tool call '{}' ({}) was interrupted while it ran: the turn was stopped. \
+                                     It may have partly run, so check the state before repeating it.",
+                                    call.id, call.name
+                                ),
+                                &mut turn_results,
+                            );
+                        }
                         self.record_undispatched_streaming_calls(
                             sid,
                             deferred_calls[index + 1..].iter().cloned(),
@@ -1676,15 +2223,22 @@ impl SessionEngine {
             } else {
                 serial.await;
             }
+            index += 1;
         }
 
         stream_persistence.assistant_precommitted = assistant_id.is_some();
+        stream_persistence.total_ms = Some(request_started.elapsed().as_millis() as u64);
         Ok((
             response,
             streamed_tool_calls,
             turn_results,
             stream_persistence,
         ))
+    }
+
+    /// True while a steer, reprompt or cancel waits in the live-control queue.
+    pub(in crate::engine) fn steer_is_pending(&self) -> bool {
+        self.steer_rx.as_ref().is_some_and(|rx| !rx.is_empty())
     }
 
     fn persist_stream_checkpoint(
@@ -1702,13 +2256,20 @@ impl SessionEngine {
                     .is_some_and(|value| !value.is_empty())
                 || !response.tool_calls.is_empty())
         {
-            let message = self.transcript.push_assistant("", None, Vec::new());
+            self.transcript.push_assistant("", None, Vec::new());
+            self.transcript
+                .tag_last_assistant_origin(self.llm.message_origin());
+            let message = self
+                .transcript
+                .messages()
+                .last()
+                .expect("assistant just pushed");
             if let TranscriptMessage::Assistant { id, .. } = message {
                 *assistant_id = Some(id.clone());
             }
         }
         if let Some(id) = assistant_id.as_deref() {
-            self.finalize_streaming_assistant(id, response);
+            self.extend_streaming_assistant(id, response, persistence);
         }
 
         if let Some(reasoning) = response.reasoning.as_deref() {
@@ -1751,7 +2312,7 @@ impl SessionEngine {
     /// disposition instead of dangling. These calls never started - the
     /// generation-level gate ran (or never ran) before any approval,
     /// ToolCallStarted, or execution could occur.
-    fn record_undispatched_streaming_calls(
+    pub(in crate::engine) fn record_undispatched_streaming_calls(
         &mut self,
         sid: &str,
         calls: impl IntoIterator<Item = ToolCall>,
@@ -1772,6 +2333,41 @@ impl SessionEngine {
                 ),
                 turn_results,
             );
+        }
+    }
+
+    /// Bring the streaming assistant message up to `response` by appending only what is new
+    /// since the last checkpoint, so a long reply is not copied again on every delta. Falls back
+    /// to a full copy when the stored text is not the prefix the checkpoint expects.
+    fn extend_streaming_assistant(
+        &mut self,
+        assistant_id: &str,
+        response: &crate::llm::LlmResponse,
+        persistence: &StreamPersistence,
+    ) {
+        if let Some(TranscriptMessage::Assistant {
+            content,
+            reasoning_content,
+            tool_calls,
+            ..
+        }) = self.transcript.assistant_mut(assistant_id)
+        {
+            match response.text.get(persistence.text_bytes..) {
+                Some(suffix) if content.len() == persistence.text_bytes => content.push_str(suffix),
+                _ => content.clone_from(&response.text),
+            }
+            match (&response.reasoning, reasoning_content.as_mut()) {
+                (Some(full), Some(stored)) if stored.len() == persistence.reasoning_bytes => {
+                    match full.get(persistence.reasoning_bytes..) {
+                        Some(suffix) => stored.push_str(suffix),
+                        None => stored.clone_from(full),
+                    }
+                }
+                _ => reasoning_content.clone_from(&response.reasoning),
+            }
+            if tool_calls.len() != response.tool_calls.len() {
+                tool_calls.clone_from(&response.tool_calls);
+            }
         }
     }
 
@@ -1798,7 +2394,51 @@ impl SessionEngine {
 /// no tool call.
 const MAX_EMPTY_COMPLETION_RETRIES: u32 = 2;
 
+/// Bounded turn-level re-asks after a stream that failed midway.
+const MAX_STREAM_RETRIES: u32 = 3;
+
+/// Nudge appended when a failed stream left partial output in the transcript.
+const STREAM_INTERRUPTED_HINT: &str = "[Stream interrupted] Your previous reply was cut off by a connection error before it finished. Any tool calls in it were not run. Continue from where you stopped and re-issue only what is still needed.";
+
 /// The provider layer's typed-by-message signal for a reasoning-only completion.
 fn is_empty_completion_error(error: &str) -> bool {
     error.contains("no visible content or tool calls")
+}
+
+/// Bounded re-asks after a reply cut off at the provider's output limit.
+const MAX_OUTPUT_LIMIT_RETRIES: u32 = 2;
+
+/// Output cap of the first retry after a truncated reply: twice the 16,000
+/// default the Anthropic adapter uses for adaptive thinking.
+const OUTPUT_CAP_FIRST_RETRY: u32 = 32_000;
+
+/// No output-limit retry asks for more than this.
+const OUTPUT_CAP_CEILING: u32 = 64_000;
+
+/// `runFailed.kind` for a run that ends on output-limit truncation.
+const INCOMPLETE_OUTPUT_KIND: &str = "incomplete_output";
+
+/// `runFailed.hint` for `INCOMPLETE_OUTPUT_KIND`.
+const INCOMPLETE_OUTPUT_HINT: &str =
+    "split large file writes into several smaller calls, or use a route with a larger output limit";
+
+/// Re-entry message after a reply truncated at the output limit.
+const OUTPUT_LIMIT_RETRY_HINT: &str = "[Output limit] Your previous reply was cut off at the provider's output limit; any tool calls in it were not run. Continue from where you stopped and re-issue only what is still needed, in fewer and smaller calls: split a large file write into several smaller writes or edits, each well under the limit.";
+
+/// Re-entry message after an empty (reasoning-only) reply. The provider does
+/// not report why the reply was empty, so the hint names the likely cause
+/// (one oversized tool call) without asserting it.
+const EMPTY_REPLY_HINT: &str = "[Empty reply] Your previous reply had no visible text and no tool call. Answer again with visible text or a tool call. If you were writing a very large file, split it into several smaller writes or edits.";
+
+/// The prompt-cache lifetime for one model request: one hour only for a root session a person is
+/// attached to, five minutes for everything else (see the call site).
+pub(crate) fn cache_retention_for(
+    is_subagent: bool,
+    human_subscribers: usize,
+) -> crate::llm::CacheRetention {
+    if !is_subagent && human_subscribers > 0 {
+        crate::llm::CacheRetention::Long
+    } else {
+        crate::llm::CacheRetention::Short
+    }
 }

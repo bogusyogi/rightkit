@@ -15,7 +15,7 @@
 //!   resolves from that project's `.venv`/`venv` first, then the workspace
 //!   root's, then a provisioned real `python`/`py` on PATH.
 //!
-//! `find_on_path` honors the `RIGHTKIT_VERIFY_PATH` override (falling back
+//! `find_on_path` honors the `<PREFIX>_VERIFY_PATH` override (falling back
 //! to `PATH`) so tests can point executable discovery at a scratch directory
 //! without racing the process environment.
 
@@ -60,7 +60,9 @@ pub struct VerificationProfile {
 }
 
 pub fn verification_config_path(workspace_root: &Path) -> PathBuf {
-    workspace_root.join(".rightkit").join("verification.json")
+    workspace_root
+        .join(rightkit_agent_config::state_dir_name())
+        .join("verification.json")
 }
 
 // ─── <state-dir>/verification.json (schema v1) ──────────────────────────────
@@ -202,18 +204,12 @@ fn load_verification_config(
 // ─── Executable & Python project discovery (read-only) ─────────────────────
 
 /// Resolve a bare executable name against the search path
-/// (`RIGHTKIT_VERIFY_PATH` override, else `PATH`), honoring `PATHEXT`
+/// (`<PREFIX>_VERIFY_PATH` override, else `PATH`), honoring `PATHEXT`
 /// suffixes on Windows. Returns the resolved file path.
-#[cfg(not(feature = "host"))]
-pub(crate) fn find_on_path(_name: &str) -> Option<PathBuf> {
-    // The portable (mobile) profile never resolves an executable from the
-    // process environment: it spawns none.
-    None
-}
-
 #[cfg(feature = "host")]
 pub(crate) fn find_on_path(name: &str) -> Option<PathBuf> {
-    let dirs = std::env::var_os("RIGHTKIT_VERIFY_PATH").or_else(|| std::env::var_os("PATH"))?;
+    let dirs = std::env::var_os(rightkit_agent_config::env_name("VERIFY_PATH"))
+        .or_else(|| std::env::var_os("PATH"))?;
     let pathext: Vec<String> = if cfg!(windows) {
         std::env::var("PATHEXT")
             .map(|value| {
@@ -244,7 +240,7 @@ pub(crate) fn find_on_path(name: &str) -> Option<PathBuf> {
 
 /// Resolve a configured program for the governed launch preflight: absolute
 /// or separator-bearing paths resolve relative to the workspace root; bare
-/// names resolve via [`find_on_path`]. `None` means the program is not
+/// names resolve on the search path. `None` means the program is not
 /// provisioned — the unit reports `Unavailable` rather than attempting a
 /// spawn that can only fail.
 pub(crate) fn resolve_program(program: &str, workspace_root: &Path) -> Option<PathBuf> {
@@ -264,7 +260,16 @@ pub(crate) fn resolve_program(program: &str, workspace_root: &Path) -> Option<Pa
         };
         return candidate.is_file().then_some(candidate);
     }
-    find_on_path(trimmed)
+    // The portable (mobile) profile never resolves an executable from the
+    // process environment: it spawns none.
+    #[cfg(feature = "host")]
+    {
+        find_on_path(trimmed)
+    }
+    #[cfg(not(feature = "host"))]
+    {
+        None
+    }
 }
 
 /// The nearest ancestor of `file` (bounded by `workspace_root`) carrying a
@@ -360,12 +365,12 @@ fn is_real_interpreter(candidate: &Path) -> bool {
     link.len() > 0
 }
 
-#[cfg_attr(not(feature = "host"), allow(dead_code))]
+#[cfg(feature = "host")]
 fn find_python_on_paths(dirs: &std::ffi::OsStr) -> Option<PathBuf> {
     find_python_in(dirs, interpreter_runs)
 }
 
-#[cfg_attr(not(feature = "host"), allow(dead_code))]
+#[cfg(feature = "host")]
 fn find_python_in(dirs: &std::ffi::OsStr, accept: impl Fn(&Path) -> bool) -> Option<PathBuf> {
     // Names are ranked: a concrete interpreter anywhere on the search path
     // beats the `py.exe` launcher, which indirects through the registry and
@@ -440,7 +445,7 @@ pub(crate) fn interpreter_read_roots(program: &Path) -> Vec<PathBuf> {
 /// it (it exits non-zero with "No installed Python found!"). Only accept a
 /// candidate that actually executes `-c pass` successfully within a short
 /// deadline.
-#[cfg_attr(not(feature = "host"), allow(dead_code))]
+#[cfg(feature = "host")]
 fn interpreter_runs(candidate: &Path) -> bool {
     let options = rightkit_child_process::RunOptions::new(std::time::Duration::from_secs(5))
         .stdout_cap(0)
@@ -474,6 +479,7 @@ pub fn resolve_profile(workspace_root: &Path, verified_paths: &[PathBuf]) -> Ver
             interpreter,
         });
     }
+    #[cfg(feature = "host")]
     if !profile.python_files.is_empty() {
         profile.pyright = find_on_path("pyright");
     }

@@ -33,7 +33,7 @@
 //!
 //! No compatible donor exists (ORIGINAL atom). The type shapes follow the
 //! Membrane/Adapt H7 handoff contract documented in
-//! `docs/pending/CODERIGHT-MEMBRANE-INTEGRATION.md` §10:
+//! the host product's Membrane integration contract §10:
 //! `SealedRemediationProposalV1` + `intervention_target` (+ mutation-eligible
 //! `InterventionAttributionV1`), `expected_base_digest` binding per candidate,
 //! itemized deltas against the base artifact, and the gate-10 rule that a
@@ -70,9 +70,9 @@ pub mod projection;
 pub mod proposal;
 
 pub use apply::{
-    apply_proposal, derived_receipt_id, ApplicationOutcome, ApplicationReceipt,
-    ApplicationReceiptLog, DigestBinding, InMemoryApplicationReceiptLog, RejectionKind,
-    APPLICATION_RECEIPT_DOMAIN,
+    application_receipt_domain, apply_proposal, derived_receipt_id, ApplicationOutcome,
+    ApplicationReceipt, ApplicationReceiptLog, DigestBinding, InMemoryApplicationReceiptLog,
+    RejectionKind,
 };
 pub use authority::{
     ApplicationAuthorityGate, AuthorityDecision, DenyAllAuthority, PolicyRule,

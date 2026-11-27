@@ -244,6 +244,12 @@ impl OverflowRecoveryOutcome {
 /// output-limit continuation remains a separate turn-loop path.
 pub fn is_reactive_context_overflow(error: &str) -> bool {
     let error = error.to_ascii_lowercase();
+    // `CapacityError::CapacityUnavailable` ("model capacity unavailable for route ..: .. context
+    // window is unknown ..") says the window could not be established, not that a request overflowed
+    // it. Compacting cannot fix that, so it must reach the operator as the capacity refusal.
+    if error.contains("model capacity unavailable") {
+        return false;
+    }
     let explicit_context = error.contains("context_length_exceeded")
         || error.contains("context window")
         || error.contains("context length")

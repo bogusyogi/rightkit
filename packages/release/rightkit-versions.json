@@ -560,7 +560,7 @@
     "rightkit-agent-engine-api-workflows": "0.2.2",
     "rightkit-agent-engine-attention": "0.2.2",
     "rightkit-agent-engine-cli": "0.1.1",
-    "rightkit-agent-engine-core": "0.1.4",
+    "rightkit-agent-engine-core": "0.2.0",
     "rightkit-agent-engine-history": "0.1.6",
     "rightkit-agent-engine-mobile-runtime": "0.1.1",
     "rightkit-agent-engine-protocol": "0.4.1",
@@ -680,7 +680,7 @@
     "rightkit-google-apis": "0.2.3",
     "rightkit-google-identity": "0.3.0",
     "rightkit-gpu": "0.1.1",
-    "rightkit-hooks": "0.3.0",
+    "rightkit-hooks": "0.3.1",
     "rightkit-hotkeys": "0.1.8",
     "rightkit-http": "0.4.1",
     "rightkit-i18n": "0.1.0",
@@ -945,7 +945,8 @@
       "0.2.1"
     ],
     "rightkit-agent-engine-core": [
-      "0.1.3"
+      "0.1.3",
+      "0.1.4"
     ],
     "rightkit-agent-local-models": [
       "0.1.1",
@@ -1293,7 +1294,8 @@
     "rightkit-hooks": [
       "0.1.0",
       "0.2.0",
-      "0.2.13"
+      "0.2.13",
+      "0.3.0"
     ],
     "rightkit-hotkeys": [
       "0.1.0",

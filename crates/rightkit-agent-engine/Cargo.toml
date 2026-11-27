@@ -22,7 +22,7 @@ cli = ["rightkit-agent-task-contract/cli"]
 # Who asked, with what authority, on which device: task envelope, statuses, approval binding.
 rightkit-agent-task-contract = { version = "0.1.0", path = "../rightkit-agent-task-contract" }
 # The turn loop: tool dispatch, permission and approval flow, compaction, goals.
-rightkit-agent-engine-core = { version = "0.1.1", path = "../rightkit-agent-engine-core" }
+rightkit-agent-engine-core = { version = "0.2.0", path = "../rightkit-agent-engine-core" }
 # Events, envelopes, tool calls and the approval records the loop sends.
 rightkit-agent-engine-protocol = { version = "0.4.0", path = "../rightkit-agent-engine-protocol" }
 # The SQLite session journal, transcripts, tasks and goals.

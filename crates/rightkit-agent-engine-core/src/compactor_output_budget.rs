@@ -10,9 +10,10 @@
 /// of the active model's own `max_output` cap.
 pub const MIN_SUMMARY_TOKENS: u32 = 20_000;
 
-/// Env var override exposing the active model's own output cap. When unset,
-/// the reservation is `MIN_SUMMARY_TOKENS` (20_000).
-pub const MODEL_MAX_OUTPUT_TOKENS_ENV: &str = "RIGHTKIT_MODEL_MAX_OUTPUT";
+/// Suffix of the env var override exposing the active model's own output cap (the full name is
+/// `rightkit_agent_config::env_name(MODEL_MAX_OUTPUT_TOKENS_ENV_SUFFIX)`: the host's prefix, then
+/// this). When unset, the reservation is `MIN_SUMMARY_TOKENS` (20_000).
+pub const MODEL_MAX_OUTPUT_TOKENS_ENV_SUFFIX: &str = "MODEL_MAX_OUTPUT";
 
 /// Returns the token reservation for the compaction summary, equal to
 /// `max(model_max_output, MIN_SUMMARY_TOKENS)`. When `model_max_output` is
@@ -28,14 +29,16 @@ pub fn reserved_summary_tokens(model_max_output: Option<u32>) -> u32 {
     }
 }
 
-/// Reads `RIGHTKIT_MODEL_MAX_OUTPUT` from the environment and returns the
+/// Reads the host's `MODEL_MAX_OUTPUT` environment variable and returns the
 /// effective reservation. Falls back to [`MIN_SUMMARY_TOKENS`] if the env
 /// var is unset, malformed, or zero.
 pub fn reserved_summary_tokens_from_env() -> u32 {
-    let parsed = std::env::var(MODEL_MAX_OUTPUT_TOKENS_ENV)
-        .ok()
-        .and_then(|s| s.trim().parse::<u32>().ok())
-        .filter(|v| *v > 0);
+    let parsed = std::env::var(rightkit_agent_config::env_name(
+        MODEL_MAX_OUTPUT_TOKENS_ENV_SUFFIX,
+    ))
+    .ok()
+    .and_then(|s| s.trim().parse::<u32>().ok())
+    .filter(|v| *v > 0);
     reserved_summary_tokens(parsed)
 }
 

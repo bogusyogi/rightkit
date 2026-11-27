@@ -44,21 +44,29 @@ impl SessionEngine {
                         ),
                     ),
                 };
+                // The directive is a message the model reads: the observation stores its text and
+                // time so session replay puts it back after the compaction, as the live transcript has it.
+                let created_at = now_iso();
+                let mut fields = std::collections::HashMap::new();
+                fields.insert(
+                    crate::transcript::LOOP_WARNING_NUDGE_FIELD.to_string(),
+                    crate::stall_strategy::STRATEGY_RESET_DIRECTIVE.to_string(),
+                );
                 self.emit(|seq| ProtocolEvent::OrchestrationObservationRecorded {
                     session_id: sid.to_string(),
                     seq,
-                    created_at: now_iso(),
+                    created_at: created_at.clone(),
                     observation: rightkit_agent_engine_protocol::OrchestrationObservation {
                         id: format!("mop-{iteration}"),
                         kind: kind.into(),
                         subject: sid.to_string(),
                         summary,
-                        fields: std::collections::HashMap::new(),
-                        created_at: now_iso(),
+                        fields,
+                        created_at: created_at.clone(),
                     },
                 });
                 self.transcript
-                    .push_user(crate::stall_strategy::STRATEGY_RESET_DIRECTIVE);
+                    .push_nudge_at(crate::stall_strategy::STRATEGY_RESET_DIRECTIVE, created_at);
                 mop.reset();
             }
         }

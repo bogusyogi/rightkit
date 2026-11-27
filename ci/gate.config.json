@@ -662,6 +662,17 @@
         ]
       ]
     },
+    "rightkit-agent-engine-core": {
+      "featureSets": [
+        []
+      ],
+      "checkFeatureSets": [
+        [
+          "--features",
+          "qualification"
+        ]
+      ]
+    },
     "rightkit-device": {
       "featureSets": [
         [],

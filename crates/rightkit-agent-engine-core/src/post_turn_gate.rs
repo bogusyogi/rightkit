@@ -54,13 +54,8 @@ pub fn detect_unbacked_mutations(
 pub struct PostTurnGateState {
     consecutive_stop_blocks: usize,
     max_consecutive_stop_blocks: usize,
-    /// Diagnostic infrastructure failures observed this run. When the engine
-    /// accumulates more than the cap, the next gate call returns `ForceFinish`
-    /// with an explicit "we have lost the ability to verify edits" warning.
-    /// The count is informational; gating logic reads the latest diagnostic
-    /// decision directly.
-    #[allow(dead_code)]
-    diagnostic_infrastructure_failures: usize,
+    /// Completion-gate (assurance broker / Sentinel) refusals this turn.
+    completion_repairs: usize,
 }
 
 impl Default for PostTurnGateState {
@@ -68,7 +63,7 @@ impl Default for PostTurnGateState {
         Self {
             consecutive_stop_blocks: 0,
             max_consecutive_stop_blocks: Self::MAX_CONSECUTIVE_STOP_BLOCKS,
-            diagnostic_infrastructure_failures: 0,
+            completion_repairs: 0,
         }
     }
 }
@@ -103,6 +98,9 @@ pub(crate) fn bound_text(text: &str, max_bytes: usize) -> String {
 
 impl PostTurnGateState {
     pub const MAX_CONSECUTIVE_STOP_BLOCKS: usize = 8;
+    /// Same bound as the Stop gate: an unreachable Sentinel or a poisoned
+    /// broker refuses every final answer, so re-entry must not be unbounded.
+    pub const MAX_COMPLETION_REPAIRS: usize = 8;
 
     pub fn consecutive_stop_blocks(&self) -> usize {
         self.consecutive_stop_blocks
@@ -134,6 +132,25 @@ impl PostTurnGateState {
                 if path_summary.is_empty() { "<none>".to_string() } else { path_summary }
             ),
             reason: "unbacked_mutation".into(),
+        }
+    }
+
+    /// A completion gate refused the final answer with `repair`. Re-enter with
+    /// it until the per-turn cap, then finish with an explicit warning.
+    pub fn after_completion_repair(&mut self, repair: String) -> PostTurnGateDecision {
+        self.completion_repairs += 1;
+        if self.completion_repairs > Self::MAX_COMPLETION_REPAIRS {
+            return PostTurnGateDecision::ForceFinish {
+                warning: format!(
+                    "[Loop-safety gate override: the completion gate refused the final answer {} times. Finishing without signoff so the agent cannot loop forever. Last refusal: {}]",
+                    self.completion_repairs,
+                    bound_gate_text(&repair)
+                ),
+            };
+        }
+        PostTurnGateDecision::Reenter {
+            instruction: repair,
+            reason: "completion_gate_repair".into(),
         }
     }
 

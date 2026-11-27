@@ -62,7 +62,7 @@ impl SessionEngine {
 
         match update.decision {
             crate::goal_state::ContinueDecision::Continue => {
-                self.transcript.push_user(GOAL_CONTINUE_NUDGE);
+                self.transcript.push_nudge(GOAL_CONTINUE_NUDGE);
                 self.emit(|seq| ProtocolEvent::HumanSteeringInjected {
                     session_id: sid.to_string(),
                     seq,

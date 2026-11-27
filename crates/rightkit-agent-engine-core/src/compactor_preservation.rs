@@ -65,20 +65,48 @@ pub(crate) fn protect_open_obligation_messages(
         }) {
             // Replace any masked copy with the original full record, then
             // pin it so subsequent rebuild partitioning cannot elide it.
-            kept[index] = obligation.clone();
+            kept[index] = bound_obligation_message(obligation.clone());
             if let TranscriptMessage::Tool { pinned, .. } = &mut kept[index] {
                 *pinned = true;
             }
             continue;
         }
 
-        let mut retained = obligation.clone();
+        let mut retained = bound_obligation_message(obligation.clone());
         if let TranscriptMessage::Tool { pinned, .. } = &mut retained {
             *pinned = true;
         }
         kept.push(retained);
     }
     kept
+}
+
+/// Header on an obligation-tagged tool result whose bulk was reclaimed.
+const BOUNDED_OBLIGATION_HEADER: &str =
+    "[tool output bounded for compaction; open obligation kept]";
+
+/// With the host option `bound_obligation_results` on, keep an obligation-tagged tool result
+/// reclaimable (audit 2026-11-05 compaction M1). The marker otherwise pins the whole output
+/// verbatim through every pass, so one large log mentioning "open obligation" could hold the
+/// context above the trigger forever. Above the recent-output cap, keep only the obligation
+/// itself: the text from the marker on, bounded to that cap. Off, the result is kept whole.
+fn bound_obligation_message(mut message: TranscriptMessage) -> TranscriptMessage {
+    if !crate::host_options::bound_obligation_results() {
+        return message;
+    }
+    if let TranscriptMessage::Tool { summary, .. } = &mut message {
+        if summary.len() > MAX_RECENT_TOOL_SUMMARY_BYTES {
+            // ASCII uppercasing keeps byte offsets, so `marker` is a char
+            // boundary in the original text.
+            let marker = summary
+                .to_ascii_uppercase()
+                .find("OPEN OBLIGATION")
+                .unwrap_or(0);
+            let excerpt = truncate_utf8(&summary[marker..], MAX_RECENT_TOOL_SUMMARY_BYTES);
+            *summary = format!("{BOUNDED_OBLIGATION_HEADER}\n{excerpt}");
+        }
+    }
+    message
 }
 
 fn is_open_obligation_message(message: &TranscriptMessage) -> bool {
@@ -159,8 +187,7 @@ pub(crate) fn rebuild_authoritative_messages(
         )
     });
     let has_prior_memory = has_memory_block(&pinned_kept, session_id);
-    #[allow(unused_mut)]
-    let mut pinned_kept = if has_prior_memory || memory_block_provider.is_some() {
+    let pinned_kept = if has_prior_memory || memory_block_provider.is_some() {
         strip_prior_memory_block(pinned_kept, session_id)
     } else {
         pinned_kept
@@ -300,7 +327,10 @@ pub(crate) fn latest_user_index_before(
 ) -> Option<usize> {
     messages[..keep_from.min(messages.len())]
         .iter()
-        .rposition(|message| matches!(message, TranscriptMessage::User { .. }))
+        .rposition(|message| {
+            // The quoted-tool-data user message is not the user's own intent.
+            matches!(message, TranscriptMessage::User { id, .. } if !id.starts_with(PRESERVED_TOOL_DATA_ID_PREFIX))
+        })
 }
 
 /// `true` if any of the assistant's tool calls read a SKILL.md / instruction

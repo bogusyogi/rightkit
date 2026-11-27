@@ -18,6 +18,7 @@
 
 pub mod adapt_consumer;
 pub mod agents;
+mod approval_effects;
 pub mod assurance_broker;
 pub mod cache;
 pub mod compaction_archive;
@@ -37,6 +38,7 @@ pub mod file_collision;
 mod goal_continuation;
 pub mod goal_state;
 pub mod guardian;
+pub mod host_options;
 pub mod image_eviction;
 pub mod kinds;
 pub mod lineage_budget;
@@ -46,6 +48,7 @@ pub mod mutation_diagnostics;
 pub mod overflow_recovery;
 pub mod pinned_context;
 pub mod post_edit;
+mod post_edit_diagnostics;
 mod post_turn_gate;
 pub mod prompt_cache_break;
 pub mod provider_turn_boundary;
@@ -68,6 +71,22 @@ pub mod qualification_trace {
         crate::tool_dispatch_plumbing::production_admission_trace()
     }
 }
+/// Read access to the admission stages the dispatch seam recorded for a tool call, in recorded
+/// order. Always compiled; the fault-injection view of the same trace is `qualification_trace`.
+pub mod admission_trace {
+    /// The labels of the admission stages recorded for `call_id`, in recorded order.
+    pub fn stages(call_id: &str) -> Vec<&'static str> {
+        crate::tool_dispatch_plumbing::admission_stage_labels(call_id)
+    }
+    /// Whether the call reached the `execute` stage.
+    pub fn reached_execute(call_id: &str) -> bool {
+        stages(call_id).contains(&"execute")
+    }
+    /// Whether the stages recorded for `call_id` appear in canonical order (skips allowed).
+    pub fn canonically_ordered(call_id: &str) -> bool {
+        crate::tool_dispatch_plumbing::production_admission_trace().is_canonically_ordered(call_id)
+    }
+}
 pub mod tool_output_stream;
 mod tool_policy;
 pub mod tool_result_store;
@@ -75,6 +94,16 @@ pub mod transcript;
 mod transcript_plumbing;
 pub mod usage;
 pub mod verify_fanout;
+
+/// How the goal reminder the engine appends to each request starts. A reader looking for the
+/// person's own latest message (the context envelope's task text) skips a turn that starts so.
+pub const GOAL_REMINDER_PREFIX: &str = "Persistent goal (track until complete): ";
+
+/// The kind of the observation a turn records when it has spent its round budget (`--max-turns`,
+/// a role's turn limit) and ended on a summary. The turn still ends `completed`, so this
+/// observation, published right after the summary, is how a caller tells a turn that was cut off
+/// from one that finished its work.
+pub const TURN_LIMIT_OBSERVATION_KIND: &str = "turn_limit_reached";
 
 pub use cache::{
     system_prompt_only_cache_key, CacheStatus, CacheTracker, ConductorStableKey, StableCacheKey,
@@ -100,7 +129,7 @@ pub use context_fold::{
     FoldedTrajectory,
 };
 pub use engine::{retire_session_compaction_state, CompactionOutcome, EngineError, SessionEngine};
-pub use failure::{classify_failure, FailureKind};
+pub use failure::{classify_failure, is_retryable_stream_failure, stream_retry_delay, FailureKind};
 pub use goal_state::{
     ContinueDecision, GoalGapFingerprint, GoalGapFingerprintClass, GoalGapObservation,
     GoalGapTracker, GoalState, UnresolvedGoalGap,
@@ -113,7 +142,7 @@ pub use image_eviction::{
 };
 pub use kinds::{parse_artifact_kind, ArtifactKind};
 pub use lineage_budget::{usd_to_microusd, LineageBudget, LineageReservation};
-pub use llm::{LlmClient, LlmRequestMetadata, LlmResponse, ScriptedLlm};
+pub use llm::{CacheRetention, LlmClient, LlmRequestMetadata, LlmResponse, ScriptedLlm};
 pub use mutation_diagnostics::{
     MutationDiagnostics, MutationDiagnosticsFailure, MutationDiagnosticsFailureKind,
 };
@@ -130,4 +159,4 @@ pub use self_review::{
 };
 pub use tool_result_store::{read_tool_result, ToolResultStore};
 pub use transcript::Transcript;
-pub use usage::UsageAccount;
+pub use usage::{ModelPrices, UsageAccount};

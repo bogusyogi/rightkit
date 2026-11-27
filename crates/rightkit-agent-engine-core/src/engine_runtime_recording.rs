@@ -18,7 +18,8 @@ impl SessionEngine {
         {
             let session_id = self.session_id.clone();
             let status = status.to_string();
-            handle.spawn(async move {
+            // Tracked so a short-lived host process waits for it before exiting.
+            rightkit_hooks::agent_hooks::track_pending(handle.spawn(async move {
                 bus.run_event_hooks(
                     "SessionEnd",
                     &session_id,
@@ -27,8 +28,9 @@ impl SessionEngine {
                     &[("RIGHTKIT_HOOK_STATUS", status)],
                 )
                 .await;
-            });
+            }));
         }
+        rightkit_hooks::agent_hooks::note_session_end();
         self.record_runtime_span(
             MiddlewarePhase::SessionEnd,
             status,

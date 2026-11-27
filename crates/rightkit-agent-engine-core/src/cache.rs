@@ -4,19 +4,24 @@
 //! parse_iso_day) are owned by the published `rightkit-cache` crate. This shim
 //! preserves the historical crate::cache::* import paths inside the engine crate.
 
-// keys already persisted with this basis (the provider prompt-cache routing key in engine_loop)
-#[allow(deprecated)]
 pub use rightkit_cache::prefix::{
-    parse_iso_day, system_prompt_only_cache_key, CacheStatus, CacheTracker, ConductorStableKey,
-    StableCacheKey, CONDUCTOR_CACHE_KEY_PREFIX,
+    fnv1a_64, parse_iso_day, system_prompt_only_cache_key, CacheStatus, CacheTracker,
+    ConductorStableKey, StableCacheKey, CONDUCTOR_CACHE_KEY_PREFIX,
 };
 
 /// The non-standard FNV-1a 64 variant behind every cache-slot name, routing key and signature the
-/// engine already persisted or sent to providers. Its values must not change, so the one
-/// deprecated call lives here and the engine's callers use this wrapper.
-#[allow(deprecated)] // legacy basis kept on purpose: existing provider slots and persisted keys hit it
+/// engine already persisted or sent to providers: the standard FNV-1a 64 loop with an offset basis
+/// of 1469598103934665603 (the standard basis with its last digit missing), so it matches no other
+/// FNV-1a implementation. Its values must not change. `rightkit_cache::prefix::fnv1a` is the same
+/// function but deprecated and has no undeprecated twin, so the loop is spelled out here rather than
+/// calling it under a lint waiver.
 pub fn fnv1a(s: &str) -> u64 {
-    rightkit_cache::prefix::fnv1a(s)
+    let mut hash: u64 = 1469598103934665603;
+    for byte in s.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(1099511628211);
+    }
+    hash
 }
 
 /// Production-side helper: the UTC day component of rightkit_agent_engine_protocol::now_iso.

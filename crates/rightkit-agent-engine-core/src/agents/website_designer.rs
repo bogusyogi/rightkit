@@ -17,6 +17,9 @@ pub fn is_website_task(text: &str) -> bool {
     lower.contains("/website") || (has_site && has_action)
 }
 
+/// The designer prompt as written for a host that has not named itself: `Host` stands for the
+/// product and `~/.host/` for its state folder. A host that names itself reads
+/// [`website_designer_system_prompt`] instead, which puts its own names in.
 pub const WEBSITE_DESIGNER_SYSTEM_PROMPT: &str = r#"
 You are the WebsiteDesigner agent inside Host. Your single job is to produce a
 VISUALLY DISTINCT, non-templated marketing or product website that does NOT look AI-generated.
@@ -182,3 +185,24 @@ DEFAULT PORTFOLIO REGISTRY (use if ~/.host/website/portfolio-registry.md does no
 base = 2 light / 2 dark; type = serif / grotesque / humanist / mono — all four different;
 accent = oxblood / blue / teal / copper — four different hue families. No pair shares ≥3 axes. ✅
 "#;
+
+/// The designer prompt with this host's names in it: the product name where the template says
+/// `Host`, and the host's state folder where it says `~/.host/`. Built once, on first use, so the
+/// host must name itself (`rightkit_agent_config::set_app_name`, `set_env_prefix`,
+/// `set_state_dir_name`) before the first call.
+pub fn website_designer_system_prompt() -> &'static str {
+    static PROMPT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    PROMPT.get_or_init(|| {
+        let product = if rightkit_agent_config::host_slug() == "rightkit" {
+            "Host"
+        } else {
+            rightkit_agent_config::app_name()
+        };
+        WEBSITE_DESIGNER_SYSTEM_PROMPT
+            .replace(
+                "~/.host/",
+                &format!("~/{}/", rightkit_agent_config::state_dir_name()),
+            )
+            .replace("Host", product)
+    })
+}

@@ -89,7 +89,21 @@ impl SessionEngine {
                 // it on the next request, but the turn proceeds — a missing
                 // optional language server must neither force-finish nor
                 // endlessly reenter.
-                self.transcript.push_user(instruction.clone());
+                //
+                // The same unavailable verifier (e.g. no language server in this host) would
+                // otherwise add a note after every edit, each carried in every later request
+                // (576 notes on the 2026-11-06/07 run). Tell the model once per verifier and
+                // reason; the observation above still records every run.
+                let keys = optional_gap_keys(&report);
+                if !keys.is_empty()
+                    && keys
+                        .iter()
+                        .all(|key| self.reported_optional_gaps.contains(key))
+                {
+                    return None;
+                }
+                self.reported_optional_gaps.extend(keys);
+                self.transcript.push_nudge(instruction.clone());
                 self.emit(|seq| ProtocolEvent::HumanSteeringInjected {
                     session_id: sid.to_string(),
                     seq,
@@ -112,7 +126,7 @@ impl SessionEngine {
                         crate::verify_fanout::required_gap_lines(&report),
                     );
                 }
-                self.transcript.push_user(instruction.clone());
+                self.transcript.push_nudge(instruction.clone());
                 self.emit(|seq| ProtocolEvent::HumanSteeringInjected {
                     session_id: sid.to_string(),
                     seq,
@@ -141,6 +155,22 @@ impl SessionEngine {
         >,
     ) {
         self.dispatch_tool_call(call, turn_results).await;
+    }
+
+    pub(in crate::engine) fn streaming_tool_is_concurrent_safe(&self, call: &ToolCall) -> bool {
+        let schema = self.tools.get(&call.name).map(|tool| tool.input_schema());
+        let (args, parse_error) = crate::tool_dispatch_plumbing::parse_tool_arguments_attributed(
+            &call.arguments_json,
+            schema.as_ref(),
+            Some(&call.name),
+            self.repair_attribution.as_ref(),
+        );
+        if parse_error.is_some() {
+            return false;
+        }
+        let mut canonical_call = call.clone();
+        canonical_call.arguments_json = args.to_string();
+        self.can_dispatch_readonly_fast(&&canonical_call)
     }
 
     pub(in crate::engine) async fn dispatch_response_tools_and_post_checks(
@@ -219,12 +249,31 @@ impl SessionEngine {
             }
         }
 
-        for run in runs {
+        let mut started_calls = 0usize;
+        'runs: for run in runs {
+            // A steer or cancel that arrived while earlier calls ran is read before the next call
+            // starts: the rest are recorded as not run and the next iteration applies it.
+            if started_calls > 0 && self.steer_is_pending() {
+                let unfinished: Vec<ToolCall> = response
+                    .tool_calls
+                    .iter()
+                    .filter(|call| !turn_results.contains_key(&call.id))
+                    .cloned()
+                    .collect();
+                self.record_undispatched_streaming_calls(
+                    sid,
+                    unfinished,
+                    "a new instruction from the user arrived before it started",
+                    &mut turn_results,
+                );
+                break 'runs;
+            }
             match run {
                 ToolRun::Read(calls) => {
-                    // Bounded (default 10, `RIGHTKIT_MAX_CONCURRENT_TOOL_CALLS`)
+                    // Bounded (default 10, `<PREFIX>_MAX_CONCURRENT_TOOL_CALLS`)
                     // so an unusually large read-only run cannot fan out an
                     // unbounded number of concurrent tool executions at once.
+                    started_calls += calls.len();
                     self.dispatch_concurrent_batch_bounded(&calls, &mut turn_results)
                         .await;
                 }
@@ -244,6 +293,22 @@ impl SessionEngine {
                     // gated as side-effect-free and idempotent by
                     // `can_dispatch_readonly_fast`.
                     for call in &calls {
+                        if started_calls > 0 && self.steer_is_pending() {
+                            let unfinished: Vec<ToolCall> = response
+                                .tool_calls
+                                .iter()
+                                .filter(|call| !turn_results.contains_key(&call.id))
+                                .cloned()
+                                .collect();
+                            self.record_undispatched_streaming_calls(
+                                sid,
+                                unfinished,
+                                "a new instruction from the user arrived before it started",
+                                &mut turn_results,
+                            );
+                            break 'runs;
+                        }
+                        started_calls += 1;
                         self.dispatch_tool_call(call, &mut turn_results).await;
                     }
                 }
@@ -255,6 +320,16 @@ impl SessionEngine {
                 self.stall_guardrail.observe_result(call, &result.content);
             }
         }
+        // One model reply's tool calls have all finished: tell `PostToolBatch` hooks.
+        self.run_lifecycle_hooks(
+            "PostToolBatch",
+            &[(
+                "RIGHTKIT_HOOK_TOOL_COUNT",
+                response.tool_calls.len().to_string(),
+            )],
+        )
+        .await;
+        self.run_file_changed_hooks(&turn_results).await;
 
         // ─── Block 1: typed unbacked-mutation guard ────────────────────────
         // A WriteFile-class success with an empty `mutations` list is a
@@ -278,7 +353,13 @@ impl SessionEngine {
                     instruction,
                     reason,
                 } => {
-                    self.transcript.push_user(instruction.clone());
+                    // #374: this text lists every call id and touched path, so it is bounded
+                    // like every other gate text before it joins the transcript.
+                    let instruction = crate::tool_result_store::bound_gate_text(
+                        &mut self.tool_results,
+                        &instruction,
+                    );
+                    self.transcript.push_nudge(instruction.clone());
                     self.emit(|seq| ProtocolEvent::HumanSteeringInjected {
                         session_id: sid.to_string(),
                         seq,
@@ -289,10 +370,16 @@ impl SessionEngine {
                             &instruction,
                         )),
                     });
-                    return ToolDispatchOutcome::Continue;
+                    // The batch's real edits still need the fan-out (audit
+                    // MEDIUM-4): it arms `pending_verify` for them, and the turn
+                    // re-enters either way, so its outcome adds nothing here.
+                    let verified = self
+                        .post_edit_verify_gate(&turn_results, iteration, sid, pending_verify)
+                        .await;
+                    return verified.unwrap_or(ToolDispatchOutcome::Continue);
                 }
                 crate::post_turn_gate::PostTurnGateDecision::ForceFinish { warning } => {
-                    self.transcript.push_user(warning.clone());
+                    self.transcript.push_nudge(warning.clone());
                     return ToolDispatchOutcome::Finished(warning);
                 }
                 crate::post_turn_gate::PostTurnGateDecision::Proceed => {}
@@ -334,6 +421,16 @@ impl SessionEngine {
                 self.stall_guardrail.observe_result(call, &result.content);
             }
         }
+        // One model reply's tool calls have all finished: tell `PostToolBatch` hooks.
+        self.run_lifecycle_hooks(
+            "PostToolBatch",
+            &[(
+                "RIGHTKIT_HOOK_TOOL_COUNT",
+                response.tool_calls.len().to_string(),
+            )],
+        )
+        .await;
+        self.run_file_changed_hooks(turn_results).await;
         let unbacked =
             crate::post_turn_gate::detect_unbacked_mutations(&response.tool_calls, turn_results);
         if !unbacked.is_empty() {
@@ -350,7 +447,13 @@ impl SessionEngine {
                     instruction,
                     reason,
                 } => {
-                    self.transcript.push_user(instruction.clone());
+                    // #374: this text lists every call id and touched path, so it is bounded
+                    // like every other gate text before it joins the transcript.
+                    let instruction = crate::tool_result_store::bound_gate_text(
+                        &mut self.tool_results,
+                        &instruction,
+                    );
+                    self.transcript.push_nudge(instruction.clone());
                     self.emit(|seq| ProtocolEvent::HumanSteeringInjected {
                         session_id: sid.to_string(),
                         seq,
@@ -361,10 +464,16 @@ impl SessionEngine {
                             &instruction,
                         )),
                     });
-                    return ToolDispatchOutcome::Continue;
+                    // The batch's real edits still need the fan-out (audit
+                    // MEDIUM-4): it arms `pending_verify` for them, and the turn
+                    // re-enters either way, so its outcome adds nothing here.
+                    let verified = self
+                        .post_edit_verify_gate(turn_results, iteration, sid, pending_verify)
+                        .await;
+                    return verified.unwrap_or(ToolDispatchOutcome::Continue);
                 }
                 crate::post_turn_gate::PostTurnGateDecision::ForceFinish { warning } => {
-                    self.transcript.push_user(warning.clone());
+                    self.transcript.push_nudge(warning.clone());
                     return ToolDispatchOutcome::Finished(warning);
                 }
                 crate::post_turn_gate::PostTurnGateDecision::Proceed => {}
@@ -379,4 +488,30 @@ impl SessionEngine {
         }
         ToolDispatchOutcome::Proceed
     }
+}
+
+/// One key per optional verifier that produced no verdict: its id and reason, without the path, so a
+/// repeat of the same gap on another file is recognised.
+pub(crate) fn optional_gap_keys(report: &crate::verify_fanout::FanoutReport) -> Vec<String> {
+    report
+        .outcomes
+        .iter()
+        .filter(|outcome| !outcome.requirement.is_required())
+        .filter_map(|outcome| match &outcome.status {
+            crate::verify_fanout::VerifierStatus::Unavailable { reason } => {
+                let subject = outcome
+                    .subject
+                    .as_ref()
+                    .map(|path| path.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                let reason = if subject.is_empty() {
+                    reason.clone()
+                } else {
+                    reason.replace(&subject, "")
+                };
+                Some(format!("{}:{reason}", outcome.verifier.0))
+            }
+            _ => None,
+        })
+        .collect()
 }
