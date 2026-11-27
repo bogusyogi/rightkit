@@ -2479,7 +2479,9 @@ async function runStages(o, args, root, git, io) {
         else if (packageMulti.note) o.out(`${tag} [package] ${packageMulti.note}`);
       }
       const packageEnv = packagePin.dir ? { CARGO_TARGET_DIR: packagePin.dir } : (packageMulti?.env ?? {});
-      ok = ok && await rightRelease(stage, ["build", "--platform", platform], { ...packageEnv, ...(doorRegistryAdmissionFile ? { RK_DOOR_REGISTRY_ADMISSION: doorRegistryAdmissionFile } : {}) });
+      // GC-A28 for the package stage: right-release runs inside the snapshot, whose `.git` stub cannot count commits (assemble-app stamps CFBundleVersion).
+      const packageBuildNumber = ok && ds ? buildNumberOf({ o, git, commit, tag }) : {};
+      ok = ok && await rightRelease(stage, ["build", "--platform", platform], { ...packageEnv, ...packageBuildNumber, ...(doorRegistryAdmissionFile ? { RK_DOOR_REGISTRY_ADMISSION: doorRegistryAdmissionFile } : {}) });
       const sealed = ok ? (o.sealedFor ?? sealedFor)({ root: releaseRoot, commit, platform }) : null;
       if (ok && !sealed) { o.err(`${tag} [package] the build reported success but sealed nothing for ${commit.slice(0, 8)} on ${platform}`); ok = false; }
       if (sealed) extra = { platform, sealed: sealed.id, manifestSha256: sealed.digest };
@@ -4165,6 +4167,20 @@ export async function runRenderStage({ o, ds, root, appDir, commit, tree, env, p
 }
 
 /**
+ * The build number a snapshot child cannot count itself (docs/GATE-CONTRACT.md [GC-A28]): the snapshot's `.git` is a config-only stub, so
+ * assembled-app.mjs commitCount refuses ASSEMBLY_VERSION_UNAVAILABLE there unless RIGHT_BUILD_NUMBER is handed down. Counted in the checkout for the
+ * selected commit. A shallow history or an unreadable count hands down nothing and says so. Used by the dev/test route and, since rightkit#1754
+ * (Pulse Mac feb5769f, package stage), by the door's package stage.
+ */
+function buildNumberOf({ o, git, commit, tag }) {
+  const shallow = git("rev-parse", "--is-shallow-repository");
+  const count = failed(shallow) || text(shallow).trim() === "true" ? null : git("rev-list", "--count", commit);
+  if (count && !failed(count) && /^[1-9][0-9]*$/.test(text(count).trim())) return { RIGHT_BUILD_NUMBER: text(count).trim() };
+  o.out(`${tag} note: no build number for ${commit.slice(0, 12)} (the checkout is shallow or cannot count its history); an app that stamps CFBundleVersion will refuse with ASSEMBLY_VERSION_UNAVAILABLE`);
+  return {};
+}
+
+/**
  * rightkit-gate --to dev|test [--commit <rev>] [-- <right-release dev|test arguments>]: the local compiles, on a commit like every other
  * stage (docs/GATE-CONTRACT.md "Commit-only build": `--to dev` and `--to test` build a commit; `--worktree` never admits a build). The
  * door has selected the commit and synced its snapshot under the snapshot lock (runStages); this runs full class A of that snapshot
@@ -4228,13 +4244,7 @@ async function runDevTest(o, args, root, git, io, to, appRoot, appDir) {
   // The snapshot's `.git` is a config-only stub, so right-release cannot count commits there (assembled-app.mjs commitCount, ASSEMBLY_VERSION_UNAVAILABLE): the gate
   // counts the commit in the checkout and hands the number down (docs/GATE-CONTRACT.md [GC-A28]). A shallow history or an unreadable count hands down nothing and says
   // so; only an app whose build stamps CFBundleVersion needs the number, and right-release refuses there (it cannot count in the stub either).
-  let buildNumber = {};
-  if (ds) {
-    const shallow = git("rev-parse", "--is-shallow-repository");
-    const count = failed(shallow) || text(shallow).trim() === "true" ? null : git("rev-list", "--count", commit);
-    if (count && !failed(count) && /^[1-9][0-9]*$/.test(text(count).trim())) buildNumber = { RIGHT_BUILD_NUMBER: text(count).trim() };
-    else o.out(`${tag} note: no build number for ${commit.slice(0, 12)} (the checkout is shallow or cannot count its history); an app that stamps CFBundleVersion will refuse with ASSEMBLY_VERSION_UNAVAILABLE`);
-  }
+  const buildNumber = ds ? buildNumberOf({ o, git, commit, tag }) : {};
   // GB-58 (GATE dev/test exact stage; E19): the selected app's declared sidecars are staged ONCE under this snapshot's ownership before the dependent
   // build, through the same planner and ledger as the compile and package stages (a Tauri crate with externalBin refuses to build without them). The
   // app's own prepare step may stage them too; the ledger's attribution check, not an environment marker, is what keeps that single and exact.

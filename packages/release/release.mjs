@@ -1309,7 +1309,13 @@ async function runCommand(command, root, { env = {}, captureStdout = false } = {
   const nativeCommand = nativeToolOf(command.cmd) !== null;
   const { [NATIVE_SIGNING_FILE_ENV]: signingFile, ...dynamicEnv } = env;
   const commandEnvironment = { ...(await commandEnv(command, root)), ...(nativeCommand ? dynamicEnv : env) };
-  const target = buildLaunch(command.cmd, command.args ?? [], { env: { ...process.env, ...commandEnvironment }, stepEnv: command.env, cwd, exists: existsSync, ...(nativeCommand && signingFile ? { signingFile } : {}) });
+  // GC-A28: an assemble-app step stamps CFBundleVersion from RIGHT_BUILD_NUMBER, which the gate counted in the checkout (the snapshot's `.git` stub
+  // cannot). On a broker host the step is an adapter job whose environment carries only the names the step declares, so the number is declared here,
+  // for that step only; the adapter's registry entry must list RIGHT_BUILD_NUMBER (RK_ADAPTER_ENV_DENIED otherwise).
+  const assembles = (command.args ?? []).map(String).includes("assemble-app");
+  const buildNumber = assembles && /^[1-9][0-9]*$/.test(process.env.RIGHT_BUILD_NUMBER ?? "") ? { RIGHT_BUILD_NUMBER: process.env.RIGHT_BUILD_NUMBER } : {};
+  const stepEnv = Object.keys(buildNumber).length ? { ...(command.env ?? {}), ...buildNumber } : command.env;
+  const target = buildLaunch(command.cmd, command.args ?? [], { env: { ...process.env, ...commandEnvironment }, stepEnv, cwd, exists: existsSync, ...(nativeCommand && signingFile ? { signingFile } : {}) });
   // A direct (Linux) launch carries PATH without RustRight shim directories (build-launch `env`).
   return run(target.command, target.args, cwd, { ...commandEnvironment, ...(target.env ?? {}) }, {
     ...command,

@@ -34,6 +34,8 @@
 //                         (a per-version or hand-written entry; rightkit#1476)
 //   commit-citations G28  (release tier) a commit this push adds that cites no issue, or changes code without a `Contract: <file>#<section>`
 //                         line (rightkit#1268); no baseline excuses it
+//   lint-waiver-added G30 (compile tier) a Rust file holding more lint waivers (allow/expect attributes, cfg_attr waivers, [lints] "allow",
+//                         lint-disabling rustflags) than at the merge-base with origin/main (first parent for a commit already there); rightkit#1830
 //
 // Suite trust roots (lane C3; logic in suite-trust-roots.mjs). The licence and updater public keys have one owner,
 // contracts/right-suite-api.v1.json (generated into suite-api.generated.mjs):
@@ -111,6 +113,7 @@ import { OWNERSHIP_CLASS_RULES } from "./ownership-class-rules.mjs";
 import { SOURCE_CLOSURE_RULES } from "./source-closure-rules.mjs";
 import { SHELL_CONTRACT_RULES } from "./shell-contract.mjs";
 import { neutralIgnored } from "./stage-ledger.mjs";
+import { waiverKindOf, waiversIn } from "./lint-waivers.mjs";
 import { CONSUMER_SOURCE_RULES } from "./consumer-source-contracts.mjs";
 import { CONSUMER_POLICY_RULES } from "./consumer-policy.mjs";
 import { engineRecordStore, suiteKeyLiteral, suiteUpdaterKey } from "./suite-trust-roots.mjs";
@@ -1332,7 +1335,38 @@ function qaStashIgnored({ root, files }) {
   return out;
 }
 
+// G30 (bogusyogi/rightkit#1830, first slice; Adrian 2026-11-27: "Where's The fucking Rk enforcement I clearly asked for"): Rust lint waivers
+// (lint-waivers.mjs, ported from Legion's check-waivers; self-contained, no gate internals, so it can move to a dedicated lint package). One rule over every tracked .rs, Cargo.toml and .cargo/config(.toml) outside fixture trees:
+//   lint-waiver-added  (compile tier) a file holds more waivers than it did at the anchor: the merge-base with origin/main, or, for a commit already on
+//                      origin/main, its first parent. No file is stored or approved; a new file counts from zero. Moving a waiver to another file is adding one.
+//                      With no anchor (no origin/main, no common history) it fails: it cannot tell what was added.
+//   A release-tier rule refusing any waiver at all follows once each repository reports zero (Neon, 27 Nov: option B; Pulse's Mac qualify is not stopped meanwhile).
+const waiverFiles = (files) => files.filter((f) => scanned(f) && waiverKindOf(f));
+function waiverAnchor(repo, commit) {
+  try {
+    const tip = git(["cat-file", "-t", commit], { cwd: repo }).trim() === "commit" ? commit : git(["rev-parse", "HEAD"], { cwd: repo }).trim();
+    const base = git(["merge-base", tip, "origin/main"], { cwd: repo }).trim();
+    if (!base) return { anchor: null, why: "git merge-base with origin/main printed nothing" };
+    if (base !== tip) return { anchor: base, how: "the merge-base with origin/main" };
+    try { return { anchor: git(["rev-parse", tip + "^1"], { cwd: repo }).trim(), how: "its first parent (the commit is already on origin/main)" }; } catch { return { anchor: null, why: "the commit is on origin/main and has no parent" }; }
+  } catch (error) { return { anchor: null, why: String(error.message).split("\n")[0] }; }
+}
+function lintWaiversAdded({ root, commit, files, repo }) {
+  const at = waiverAnchor(repo, commit);
+  if (!at.anchor) return [{ subject: "anchor", problem: "cannot tell which lint waivers this commit adds: " + at.why, fix: "fetch origin/main into this repository, then check again" }];
+  const out = [];
+  for (const file of waiverFiles(files)) {
+    const now = waiversIn(readText(root, file) ?? "", waiverKindOf(file));
+    if (!now.length) continue;
+    let before = 0;
+    try { before = waiversIn(git(["cat-file", "blob", at.anchor + ":" + file], { cwd: repo }), waiverKindOf(file)).length; } catch { before = 0; }
+    if (now.length > before) out.push({ file, subject: file, problem: file + " holds " + now.length + " lint waiver(s), " + before + " at " + at.anchor.slice(0, 12) + " (" + at.how + "): " + (now.length - before) + " added (" + now.map((w) => "line " + w.line + ": " + w.reason).join("; ") + ")", fix: "remove the added waiver and fix what the lint points at; existing waivers are cleaned up by the repository's own chat and none may be added meanwhile" });
+  }
+  return out;
+}
+
 export const RULES = Object.freeze([
+  { id: "lint-waiver-added", gap: "G30", run: lintWaiversAdded },
   { id: "eol-policy", gap: "G04", run: eolPolicy },
   { id: "qa-stash-ignored", gap: "G29", run: qaStashIgnored },
   { id: "file-url", gap: "G12", run: fileUrls },
@@ -1377,6 +1411,8 @@ export const COMPILE_TIER_IDS = Object.freeze(new Set([
   "qa-dev-server", "ffmpeg-release-escape", "switches-inventory", "speech-link", "e2e-under-cargo-test",
   // rightkit#1221 asks for a compile-tier rule: the primary-checkout rule is Adrian's standing one, and a script that clones is refused before any compile.
   "scratch-checkout",
+  // bogusyogi/rightkit#1830: no new lint waiver from the first compile on. It is true in every app on the day it ships (it judges only what a commit adds).
+  "lint-waiver-added",
 ]));
 /** The tier a rule runs from: compile for the 0.6.6 set, release for everything added since. */
 export const tierOf = (rule) => (COMPILE_TIER_IDS.has(rule.id) ? "compile" : "release");

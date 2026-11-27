@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- A desktop package run hands the build number to the app's assembly (GC-A28, Pulse Mac feb5769f). Inside the snapshot the commit history cannot be counted, so `right-release assemble-app` refused with `ASSEMBLY_VERSION_UNAVAILABLE` when it stamps CFBundleVersion. The gate counts the commit in the primary checkout (as the dev and test route already did) and passes `RIGHT_BUILD_NUMBER` to `right-release build`; right-release declares it for an `assemble-app` step only, so a broker host forwards it to that adapter job. The broker's `rightkit-pnpm` entry must list `RIGHT_BUILD_NUMBER` on each host first, or the step is refused `RK_ADAPTER_ENV_DENIED`.
+
+- New compile-tier check rule `lint-waiver-added` (rightkit#1830): a Rust file may not hold more lint waivers than it did at the merge-base with origin/main (its first parent for a commit already on origin/main). A waiver is an `allow` or `expect` attribute (also inside `cfg_attr`), a `[lints]` level of "allow", or rustflags that disable lints; comments and strings are not read, fixture trees are skipped. The scan (`lint-waivers.mjs`) is a port of Legion's `check-waivers`. Existing waivers are not refused yet; a release-tier rule refusing any waiver follows once each repository holds none.
+
 ## 0.6.90
 
 - The gate's desktop release stage publishes an app whose sealed manifest names `distribution.provider: "r2-rightapps"` from the host, through the same `publish-update` that already put the existing R2 versions up. Package seals the provider into the manifest; the release stage reads it only from manifest bytes whose sha256 equals the sealed digest, and runs `publish-update` from the primary checkout only while the qualified manifest is still the sealed one. Every R2 object goes up in process (one signed PutObject below the multipart threshold, multipart above it) and is read back before the run continues; a readback that differs is `PUBLICATION_REMOTE_MISMATCH`. Wrangler is no longer on the publish path. A manifest sealed before this release has no provider and stays refused, so an R2 app needs one new package run. GitHub-releases apps are unchanged.
