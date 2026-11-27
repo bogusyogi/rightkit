@@ -40,8 +40,8 @@ export function caseCommit(repo, base, edits, name, scratch) {
   git(repo, ["update-ref", `refs/witness/acceptance-${name}`, commit]); fs.rmSync(idx, { force: true });
   return commit;
 }
-/** The history file the gate keeps for a store (class-a-cache-history.mjs: named after the store's path). */
-export const historyFileOf = (managed, storeDir) => path.join(managed, "runs", "rightkit-class-a-history", `${sha256(path.resolve(storeDir).toLowerCase())}.json`);
+/** The history file the gate keeps for a store (class-a-cache-history.mjs: named after the store's path, lowercased on Windows only). */
+export const historyFileOf = (managed, storeDir) => path.join(managed, "runs", "rightkit-class-a-history", `${sha256(process.platform === "win32" ? path.resolve(storeDir).toLowerCase() : path.resolve(storeDir))}.json`);
 const moveAside = (from, to) => { if (!fs.existsSync(from)) return false; fs.mkdirSync(path.dirname(to), { recursive: true }); fs.renameSync(from, to); return true; };
 /** Ends the gate and every program it started (Windows: the whole tree by pid; elsewhere the process group is the launcher's to signal). */
 const killTree = (pid) => { try { if (process.platform === "win32") execFileSync("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" }); else process.kill(pid, "SIGKILL"); } catch { /* already gone */ } };

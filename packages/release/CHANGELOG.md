@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.92
+
+- The acceptance run's "from nothing" case sets aside the gate's Class A history on the Mac too. The runner named the history file from the lowercased store path on every platform, while the gate lowercases it on Windows only, so on the Mac the history stayed while its store was moved aside and the gate refused case 1 ("expected entry absent; removal cause unknown"), failing every later line that needs a passing run. The runner now names it the way the gate does. Windows is unchanged.
+
 ## 0.6.91
 
 - `rightkit-gate clippy` runs on the Mac and the Dell (rightkit#1811). It refused there with `RK_CLIPPY_BROKER_CARRIER_NOT_WIRED` since it was written: it waited on a carrier the 9 November reset removed. It now sends the request through the seam, as the compile stage's clippy rows do: `rustright cargo clippy` from the snapshot, naming the class A verdict its own full class A wrote, under the broker-aware snapshot lock. The broker pins outputs and adds `--keep-going`; the caller's lint levels after `--` reach clippy unchanged. Results come from cargo's JSON messages.
