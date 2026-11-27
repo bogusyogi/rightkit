@@ -371,6 +371,24 @@ struct SnoozeMap {
     by_id: std::collections::BTreeMap<String, String>,
 }
 
+/// Records that item `id` is snoozed until `until`. Holds [`lock_attention_state`] for the whole
+/// read-modify-write of `snooze.json`, so two concurrent snoozes cannot lose each other's update.
+fn snooze_id(workspace_root: &str, id: &str, until: &str) -> Result<(), String> {
+    let _guard = lock_attention_state();
+    let mut map = read_json::<SnoozeMap>(&snooze_path(workspace_root)).unwrap_or_default();
+    map.by_id.insert(id.to_string(), until.to_string());
+    write_json(&snooze_path(workspace_root), &map)
+}
+
+/// Removes any snooze on item `id`. Holds [`lock_attention_state`] for the whole read-modify-write
+/// of `snooze.json`.
+fn unsnooze_id(workspace_root: &str, id: &str) -> Result<(), String> {
+    let _guard = lock_attention_state();
+    let mut map = read_json::<SnoozeMap>(&snooze_path(workspace_root)).unwrap_or_default();
+    map.by_id.remove(id);
+    write_json(&snooze_path(workspace_root), &map)
+}
+
 fn load_density(workspace_root: &str) -> TranscriptDensity {
     let path = density_path(workspace_root);
     let value: Value = read_json(&path).unwrap_or_default();
@@ -497,13 +515,98 @@ fn seconds_to_hhmm(seconds: u64) -> String {
     format!("{:02}:{:02}", hours, minutes)
 }
 
+/// Seconds since the Unix epoch a snooze ends at: an RFC 3339 timestamp
+/// (`2026-11-05T10:00:00.000Z`, `...+02:00`), this crate's own `unix:<secs>`,
+/// or bare epoch seconds. `None` for anything else.
+fn parse_snooze_until(text: &str) -> Option<i64> {
+    let text = text.trim();
+    let digits = text.strip_prefix("unix:").unwrap_or(text);
+    if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) {
+        return digits.parse().ok();
+    }
+    let (date, rest) = text.split_once(['T', 't', ' '])?;
+    let mut d = date.split('-');
+    let (y, m, day): (i64, i64, i64) = (
+        d.next()?.parse().ok()?,
+        d.next()?.parse().ok()?,
+        d.next()?.parse().ok()?,
+    );
+    if d.next().is_some() {
+        return None;
+    }
+    let (clock, offset_secs) = if let Some(clock) = rest.strip_suffix(['Z', 'z']) {
+        (clock, 0)
+    } else {
+        let split = rest.rfind(['+', '-'])?;
+        let (clock, offset) = rest.split_at(split);
+        let sign = if offset.starts_with('-') { -1 } else { 1 };
+        let (oh, om) = offset[1..].split_once(':')?;
+        let (oh, om): (i64, i64) = (oh.parse().ok()?, om.parse().ok()?);
+        if oh > 23 || om > 59 {
+            return None;
+        }
+        (clock, sign * (oh * 3_600 + om * 60))
+    };
+    let clock = clock.split_once('.').map_or(clock, |(whole, frac)| {
+        if frac.bytes().all(|b| b.is_ascii_digit()) {
+            whole
+        } else {
+            ""
+        }
+    });
+    let mut t = clock.split(':');
+    let (h, mi, sec): (i64, i64, i64) = (
+        t.next()?.parse().ok()?,
+        t.next()?.parse().ok()?,
+        t.next()?.parse().ok()?,
+    );
+    if t.next().is_some()
+        || !(1..=12).contains(&m)
+        || !(1..=31).contains(&day)
+        || h > 23
+        || mi > 59
+        || sec > 60
+    {
+        return None;
+    }
+    // Days from civil (Howard Hinnant).
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    Some(days * 86_400 + h * 3_600 + mi * 60 + sec - offset_secs)
+}
+
+/// Whether a stored snooze still holds at `now_secs`. A snooze whose end has
+/// passed, or that names no readable time, no longer hides the item.
+fn snooze_active(until: &str, now_secs: i64) -> bool {
+    parse_snooze_until(until).is_some_and(|end| end > now_secs)
+}
+
+fn now_unix_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+        .unwrap_or_default()
+}
+
 fn build_attention_items(workspace_root: &str, density: TranscriptDensity) -> Vec<AttentionItem> {
+    build_attention_items_at(workspace_root, density, now_unix_secs())
+}
+
+fn build_attention_items_at(
+    workspace_root: &str,
+    density: TranscriptDensity,
+    now_secs: i64,
+) -> Vec<AttentionItem> {
     let notifications_path = std::path::PathBuf::from(workspace_root)
         .join(&config().state_dir)
         .join("notifications.json");
     let mut rows: Vec<Value> = read_notification_rows(&notifications_path);
     // A row held through quiet hours carries `releaseAt` (Unix seconds); it is not an item until then.
-    let now = now_seconds();
+    let now = u64::try_from(now_secs).unwrap_or_default();
     rows.retain(|row| {
         row.get("releaseAt")
             .and_then(Value::as_u64)
@@ -533,7 +636,12 @@ fn build_attention_items(workspace_root: &str, density: TranscriptDensity) -> Ve
             "snoozed" => AttentionState::Snoozed,
             _ => AttentionState::Unread,
         };
-        let snoozed_until = snooze_map.by_id.get(&id).cloned();
+        // A snooze whose end has passed (or names no readable time) no longer hides the item.
+        let snoozed_until = snooze_map
+            .by_id
+            .get(&id)
+            .filter(|until| snooze_active(until, now_secs))
+            .cloned();
         let effective_state = if snoozed_until.is_some() {
             AttentionState::Snoozed
         } else {

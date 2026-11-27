@@ -4,6 +4,10 @@ Agent attention inbox: unread/needs-input items, snooze, density, quiet hours an
 
 Moved into RightKit from `coderight-attention` (engine) on 2026-11-01.
 
+## Snooze
+
+`POST /attention/items/{id}/snooze` takes `snoozeUntil` as an RFC 3339 timestamp (`2026-11-05T10:00:00Z`, `...+02:00`, optional fraction), `unix:<secs>` or bare epoch seconds, and answers 400 for anything else. The list and banner routes stop hiding an item once that time has passed. `snooze.json` is updated under `lock_attention_state()`, so concurrent snoozes do not lose each other.
+
 ## Inbox (`inbox` module)
 
 The agent Inbox: what the agent found, the rule and evidence behind it, what it proposes, and where it stands. Types are `Inbox*`; none of it touches Pulse's `pulse-inbox` directory.
