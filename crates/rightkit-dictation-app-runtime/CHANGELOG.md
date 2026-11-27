@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.3
+
+- Add `host::app_binary_identity(version)`: the one-line app binary identity (version, executable file name, size, modification time) a host logs at startup. Additive only.
+
 ## 0.3.2
 
 - Publish the dependency requirements main already declares: `rightkit-fs` 0.5.0, where the published 0.3.1 requires 0.4.9. The 0.3.1 manifest on crates.io stays as published; this version carries the new requirements.

@@ -64,6 +64,25 @@ pub struct HandleConfig<T> {
     pub on_change: Option<fn(&Change)>,
 }
 
+/// The settings with the revision they were read at, in the shape a settings UI backend
+/// receives. The revision is a 64-bit value (a fingerprint for a flat file) that a JS number
+/// cannot hold exactly, so it is an opaque decimal string.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RevisionedSnapshot<T> {
+    /// The committed settings.
+    pub values: T,
+    /// The committed revision as a decimal string; send it back through [`parse_revision`].
+    pub revision: String,
+}
+
+/// Parse the opaque revision a settings UI sends back. A malformed one is treated as stale
+/// (an error starting with `revision_conflict: `, like [`REVISION_CONFLICT_PREFIX`]), never as
+/// "no expectation".
+pub fn parse_revision(text: &str) -> Result<u64, String> {
+    text.parse::<u64>()
+        .map_err(|_| format!("{REVISION_CONFLICT_PREFIX}: malformed revision {text:?}"))
+}
+
 /// The handle. Put one in a `static OnceLock` and build it with [`StoreHandle::new`]; the file is
 /// opened on first use, not at construction.
 pub struct StoreHandle<T> {
@@ -235,6 +254,16 @@ impl<T: Serialize + DeserializeOwned + Default + Clone> StoreHandle<T> {
             .store
             .snapshot()
             .map_err(|error| format!("read settings: {}", describe(&error)))
+    }
+
+    /// As [`StoreHandle::snapshot_with_revision`], with the revision as the opaque decimal
+    /// string a settings UI carries ([`RevisionedSnapshot`]); [`parse_revision`] reads it back.
+    pub fn snapshot_text(&self) -> Result<RevisionedSnapshot<T>, String> {
+        let (values, revision) = self.snapshot_with_revision()?;
+        Ok(RevisionedSnapshot {
+            values,
+            revision: revision.to_string(),
+        })
     }
 
     /// Run `edit` as one cross-process transaction. A refused open is retried here, so a file

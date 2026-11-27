@@ -23,8 +23,9 @@ pub use atomic::{atomic_write, atomic_write_with};
 pub use backend::{Edit, FileBackend, KeyLayout, SettingsBackend, Stored};
 pub use document::{Document, DocumentState};
 pub use handle::{
-    error_tag, EventSink, HandleConfig, StoreHandle, EVENT_LOCK_ERROR, EVENT_UNREADABLE_AT_LOAD,
-    MAX_OPEN_ATTEMPTS, MAX_OPEN_RETRY_DELAY, REVISION_CONFLICT_PREFIX,
+    error_tag, parse_revision, EventSink, HandleConfig, RevisionedSnapshot, StoreHandle,
+    EVENT_LOCK_ERROR, EVENT_UNREADABLE_AT_LOAD, MAX_OPEN_ATTEMPTS, MAX_OPEN_RETRY_DELAY,
+    REVISION_CONFLICT_PREFIX,
 };
 pub use hub_commands::{
     close_matches, edit_distance, has_duplicate_keys, parse_hub_command, parse_value_like,

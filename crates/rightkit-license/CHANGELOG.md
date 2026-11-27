@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.3.6
+- Add `LicenseView::ui_is_pro`: the Pro verdict a renderer computes from a licence view (configured, resolved, active envelope, active or grace, access-granting lifecycle, tier `pro`; `busy` ignored). Additive only.
+
 ## 0.3.5
 - Add `update_check_headers_for_stored`, `update_check_header_pairs` and `install_update_headers_refreshing`: the stored-licence read to update-check headers, the pair-list form, and the paid-tier install sequence (runtime, refresh, verified token). Additive.
 

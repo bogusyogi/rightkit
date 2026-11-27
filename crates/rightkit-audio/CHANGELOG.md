@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.6
+
+- Add `setup::calibration_result::{EngineRoute, EngineAttempt, EngineCalibration}`: the engine's `calibrate` JSON (status, selected route, attempts, failure code; serde ignores the rest) with the `CalibrationReport` and `CalibrationSummary` implementations, so a host decodes it with `run_engine_calibration::<EngineCalibration>` instead of carrying its own copy. Additive only.
+
 ## 0.4.5
 
 - Exact capture no longer rejects every recording on microphones whose packet timestamps jitter. A packet's capture time may now be later than the callback time (on WASAPI the callback time is the audio clock's last update, up to one device period behind), and consecutive packets may differ from their nominal spacing by up to half of the shorter packet instead of one frame. A lost packet, a regression, a missing timestamp, an overflow and a stream error still fail the seal. Measured on a Dell built-in microphone array (Intel Smart Sound, 48 kHz, 480-frame packets): capture later than callback on 247 of 799 packets, spacing off by more than one frame on 397 of 799, largest 17 frames; before this every dictation there ended in `precise capture invalid or missing timestamp`.

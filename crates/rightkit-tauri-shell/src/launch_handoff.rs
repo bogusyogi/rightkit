@@ -1,5 +1,6 @@
 //! One launch retirement followed by repeat reveals when an engine restarts.
 
+use std::sync::atomic::{AtomicU64, Ordering::SeqCst};
 use std::sync::Mutex;
 
 use tauri::{AppHandle, Runtime};
@@ -233,6 +234,77 @@ impl LaunchHandoff {
 }
 
 impl Default for LaunchHandoff {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// The splash tokens of one process. Every native show gets a fresh nonzero token (the generation
+/// the view reports back on close): reserved as pending BEFORE the native call, promoted to
+/// accepted only by a live accepted show, and snapshotted for the dismiss. A host with several
+/// show paths needs this, since one fixed token would let a close of an older splash retire a
+/// newer one. Create one static value per host; no lock is taken.
+pub struct SplashTokens {
+    next: AtomicU64,
+    pending: AtomicU64,
+    accepted: AtomicU64,
+}
+
+impl SplashTokens {
+    /// A machine with no token reserved or accepted.
+    pub const fn new() -> Self {
+        Self {
+            next: AtomicU64::new(0),
+            pending: AtomicU64::new(0),
+            accepted: AtomicU64::new(0),
+        }
+    }
+
+    /// Mint a fresh nonzero token and reserve it as pending. No lock is taken.
+    pub fn reserve(&self) -> u64 {
+        let mut token = self.next.fetch_add(1, SeqCst).wrapping_add(1);
+        if token == 0 {
+            token = self.next.fetch_add(1, SeqCst).wrapping_add(1);
+        }
+        self.pending.store(token, SeqCst);
+        token
+    }
+
+    /// The native show of `token` answered. Only an accepted show whose reservation is still the
+    /// pending one becomes the accepted token; returns whether it did.
+    pub fn settle(&self, token: u64, accepted: bool) -> bool {
+        let live = self
+            .pending
+            .compare_exchange(token, 0, SeqCst, SeqCst)
+            .is_ok();
+        if accepted && live {
+            self.accepted.store(token, SeqCst);
+            return true;
+        }
+        false
+    }
+
+    /// The accepted token to dismiss (0 when none).
+    pub fn snapshot_accepted(&self) -> u64 {
+        self.accepted.load(SeqCst)
+    }
+
+    /// Consume the pending or accepted token for a close: true for exactly one close of it, so a
+    /// stale or repeated close (and generation 0) retires nothing.
+    pub fn consume_close(&self, generation: u64) -> bool {
+        generation != 0
+            && (self
+                .accepted
+                .compare_exchange(generation, 0, SeqCst, SeqCst)
+                .is_ok()
+                || self
+                    .pending
+                    .compare_exchange(generation, 0, SeqCst, SeqCst)
+                    .is_ok())
+    }
+}
+
+impl Default for SplashTokens {
     fn default() -> Self {
         Self::new()
     }

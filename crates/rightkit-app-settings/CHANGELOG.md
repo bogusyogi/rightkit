@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.5
+
+- Add `parse_revision`, `RevisionedSnapshot` and `StoreHandle::snapshot_text`: the settings with their revision as an opaque decimal string for a revision-guarded settings UI, and the parse of that string back (a malformed one is a `revision_conflict`). Additive only.
+
 ## 0.4.4
 
 - Logic moved from Pulse into this crate (bogusyogi/pulse#643): `published` (published state and hub envelopes) and `hub_commands` (the settings command folder and parser).

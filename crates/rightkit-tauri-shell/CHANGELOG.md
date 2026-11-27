@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.12
+
+- Add `launch_handoff::SplashTokens` (`reserve`, `settle`, `snapshot_accepted`, `consume_close`): the splash token machine for a host with several native show paths, so a close of a replaced splash never retires a newer one. Additive only.
+
 ## 0.8.11
 
 - Fixed: a window whose reveal is a background one (`RevealMode::Background`: a hidden QA run with `qa-probes` and `RIGHTKIT_QA_BACKGROUND=1`) is built unfocused, like a never-show host's. Built focused, WebView2 took keyboard focus as it was created and activated the window, so the QA runner's background proof failed although the reveal used `SW_SHOWNOACTIVATE` (Pulse `app.launch` and `journey.hub-sections` on Windows, bogusyogi/rightkit#1822).

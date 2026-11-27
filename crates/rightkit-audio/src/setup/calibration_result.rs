@@ -20,10 +20,12 @@
 //! The two codes that name a host's own model and engine ([`SetupCodes`]) come from the host.
 //! No copy, event name, directory or file name lives here.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::calibration_capture::{CancelOutcome, CaptureSettings, StartError};
-use super::calibration_session::{CalibrationReport, Cleanup, Outcome, ResidentFailure};
+use super::calibration_session::{
+    AttemptSummary, CalibrationReport, Cleanup, Outcome, ResidentFailure,
+};
 
 /// `status` of a setup result whose calibration passed.
 pub const STATUS_PASSED: &str = "passed";
@@ -55,6 +57,82 @@ pub trait CalibrationSummary: CalibrationReport {
     fn selected_route(&self) -> Option<&Self::Route>;
     /// The engine's failure code, when it reported one.
     fn failure_code(&self) -> Option<&str>;
+}
+
+/// A recognition route as the engine's `calibrate` JSON names it. It is the [`Route`] of
+/// [`EngineCalibration`] and is handed back unchanged in the setup result.
+///
+/// [`Route`]: CalibrationSummary::Route
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct EngineRoute {
+    /// The route's identifier.
+    pub id: String,
+    /// Compute unit of the encoder.
+    pub encoder_compute: String,
+    /// Compute unit of the decoder.
+    pub decoder_compute: String,
+    /// The execution provider.
+    pub provider: String,
+    /// Index of the graphics adapter, when the route uses one.
+    pub adapter_index: Option<i32>,
+    /// Name of the graphics adapter, when the route uses one.
+    pub adapter_name: Option<String>,
+}
+
+/// One attempt of the engine's `calibrate` JSON: the parts the setup mapping reads (serde
+/// ignores the rest of the engine's output).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct EngineAttempt {
+    /// The attempt's WER, when it reported one.
+    pub wer: Option<f32>,
+    /// The attempt's status; [`STATUS_PASSED`] means it passed.
+    pub status: String,
+}
+
+/// The engine's `calibrate` JSON as far as the setup mapping reads it: implements
+/// [`CalibrationReport`] and [`CalibrationSummary`] over the engine's status, selected route,
+/// attempts and failure code. Decode it with
+/// [`run_engine_calibration`](super::calibration_engine::run_engine_calibration).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct EngineCalibration {
+    /// The engine's own status; [`STATUS_PASSED`] means the calibration passed.
+    pub status: String,
+    /// The route the engine selected, when it selected one.
+    pub selected_route: Option<EngineRoute>,
+    /// The attempts in the order the engine made them.
+    pub attempts: Vec<EngineAttempt>,
+    /// The engine's failure code, when it reported one.
+    pub failure_code: Option<String>,
+}
+
+impl CalibrationReport for EngineCalibration {
+    fn passed(&self) -> bool {
+        self.status == STATUS_PASSED
+    }
+
+    fn attempts(&self) -> impl Iterator<Item = AttemptSummary> + '_ {
+        self.attempts.iter().map(|attempt| AttemptSummary {
+            passed: attempt.status == STATUS_PASSED,
+            wer: attempt.wer,
+        })
+    }
+}
+
+impl CalibrationSummary for EngineCalibration {
+    type Route = EngineRoute;
+
+    fn status(&self) -> &str {
+        &self.status
+    }
+
+    fn selected_route(&self) -> Option<&EngineRoute> {
+        self.selected_route.as_ref()
+    }
+
+    fn failure_code(&self) -> Option<&str> {
+        self.failure_code.as_deref()
+    }
 }
 
 /// The two failure codes that name the host's own model and engine.

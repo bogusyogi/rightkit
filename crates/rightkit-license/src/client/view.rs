@@ -264,6 +264,18 @@ impl LicenseView {
         self.message = MessageCode::Busy;
         self
     }
+
+    /// The Pro verdict the renderer computes from this view: `busy` is ignored, an unresolved
+    /// view is never Pro, and the view must be configured, carry an active envelope, be active
+    /// or in grace, have a lifecycle that grants access, and name tier `pro`.
+    pub fn ui_is_pro(&self) -> bool {
+        self.mode == LicenseMode::Configured
+            && !self.unresolved
+            && self.revision_state == RevisionState::Active
+            && matches!(self.status, ViewStatus::Active | ViewStatus::Grace)
+            && self.lifecycle.grants_access()
+            && self.tier.as_deref() == Some("pro")
+    }
 }
 
 /// What a refresh did, in the closed vocabulary of the wire.
