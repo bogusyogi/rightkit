@@ -133,6 +133,19 @@ function git(args, { cwd, input, env = gitEnv(), encoding = "utf8", maxBuffer = 
   return r.stdout;
 }
 
+// Read-only git lookups that several rules ask with the same words in the same folder (the object type of the checked commit, its merge-base with
+// origin/main) start once per process: the answer, or the error, is remembered. GATE-CONTRACT GC-A27 NN08 refuses a run that starts the same program
+// with the same arguments in the same folder twice (0.6.91 acceptance, 27 Nov: `git merge-base <commit> origin/main` from baselineAtMergeBase and
+// lint-waiver-added's anchor). Only these two lookups are remembered; nothing that writes or depends on the working files is.
+const gitLookups = new Map();
+function gitLookup(args, { cwd }) {
+  const key = JSON.stringify([cwd, args]);
+  if (!gitLookups.has(key)) { try { gitLookups.set(key, { out: git(args, { cwd }) }); } catch (error) { gitLookups.set(key, { error }); } }
+  const hit = gitLookups.get(key);
+  if (hit.error) throw hit.error;
+  return hit.out;
+}
+
 /** The git top-level directory of `dir`, or null when it is not inside a work tree. */
 export function repoRoot(dir) {
   const r = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd: dir, env: gitEnv(), encoding: "utf8" });
@@ -1165,11 +1178,11 @@ const NOT_CODE = /(?:\.(?:md|mdx|txt|lock|svg|png|jpe?g|gif|ico|webp|pdf)$|(?:^|
 /** The non-merge commits this push adds (oldest first), or [] when none are pending or there is no anchor. */
 function pendingCommits(repo, commit, env = process.env) {
   try {
-    if (git(["cat-file", "-t", commit], { cwd: repo }).trim() !== "commit") return [];
+    if (gitLookup(["cat-file", "-t", commit], { cwd: repo }).trim() !== "commit") return [];
     const named = String(env.RK_PUSH_BEFORE ?? "").trim();
     let base = null;
     if (/^[0-9a-f]{40,64}$/.test(named) && !/^0+$/.test(named)) { try { git(["cat-file", "-e", `${named}^{commit}`], { cwd: repo }); base = named; } catch { base = null; } }
-    base ??= git(["merge-base", commit, "origin/main"], { cwd: repo }).trim();
+    base ??= gitLookup(["merge-base", commit, "origin/main"], { cwd: repo }).trim();
     if (!base) return [];
     return git(["rev-list", "--no-merges", "--reverse", `${base}..${commit}`], { cwd: repo }).split("\n").filter(Boolean);
   } catch { return []; }
@@ -1344,11 +1357,11 @@ function qaStashIgnored({ root, files }) {
 const waiverFiles = (files) => files.filter((f) => scanned(f) && waiverKindOf(f));
 function waiverAnchor(repo, commit) {
   try {
-    const tip = git(["cat-file", "-t", commit], { cwd: repo }).trim() === "commit" ? commit : git(["rev-parse", "HEAD"], { cwd: repo }).trim();
-    const base = git(["merge-base", tip, "origin/main"], { cwd: repo }).trim();
+    const tip = gitLookup(["cat-file", "-t", commit], { cwd: repo }).trim() === "commit" ? commit : git(["rev-parse", "HEAD"], { cwd: repo }).trim();
+    const base = gitLookup(["merge-base", tip, "origin/main"], { cwd: repo }).trim();
     if (!base) return { anchor: null, why: "git merge-base with origin/main printed nothing" };
     if (base !== tip) return { anchor: base, how: "the merge-base with origin/main" };
-    try { return { anchor: git(["rev-parse", tip + "^1"], { cwd: repo }).trim(), how: "its first parent (the commit is already on origin/main)" }; } catch { return { anchor: null, why: "the commit is on origin/main and has no parent" }; }
+    try { return { anchor: gitLookup(["rev-parse", tip + "^1"], { cwd: repo }).trim(), how: "its first parent (the commit is already on origin/main)" }; } catch { return { anchor: null, why: "the commit is on origin/main and has no parent" }; }
   } catch (error) { return { anchor: null, why: String(error.message).split("\n")[0] }; }
 }
 function lintWaiversAdded({ root, commit, files, repo }) {
@@ -1576,8 +1589,8 @@ export const BASELINE_GROWTH_RULE = "a baseline entry added since the merge-base
  */
 export function baselineAtMergeBase(dir, rev, file) {
   try {
-    const tip = git(["cat-file", "-t", rev], { cwd: dir }).trim() === "commit" ? rev : "HEAD";
-    const anchor = git(["merge-base", tip, "origin/main"], { cwd: dir }).trim();
+    const tip = gitLookup(["cat-file", "-t", rev], { cwd: dir }).trim() === "commit" ? rev : "HEAD";
+    const anchor = gitLookup(["merge-base", tip, "origin/main"], { cwd: dir }).trim();
     if (!anchor) return { anchor: null, why: "git merge-base printed nothing" };
     let text = null;
     try { text = git(["cat-file", "blob", `${anchor}:${file}`], { cwd: dir }); } catch { text = null; }
