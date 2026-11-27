@@ -82,7 +82,7 @@ pub fn is_always_keep(
     if is_pinned(message) {
         return true;
     }
-    let (id, _len) = message_identity(message);
+    let id = message_identity(message).0;
     always_keep_ids.contains(id)
 }
 

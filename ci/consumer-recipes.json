@@ -2690,7 +2690,7 @@
       "pkId": "PK34",
       "id": "ci/consumers/rightkit-hooks/src/main.rs",
       "files": {
-        "Cargo.toml": "1aa3ce977212af1313fda5601891c3a15fc9ebdf92e48d03be8986286181be4d",
+        "Cargo.toml": "12db4efbbcc6a1bd6ed038e995e4cb046c4cb33d3dfa805c80b19648bef11608",
         "README.md": "7b92ba222bcda5c0a6a37ab7de9c0433cdaa220a0c21ba576b81945ec9b0e8b9",
         "src/main.rs": "81b3c522d503e3cd84fc0be1efef048e20a4c99ab09f663df910f03b042d1e5b"
       }
@@ -3679,7 +3679,7 @@
       "pkId": "PK154",
       "id": "ci/consumers/rightkit-agent-engine-core/src/main.rs",
       "files": {
-        "Cargo.toml": "bf80f83d4d9cb26a183919c923934cbee007cf17e13ebfc61bf0630e3840bacb",
+        "Cargo.toml": "88deb40ab8b7af1b94e9c3baba997b94441910ccbc20f19a650daae1c42ef463",
         "README.md": "fec1f84333d677725e9c5f37281264f6e94f98573a36c1c71bd61f3af940d318",
         "src/main.rs": "02b9514066b4ac2d5bc5f6a2b43592073330373b8e14d3f06046ca2422c18da8"
       }

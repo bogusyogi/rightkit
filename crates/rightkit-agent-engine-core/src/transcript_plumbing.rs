@@ -226,16 +226,16 @@ pub(crate) fn repair_dangling_tool_calls(transcript: &mut Transcript) -> usize {
     inserted
 }
 
-/// Every tool-call id already carried by an assistant message in the
-/// transcript, excluding the assistant message currently being streamed.
-pub(crate) fn prior_tool_call_ids(
-    transcript: &Transcript,
-    current_assistant_id: Option<&str>,
-) -> HashSet<String> {
+/// Tool calls already carried by an assistant message in the transcript, excluding the
+/// assistant message currently being streamed.
+fn prior_tool_calls<'a>(
+    transcript: &'a Transcript,
+    current_assistant_id: Option<&'a str>,
+) -> impl Iterator<Item = &'a ToolCall> {
     transcript
         .messages()
         .iter()
-        .filter_map(|message| match message {
+        .filter_map(move |message| match message {
             TranscriptMessage::Assistant { id, tool_calls, .. }
                 if Some(id.as_str()) != current_assistant_id =>
             {
@@ -243,35 +243,80 @@ pub(crate) fn prior_tool_call_ids(
             }
             _ => None,
         })
-        .flat_map(|calls| calls.iter().map(|call| call.id.clone()))
-        .collect()
+        .flat_map(|calls| calls.iter())
 }
 
-/// Cross-turn dedupe (audit C11). A provider that reuses a tool-call id from
-/// an earlier turn would map one id to two invocations and corrupt tool-result
-/// pairing, so such calls are dropped before dispatch and the transcript.
-/// Returns the dropped calls.
+/// What to do with a call whose id an earlier turn already used.
+pub(crate) enum ReusedId {
+    /// The id is new: run the call as it is.
+    Fresh,
+    /// Same id and same tool and arguments as an earlier call: a replay, never run twice.
+    Replay,
+    /// Same id, different call (a provider that numbers ids per response): the call was given a
+    /// new id and runs.
+    Rekeyed,
+}
+
+/// Cross-turn dedupe (audit C11). A provider that reuses a tool-call id from an earlier turn
+/// would map one id to two invocations and corrupt tool-result pairing. A call that repeats an
+/// earlier call exactly is a replay and is dropped. A call with new arguments under a reused id
+/// is a new call: it takes a fresh id (`<id>~<n>`) so its result pairs with it alone.
+/// `taken` holds ids already used in the response being checked.
+pub(crate) fn resolve_reused_tool_call_id(
+    call: &mut ToolCall,
+    transcript: &Transcript,
+    current_assistant_id: Option<&str>,
+    taken: &HashSet<String>,
+) -> ReusedId {
+    let mut reused = false;
+    let mut shape: Option<String> = None;
+    for earlier in prior_tool_calls(transcript, current_assistant_id).filter(|c| c.id == call.id) {
+        reused = true;
+        let wanted = shape.get_or_insert_with(|| crate::mop::tool_call_shape(call));
+        if crate::mop::tool_call_shape(earlier) == *wanted {
+            return ReusedId::Replay;
+        }
+    }
+    if !reused {
+        return ReusedId::Fresh;
+    }
+    let mut n = 1usize;
+    let new_id = loop {
+        let candidate = format!("{}~{n}", call.id);
+        if !taken.contains(&candidate)
+            && !prior_tool_calls(transcript, current_assistant_id).any(|c| c.id == candidate)
+        {
+            break candidate;
+        }
+        n += 1;
+    };
+    call.id = new_id;
+    ReusedId::Rekeyed
+}
+
+/// Cross-turn dedupe for a finished response: drops replays, re-keys the rest. Returns the
+/// dropped calls.
 pub(crate) fn drop_cross_turn_duplicate_tool_calls(
     calls: &mut Vec<ToolCall>,
-    prior_ids: &HashSet<String>,
+    transcript: &Transcript,
 ) -> Vec<ToolCall> {
-    if prior_ids.is_empty() {
-        return Vec::new();
-    }
     let mut dropped = Vec::new();
-    let mut kept = Vec::with_capacity(calls.len());
-    for call in calls.drain(..) {
-        if prior_ids.contains(&call.id) {
-            dropped.push(call);
-        } else {
-            kept.push(call);
+    let mut kept: Vec<ToolCall> = Vec::with_capacity(calls.len());
+    let mut taken: HashSet<String> = HashSet::new();
+    for mut call in calls.drain(..) {
+        match resolve_reused_tool_call_id(&mut call, transcript, None, &taken) {
+            ReusedId::Replay => dropped.push(call),
+            ReusedId::Fresh | ReusedId::Rekeyed => {
+                taken.insert(call.id.clone());
+                kept.push(call);
+            }
         }
     }
     *calls = kept;
     dropped
 }
 
-/// Note appended to the assistant text for a dropped duplicate-id call.
+/// Note appended to the assistant text for a dropped replayed call.
 pub(crate) fn duplicate_tool_call_note(call: &ToolCall) -> String {
     format!(
         "[Rejected tool call `{}`: its id `{}` was already used in an earlier turn. The call was not run; reissue it if still needed.]",
@@ -296,4 +341,26 @@ fn is_local_agent_task_create(call: &ToolCall) -> bool {
                 .map(|kind| kind.eq_ignore_ascii_case("local_agent"))
         })
         .unwrap_or(false)
+}
+
+/// The session so far as plain text for the `advisor` tool: each user and assistant message and a
+/// one-line summary per tool result, oldest first. Reasoning and raw tool payloads are left out.
+pub(crate) fn advisor_transcript_text(messages: &[TranscriptMessage]) -> String {
+    let mut out = String::new();
+    for message in messages {
+        let (label, text) = match message {
+            TranscriptMessage::User { content, .. } => ("User", content.as_str()),
+            TranscriptMessage::Assistant { content, .. } => ("Assistant", content.as_str()),
+            TranscriptMessage::Tool { summary, .. } => ("Tool result", summary.as_str()),
+            _ => continue,
+        };
+        if text.trim().is_empty() {
+            continue;
+        }
+        out.push_str(label);
+        out.push_str(": ");
+        out.push_str(text.trim());
+        out.push_str("\n\n");
+    }
+    out
 }

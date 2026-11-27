@@ -486,6 +486,51 @@ pub(crate) fn parse_lsp_finding_line(
     ))
 }
 
+/// Attach the governed process launcher the language server needs, when the host has a process
+/// governor and the resource is available; otherwise leave the context as is (the unit then reports
+/// the server unavailable, as before).
+#[cfg(feature = "host")]
+pub(crate) fn with_lsp_process_launcher(
+    tool_ctx: rightkit_agent_coding_tools::ToolContext,
+    lsp: &rightkit_agent_coding_tools::lsp_tool::LspTool,
+    args: &serde_json::Value,
+) -> rightkit_agent_coding_tools::ToolContext {
+    if tool_ctx.process_launch_adapter.is_some() {
+        return tool_ctx;
+    }
+    let Some(kind) = lsp.process_resource_kind_for(args) else {
+        return tool_ctx;
+    };
+    let Ok(governor) =
+        rightkit_agent_coding_tools::process_resource_authority::require_process_resource_governor(
+        )
+    else {
+        return tool_ctx;
+    };
+    if !governor.capability_available(kind) {
+        return tool_ctx;
+    }
+    let launch_context = rightkit_sandbox::execution::ProcessLaunchContext {
+        workspace_root: tool_ctx.workspace_root.display().to_string(),
+        sandbox_profile: None,
+        sandbox_required: false,
+        network_required: false,
+    };
+    let adapter: std::sync::Arc<dyn rightkit_sandbox::execution::ProcessLaunchAdapter> =
+        std::sync::Arc::new(
+            rightkit_agent_coding_tools::process_resource_authority::GovernedProcessLaunchAdapter::new(
+                rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter,
+                governor,
+                kind,
+                matches!(
+                    kind,
+                    rightkit_agent_coding_tools::process_resource_authority::ResourceKind::ChildProcess
+                ),
+            ),
+        );
+    tool_ctx.with_process_launch(adapter, launch_context)
+}
+
 #[cfg(feature = "host")]
 async fn run_lsp_unit(
     path: PathBuf,
@@ -506,6 +551,10 @@ async fn run_lsp_unit(
         "operation": "diagnostics",
         "path": path.to_string_lossy(),
     });
+    // The fan-out's tool context carries no process launcher, so the language server could never
+    // start here. Give it the same governed launcher a model-issued `lsp` call gets
+    // (`engine_tool_dispatch.rs::required_process_launch_authority`).
+    let tool_ctx = with_lsp_process_launcher(tool_ctx, &lsp, &args);
     match tokio::time::timeout(per_file, lsp.execute(args, &tool_ctx)).await {
         Ok(result) if !result.is_error => {
             let after_hash = content_hash(&path);
@@ -594,11 +643,7 @@ async fn run_lsp_unit(
 }
 
 #[cfg(not(feature = "host"))]
-async fn run_lsp_unit(
-    path: PathBuf,
-    _tool_ctx: rightkit_agent_coding_tools::ToolContext,
-    _per_file: Duration,
-) -> VerifierOutcome {
+async fn run_lsp_unit(path: PathBuf) -> VerifierOutcome {
     VerifierOutcome::unavailable(
         VerifierId::lsp(),
         Some(path),
@@ -637,7 +682,7 @@ pub(crate) fn run_config_unit(workspace_root: &Path, path: &Path) -> VerifierOut
         }
     };
     let parse_result: Result<(), (String, Option<(u32, u32)>)> = match format_name {
-        "JSON" => serde_json::from_str::<serde_json::Value>(&text)
+        "JSON" => crate::post_edit_diagnostics::parse_json_text(path, &text)
             .map(|_| ())
             .map_err(|e| (e.to_string(), Some((e.line() as u32, e.column() as u32)))),
         _ => toml::from_str::<toml::Value>(&text)
@@ -676,6 +721,19 @@ pub(crate) fn run_config_unit(workspace_root: &Path, path: &Path) -> VerifierOut
             )
         }
     }
+}
+
+/// The parse error of a JSON or TOML text with its line and column numbers removed, so the same
+/// fault keeps the same key after an edit moves it to another line. `None` when it parses.
+pub(crate) fn config_error_key(path: &Path, text: &str) -> Option<String> {
+    let error = match extension_of(path) {
+        "json" => crate::post_edit_diagnostics::parse_json_text(path, text)
+            .err()?
+            .to_string(),
+        "toml" => toml::from_str::<toml::Value>(text).err()?.to_string(),
+        _ => return None,
+    };
+    Some(error.chars().filter(|c| !c.is_ascii_digit()).collect())
 }
 
 // ─── Command verifier units (typecheck / lint / format / tests) ────────────
@@ -747,7 +805,7 @@ pub fn default_command_verifiers(workspace_root: &Path) -> Vec<CommandVerifierSp
             fixable,
         }
     };
-    vec![
+    let mut verifiers = vec![
         cargo(
             "typecheck",
             FindingCategory::TypeCheck,
@@ -778,7 +836,82 @@ pub fn default_command_verifiers(workspace_root: &Path) -> Vec<CommandVerifierSp
             &["test", "--workspace", "--lib"],
             false,
         ),
-    ]
+    ];
+    if crate::host_options::trimmed_builtin_verifiers() {
+        verifiers.retain(|spec| !matches!(spec.id.as_str(), "lint-static" | "targeted-tests"));
+    }
+    verifiers
+}
+
+/// The package name of the nearest `Cargo.toml` at or above `path`, stopping at
+/// the workspace root. `None` for a virtual manifest, a manifest without a
+/// `[package]` name, or a path outside the workspace.
+fn nearest_cargo_package(workspace_root: &Path, path: &Path) -> Option<String> {
+    let mut dir = path.parent();
+    while let Some(d) = dir {
+        if !d.starts_with(workspace_root) {
+            return None;
+        }
+        let manifest = d.join("Cargo.toml");
+        if manifest.is_file() {
+            let text = std::fs::read_to_string(&manifest).ok()?;
+            let mut in_package = false;
+            for line in text.lines() {
+                let line = line.trim();
+                if line.starts_with('[') {
+                    in_package = line == "[package]";
+                } else if in_package && line.starts_with("name") {
+                    let value = line.split_once('=')?.1.trim();
+                    return Some(value.trim_matches('"').to_string());
+                }
+            }
+            return None;
+        }
+        dir = d.parent();
+    }
+    None
+}
+
+/// Narrow a built-in cargo check or format command to the touched packages so
+/// one edit does not compile and format the whole workspace. Anything that
+/// cannot be placed in a package (a workspace manifest, the lock file) keeps
+/// the workspace-wide command.
+fn scope_cargo_to_packages(
+    argv: &[String],
+    workspace_root: &Path,
+    paths: &[PathBuf],
+) -> Vec<String> {
+    let scoped = argv.first().map(String::as_str) == Some("cargo")
+        && matches!(argv.get(1).map(String::as_str), Some("check") | Some("fmt"))
+        && argv.iter().any(|a| a == "--workspace" || a == "--all");
+    if !scoped {
+        return argv.to_vec();
+    }
+    let mut packages: Vec<String> = Vec::new();
+    for path in paths {
+        let Some(name) =
+            nearest_cargo_package(workspace_root, &resolve_in_workspace(workspace_root, path))
+        else {
+            return argv.to_vec();
+        };
+        if !packages.contains(&name) {
+            packages.push(name);
+        }
+    }
+    if packages.is_empty() {
+        return argv.to_vec();
+    }
+    let mut out = Vec::new();
+    for arg in argv {
+        if arg == "--workspace" || arg == "--all" {
+            for name in &packages {
+                out.extend(["-p".to_string(), name.clone()]);
+            }
+        } else {
+            out.push(arg.clone());
+        }
+    }
+    out
 }
 
 impl CommandVerifierSpec {
@@ -952,6 +1085,26 @@ impl Drop for KillOnDrop {
     }
 }
 
+/// Stop a verifier child that is being abandoned: cancel it and reap it. The unit reports its own
+/// outcome, so a failure to stop is logged, not raised.
+#[cfg(feature = "host")]
+async fn abandon_child(child: &mut KillOnDrop, spec_id: &str) {
+    if let Err(error) = child.child().cancel().await {
+        tracing::debug!(
+            spec = spec_id,
+            ?error,
+            "verifier child did not cancel cleanly"
+        );
+    }
+    if let Err(error) = child.child().wait().await {
+        tracing::debug!(
+            spec = spec_id,
+            ?error,
+            "verifier child was not reaped cleanly"
+        );
+    }
+}
+
 /// Spawn one verifier process through the existing native launch adapter.
 /// Project trust is checked when assembling units; child output & lifetime
 /// and collect bounded output + exit status. Spawn/pipe failure degrades to
@@ -968,8 +1121,6 @@ pub(crate) fn launch_read_roots_env(read_roots: &[PathBuf]) -> Vec<(String, Stri
 }
 
 #[cfg(feature = "host")]
-// VerifierOutcome is the verifier result contract shared by every verifier; boxing it would change them all.
-#[allow(clippy::result_large_err)]
 async fn run_process_capture(
     verifier: &VerifierId,
     spec_id: &str,
@@ -1013,8 +1164,7 @@ async fn run_process_capture(
     let stdout = match child.child().take_stdout() {
         Some(stdout) => stdout,
         None => {
-            let _ = child.child().cancel().await;
-            let _ = child.child().wait().await;
+            abandon_child(&mut child, spec_id).await;
             return Err(Box::new(VerifierOutcome::unavailable(
                 verifier.clone(),
                 None,
@@ -1025,8 +1175,7 @@ async fn run_process_capture(
     let stderr = match child.child().take_stderr() {
         Some(stderr) => stderr,
         None => {
-            let _ = child.child().cancel().await;
-            let _ = child.child().wait().await;
+            abandon_child(&mut child, spec_id).await;
             return Err(Box::new(VerifierOutcome::unavailable(
                 verifier.clone(),
                 None,
@@ -1048,7 +1197,13 @@ async fn run_process_capture(
             Ok((stdout, stderr, code))
         }
         (stdout, stderr, wait) => {
-            let _ = child.child().cancel().await;
+            if let Err(error) = child.child().cancel().await {
+                tracing::debug!(
+                    spec = spec_id,
+                    ?error,
+                    "verifier child did not cancel cleanly"
+                );
+            }
             Err(Box::new(VerifierOutcome::failed(
                 verifier.clone(),
                 None,
@@ -1086,11 +1241,14 @@ pub(crate) async fn run_command_unit(
     // distinct from both clean and failed.
     #[cfg(not(feature = "host"))]
     {
-        let _ = (program, workspace_root, spec);
         VerifierOutcome::unavailable(
             verifier,
             None,
-            "command verifiers require the host feature; process launch is unavailable in the portable profile".into(),
+            format!(
+                "command verifiers require the host feature; process launch is unavailable in the portable profile (verifier '{}' would run {program} in {})",
+                spec.id,
+                workspace_root.display()
+            ),
         )
     }
     #[cfg(feature = "host")]
@@ -1241,7 +1399,7 @@ async fn run_pyright_unit(
     let verifier = VerifierId::command(PYRIGHT_ID);
     let mut argv = vec!["--outputjson".to_string()];
     argv.extend(paths.iter().map(|p| p.to_string_lossy().into_owned()));
-    let (stdout, _stderr, code) = match run_process_capture(
+    let (stdout, _, code) = match run_process_capture(
         &verifier,
         PYRIGHT_ID,
         executable.to_string_lossy().into_owned(),
@@ -1353,14 +1511,19 @@ async fn run_pyright_unit(
 
 #[cfg(not(feature = "host"))]
 async fn run_pyright_unit(
-    _executable: PathBuf,
-    _workspace_root: PathBuf,
-    _paths: Vec<PathBuf>,
+    executable: PathBuf,
+    workspace_root: PathBuf,
+    paths: Vec<PathBuf>,
 ) -> VerifierOutcome {
     VerifierOutcome::unavailable(
         VerifierId::command(PYRIGHT_ID),
         None,
-        "command verifiers require the host feature; process launch is unavailable in the portable profile".into(),
+        format!(
+            "command verifiers require the host feature; process launch is unavailable in the portable profile ({} would check {} files in {})",
+            executable.display(),
+            paths.len(),
+            workspace_root.display()
+        ),
     )
 }
 
@@ -1422,7 +1585,9 @@ pub(crate) fn build_units(
     for path in paths {
         if is_code_ext(path) {
             let path = path.clone();
+            #[cfg(feature = "host")]
             let tool_ctx = tool_ctx.clone();
+            #[cfg(feature = "host")]
             let per_file = budgets.per_verifier_file;
             let requirement = if profile.lsp_required {
                 VerifierRequirement::Required
@@ -1436,7 +1601,14 @@ pub(crate) fn build_units(
                 covered_paths: vec![path.clone()],
                 budget: budgets.per_verifier,
                 run: Box::pin(async move {
-                    run_lsp_unit(path, tool_ctx.tool_context(), per_file).await
+                    #[cfg(feature = "host")]
+                    {
+                        run_lsp_unit(path, tool_ctx.tool_context(), per_file).await
+                    }
+                    #[cfg(not(feature = "host"))]
+                    {
+                        run_lsp_unit(path).await
+                    }
                 }),
             });
         }
@@ -1572,7 +1744,12 @@ pub(crate) fn build_units(
             ));
             continue;
         }
-        let spec = spec.clone();
+        let mut spec = spec.clone();
+        // A host that sets `scope_cargo_to_touched_packages` runs a per-edit check on the touched
+        // package, not the whole workspace.
+        if crate::host_options::scope_cargo_to_touched_packages() {
+            spec.argv = scope_cargo_to_packages(&spec.argv, &tool_ctx.workspace_root, &applicable);
+        }
         let root = tool_ctx.workspace_root.clone();
         tasks.push(VerifierTask {
             verifier: VerifierId::command(&spec.id),

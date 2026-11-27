@@ -1,4 +1,5 @@
 use super::*;
+use rightkit_agent_engine_protocol::AssistantMessagePhase as Phase;
 
 pub(in crate::engine) enum AssistantCompletionOutcome {
     Continue,
@@ -10,10 +11,12 @@ impl SessionEngine {
     /// Reasoning produced since the latest user message. Tool-call turns are
     /// not published as their own durable assistant message, so the turn's
     /// closing assistant message carries the reasoning summary for the turn.
-    fn current_turn_reasoning(&self) -> Option<String> {
+    pub(in crate::engine) fn current_turn_reasoning(&self) -> Option<String> {
         let mut parts: Vec<&str> = Vec::new();
         for message in self.transcript.messages().iter().rev() {
             match message {
+                // A harness nudge inside the turn is not where the turn began.
+                message if crate::transcript::is_nudge(message) => {}
                 TranscriptMessage::User { .. } => break,
                 TranscriptMessage::Assistant {
                     reasoning_content: Some(reasoning),
@@ -59,9 +62,9 @@ impl SessionEngine {
                 reasoning_content: None,
                 tool_calls: vec![],
                 pinned: false,
-                origin: None,
+                origin: self.llm.message_origin(),
             },
-            phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
+            phase: rightkit_agent_engine_protocol::AssistantMessagePhase::Final,
         });
         self.publish_hook(rightkit_hooks::agent_hooks::HookEvent::Notification {
             session_id: sid.to_string(),
@@ -163,7 +166,7 @@ impl SessionEngine {
             });
         let instruction =
             crate::tool_result_store::bound_gate_text(&mut self.tool_results, &instruction);
-        self.transcript.push_user(instruction.clone());
+        self.transcript.push_nudge(instruction.clone());
         self.emit(|seq| ProtocolEvent::HumanSteeringInjected {
             session_id: sid.to_string(),
             seq,
@@ -186,16 +189,62 @@ impl SessionEngine {
         made_tool_progress: bool,
         pending_verify: &mut crate::verify_fanout::PendingVerification,
     ) -> AssistantCompletionOutcome {
-        let final_text = response.text.clone();
+        let mut final_text = response.text.clone();
         // Verify edited bytes before any external signoff or close.
         if self.auto_post_edit_diagnostics {
             if let Some(outcome) = self
                 .recheck_pending_verification(sid, pending_verify, session_span_id)
                 .await
             {
+                if let AssistantCompletionOutcome::Finished(text) = outcome {
+                    let combined = format!("{final_text}\n\n{text}");
+                    let reasoning = self.current_turn_reasoning();
+                    self.emit_assistant_completed(sid, Phase::Final, combined.clone(), reasoning);
+                    return AssistantCompletionOutcome::Finished(combined);
+                }
                 return outcome;
             }
         }
+        // Assurance/Sentinel refusals re-enter. A host that sets `completion_repair_cap` bounds
+        // them per turn and lets the turn finish with an explicit warning after the cap (audit
+        // MEDIUM-1); otherwise every refusal re-enters until the iteration budget ends the turn.
+        if let Some(repair) = self.completion_gate_refusal().await {
+            if !crate::host_options::completion_repair_cap() {
+                self.transcript.push_nudge(repair);
+                return AssistantCompletionOutcome::Continue;
+            }
+            match post_turn_gate.after_completion_repair(repair) {
+                crate::post_turn_gate::PostTurnGateDecision::Reenter { instruction, .. } => {
+                    self.transcript.push_nudge(instruction);
+                    return AssistantCompletionOutcome::Continue;
+                }
+                crate::post_turn_gate::PostTurnGateDecision::ForceFinish { warning } => {
+                    self.emit(|seq| ProtocolEvent::AssistantDelta {
+                        session_id: sid.to_string(),
+                        seq,
+                        created_at: now_iso(),
+                        text: format!("\n\n{warning}"),
+                        is_reasoning: false,
+                    });
+                    final_text = format!("{final_text}\n\n{warning}");
+                }
+                crate::post_turn_gate::PostTurnGateDecision::Proceed => {}
+            }
+        }
+        self.finish_assistant_completion(
+            response,
+            sid,
+            session_span_id,
+            post_turn_gate,
+            made_tool_progress,
+            final_text,
+        )
+        .await
+    }
+
+    /// The assurance-broker and Sentinel completion gates. `Some(text)` is the
+    /// refusal to hand back to the model; `None` means signoff and close passed.
+    async fn completion_gate_refusal(&mut self) -> Option<String> {
         if let Some(broker) = &self.assurance_broker {
             let gate = broker
                 .lock()
@@ -203,9 +252,7 @@ impl SessionEngine {
             let gate = match gate {
                 Ok(broker) => broker.response_gate(),
                 Err(error) => {
-                    self.transcript
-                        .push_user(format!("[Sentinel repair] {error}"));
-                    return AssistantCompletionOutcome::Continue;
+                    return Some(format!("[Sentinel repair] {error}"));
                 }
             };
             if !gate.allowed {
@@ -217,8 +264,7 @@ impl SessionEngine {
                         gate.repair_packet.join("; ")
                     ),
                 );
-                self.transcript.push_user(text);
-                return AssistantCompletionOutcome::Continue;
+                return Some(text);
             }
         }
         if let (Some(client), Some(run_id)) = (&self.sentinel_client, &self.sentinel_run_id) {
@@ -235,9 +281,7 @@ impl SessionEngine {
                 Ok(value) => value,
                 Err(error) => {
                     let repair = format!("Sentinel verify transport failed: {error}");
-                    self.transcript
-                        .push_user(format!("[Sentinel repair] {repair}"));
-                    return AssistantCompletionOutcome::Continue;
+                    return Some(format!("[Sentinel repair] {repair}"));
                 }
             };
             let decision = verification
@@ -264,14 +308,13 @@ impl SessionEngine {
                     &mut self.tool_results,
                     &format!("[Sentinel repair] {repair}"),
                 );
-                self.transcript.push_user(text);
-                return AssistantCompletionOutcome::Continue;
+                return Some(text);
             }
             let closed = client
                 .beacon(serde_json::json!({
                     "operation": "close",
                     "run_id": run_id,
-                    "summary": "Agent host completed after Sentinel signoff",
+                    "summary": format!("{} host completed after Sentinel signoff", rightkit_agent_config::app_name()),
                     "session_id": self.session_id,
                 }))
                 .await;
@@ -292,37 +335,37 @@ impl SessionEngine {
                         })
                         .filter(|text| !text.is_empty())
                         .unwrap_or_else(|| "Sentinel close did not return closed.".into());
-                    self.transcript
-                        .push_user(format!("[Sentinel repair] {repair}"));
-                    return AssistantCompletionOutcome::Continue;
+                    return Some(format!("[Sentinel repair] {repair}"));
                 }
                 Err(error) => {
-                    self.transcript.push_user(format!(
+                    return Some(format!(
                         "[Sentinel repair] Sentinel close transport failed: {error}"
                     ));
-                    return AssistantCompletionOutcome::Continue;
                 }
             }
         }
-        self.emit(|seq| ProtocolEvent::AssistantMessageCompleted {
-            session_id: sid.to_string(),
-            seq,
-            created_at: now_iso(),
-            message: rightkit_agent_engine_protocol::TranscriptMessage::Assistant {
-                id: "final".into(),
-                created_at: now_iso(),
-                content: final_text.clone(),
-                reasoning_content: self.current_turn_reasoning(),
-                tool_calls: vec![],
-                pinned: false,
-                origin: None,
-            },
-            phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
-        });
+        None
+    }
+
+    /// Everything after the completion gates passed or were capped: the
+    /// pending-steer check, Notification and Stop hooks, goal continuation.
+    /// The answer's `AssistantMessageCompleted` is emitted only once its fate is
+    /// known: "final" where the turn ends, "interim" where it continues.
+    async fn finish_assistant_completion(
+        &mut self,
+        response: &crate::llm::LlmResponse,
+        sid: &str,
+        session_span_id: Option<&str>,
+        post_turn_gate: &mut crate::post_turn_gate::PostTurnGateState,
+        made_tool_progress: bool,
+        final_text: String,
+    ) -> AssistantCompletionOutcome {
         // A steer pushed while this response streamed missed the drain at the
         // top of the loop, and the turn is about to end: carry on so the next
         // iteration injects it, instead of dropping the user's message.
         if self.steer_rx.as_ref().is_some_and(|rx| !rx.is_empty()) {
+            let reasoning = self.current_turn_reasoning();
+            self.emit_assistant_completed(sid, Phase::Interim, final_text, reasoning);
             return AssistantCompletionOutcome::Continue;
         }
         self.publish_hook(rightkit_hooks::agent_hooks::HookEvent::Notification {
@@ -348,11 +391,12 @@ impl SessionEngine {
                 "Stop"
             };
             let outcome = bus
-                .run_blocking_stop_event(
+                .run_blocking_stop_event_for_role(
                     stop_event,
                     sid,
                     "assistant_message_completed",
                     post_turn_gate.consecutive_stop_blocks(),
+                    self.subagent_role.as_deref(),
                 )
                 .await;
             match post_turn_gate.after_blocking_stop(outcome) {
@@ -364,7 +408,11 @@ impl SessionEngine {
                         &mut self.tool_results,
                         &instruction,
                     );
-                    self.transcript.push_user(instruction.clone());
+                    // The blocked answer was shown: complete it as interim
+                    // before the re-entry instruction joins the transcript.
+                    let reasoning = self.current_turn_reasoning();
+                    self.emit_assistant_completed(sid, Phase::Interim, final_text, reasoning);
+                    self.transcript.push_nudge(instruction.clone());
                     self.emit(|seq| ProtocolEvent::HumanSteeringInjected {
                         session_id: sid.to_string(),
                         seq,
@@ -390,9 +438,10 @@ impl SessionEngine {
                         "completed",
                         Some("loop-safety gate cap"),
                     );
-                    return AssistantCompletionOutcome::Finished(format!(
-                        "{final_text}\n\n{warning}"
-                    ));
+                    let combined = format!("{final_text}\n\n{warning}");
+                    let reasoning = self.current_turn_reasoning();
+                    self.emit_assistant_completed(sid, Phase::Final, combined.clone(), reasoning);
+                    return AssistantCompletionOutcome::Finished(combined);
                 }
                 crate::post_turn_gate::PostTurnGateDecision::Proceed => {}
             }
@@ -403,10 +452,48 @@ impl SessionEngine {
         // [F2] Continue toward an active goal instead of stopping, when the
         // shared GoalState permits (budget + no-progress + continuation caps).
         // Goal-less / disabled sessions fall straight through unchanged.
+        let reasoning = self.current_turn_reasoning();
         if self.maybe_continue_toward_goal(made_tool_progress, sid) {
+            self.emit_assistant_completed(sid, Phase::Interim, final_text, reasoning);
             return AssistantCompletionOutcome::ContinueAfterGoal;
         }
         self.record_session_end(session_span_id, "completed", None);
+        self.emit_assistant_completed(sid, Phase::Final, final_text.clone(), reasoning);
         AssistantCompletionOutcome::Finished(final_text)
+    }
+
+    /// One `AssistantMessageCompleted` per answer the user saw, emitted only
+    /// after the turn's fate is known: `phase` is `Final` where the turn ends,
+    /// `Interim` where a steer, a blocking Stop hook or goal continuation
+    /// carries it on. Clients end a turn on `sessionTurnFinished`, never on a
+    /// completion (issue 450). The message id mirrors the phase but is rewritten
+    /// by canonicalization; `phase` is the wire truth. `reasoning` is captured
+    /// before any re-entry message is pushed, so it stays the answer's own.
+    pub(in crate::engine) fn emit_assistant_completed(
+        &self,
+        sid: &str,
+        phase: Phase,
+        content: String,
+        reasoning: Option<String>,
+    ) {
+        let id = match phase {
+            Phase::Interim => "interim",
+            Phase::Final => "final",
+        };
+        self.emit(|seq| ProtocolEvent::AssistantMessageCompleted {
+            session_id: sid.to_string(),
+            seq,
+            created_at: now_iso(),
+            message: rightkit_agent_engine_protocol::TranscriptMessage::Assistant {
+                id: id.to_string(),
+                created_at: now_iso(),
+                content,
+                reasoning_content: reasoning,
+                tool_calls: vec![],
+                pinned: false,
+                origin: self.llm.message_origin(),
+            },
+            phase,
+        });
     }
 }

@@ -67,7 +67,7 @@ pub(crate) fn message_identity(message: &TranscriptMessage) -> (&str, usize) {
 /// Fingerprint over exactly the prefix a prefire pass at this keep_recent
 /// would summarize -- the same partition prepare_authoritative computes.
 pub fn prefire_fingerprint(transcript: &Transcript, keep_recent: usize) -> String {
-    let (summarized, _kept) = partition_recent_turns(transcript.messages().to_vec(), keep_recent);
+    let summarized = partition_recent_turns(transcript.messages().to_vec(), keep_recent).0;
     fingerprint_prefix(&summarized)
 }
 
@@ -92,12 +92,17 @@ impl Compactor {
         summarizer: Arc<dyn FallibleSummarizer>,
     ) -> Result<Option<PrefiredSummary>, CompactError> {
         let fingerprint = prefire_fingerprint(transcript, self.keep_recent);
-        let (summarized, _kept) =
-            partition_recent_turns(transcript.messages().to_vec(), self.keep_recent);
+        let summarized = partition_recent_turns(transcript.messages().to_vec(), self.keep_recent).0;
         if summarized.is_empty() {
             return Ok(None);
         }
-        let prior_summary = extract_prior_summary(transcript);
+        // With the host option `compaction_carry_prior_summary` on, earlier summaries are carried
+        // forward verbatim at commit time, so the summarizer sees only the new span.
+        let prior_summary = if crate::host_options::compaction_carry_prior_summary() {
+            None
+        } else {
+            extract_prior_summary(transcript)
+        };
         let summarizer_input = bounded_summarizer_input(&summarized, &summarized);
         let summary = core_safety_pass(
             &summarizer
@@ -136,12 +141,19 @@ impl Compactor {
         session_id: &str,
         workspace_root: &std::path::Path,
     ) -> CompactionResult {
-        let (_summarized, kept) =
-            partition_recent_turns(transcript.messages().to_vec(), self.keep_recent);
+        let kept = partition_recent_turns(transcript.messages().to_vec(), self.keep_recent).1;
+        let summary = if crate::host_options::compaction_carry_prior_summary() {
+            core_safety_pass(&carry_prior_summary(
+                &prefired.summary,
+                extract_prior_summary(transcript).as_deref(),
+            ))
+        } else {
+            prefired.summary
+        };
         let compact_message = TranscriptMessage::Compact {
             id: format!("compact-{}", now_iso()),
             created_at: now_iso(),
-            summary: prefired.summary.clone(),
+            summary: summary.clone(),
             dropped_count: prefired.dropped_count as i32,
             pinned: true,
         };
@@ -155,7 +167,7 @@ impl Compactor {
         );
         transcript.replace(replacement);
         CompactionResult {
-            summary: prefired.summary,
+            summary,
             dropped_count: prefired.dropped_count,
         }
     }

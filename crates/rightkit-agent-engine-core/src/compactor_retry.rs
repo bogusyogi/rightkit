@@ -67,6 +67,9 @@ pub struct CompactionCommandV1 {
     pub id: u64,
     pub kind: CompactionCommandKindV1,
     pub response: Option<tokio::sync::oneshot::Sender<Result<crate::CompactionOutcome, String>>>,
+    /// The user's own focus text for a manual compaction (`/compact <text>`);
+    /// `None` for every automatic trigger.
+    pub instructions: Option<String>,
 }
 
 pub fn next_compaction_command_id() -> u64 {

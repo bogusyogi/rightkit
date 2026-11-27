@@ -147,7 +147,12 @@ pub trait GuidanceStore: Send + Sync {
         kind: super::proposal::GuidanceKind,
         record: NewGuidanceRecord,
     ) -> Result<GuidanceRecord, GuidanceStoreError> {
-        let _ = (expected_surface_digest, kind, &record);
+        tracing::debug!(
+            expected_surface_digest,
+            ?kind,
+            guidance_id = %record.guidance_id,
+            "guidance store has no CAS append; refusing"
+        );
         Err(GuidanceStoreError::Backend(
             "guidance store does not implement CAS append (append_if_surface_unchanged); refusing to append fail-closed".into(),
         ))
@@ -239,7 +244,6 @@ impl GuidanceStore for InMemoryGuidanceStore {
             content: record.content,
             digest,
         };
-        let _digest = stored.digest.clone();
         records.push(stored.clone());
         Ok(stored)
     }

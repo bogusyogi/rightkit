@@ -44,18 +44,28 @@ pub(crate) fn non_provider_await_deadline(max_iterations: usize) -> Duration {
     Duration::from_secs(seconds)
 }
 
+/// The configured deadline (`[turn] tool-timeout-secs`) when set, else the derived one.
+pub(crate) fn await_deadline(configured_secs: Option<u64>, max_iterations: usize) -> Duration {
+    match configured_secs.filter(|secs| *secs > 0) {
+        Some(secs) => Duration::from_secs(secs),
+        None => non_provider_await_deadline(max_iterations),
+    }
+}
+
 /// Tools whose await is on a non-provider peer and has no deadline of its own.
 /// Interactive waits (questions, approvals), subagent waits, sleeps, and shell
-/// or process tools (which carry their own timeouts) are deliberately excluded.
+/// or process tools (which carry their own timeouts) are deliberately excluded. `mcp_auth`, which
+/// waits on a person finishing a sign-in, is supervised unless the host sets
+/// `mcp_auth_unsupervised`.
 pub(crate) fn is_supervised_tool(name: &str) -> bool {
     name.starts_with("mcp__")
+        || (name == "mcp_auth" && !crate::host_options::mcp_auth_unsupervised())
         || matches!(
             name,
             "mcp_call"
                 | "read_mcp_resource"
                 | "list_mcp_resources"
                 | "list_mcp_tools"
-                | "mcp_auth"
                 | "browser_fetch"
                 | "recursive_fetch"
                 | "web_search"
@@ -93,4 +103,24 @@ where
             rightkit_agent_coding_tools::ToolResult::error(timeout.to_string())
         }
     }
+}
+
+/// One tool call under a `tool` span (target `rightkit_tool`) carrying the session id, the tool
+/// name and the call id, with an event when it starts and when it ends. No argument or output is
+/// ever a field.
+pub(crate) async fn traced_tool_call<F, T>(session_id: &str, call_id: &str, tool: &str, fut: F) -> T
+where
+    F: Future<Output = T>,
+{
+    use tracing::Instrument as _;
+    let span = tracing::info_span!(target: "rightkit_tool", "tool", session_id = %session_id, tool = %tool, call_id = %call_id);
+    async {
+        tracing::info!(target: "rightkit_tool", "tool call started");
+        let started = std::time::Instant::now();
+        let out = fut.await;
+        tracing::info!(target: "rightkit_tool", elapsed_ms = started.elapsed().as_millis() as u64, "tool call finished");
+        out
+    }
+    .instrument(span)
+    .await
 }

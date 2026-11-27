@@ -39,8 +39,15 @@ use super::proposal::{
 
 /// Domain separator for [`derived_receipt_id`] — mixed into the hash so a
 /// receipt id can never collide with a digest computed for an unrelated
-/// purpose elsewhere in the house digest scheme.
-pub const APPLICATION_RECEIPT_DOMAIN: &str = "coderight.adapt_consumer.application_receipt.v1";
+/// purpose elsewhere in the house digest scheme. It carries the host's short name
+/// (`<host>.adapt_consumer.application_receipt.v1`, `rightkit` until the host names itself), so a
+/// host's receipt ids stay its own.
+pub fn application_receipt_domain() -> String {
+    format!(
+        "{}.adapt_consumer.application_receipt.v1",
+        rightkit_agent_config::host_slug()
+    )
+}
 
 /// The two digests a stale-base rejection reports: what the proposal expected
 /// and what the host actually observed at check/commit time.
@@ -134,7 +141,8 @@ pub fn derived_receipt_id(proposal: &SealedRemediationProposalV1) -> String {
         ProposalDelta::AppendRecord { content, .. } => format!("append\0{content}"),
     };
     let canonical = format!(
-        "{APPLICATION_RECEIPT_DOMAIN}\0{}\0{}\0{}\0{}\0{}\0{}\0{}",
+        "{}\0{}\0{}\0{}\0{}\0{}\0{}\0{}",
+        application_receipt_domain(),
         proposal.contract_version,
         proposal.proposal_id,
         proposal.intervention_target.surface.as_str(),
@@ -438,7 +446,6 @@ fn apply_refine(
         receipt_id,
         stored.guidance_id.clone(),
         stored.digest.clone(),
-        stored,
     )
 }
 
@@ -565,7 +572,6 @@ fn apply_append(
         receipt_id,
         stored.guidance_id.clone(),
         stored.digest.clone(),
-        stored,
     )
 }
 
@@ -579,7 +585,6 @@ fn finish_applied(
     receipt_id: String,
     guidance_id: String,
     digest: String,
-    _stored: GuidanceRecord,
 ) -> ApplicationReceipt {
     let surface = proposal.intervention_target.surface;
     // Regenerate from the freshest observable surface; fall back to the

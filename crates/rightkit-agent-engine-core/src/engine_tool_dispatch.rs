@@ -10,14 +10,34 @@ mod single_execute;
 #[path = "engine_tool_dispatch_result.rs"]
 mod single_result;
 
+/// Let the `PostToolUse` hooks that declare `"rewrite": true` replace or add to a tool result
+/// before it is stored or published. Other `PostToolUse` hooks stay fire-and-forget (the daemon
+/// runner serves them); with no bus or no rewrite hook this does nothing.
+async fn rewrite_tool_result_with_hooks(
+    bus: &Option<rightkit_hooks::agent_hooks::HookBus>,
+    session_id: &str,
+    tool: &str,
+    result: &mut rightkit_agent_coding_tools::ToolResult,
+) {
+    let Some(bus) = bus else { return };
+    if let Some(text) = bus
+        .rewrite_post_tool_result(session_id, tool, result.is_error, &result.content)
+        .await
+    {
+        result.content = text;
+    }
+}
+
 /// Default cap on how many tool calls `dispatch_concurrent_batch` is allowed
 /// to run in flight at once for a single chunk (Lane 5 / P1-8 §8-1, mirroring
 /// claude-code's `toolOrchestration.ts` bound). Overridable via
-/// `RIGHTKIT_MAX_CONCURRENT_TOOL_CALLS` for operators who need a tighter or
+/// `<PREFIX>_MAX_CONCURRENT_TOOL_CALLS` (the host's environment prefix, `RIGHTKIT` unless the
+/// host names itself) for operators who need a tighter or
 /// looser ceiling than the default — same pattern as
 /// `compactor_breaker::new_from_env_or_default`.
 pub(super) const DEFAULT_MAX_CONCURRENT_TOOL_CALLS: usize = 10;
-const MAX_CONCURRENT_TOOL_CALLS_ENV: &str = "RIGHTKIT_MAX_CONCURRENT_TOOL_CALLS";
+/// The environment-variable suffix of the bound, under the host's prefix.
+const MAX_CONCURRENT_TOOL_CALLS_ENV_SUFFIX: &str = "MAX_CONCURRENT_TOOL_CALLS";
 
 #[cfg(feature = "host")]
 type ProcessLaunchAuthority = (
@@ -26,8 +46,6 @@ type ProcessLaunchAuthority = (
 );
 
 #[cfg(feature = "host")]
-// ToolResult is the dispatch error contract shared by every caller; boxing it would change them all.
-#[allow(clippy::result_large_err)]
 fn required_process_launch_authority(
     tools: &rightkit_agent_coding_tools::ToolRegistry,
     tool_name: &str,
@@ -78,18 +96,20 @@ fn required_process_launch_authority(
     Ok(Some((adapter, launch_context)))
 }
 
-/// Resolve the concurrent-tool-call bound: `RIGHTKIT_MAX_CONCURRENT_TOOL_CALLS`
+/// Resolve the concurrent-tool-call bound: `<PREFIX>_MAX_CONCURRENT_TOOL_CALLS`
 /// when set to a parseable value greater than zero, else
 /// `DEFAULT_MAX_CONCURRENT_TOOL_CALLS`. A batch larger than this bound must be
 /// chunked by the caller — `dispatch_concurrent_batch` itself runs whatever
 /// slice it is given with no internal limit, so the bound is enforced at the
 /// partition/call site (`engine_loop_dispatch.rs`), not inside the executor.
 pub(super) fn max_concurrent_tool_calls() -> usize {
-    std::env::var(MAX_CONCURRENT_TOOL_CALLS_ENV)
-        .ok()
-        .and_then(|s| s.trim().parse::<usize>().ok())
-        .filter(|v| *v > 0)
-        .unwrap_or(DEFAULT_MAX_CONCURRENT_TOOL_CALLS)
+    std::env::var(rightkit_agent_config::env_name(
+        MAX_CONCURRENT_TOOL_CALLS_ENV_SUFFIX,
+    ))
+    .ok()
+    .and_then(|s| s.trim().parse::<usize>().ok())
+    .filter(|v| *v > 0)
+    .unwrap_or(DEFAULT_MAX_CONCURRENT_TOOL_CALLS)
 }
 
 // Interactive terminals are operator-owned sessions (`api_execution`
@@ -115,12 +135,35 @@ static BACKGROUND_INBOX_DELIVERIES: std::sync::LazyLock<
     std::sync::Mutex<std::collections::HashSet<(String, String)>>,
 > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
 
+/// The id the session-lifetime background-shell cancel watcher runs under, in place of a tool
+/// call id.
+pub(super) const SESSION_INTERRUPT_WATCHER_ID: &str = "session-interrupt";
+
 /// Byte limit under which a tool result stays fully inline in the
 /// transcript; at or under this limit `store_tool_output` records the
 /// content verbatim with an inline envelope, over it the result is
 /// externalized immediately to preview + retrievable reference. Only the
 /// exempt class bypasses size decay (CR-28/CQ-07).
 pub(super) const TOOL_OUTPUT_PREVIEW_LIMIT: usize = 4000;
+
+/// Inline limit for results the model asked for in order to read them whole: file reads, searches,
+/// listings and a sub-agent's report. At 4000 bytes (about 1,000 tokens) most source files were
+/// externalized, so the model re-read them in slices, one paid request each. A result that is
+/// read once inline costs one cached prefix; every refetch costs a full request. Used only when
+/// the host asks for it (`host_options::wide_read_tool_inline_limit`).
+pub(super) const READ_TOOL_OUTPUT_PREVIEW_LIMIT: usize = 32 * 1024;
+
+/// The inline limit for one non-exempt tool's result.
+pub(super) fn tool_output_preview_limit(tool_name: &str) -> usize {
+    match tool_name {
+        "read_file" | "search" | "list_files" | "spawn_subagent" | "wait_for_subagents"
+            if crate::host_options::wide_read_tool_inline_limit() =>
+        {
+            READ_TOOL_OUTPUT_PREVIEW_LIMIT
+        }
+        _ => TOOL_OUTPUT_PREVIEW_LIMIT,
+    }
+}
 
 /// Exempt-class (control-flow) results stay verbatim inline only up to this
 /// many bytes. Beyond it they spill to the tool-result store like any other
@@ -285,8 +328,19 @@ impl SessionEngine {
         if !tool_result_carries_content(tool_name) {
             return;
         }
-        self.content_provenance
-            .absorb(tool_source_provenance(tool_name));
+        let mut provenance = tool_source_provenance(tool_name);
+        // In a workspace trusted for this run only, what a tool reads from its files is not the
+        // user's word (`ContentOrigin::UntrustedWorkspace`).
+        if self.run_scoped_workspace_trust
+            && provenance.origin == rightkit_agent_policy::ContentOrigin::ToolDerived
+            && tool_reads_workspace_content(tool_name)
+        {
+            provenance = rightkit_agent_policy::ContentProvenance::new(
+                rightkit_agent_policy::ContentOrigin::UntrustedWorkspace,
+                provenance.source,
+            );
+        }
+        self.content_provenance.absorb(provenance);
     }
 
     /// Approval review for one mutating tool call (FM-031), run before the
@@ -399,6 +453,21 @@ impl SessionEngine {
         });
     }
 
+    fn mcp_call_target_is_read_only(&self, call: &ToolCall) -> bool {
+        // The concurrent path skips the approval reviewer, so a server's own hint never
+        // takes a call past a configured one.
+        if call.name != "mcp_call" || self.guardian.is_some() {
+            return false;
+        }
+        let Some(manager) = self.mcp.as_ref() else {
+            return false;
+        };
+        serde_json::from_str::<serde_json::Value>(&call.arguments_json)
+            .ok()
+            .and_then(|args| args.get("name").and_then(|v| v.as_str()).map(str::to_owned))
+            .is_some_and(|name| manager.is_listed_read_only(&name))
+    }
+
     pub(super) fn can_dispatch_readonly_fast(&self, call: &&ToolCall) -> bool {
         let pre_tool_middleware = self
             .enabled_runtime_middleware(MiddlewarePhase::PreToolCall)
@@ -418,12 +487,25 @@ impl SessionEngine {
                     .allowed
             })
             .unwrap_or(true);
-        self.tools
+        (self
+            .tools
             .get(&call.name)
             .map(|t| t.is_read_only())
             .unwrap_or(false)
+            // With the host option `mcp_read_only_hint_concurrent`, an `mcp_call` whose target the
+            // last listing showed as readOnlyHint=true runs beside other reads; a tool not listed
+            // yet stays serial.
+            || (crate::host_options::mcp_read_only_hint_concurrent()
+                && self.mcp_call_target_is_read_only(call)))
             && call.name != "exec"
-            && self.hook_bus.is_none()
+            // Every real session carries a hook bus, so "has a bus" kept every call serial
+            // (three reads in one response still ran one at a time). Only a configured
+            // PreToolUse hook needs the serial authority; PostToolUse is published the same
+            // way on both paths.
+            && !self
+                .hook_bus
+                .as_ref()
+                .is_some_and(|bus| bus.has_pre_tool_use_hooks())
             // A repeated call is an Ask, so it never takes the no-approval fast path.
             && !self.repeated_call_ids.contains(&call.id)
             && self.permission_verdict_for(call).decision == PermissionDecision::Allow
@@ -477,9 +559,14 @@ impl SessionEngine {
     #[cfg(not(feature = "host"))]
     pub(super) fn propagate_cancel_to_background_shells(
         &self,
-        _tool_call_id: &str,
-        _cancel_rx: tokio::sync::watch::Receiver<bool>,
+        tool_call_id: &str,
+        cancel_rx: tokio::sync::watch::Receiver<bool>,
     ) {
+        tracing::trace!(
+            tool_call_id,
+            cancelled = *cancel_rx.borrow(),
+            "no background shells exist in this runtime profile; nothing to cancel"
+        );
     }
 
     #[cfg(feature = "host")]
@@ -495,14 +582,13 @@ impl SessionEngine {
         // `extern "C"` frame that panic cannot unwind and aborts the whole
         // process. Without a reactor no background shell can have been
         // spawned and none can be, so skipping the watchers loses nothing.
-        let Ok(reactor) = tokio::runtime::Handle::try_current() else {
+        if tokio::runtime::Handle::try_current().is_err() {
             tracing::debug!(
                 tool_call_id,
                 "no async runtime in context; skipping background-shell cancel watchers"
             );
             return;
-        };
-        let _entered = reactor.enter();
+        }
         let pre_call_ids: std::collections::BTreeSet<String> = self
             .background_shells
             .lock()
@@ -668,115 +754,157 @@ impl SessionEngine {
                 TurnInterrupted,
             }
 
-            let trigger = if let Some(mut rx) = interrupt_rx {
-                let wait_for_call_cancel = async move {
-                    if *cancel_rx.borrow() {
-                        return;
-                    }
-                    loop {
-                        match cancel_rx.changed().await {
-                            Ok(()) if *cancel_rx.borrow() => return,
-                            Ok(()) => {}
-                            Err(_) => std::future::pending::<()>().await,
+            // PERF-04: a call that has settled drops its cancel sender. Its watcher then has nothing
+            // left to wait for and ends; it used to park on the turn interrupt for the rest of the
+            // session, so every finished call left one task behind and one interrupt woke them all.
+            // Only the session-lifetime watcher (`set_interrupt_receiver`) outlives its sender, and
+            // it serves every interrupt of the session, not only the first.
+            let outlives_its_call = call_id == SESSION_INTERRUPT_WATCHER_ID;
+            let mut interrupt_rx = interrupt_rx;
+            let mut call_settled = false;
+            loop {
+                let trigger = if let Some(rx) = interrupt_rx.as_mut() {
+                    let wait_for_call_cancel = async {
+                        if call_settled {
+                            return std::future::pending::<bool>().await;
+                        }
+                        if *cancel_rx.borrow() {
+                            return true;
+                        }
+                        loop {
+                            match cancel_rx.changed().await {
+                                Ok(()) if *cancel_rx.borrow() => return true,
+                                Ok(()) => {}
+                                Err(_) => return false,
+                            }
+                        }
+                    };
+                    let wait_for_interrupt = async {
+                        if *rx.borrow() {
+                            return true;
+                        }
+                        loop {
+                            match rx.changed().await {
+                                Ok(()) if *rx.borrow() => return true,
+                                Ok(()) => {}
+                                // The session is gone: nothing can interrupt it any more.
+                                Err(_) => return false,
+                            }
+                        }
+                    };
+                    tokio::select! {
+                        cancelled = wait_for_call_cancel => {
+                            if !cancelled {
+                                if !outlives_its_call {
+                                    return;
+                                }
+                                call_settled = true;
+                                continue;
+                            }
+                            CancelTrigger::ToolCallCancelled
+                        }
+                        interrupted = wait_for_interrupt => {
+                            if !interrupted {
+                                return;
+                            }
+                            CancelTrigger::TurnInterrupted
                         }
                     }
+                } else {
+                    if !*cancel_rx.borrow() {
+                        loop {
+                            match cancel_rx.changed().await {
+                                Ok(()) if *cancel_rx.borrow() => break,
+                                Ok(()) => {}
+                                Err(_) => return,
+                            }
+                        }
+                    }
+                    CancelTrigger::ToolCallCancelled
                 };
-                let wait_for_interrupt = async move {
-                    if *rx.borrow() {
-                        return;
-                    }
-                    loop {
-                        match rx.changed().await {
-                            Ok(()) if *rx.borrow() => return,
-                            Ok(()) => {}
-                            Err(_) => std::future::pending::<()>().await,
-                        }
-                    }
-                };
-                tokio::select! {
-                    () = wait_for_call_cancel => CancelTrigger::ToolCallCancelled,
-                    () = wait_for_interrupt => CancelTrigger::TurnInterrupted,
-                }
-            } else {
-                if !*cancel_rx.borrow() {
-                    loop {
-                        match cancel_rx.changed().await {
-                            Ok(()) if *cancel_rx.borrow() => break,
-                            Ok(()) => {}
-                            Err(_) => return,
-                        }
-                    }
-                }
-                CancelTrigger::ToolCallCancelled
-            };
 
-            let baseline = PROTECTED_SHELL_BASELINES
-                .lock()
-                .unwrap()
-                .get(&session_id)
-                .map(|(_, ids)| ids.clone())
-                .unwrap_or_default();
-            let victims: Vec<(
-                String,
-                Arc<rightkit_agent_coding_tools::background_shell::BgShell>,
-            )> = {
-                let shells = store.lock().unwrap();
-                shells
+                let baseline = PROTECTED_SHELL_BASELINES
+                    .lock()
+                    .unwrap()
+                    .get(&session_id)
+                    .map(|(_, ids)| ids.clone())
+                    .unwrap_or_default();
+                let victims: Vec<(
+                    String,
+                    Arc<rightkit_agent_coding_tools::background_shell::BgShell>,
+                )> = {
+                    let shells = store.lock().unwrap();
+                    shells
+                        .iter()
+                        .filter(|(id, shell)| {
+                            !baseline.contains(id.as_str())
+                                && shell.process_kind() != INTERACTIVE_TERMINAL_PROCESS_KIND
+                                && shell.status()
+                                    == rightkit_agent_coding_tools::background_shell::BgStatus::Running
+                        })
+                        .map(|(id, shell)| (id.clone(), shell.clone()))
+                        .collect()
+                };
+                // Idempotent and non-blocking: each kill() takes the shell's
+                // oneshot sender; the spawn supervisor escalates TERM → KILL on a
+                // bounded grace period off the cancel path.
+                let killed_ids: Vec<String> = victims
                     .iter()
-                    .filter(|(id, shell)| {
-                        !baseline.contains(id.as_str())
-                            && shell.process_kind() != INTERACTIVE_TERMINAL_PROCESS_KIND
-                            && shell.status()
-                                == rightkit_agent_coding_tools::background_shell::BgStatus::Running
-                    })
-                    .map(|(id, shell)| (id.clone(), shell.clone()))
-                    .collect()
-            };
-            // Idempotent and non-blocking: each kill() takes the shell's
-            // oneshot sender; the spawn supervisor escalates TERM → KILL on a
-            // bounded grace period off the cancel path.
-            let killed_ids: Vec<String> = victims
-                .iter()
-                .filter(|(_, shell)| shell.kill())
-                .map(|(id, _)| id.clone())
-                .collect();
+                    .filter(|(_, shell)| shell.kill())
+                    .map(|(id, _)| id.clone())
+                    .collect();
 
-            let seq = conduit.next_seq();
-            let mut fields = HashMap::new();
-            fields.insert("toolCallId".to_string(), call_id.clone());
-            fields.insert(
-                "trigger".to_string(),
-                match trigger {
-                    CancelTrigger::ToolCallCancelled => "toolCallCancelled".to_string(),
-                    CancelTrigger::TurnInterrupted => "turnInterrupted".to_string(),
-                },
-            );
-            fields.insert("victims".to_string(), victims.len().to_string());
-            fields.insert("killedShellIds".to_string(), killed_ids.join(","));
-            conduit.publish(
-                rightkit_agent_engine_protocol::ProtocolEvent::OrchestrationObservationRecorded {
-                    session_id: session_id.clone(),
-                    seq,
-                    created_at: now_iso(),
-                    observation: rightkit_agent_engine_protocol::OrchestrationObservation {
-                        id: format!("background-shell-cancel-{seq}"),
-                        kind: "background_shell_cancel".into(),
-                        subject: session_id.clone(),
-                        summary: format!(
-                            "Cancellation ({trigger:?}) reached {} background \
-                             shell(s); terminated: {}",
-                            victims.len(),
-                            if killed_ids.is_empty() {
-                                "none".to_string()
-                            } else {
-                                killed_ids.join(", ")
-                            },
-                        ),
-                        fields,
-                        created_at: now_iso(),
+                let seq = conduit.next_seq();
+                let mut fields = HashMap::new();
+                fields.insert("toolCallId".to_string(), call_id.clone());
+                fields.insert(
+                    "trigger".to_string(),
+                    match trigger {
+                        CancelTrigger::ToolCallCancelled => "toolCallCancelled".to_string(),
+                        CancelTrigger::TurnInterrupted => "turnInterrupted".to_string(),
                     },
-                },
-            );
+                );
+                fields.insert("victims".to_string(), victims.len().to_string());
+                fields.insert("killedShellIds".to_string(), killed_ids.join(","));
+                conduit.publish(
+                    rightkit_agent_engine_protocol::ProtocolEvent::OrchestrationObservationRecorded {
+                        session_id: session_id.clone(),
+                        seq,
+                        created_at: now_iso(),
+                        observation: rightkit_agent_engine_protocol::OrchestrationObservation {
+                            id: format!("background-shell-cancel-{seq}"),
+                            kind: "background_shell_cancel".into(),
+                            subject: session_id.clone(),
+                            summary: format!(
+                                "Cancellation ({trigger:?}) reached {} background \
+                             shell(s); terminated: {}",
+                                victims.len(),
+                                if killed_ids.is_empty() {
+                                    "none".to_string()
+                                } else {
+                                    killed_ids.join(", ")
+                                },
+                            ),
+                            fields,
+                            created_at: now_iso(),
+                        },
+                    },
+                );
+                // A per-call watcher has done its one job. The session watcher waits for the
+                // interrupt flag to be lowered again (the next turn does that) and then serves the
+                // next interrupt.
+                if !outlives_its_call {
+                    return;
+                }
+                let Some(rx) = interrupt_rx.as_mut() else {
+                    return;
+                };
+                while *rx.borrow() {
+                    if rx.changed().await.is_err() {
+                        return;
+                    }
+                }
+            }
         });
     }
 
@@ -799,8 +927,8 @@ impl SessionEngine {
             call.id.clone(),
             rightkit_agent_coding_tools::ToolResult::error(summary.clone()),
         );
-        let (summary, mut output, _store_failed) =
-            self.store_tool_output(&call.name, &summary, Some("text/plain; charset=utf-8"));
+        let (summary, mut output, _) =
+            self.store_blocked_tool_output(&call.name, &summary, Some("text/plain; charset=utf-8"));
         if self.internal_composition_call_ids.contains(&call.id) {
             if let Some(output) = output.as_mut() {
                 output.kind = rightkit_agent_engine_protocol::TOOL_OUTPUT_INTERNAL_KIND.into();
@@ -846,7 +974,7 @@ impl SessionEngine {
     /// takes the bound as an explicit parameter instead of resolving it from
     /// the process environment. Exists so tests (and any future caller that
     /// needs a deterministic, non-global bound) can exercise the chunking
-    /// logic without mutating `RIGHTKIT_MAX_CONCURRENT_TOOL_CALLS` — a
+    /// logic without mutating `<PREFIX>_MAX_CONCURRENT_TOOL_CALLS` — a
     /// process-global `std::env::set_var` in a test races every other test in
     /// the same binary. `dispatch_concurrent_batch_bounded` is the only
     /// production caller and always resolves the bound from the environment.
@@ -902,6 +1030,30 @@ impl SessionEngine {
         content: &str,
         media_type: Option<&str>,
     ) -> (String, Option<OutputRef>, bool) {
+        self.store_tool_output_bounded(tool_name, content, media_type, false)
+    }
+
+    /// `store_tool_output` for a result the tool did not produce: a denial or a middleware block
+    /// (permission, hook, policy). The text is the blocker's, so the tool's own allowances do not
+    /// apply: neither the read-class 32 KB inline limit (kept so file contents are not re-read) nor
+    /// the exempt class's verbatim inline cap. It is bounded at the generic limit (issue 503: a
+    /// PreToolUse hook's 262 KB denial of `read_file` kept a 64 KB preview).
+    pub(super) fn store_blocked_tool_output(
+        &mut self,
+        tool_name: &str,
+        content: &str,
+        media_type: Option<&str>,
+    ) -> (String, Option<OutputRef>, bool) {
+        self.store_tool_output_bounded(tool_name, content, media_type, true)
+    }
+
+    fn store_tool_output_bounded(
+        &mut self,
+        tool_name: &str,
+        content: &str,
+        media_type: Option<&str>,
+        blocked: bool,
+    ) -> (String, Option<OutputRef>, bool) {
         // Decay any oversized verbatim-inline envelopes replayed from a
         // pre-CQ-07 transcript before recording this result.
         self.externalize_prior_turn_inline_outputs();
@@ -911,9 +1063,8 @@ impl SessionEngine {
         // of origin, flows through this function.
         let masked = rightkit_agent_coding_tools::output_compaction::mask_secrets(content);
 
-        if crate::compaction_archive::is_exempt_tool_name(tool_name)
-            && masked.len() <= EXEMPT_TOOL_OUTPUT_INLINE_CAP
-        {
+        let exempt = !blocked && crate::compaction_archive::is_exempt_tool_name(tool_name);
+        if exempt && masked.len() <= EXEMPT_TOOL_OUTPUT_INLINE_CAP {
             return (
                 masked.clone(),
                 Some(verbatim_inline_output_ref(&masked, media_type)),
@@ -922,10 +1073,12 @@ impl SessionEngine {
         }
         // Exempt results only reach here when they exceed the inline cap
         // (audit M9): they spill with a larger preview than ordinary results.
-        let preview_limit = if crate::compaction_archive::is_exempt_tool_name(tool_name) {
+        let preview_limit = if exempt {
             EXEMPT_TOOL_OUTPUT_INLINE_CAP
-        } else {
+        } else if blocked {
             TOOL_OUTPUT_PREVIEW_LIMIT
+        } else {
+            tool_output_preview_limit(tool_name)
         };
         let stored = self.tool_results.store(&masked, preview_limit);
         let store_failed = matches!(
@@ -985,17 +1138,20 @@ impl SessionEngine {
             else {
                 continue;
             };
-            let exempt = tool_names
-                .get(tool_call_id.as_str())
+            let tool_name = tool_names.get(tool_call_id.as_str());
+            let exempt = tool_name
                 .map(|name| crate::compaction_archive::is_exempt_tool_name(name))
                 .unwrap_or(false);
+            let inline_limit = tool_name
+                .map(|name| tool_output_preview_limit(name))
+                .unwrap_or(TOOL_OUTPUT_PREVIEW_LIMIT);
             let Some(envelope) = output.as_ref() else {
                 continue;
             };
             if exempt
                 || envelope.retrievable
                 || !is_decayable_tool_output_kind(&envelope.kind)
-                || envelope.size_bytes as usize <= TOOL_OUTPUT_PREVIEW_LIMIT
+                || envelope.size_bytes as usize <= inline_limit
             {
                 continue;
             }
@@ -1003,7 +1159,7 @@ impl SessionEngine {
             // verbatim shape recorded for the turn that produced it.
             let full = summary.clone();
             let media_type = envelope.media_type.clone();
-            let stored = self.tool_results.store(&full, TOOL_OUTPUT_PREVIEW_LIMIT);
+            let stored = self.tool_results.store(&full, inline_limit);
             *summary = stored.preview.clone();
             // A bounded preview produced after a safety-quota or durable-write
             // failure is diagnostic only. Preserve that typed failure on the
@@ -1017,8 +1173,7 @@ impl SessionEngine {
             }
             let internal =
                 envelope.kind == rightkit_agent_engine_protocol::TOOL_OUTPUT_INTERNAL_KIND;
-            let mut rewritten =
-                output_ref_for(&full, &stored, TOOL_OUTPUT_PREVIEW_LIMIT, Some(&media_type));
+            let mut rewritten = output_ref_for(&full, &stored, inline_limit, Some(&media_type));
             if internal {
                 rewritten.kind = rightkit_agent_engine_protocol::TOOL_OUTPUT_INTERNAL_KIND.into();
             }
@@ -1132,6 +1287,20 @@ fn pre_tool_middleware_matches_call(definitions: &[MiddlewareDefinition], call: 
 pub(super) fn tool_result_carries_content(tool_name: &str) -> bool {
     let name = tool_name.strip_prefix("tool:").unwrap_or(tool_name);
     !name.eq_ignore_ascii_case("tool_search")
+}
+
+/// Tools whose result carries text from workspace files (or from commands run over them).
+fn tool_reads_workspace_content(tool_name: &str) -> bool {
+    let name = tool_name
+        .strip_prefix("tool:")
+        .unwrap_or(tool_name)
+        .to_ascii_lowercase();
+    matches!(
+        name.as_str(),
+        "read_file" | "search" | "list_files" | "shell" | "powershell" | "repl" | "exec"
+    ) || name.starts_with("git")
+        || name.starts_with("lsp")
+        || name.starts_with("notebook")
 }
 
 pub(super) fn tool_source_provenance(source: &str) -> rightkit_agent_policy::ContentProvenance {

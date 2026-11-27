@@ -12,7 +12,26 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const SCHEMA: &str = "orthic.tool-receipt.v1";
+/// The receipt issuer of a host that has not named itself ([`host_issuer`] follows the host).
 pub const HOST_ISSUER: &str = "rightkit-agent-host";
+
+/// The short name this host calls its agent in persisted and wire strings: `rightkit-agent` until
+/// the host names itself with `rightkit_agent_config::set_env_prefix`, then the host's own
+/// lower-case name (`myapp`).
+pub(crate) fn host_agent_name() -> String {
+    let slug = rightkit_agent_config::host_slug();
+    if slug == "rightkit" {
+        "rightkit-agent".to_string()
+    } else {
+        slug
+    }
+}
+
+/// The issuer id this host stamps on its tool receipts and checks on read: [`HOST_ISSUER`] by
+/// default, `<host>-host` for a host that named itself (`myapp-host`).
+pub fn host_issuer() -> String {
+    format!("{}-host", host_agent_name())
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CheckSpec {
@@ -197,7 +216,6 @@ pub struct AssuranceBroker {
     path: PathBuf,
     contract: Option<TaskContract>,
     receipts: HashMap<String, ToolReceipt>,
-    closed_ledger_digest: Option<String>,
 }
 
 impl AssuranceBroker {
@@ -207,7 +225,6 @@ impl AssuranceBroker {
             path,
             contract: None,
             receipts: HashMap::new(),
-            closed_ledger_digest: None,
         };
         broker.replay()?;
         Ok(broker)
@@ -249,7 +266,6 @@ impl AssuranceBroker {
         })?;
         self.contract = Some(contract.clone());
         self.receipts.clear();
-        self.closed_ledger_digest = None;
         Ok(contract)
     }
 
@@ -305,7 +321,8 @@ impl AssuranceBroker {
         let completed_at = now();
         let input_digest = digest(input);
         let output_digest = digest(output);
-        let issuer_capability_digest = digest(b"rightkit-agent-host:tool-broker:v1");
+        let issuer = host_issuer();
+        let issuer_capability_digest = digest(format!("{issuer}:tool-broker:v1").as_bytes());
         let signature_or_mac = digest(
             format!(
                 "{}/{}/{}/{}/{}/{}/{}",
@@ -334,7 +351,7 @@ impl AssuranceBroker {
             task_id: contract.task_id.clone(),
             turn_id,
             tool_call_id,
-            issuer_id: HOST_ISSUER.into(),
+            issuer_id: issuer,
             issuer_capability_digest,
             tool_class,
             operation,
@@ -407,9 +424,8 @@ impl AssuranceBroker {
                 .as_ref()
                 .map(|c| c.task_id.clone())
                 .unwrap_or_default(),
-            ledger_digest: ledger_digest.clone(),
+            ledger_digest,
         })?;
-        self.closed_ledger_digest = Some(ledger_digest);
         Ok(gate)
     }
 
@@ -426,6 +442,22 @@ impl AssuranceBroker {
     fn append(&self, record: &ProjectionRecord) -> std::io::Result<()> {
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)?;
+            // #440: the broker log is local runtime state inside the user's
+            // workspace. A self-ignoring `.gitignore` keeps it out of
+            // `git status` and out of `/commit`'s `git add -A`.
+            // Only in the broker's own `sentinel` directory: never write a
+            // match-everything ignore file into a workspace root.
+            let ignore = parent.join(".gitignore");
+            let own_dir = parent.file_name().and_then(|name| name.to_str()) == Some("sentinel");
+            if own_dir && !ignore.exists() {
+                if let Err(error) = fs::write(&ignore, "*\n") {
+                    tracing::warn!(
+                        path = %ignore.display(),
+                        %error,
+                        "could not write the broker log's self-ignoring .gitignore"
+                    );
+                }
+            }
         }
         let mut line = serde_json::to_vec(record).map_err(std::io::Error::other)?;
         line.push(b'\n');
@@ -445,14 +477,11 @@ impl AssuranceBroker {
                 ProjectionRecord::Task { contract } => {
                     self.contract = Some(contract);
                     self.receipts.clear();
-                    self.closed_ledger_digest = None;
                 }
                 ProjectionRecord::Receipt { receipt } => {
                     self.receipts.insert(receipt.tool_call_id.clone(), receipt);
                 }
-                ProjectionRecord::Close { ledger_digest, .. } => {
-                    self.closed_ledger_digest = Some(ledger_digest);
-                }
+                ProjectionRecord::Close { .. } => {}
             }
         }
         Ok(())

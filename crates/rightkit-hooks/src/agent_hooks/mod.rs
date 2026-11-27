@@ -92,3 +92,81 @@ pub(crate) fn hook_env(name: &'static str) -> Option<String> {
 pub(crate) fn hook_env(_name: &'static str) -> Option<String> {
     None
 }
+
+/// Fire-and-forget hook runs still in flight (a `SessionEnd` hook, which may not block the turn).
+/// A short-lived process (an in-process one-shot run) waits for them before it exits: every child
+/// the engine starts can die with the process, so a hook still running at exit would be killed
+/// before it did its work.
+static PENDING: std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Remember a fire-and-forget hook task so [`wait_pending`] can wait for it. Tasks that already
+/// finished are dropped from the list on the way.
+pub fn track_pending(task: tokio::task::JoinHandle<()>) {
+    let mut pending = PENDING.lock().unwrap_or_else(|e| e.into_inner());
+    pending.retain(|task| !task.is_finished());
+    pending.push(task);
+}
+
+/// Wait up to `limit` for the tracked hook tasks to finish. A hook's own timeout bounds each run;
+/// `limit` bounds the whole wait so a stuck hook cannot hold the process open. A task that ended
+/// abnormally, and a wait that ran out of time, are reported on standard error.
+pub async fn wait_pending(limit: std::time::Duration) {
+    let tasks: Vec<_> = std::mem::take(&mut *PENDING.lock().unwrap_or_else(|e| e.into_inner()));
+    if tasks.is_empty() {
+        return;
+    }
+    let drained = tokio::time::timeout(limit, async {
+        for task in tasks {
+            if let Err(error) = task.await {
+                eprintln!("hook task ended abnormally: {error}");
+            }
+        }
+    })
+    .await;
+    if drained.is_err() {
+        eprintln!("hook tasks still running after {limit:?}");
+    }
+}
+
+/// Turns this process's engine started and ended. Every turn that starts records one end on
+/// every path out of it; a turn that runs in another process (a daemon) counts nothing here.
+static SESSION_STARTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static SESSION_ENDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static SESSION_END_NOTIFY: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+/// Called by the engine when a turn starts.
+pub fn note_session_start() {
+    SESSION_STARTS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Called by the engine once a turn's session end is recorded (after any `SessionEnd` hook task
+/// was tracked with [`track_pending`]).
+pub fn note_session_end() {
+    SESSION_ENDS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    SESSION_END_NOTIFY.notify_waiters();
+}
+
+/// Wait up to `limit` until every turn this process's engine started has recorded its end. The
+/// host can report a turn finished a moment before the engine records the end; this closes that
+/// gap. Returns at once when no turn ran in this process. A wait that ran out of time is reported
+/// on standard error.
+pub async fn wait_session_ends(limit: std::time::Duration) {
+    let settled = || {
+        SESSION_ENDS.load(std::sync::atomic::Ordering::SeqCst)
+            >= SESSION_STARTS.load(std::sync::atomic::Ordering::SeqCst)
+    };
+    let waited = tokio::time::timeout(limit, async {
+        loop {
+            let notified = SESSION_END_NOTIFY.notified();
+            if settled() {
+                return;
+            }
+            notified.await;
+        }
+    })
+    .await;
+    if waited.is_err() {
+        eprintln!("a turn's session end was not recorded within {limit:?}");
+    }
+}

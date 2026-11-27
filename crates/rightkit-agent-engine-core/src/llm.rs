@@ -35,6 +35,24 @@ impl LlmRequestIdentity {
     }
 }
 
+/// How long a provider should keep this request's prompt prefix cached (providers that cache by
+/// explicit breakpoint, such as Anthropic's Messages API; automatic caches ignore it).
+///
+/// `Long` (one hour) suits a chat a person is attached to, whose gaps between messages routinely
+/// exceed five minutes. `Short` (the provider default) suits a subagent, a headless run or a
+/// review, which send their next request within seconds and should not pay the dearer long write.
+/// `None` writes nothing, for a single request whose prefix will not be seen again.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CacheRetention {
+    /// Write no cache breakpoint.
+    None,
+    /// The provider's default lifetime (five minutes).
+    #[default]
+    Short,
+    /// One hour.
+    Long,
+}
+
 /// Stable request metadata that provider adapters may consume without placing
 /// volatile values in the transcript itself.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -44,6 +62,8 @@ pub struct LlmRequestMetadata {
     /// Per-call provider output ceiling. Used by compaction so its active-model
     /// summary cannot consume an unbounded/default generation allowance.
     pub max_output_tokens: Option<u32>,
+    /// Prompt-cache lifetime for this request; `None` leaves the provider client's default.
+    pub cache_retention: Option<CacheRetention>,
     /// HCTX-002: generation of host-state projections promoted at the request boundary.
     pub provider_boundary_generation: Option<u64>,
     /// HCTX-002: fingerprint of the prompt/context/world-state projection used.
@@ -92,11 +112,37 @@ pub enum LlmStreamEvent {
     UsageDetail {
         reasoning_tokens: u32,
     },
+    /// What the provider itself charged for the response's request, in USD: a billed figure, as
+    /// against the price-table estimate.
+    UsageCost {
+        /// The provider's own charge for the request, in USD.
+        cost_usd: f64,
+    },
+    /// The rate-limit budget the provider reported on the response headers of this request.
+    RateLimit {
+        /// Requests left in the provider's current window.
+        remaining_requests: Option<u64>,
+        /// Tokens left in the provider's current window.
+        remaining_tokens: Option<u64>,
+        /// Seconds until the request budget resets.
+        reset_requests_secs: Option<u64>,
+        /// Seconds until the token budget resets.
+        reset_tokens_secs: Option<u64>,
+    },
     /// A text-only output-limit stop. Consumers must persist accumulated
     /// output before acknowledging; provider continuation waits on this gate.
     OutputLimitCheckpoint {
         finish_reason: String,
         acknowledge: std::sync::Arc<tokio::sync::Notify>,
+    },
+    /// Live view of a tool call whose arguments are still streaming (display only).
+    ToolArgumentsPartial {
+        /// The tool call's id.
+        id: String,
+        /// The tool's name.
+        name: String,
+        /// The arguments received so far.
+        arguments_json: String,
     },
     Finished(Option<String>),
 }
@@ -155,10 +201,9 @@ pub trait LlmClient: Send + Sync {
     /// interruptible completed-turn seam when this returns its sentinel error.
     async fn stream_with_metadata(
         &self,
-        messages: &[TranscriptMessage],
-        metadata: &LlmRequestMetadata,
+        _messages: &[TranscriptMessage],
+        _metadata: &LlmRequestMetadata,
     ) -> Result<LlmResponseStream, String> {
-        let _ = (messages, metadata);
         Err("streaming seam unavailable".into())
     }
 
@@ -209,6 +254,13 @@ pub trait LlmClient: Send + Sync {
     /// break instead of an unexplained one. Clients whose model cannot change
     /// mid-session return `None`.
     fn active_route_label(&self) -> Option<String> {
+        None
+    }
+
+    /// The provider and model the most recent reply came from, when the client knows it. The
+    /// engine stamps it on the assistant message so a later request to a different model can
+    /// tell which turns were written by someone else.
+    fn message_origin(&self) -> Option<rightkit_agent_engine_protocol::MessageOrigin> {
         None
     }
 }

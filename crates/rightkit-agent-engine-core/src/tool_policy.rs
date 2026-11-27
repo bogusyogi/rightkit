@@ -26,8 +26,6 @@ pub(crate) fn extract_command_arg(arguments_json: &str) -> Option<String> {
 pub(crate) enum ToolGuardrailAction {
     Deny,
     RequireApproval,
-    #[allow(dead_code)]
-    MutateArgs,
 }
 
 #[derive(Debug, Clone)]
@@ -35,7 +33,6 @@ pub(crate) struct ToolGuardrailDecision {
     pub(crate) policy_id: &'static str,
     pub(crate) action: ToolGuardrailAction,
     pub(crate) reason: String,
-    pub(crate) mutated_arguments_json: Option<String>,
 }
 
 pub(crate) fn pre_tool_approval_reason(
@@ -112,7 +109,6 @@ fn guardrail_deny(policy_id: &'static str, reason: impl Into<String>) -> ToolGua
         policy_id,
         action: ToolGuardrailAction::Deny,
         reason: reason.into(),
-        mutated_arguments_json: None,
     }
 }
 
@@ -121,7 +117,6 @@ fn guardrail_ask(policy_id: &'static str, reason: impl Into<String>) -> ToolGuar
         policy_id,
         action: ToolGuardrailAction::RequireApproval,
         reason: reason.into(),
-        mutated_arguments_json: None,
     }
 }
 
@@ -233,4 +228,68 @@ pub(crate) fn rule_target_for_call(call: &ToolCall) -> ToolRuleTarget {
         target = target.with_path(path);
     }
     target
+}
+
+/// The qualified `mcp__server__tool` name an `mcp_call` invokes, so hooks and rules can name
+/// one MCP tool instead of the generic wrapper.
+pub(crate) fn mcp_qualified_name(call: &ToolCall) -> Option<String> {
+    if call.name != "mcp_call" {
+        return None;
+    }
+    let v: serde_json::Value = serde_json::from_str(&call.arguments_json).ok()?;
+    v.get("name")
+        .and_then(|n| n.as_str())
+        .filter(|n| !n.is_empty())
+        .map(|n| n.to_string())
+}
+
+/// The tool name hooks see: the qualified MCP name for `mcp_call`, else the call name.
+pub(crate) fn hook_tool_name(call: &ToolCall) -> String {
+    mcp_qualified_name(call).unwrap_or_else(|| call.name.clone())
+}
+
+/// Rule match for a call. An `mcp_call` is checked under its qualified name and under
+/// `mcp_call`; a deny from either wins, so rules written for `mcp_call` keep working.
+pub(crate) fn effective_rule_match_for_call(
+    rules: &rightkit_agent_policy::RuleStore,
+    call: &ToolCall,
+) -> Option<rightkit_agent_policy::Rule> {
+    let generic = rule_target_for_call(call);
+    let Some(qualified_name) = mcp_qualified_name(call) else {
+        return rules.effective_match_for(&generic);
+    };
+    let mut qualified = generic.clone();
+    qualified.tool = qualified_name;
+    let first = rules.effective_match_for(&qualified);
+    let second = rules.effective_match_for(&generic);
+    match (first, second) {
+        (Some(a), _) if a.effect == rightkit_agent_policy::PermissionDecision::Deny => Some(a),
+        (_, Some(b)) if b.effect == rightkit_agent_policy::PermissionDecision::Deny => Some(b),
+        (Some(a), _) => Some(a),
+        (None, b) => b,
+    }
+}
+
+/// Tell configured `PermissionDenied` hooks that a call was refused (by policy, a rule or the
+/// person at the card). They only observe; the denial stands.
+pub(crate) async fn run_permission_denied_hooks(
+    bus: Option<rightkit_hooks::agent_hooks::HookBus>,
+    session_id: &str,
+    call: &ToolCall,
+    reason: &str,
+) {
+    let Some(bus) = bus else {
+        return;
+    };
+    bus.run_event_hooks(
+        "PermissionDenied",
+        session_id,
+        Some(&hook_tool_name(call)),
+        None,
+        &[
+            ("RIGHTKIT_HOOK_REASON", reason.to_string()),
+            ("RIGHTKIT_HOOK_CALL_ID", call.id.clone()),
+        ],
+    )
+    .await;
 }

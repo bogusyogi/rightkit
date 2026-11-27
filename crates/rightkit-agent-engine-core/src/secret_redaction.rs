@@ -200,6 +200,12 @@ impl SecretRedactor {
     }
 
     fn restore_call(&self, mut call: ToolCall) -> ToolCall {
+        // A placeholder is a handle the model can place anywhere; never swap in the real
+        // value for a tool whose arguments go straight to a third party (web, browser, MCP).
+        // The tool fails visibly. Shell and git keep restoring: commands legitimately use keys.
+        if !restores_secrets_for(&call.name) {
+            return call;
+        }
         call.arguments_json = self.restore(&call.arguments_json);
         call
     }
@@ -214,6 +220,15 @@ impl SecretRedactor {
             .collect();
         r
     }
+}
+
+fn restores_secrets_for(tool: &str) -> bool {
+    let name = tool.to_ascii_lowercase();
+    !(name.starts_with("mcp")
+        || name.starts_with("list_mcp_")
+        || name.starts_with("read_mcp_")
+        || name.starts_with("browser_")
+        || matches!(name.as_str(), "web_search" | "recursive_fetch"))
 }
 
 fn flush(r: &SecretRedactor, carry: &mut String, out: &mut Vec<Result<LlmStreamEvent, String>>) {
@@ -335,5 +350,9 @@ impl LlmClient for RedactingLlm {
 
     fn active_route_label(&self) -> Option<String> {
         self.inner.active_route_label()
+    }
+
+    fn message_origin(&self) -> Option<rightkit_agent_engine_protocol::MessageOrigin> {
+        self.inner.message_origin()
     }
 }

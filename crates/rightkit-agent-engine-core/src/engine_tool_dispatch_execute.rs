@@ -37,6 +37,14 @@ impl rightkit_agent_coding_tools::CredentialRequester for SessionCredentialReque
             let kind = match prompt.provider.as_str() {
                 "cloudflare" => CredentialKind::Cloudflare,
                 "flyio" => CredentialKind::FlyIo,
+                // A password a running shell command asked for. It goes to that command's stdin
+                // only and is stored nowhere; with nobody attached the request fails at once.
+                "shell password" => {
+                    if conduit.human_subscriber_count() == 0 {
+                        return Err("no human is attached to answer".to_string());
+                    }
+                    CredentialKind::Other("shell password".to_string())
+                }
                 _ => return Err("Unsupported credential provider.".to_string()),
             };
             let request = CredentialRequest::new(tool_call_id.clone(), kind, prompt.reason);
@@ -201,6 +209,28 @@ impl SessionEngine {
                 occurrence = repeat_observation.occurrence,
                 "ENG-92: repeated tool call detected within turn (observe-only, not blocked)"
             );
+            self.emit(|seq| ProtocolEvent::OrchestrationObservationRecorded {
+                session_id: self.session_id.clone(),
+                seq,
+                created_at: now_iso(),
+                observation: rightkit_agent_engine_protocol::OrchestrationObservation {
+                    id: format!("repeat-{}", call.id),
+                    kind: "repeated_tool_call".into(),
+                    subject: call.id.clone(),
+                    summary: format!(
+                        "{} was called again with the same arguments (occurrence {})",
+                        call.name, repeat_observation.occurrence
+                    ),
+                    fields: std::collections::HashMap::from([
+                        ("toolCallId".into(), call.id.clone()),
+                        (
+                            "occurrence".into(),
+                            repeat_observation.occurrence.to_string(),
+                        ),
+                    ]),
+                    created_at: now_iso(),
+                },
+            });
         }
 
         // KRN-008: resolve the one composition-owned process authority before
@@ -292,6 +322,7 @@ impl SessionEngine {
                     .with_tool_result_dir(self.tool_result_dir.clone())
                     .with_skill_dirs(self.skill_dirs.clone())
                     .with_path_deny(self.deny_globs.clone());
+                    ctx.model_window_tokens = self.compaction_policy.context_window_tokens;
                     #[cfg(feature = "host")]
                     if let Some((approved_payload, grant)) =
                         self.sandbox_retry_grants.remove(&call.id)
@@ -373,6 +404,16 @@ impl SessionEngine {
                     if let Some(ref m) = self.mcp {
                         ctx = ctx.with_mcp(m.clone());
                     }
+                    if call.name == "advisor" {
+                        if let Some(backend) = &self.advisor_backend {
+                            ctx = ctx.with_advisor(
+                                backend.clone(),
+                                crate::transcript_plumbing::advisor_transcript_text(
+                                    self.transcript.messages(),
+                                ),
+                            );
+                        }
+                    }
                     // Sessions rule 41: the engine's write path writes the restore
                     // point before a write tool runs. A call that cannot get one
                     // fails with `history_unavailable` and never edits.
@@ -380,7 +421,7 @@ impl SessionEngine {
                     let history = (!write_targets.is_empty()).then(|| {
                         rightkit_agent_engine_history::HistoryStore::new(
                             &self.workspace_root,
-                            ".rightkit",
+                            rightkit_agent_config::state_dir_name(),
                             &self.session_id,
                         )
                     });
@@ -412,12 +453,35 @@ impl SessionEngine {
                             )
                         }
                     } else {
-                        crate::tool_await::supervise_tool_await(
+                        crate::tool_await::traced_tool_call(
+                            sid,
+                            &call.id,
                             &call.name,
-                            crate::tool_await::non_provider_await_deadline(
-                                self.iteration_budget.max(),
+                            crate::tool_await::supervise_tool_await(
+                                &call.name,
+                                crate::tool_await::await_deadline(
+                                    self.loop_detector_config.tool_await_secs,
+                                    self.iteration_budget.max(),
+                                ),
+                                // A panicking tool must fail its own call, not the
+                                // engine task and with it the whole session.
+                                async {
+                                    use futures::FutureExt as _;
+                                    match std::panic::AssertUnwindSafe(tool.execute(args, &ctx))
+                                        .catch_unwind()
+                                        .await
+                                    {
+                                        Ok(result) => result,
+                                        Err(_) => {
+                                            tracing::error!(tool = %call.name, "tool panicked");
+                                            rightkit_agent_coding_tools::ToolResult::error(format!(
+                                                "The `{}` tool hit an internal error (panic) and did not complete. Its effects are unknown: check the state before retrying, or use a different approach.",
+                                                call.name
+                                            ))
+                                        }
+                                    }
+                                },
                             ),
-                            tool.execute(args, &ctx),
                         )
                         .await
                     };
@@ -434,10 +498,9 @@ impl SessionEngine {
                     drop(cancel_guard);
                     result
                 }
-                None => rightkit_agent_coding_tools::ToolResult::error(format!(
-                    "unknown tool: {}",
-                    call.name
-                )),
+                None => rightkit_agent_coding_tools::ToolResult::error(
+                    super::concurrent::unknown_tool_message(&call.name, &self.tools),
+                ),
             }
         };
         Some(result)
@@ -487,7 +550,9 @@ async fn staged_git_diff(workspace_root: &std::path::Path) -> String {
             return String::new();
         };
         let Some(mut stdout) = child.take_stdout() else {
-            let _ = child.cancel().await;
+            if let Err(error) = child.cancel().await {
+                tracing::debug!(?error, "the pre-commit diff process did not cancel cleanly");
+            }
             return String::new();
         };
         let mut bytes = Vec::new();
@@ -495,7 +560,9 @@ async fn staged_git_diff(workspace_root: &std::path::Path) -> String {
             .await
             .is_err()
         {
-            let _ = child.cancel().await;
+            if let Err(error) = child.cancel().await {
+                tracing::debug!(?error, "the pre-commit diff process did not cancel cleanly");
+            }
             return String::new();
         }
         if child.wait().await.ok() == Some(0) {
@@ -506,7 +573,10 @@ async fn staged_git_diff(workspace_root: &std::path::Path) -> String {
     }
     #[cfg(not(feature = "host"))]
     {
-        let _ = workspace_root;
+        tracing::debug!(
+            workspace = %workspace_root.display(),
+            "no staged diff: process launch is unavailable in this runtime profile"
+        );
         String::new()
     }
 }

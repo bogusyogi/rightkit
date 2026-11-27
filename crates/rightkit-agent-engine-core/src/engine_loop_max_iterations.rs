@@ -47,9 +47,28 @@ impl SessionEngine {
                         reasoning_content: None,
                         tool_calls: vec![],
                         pinned: false,
-                        origin: None,
+                        origin: self.llm.message_origin(),
                     },
-                    phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
+                    phase: rightkit_agent_engine_protocol::AssistantMessagePhase::Final,
+                });
+                // CLI-01, ORCH-04: the summary is not a finished result. Say so in a typed
+                // event, after the summary so a reader that keeps "the last answer" can mark it.
+                self.emit(|seq| ProtocolEvent::OrchestrationObservationRecorded {
+                    session_id: sid.to_string(),
+                    seq,
+                    created_at: now_iso(),
+                    observation: rightkit_agent_engine_protocol::OrchestrationObservation {
+                        id: format!("turn-limit-{seq}"),
+                        kind: crate::TURN_LIMIT_OBSERVATION_KIND.into(),
+                        subject: sid.to_string(),
+                        summary: format!(
+                            "the turn spent its budget of {max} round(s) and ended on a summary of the work so far"
+                        ),
+                        fields: [("max_iterations".to_string(), max.to_string())]
+                            .into_iter()
+                            .collect(),
+                        created_at: now_iso(),
+                    },
                 });
                 self.record_session_end(
                     session_span_id,

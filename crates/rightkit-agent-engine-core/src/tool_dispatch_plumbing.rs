@@ -1,58 +1,17 @@
-#![allow(clippy::items_after_test_module)]
-
 //! Tool-dispatch helper functions used by the session loop.
 
 use crate::llm::LlmResponse;
-use std::path::{Component, Path, PathBuf};
-
-/// Stable identity key for a tool's target path, used to decide whether two
-/// write calls touch the same file. Resolves relative paths against the
-/// workspace root and collapses `.`/`..` lexically (no filesystem access - the
-/// file may not exist yet). Lower-cased so case-only differences on
-/// case-insensitive filesystems (Windows/macOS) are treated as the SAME file -
-/// erring toward sequential execution, never toward a false "disjoint".
-#[allow(dead_code)]
-pub(crate) fn lexical_path_key(workspace_root: &Path, path: &str) -> String {
-    let raw = Path::new(path);
-    let joined = if raw.is_absolute() {
-        raw.to_path_buf()
-    } else {
-        workspace_root.join(raw)
-    };
-    let mut out: Vec<std::ffi::OsString> = Vec::new();
-    for comp in joined.components() {
-        match comp {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                out.pop();
-            }
-            other => out.push(other.as_os_str().to_os_string()),
-        }
-    }
-    let mut buf = PathBuf::new();
-    for c in out {
-        buf.push(c);
-    }
-    buf.to_string_lossy().to_lowercase().replace('\\', "/")
-}
 
 /// Parse, apply only schema-proven repairs, then validate tool-call arguments.
 /// Empty/whitespace is a legitimate no-arg call. Repairs never invent values:
-/// they are restricted to an encoded JSON object, singleton arrays, primitive
-/// string coercions, & omission of optional nulls. Invalid calls never execute.
-#[allow(dead_code)]
-pub(crate) fn parse_tool_arguments(
-    arguments_json: &str,
-    schema: Option<&serde_json::Value>,
-) -> (serde_json::Value, Option<String>) {
-    parse_tool_arguments_attributed(arguments_json, schema, None, None)
-}
-
-/// [`parse_tool_arguments`] plus repair-telemetry attribution
-/// (master-change 5.3): every repair applied and every validation failure is
-/// recorded with tool, repair kind, bounded validator-error kind, success,
-/// and the daemon-injected provider/model attribution. The unattributed
-/// legacy entry point records with `None` attribution.
+/// they are restricted to an encoded JSON object or array, a renamed edit key,
+/// an index-keyed object, singleton arrays, primitive string coercions, & omission
+/// of optional nulls. Invalid calls never execute.
+///
+/// Every repair applied and every validation failure is recorded
+/// (master-change 5.3) with tool, repair kind, bounded validator-error kind,
+/// success, and the daemon-injected provider/model attribution (`None` when a
+/// caller has none).
 pub(crate) fn parse_tool_arguments_attributed(
     arguments_json: &str,
     schema: Option<&serde_json::Value>,
@@ -130,6 +89,48 @@ fn validation_error(error: String, schema: &serde_json::Value) -> String {
     )
 }
 
+/// Field-name spellings models send for `multi_edit`/`edit_file` style objects.
+const KEY_ALIASES: &[(&str, &str)] = &[
+    ("old", "old_string"),
+    ("oldString", "old_string"),
+    ("old_str", "old_string"),
+    ("new", "new_string"),
+    ("newString", "new_string"),
+    ("new_str", "new_string"),
+];
+
+/// JSON-type description of a rejected value: types, lengths and key names only, never content.
+fn value_shape(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::Null => "null".to_string(),
+        serde_json::Value::Bool(_) => "a boolean".to_string(),
+        serde_json::Value::Number(_) => "a number".to_string(),
+        serde_json::Value::String(text) => {
+            let lead = text.trim_start().chars().next();
+            let lead = match lead {
+                Some(c @ ('{' | '[')) => format!(" starting with \"{c}\""),
+                _ => String::new(),
+            };
+            format!("a string of {} chars{lead}", text.chars().count())
+        }
+        serde_json::Value::Array(items) => format!("an array of {} items", items.len()),
+        serde_json::Value::Object(map) => {
+            let keys: Vec<String> = map
+                .keys()
+                .take(8)
+                .map(|k| {
+                    k.chars()
+                        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+                        .take(40)
+                        .collect::<String>()
+                })
+                .collect();
+            let more = if map.len() > 8 { ",..." } else { "" };
+            format!("an object with keys {}{more}", keys.join(","))
+        }
+    }
+}
+
 fn repair_value(
     value: &mut serde_json::Value,
     schema: &serde_json::Value,
@@ -154,6 +155,26 @@ fn repair_value(
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
+        // Models spell the edit fields `old`/`new` or camelCase; rename only when the schema
+        // names the target property and the object lacks it, so no content is guessed.
+        if let (Some(object), Some(properties)) = (
+            value.as_object_mut(),
+            schema
+                .get("properties")
+                .and_then(serde_json::Value::as_object),
+        ) {
+            for (alias, target) in KEY_ALIASES {
+                if properties.contains_key(*target)
+                    && !object.contains_key(*target)
+                    && object.contains_key(*alias)
+                {
+                    if let Some(moved) = object.remove(*alias) {
+                        object.insert((*target).to_string(), moved);
+                        repairs.push("key_alias_renamed");
+                    }
+                }
+            }
+        }
         if let Some(object) = value.as_object_mut() {
             if let Some(properties) = schema
                 .get("properties")
@@ -174,6 +195,40 @@ fn repair_value(
         return;
     }
 
+    // A model sometimes sends an array as a JSON-encoded string (`"edits": "[{...}]"`). Decode
+    // it, as an encoded object is decoded above; wrapping the string as one item turned it into
+    // `["[{...}]"]` and the call was refused ("$.edits[0] must be object": 19 Sonnet
+    // `multi_edit` calls in the task-set run on build 96).
+    if schema_type(schema) == Some("array") {
+        if let serde_json::Value::String(encoded) = value {
+            if let Ok(decoded) = serde_json::from_str::<serde_json::Value>(encoded) {
+                if decoded.is_array() {
+                    *value = decoded;
+                    repairs.push("json_string_to_array");
+                }
+            }
+        }
+    }
+    // An object keyed "0","1",... is an array a model spelled as a map; order by index.
+    if schema_type(schema) == Some("array") {
+        if let serde_json::Value::Object(map) = value {
+            let mut indexed: Vec<(usize, serde_json::Value)> = Vec::new();
+            for (key, item) in map.iter() {
+                match key.parse::<usize>() {
+                    Ok(index) => indexed.push((index, item.clone())),
+                    Err(_) => {
+                        indexed.clear();
+                        break;
+                    }
+                }
+            }
+            if !indexed.is_empty() && indexed.len() == map.len() {
+                indexed.sort_by_key(|(index, _)| *index);
+                *value = serde_json::Value::Array(indexed.into_iter().map(|(_, v)| v).collect());
+                repairs.push("numeric_keys_object_to_array");
+            }
+        }
+    }
     if schema_type(schema) == Some("array") && !value.is_array() {
         let original = std::mem::take(value);
         *value = serde_json::Value::Array(vec![original]);
@@ -237,7 +292,10 @@ fn validate_value(
             _ => true,
         };
         if !matches {
-            return Err(format!("{path} must be {expected}"));
+            return Err(format!(
+                "{path} must be {expected} (got {})",
+                value_shape(value)
+            ));
         }
     }
     if let Some(object) = value.as_object() {
@@ -249,7 +307,10 @@ fn validate_value(
             .filter_map(serde_json::Value::as_str)
         {
             if !object.contains_key(required) {
-                return Err(format!("{path}.{required} is required"));
+                return Err(format!(
+                    "{path}.{required} is required (value is {})",
+                    value_shape(value)
+                ));
             }
         }
         if let Some(properties) = schema
@@ -478,12 +539,33 @@ pub enum EffectAdmissionStage {
     Settle,
 }
 
+impl EffectAdmissionStage {
+    /// The stage's name on the qualification trace.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Validate => "validate",
+            Self::Transform => "transform",
+            Self::Normalize => "normalize",
+            Self::Policy => "policy",
+            Self::Approval => "approval",
+            Self::Resource => "resource",
+            Self::Execute => "execute",
+            Self::Verify => "verify",
+            Self::Settle => "settle",
+        }
+    }
+}
+
 /// Records the admission stages one effect traversed, so a fixture can prove
 /// that different surfaces converge on the same authority.
 #[derive(Debug, Default)]
 pub struct EffectAdmissionTrace {
-    stages: std::sync::Mutex<Vec<(String, EffectAdmissionStage)>>,
+    stages: std::sync::Mutex<std::collections::VecDeque<(String, EffectAdmissionStage)>>,
 }
+
+/// Upper bound on retained trace entries; the oldest are dropped first, so a
+/// call whose entries were evicted reports no stages.
+const ADMISSION_TRACE_CAPACITY: usize = 16_384;
 
 /// Production trace sink shared by every entrypoint.  Keeping the sink here
 /// makes the dispatch seam observable without giving any host a second
@@ -496,6 +578,15 @@ pub(crate) fn production_admission_trace() -> &'static EffectAdmissionTrace {
     PRODUCTION_ADMISSION_TRACE.get_or_init(EffectAdmissionTrace::default)
 }
 
+/// The labels of the stages recorded for `call_id`, in recorded order.
+pub(crate) fn admission_stage_labels(call_id: &str) -> Vec<&'static str> {
+    production_admission_trace()
+        .stages_for(call_id)
+        .into_iter()
+        .map(EffectAdmissionStage::label)
+        .collect()
+}
+
 pub(crate) fn record_production_admission_stage(call_id: &str, stage: EffectAdmissionStage) {
     production_admission_trace().record(call_id, stage);
 }
@@ -503,7 +594,30 @@ pub(crate) fn record_production_admission_stage(call_id: &str, stage: EffectAdmi
 impl EffectAdmissionTrace {
     pub fn record(&self, call_id: &str, stage: EffectAdmissionStage) {
         if let Ok(mut stages) = self.stages.lock() {
-            stages.push((call_id.to_string(), stage));
+            stages.push_back((call_id.to_string(), stage));
+            while stages.len() > ADMISSION_TRACE_CAPACITY {
+                stages.pop_front();
+            }
         }
+    }
+
+    /// The stages recorded for `call_id`, in recorded order.
+    pub fn stages_for(&self, call_id: &str) -> Vec<EffectAdmissionStage> {
+        self.stages
+            .lock()
+            .map(|stages| {
+                stages
+                    .iter()
+                    .filter(|(id, _)| id == call_id)
+                    .map(|(_, stage)| *stage)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// True when the recorded stages appear in canonical order (skips allowed).
+    pub fn is_canonically_ordered(&self, call_id: &str) -> bool {
+        let observed = self.stages_for(call_id);
+        observed.windows(2).all(|pair| pair[0] <= pair[1])
     }
 }

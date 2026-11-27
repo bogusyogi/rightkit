@@ -15,7 +15,7 @@ fn is_volatile_tail(message: &TranscriptMessage) -> bool {
     matches!(message, TranscriptMessage::System { id, .. } if id == GOAL_REMINDER_ID)
 }
 
-fn now_ms() -> u64 {
+pub(super) fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
@@ -97,6 +97,21 @@ impl SessionEngine {
                 cache_eligible,
                 provider_cache_coverage_tokens(&visible, tool_defs),
             );
+        // The lifetime this request asks for, as the request loop chose it; none for `None`.
+        match super::engine_loop::cache_retention_for(
+            self.subagent_role.is_some(),
+            self.conduit.human_subscriber_count(),
+        ) {
+            crate::llm::CacheRetention::Long => {
+                self.prompt_cache_break
+                    .note_cache_ttl_ms(crate::prompt_cache_break::CACHE_TTL_1HOUR_MS);
+            }
+            crate::llm::CacheRetention::Short => {
+                self.prompt_cache_break
+                    .note_cache_ttl_ms(crate::prompt_cache_break::CACHE_TTL_5MIN_MS);
+            }
+            crate::llm::CacheRetention::None => {}
+        }
         self.prompt_cache_break.record_request(input, now_ms());
     }
 

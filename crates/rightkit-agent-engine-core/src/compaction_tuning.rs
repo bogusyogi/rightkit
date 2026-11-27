@@ -59,7 +59,7 @@ impl ObservationMasker {
                     // generic successful-looking mask.
                     && !crate::tool_result_store::is_unrecoverable_preview(&summary) =>
                 {
-                    let masked_summary = format!("[tool output masked — {} bytes]", summary.len());
+                    let masked_summary = masked_marker(&summary);
                     rebuilt.push(TranscriptMessage::Tool {
                         id,
                         created_at,
@@ -81,6 +81,40 @@ impl ObservationMasker {
         }
         masked
     }
+}
+
+/// Longest first-line preview kept in a masked marker, in characters.
+const MASK_PREVIEW_CHARS: usize = 120;
+
+/// The marker that replaces a stale tool output: its size, the first line of
+/// what it said, and where the full output can be read when it was stored.
+fn masked_marker(summary: &str) -> String {
+    let stored_path = summary
+        .lines()
+        .find_map(|line| line.strip_prefix("Full output: "))
+        .map(str::trim)
+        .filter(|path| !path.is_empty());
+    let body = match summary.find("--- head ---\n") {
+        Some(at) => &summary[at + "--- head ---\n".len()..],
+        None => summary,
+    };
+    let first_line = body
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty() && !line.starts_with("--- "))
+        .unwrap_or("");
+    let mut preview: String = first_line.chars().take(MASK_PREVIEW_CHARS).collect();
+    if first_line.chars().count() > MASK_PREVIEW_CHARS {
+        preview.push('…');
+    }
+    let mut marker = format!("[tool output masked — {} bytes]", summary.len());
+    if !preview.is_empty() {
+        marker.push_str(&format!(" {preview}"));
+    }
+    if let Some(path) = stored_path {
+        marker.push_str(&format!(" (full output: {path})"));
+    }
+    marker
 }
 
 fn preserved_skill_read_indices(

@@ -61,32 +61,6 @@ const COST_FULL_TURN: f64 = 1.0;
 /// Four programmatic turns cost one full turn.
 const COST_PROGRAMMATIC_TURN: f64 = 0.25;
 
-/// One entry in the budget's audit trail. Every successful `charge`
-/// and every successful `refund` (non-zero amount) records an entry.
-/// Refund events always carry a free-form reason string supplied by
-/// the caller (e.g. `"no-op programmatic turn"`,
-/// `"internal reset"`, `"crash recovery"`). Charge events optionally
-/// include a reason; the default is `None`.
-// The `Refund` variant + `refund()` implement the P-3 budget refund: the engine
-// loop refunds a no-op turn's charge (no tool calls, no assistant text) so it does
-// not burn the user's turn budget (wired at engine_loop.rs). `remaining()` and
-// `audit_trail()` are the read side of the same primitive, retained for UI/
-// diagnostics surfacing and kept `#[allow(dead_code)]` until consumed.
-#[derive(Debug, Clone, PartialEq)]
-pub enum BudgetEvent {
-    Charge {
-        amount: f64,
-        programmatic: bool,
-        remaining_after: f64,
-        reason: Option<String>,
-    },
-    Refund {
-        amount: f64,
-        remaining_after: f64,
-        reason: String,
-    },
-}
-
 /// Nudge injected as a user turn on budget exhaustion. The model is
 /// told to summarize and stop calling tools; any tool calls it still
 /// emits are stripped before the response is recorded.
@@ -110,10 +84,6 @@ pub struct IterationBudget {
     /// Lifted back to `false` by a `refund` that lifts the remaining
     /// balance strictly above zero (see [`Self::refund`]).
     exhausted: bool,
-    /// Audit trail of every charge/refund the engine applied. Useful
-    /// for unit tests and for surfacing the budget accounting to the
-    /// UI (parity P-3 exposes `audit_trail()`).
-    audit_trail: Vec<BudgetEvent>,
 }
 
 impl IterationBudget {
@@ -124,7 +94,6 @@ impl IterationBudget {
             max,
             remaining: max,
             exhausted: false,
-            audit_trail: Vec::new(),
         }
     }
 
@@ -138,20 +107,6 @@ impl IterationBudget {
     /// if they restore the remaining balance strictly above `0.0`.
     pub fn is_exhausted(&self) -> bool {
         self.exhausted
-    }
-
-    /// Current remaining balance in fractional turn units. Useful for
-    /// surfacing budget headroom to the UI; reads do not mutate state.
-    #[allow(dead_code)]
-    pub fn remaining(&self) -> f64 {
-        self.remaining
-    }
-
-    /// Read-only view of the budget's audit trail (every charge and
-    /// successful refund). Returned slice is in chronological order.
-    #[allow(dead_code)]
-    pub fn audit_trail(&self) -> &[BudgetEvent] {
-        &self.audit_trail
     }
 
     /// Charge a turn against the budget. Returns the cost applied
@@ -169,12 +124,6 @@ impl IterationBudget {
         if self.remaining <= 0.0 {
             self.exhausted = true;
         }
-        self.audit_trail.push(BudgetEvent::Charge {
-            amount: cost,
-            programmatic,
-            remaining_after: self.remaining,
-            reason: None,
-        });
         cost
     }
 
@@ -190,12 +139,7 @@ impl IterationBudget {
     /// - A refund that lifts the remaining balance strictly above
     ///   `0.0` clears the exhaustion latch (so a `B → refund → C`
     ///   sequence re-enables the engine loop).
-    /// - `amount <= 0` is a no-op; nothing is recorded in the
-    ///   audit trail (matches the "no event for a no-op refund"
-    ///   call-site contract).
-    /// - The audit trail records every successful refund with the
-    ///   amount applied (post-clamp), the remaining balance after
-    ///   the refund, and the caller-supplied reason string.
+    /// - `amount <= 0` is a no-op.
     ///
     /// Returns the actual amount refunded (post-clamp; equal to
     /// `amount` unless it was clamped against the ceiling or was
@@ -203,9 +147,8 @@ impl IterationBudget {
     // FM-064: retain current refund semantics — mechanism site for the
     // ledger's "no superior adoption source proven" disposition. Live and
     // wired at the real no-op-turn call site in engine_loop.rs (see the
-    // `FEATURE-MATRIX par §#141` comment there); covered by the
-    // `IterationBudget.refund()` unit tests below.
-    pub fn refund(&mut self, amount: f64, reason: impl Into<String>) -> f64 {
+    // `FEATURE-MATRIX par §#141` comment there).
+    pub fn refund(&mut self, amount: f64) -> f64 {
         if amount <= 0.0 {
             return 0.0;
         }
@@ -219,11 +162,6 @@ impl IterationBudget {
         if self.remaining > 0.0 {
             self.exhausted = false;
         }
-        self.audit_trail.push(BudgetEvent::Refund {
-            amount: applied,
-            remaining_after: self.remaining,
-            reason: reason.into(),
-        });
         applied
     }
 }

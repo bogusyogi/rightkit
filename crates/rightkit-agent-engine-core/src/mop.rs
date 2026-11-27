@@ -11,6 +11,29 @@ use rightkit_agent_engine_protocol::ToolCall;
 use rightkit_cache::prefix::fnv1a_64;
 use std::collections::{HashMap, VecDeque};
 
+/// The closing of the line the shell tool puts before the diff of the files a command changed
+/// (`[<host label>: changed by this command]`, the label is the host's shell notice label).
+const CHANGE_REPORT_HEADER_END: &str = ": changed by this command]";
+
+/// Most calls and result fingerprints [`ToolLoopDetector`] remembers between a call and its
+/// result; past it that bookkeeping is cleared so a caller that never reports results
+/// cannot grow it without bound.
+const RESULT_TRACKING_MAX: usize = 4096;
+
+/// A command's own output, without the diff of what it changed: a command that writes a counter file
+/// prints the same line every run, and the changing diff must not make a true repeat look like progress.
+pub(crate) fn strip_change_report(result: &str) -> &str {
+    let mut offset = 0;
+    for line in result.split_inclusive('\n') {
+        let text = line.trim_end_matches(['\n', '\r']);
+        if text.starts_with('[') && text.ends_with(CHANGE_REPORT_HEADER_END) {
+            return result[..offset].trim_end();
+        }
+        offset += line.len();
+    }
+    result
+}
+
 /// Sliding-window meltdown detector.
 #[derive(Debug, Clone)]
 pub struct MopDetector {
@@ -96,6 +119,10 @@ pub struct ToolLoopDetector {
     kind_stop_threshold: usize,
     warned_exact: bool,
     warned_kind: bool,
+    /// Calls recorded but not yet answered: call id -> shape.
+    pending: HashMap<String, u64>,
+    /// Latest result fingerprint seen per shape.
+    last_result: HashMap<u64, u64>,
 }
 
 impl Default for ToolLoopDetector {
@@ -112,11 +139,51 @@ impl Default for ToolLoopDetector {
             kind_stop_threshold: 40,
             warned_exact: false,
             warned_kind: false,
+            pending: HashMap::new(),
+            last_result: HashMap::new(),
         }
     }
 }
 
 impl ToolLoopDetector {
+    /// A detector with the window and the warn and stop thresholds of `config`; the defaults
+    /// of the config reproduce [`Default`].
+    pub fn from_config(config: &crate::engine::LoopDetectorConfig) -> Self {
+        Self {
+            window_size: config.tool_loop_window_size,
+            exact_warn_threshold: config.exact_warn_threshold,
+            exact_stop_threshold: config.exact_stop_threshold,
+            kind_warn_threshold: config.kind_warn_threshold,
+            kind_stop_threshold: config.kind_stop_threshold,
+            ..Self::default()
+        }
+    }
+
+    /// Feed the result of an earlier recorded call. The same call with a new
+    /// result is progress (an edit-then-test cycle), so its repeats are
+    /// forgotten; the same call with the same result keeps counting.
+    ///
+    /// A failed or refused call (`is_error`) is no progress: a refusal's text differs from the last
+    /// answer without anything having run, and counting it would let a refused repeat go on for ever.
+    /// Returns true when the repeat brought a new result (progress), so the caller can reset the meltdown window too.
+    pub fn observe_result(&mut self, call_id: &str, result: &str, is_error: bool) -> bool {
+        let Some(shape) = self.pending.remove(call_id) else {
+            return false;
+        };
+        if is_error {
+            return false;
+        }
+        let fingerprint = signature(strip_change_report(result));
+        if let Some(previous) = self.last_result.insert(shape, fingerprint) {
+            if previous != fingerprint {
+                self.shapes.retain(|s| *s != shape);
+                self.shape_counts.remove(&shape);
+                return true;
+            }
+        }
+        false
+    }
+
     /// Read-only view of the per-shape sliding-window counter. Exposed
     /// so the sibling idempotency axis (parity P-3) can re-use the
     /// same shape counts without duplicating bookkeeping.
@@ -126,7 +193,15 @@ impl ToolLoopDetector {
 
     pub fn record(&mut self, calls: &[ToolCall]) -> Option<LoopSignal> {
         for call in calls {
-            self.record_shape(signature(&tool_call_shape(call)));
+            let shape = signature(&tool_call_shape(call));
+            if self.pending.len() >= RESULT_TRACKING_MAX {
+                self.pending.clear();
+            }
+            if self.last_result.len() >= RESULT_TRACKING_MAX {
+                self.last_result.clear();
+            }
+            self.pending.insert(call.id.clone(), shape);
+            self.record_shape(shape);
             self.record_tool_name(call.name.clone());
         }
 

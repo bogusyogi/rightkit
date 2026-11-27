@@ -21,7 +21,7 @@
 //! ownership call, not one to make unilaterally inside this file. See
 //! `docs/canon/daemon-master-canon-atoms.md`.
 
-use crate::assurance_broker::{ToolReceipt, HOST_ISSUER, SCHEMA};
+use crate::assurance_broker::{host_issuer, ToolReceipt, SCHEMA};
 use rightkit_agent_coding_tools::{ToolResult, WorkspaceMutation};
 use std::fmt;
 
@@ -82,8 +82,8 @@ pub(crate) fn bind_mutations_to_receipt<'a>(
     if receipt.schema != SCHEMA {
         return Err(invalid("receipt schema is not host mutation schema"));
     }
-    if receipt.issuer_id != HOST_ISSUER {
-        return Err(invalid("receipt issuer is not the Agent host"));
+    if receipt.issuer_id != host_issuer() {
+        return Err(invalid("receipt issuer is not this host"));
     }
     if receipt.tool_call_id != tool_call_id {
         return Err(invalid("receipt tool call does not match mutation result"));

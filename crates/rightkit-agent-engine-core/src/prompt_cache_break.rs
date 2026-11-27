@@ -27,8 +27,9 @@
 //!   previous request's tail is attributed to [`BreakReason::MessagesEdited`].
 //! * A compaction epoch proves an expected history rewrite. Simultaneous
 //!   system/tool/parameter changes remain independently unexpected.
-//! * Idle gaps use response time for the prior response & request time for the
-//!   next call; elapsed time alone never proves provider TTL expiry.
+//! * Idle gaps run from one request's send to the next (a read refreshes the
+//!   entry). Only a gap past the lifetime that request asked for proves expiry;
+//!   without a known lifetime, elapsed time alone never does.
 //! * The donor's temp-file unified diff is replaced by a bounded textual
 //!   `detail` (changed tool names, first edited message index, char delta) on
 //!   the durable event; no file is written and nothing is printed.
@@ -53,13 +54,6 @@ pub const CACHE_READ_RETAIN_RATIO: f64 = 0.95;
 pub const CACHE_TTL_5MIN_MS: u64 = 5 * 60 * 1000;
 /// Extended cache TTL (donor `CACHE_TTL_1HOUR_MS`).
 pub const CACHE_TTL_1HOUR_MS: u64 = 60 * 60 * 1000;
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
-        .unwrap_or(0)
-}
 
 /// FNV-1a 64-bit streaming hasher (stable across processes and platforms).
 #[derive(Debug, Clone, Copy)]
@@ -438,7 +432,13 @@ pub struct PromptCacheBreakDetector {
     baseline: Option<Baseline>,
     call_count: u64,
     request_ms: Option<u64>,
-    last_response_ms: Option<u64>,
+    /// When the request before `request_ms` was sent: the provider refreshed the cached prefix then,
+    /// so `request_ms - previous_request_ms` is how long the entry sat idle.
+    previous_request_ms: Option<u64>,
+    /// Cache lifetime (ms) the request asked for, the previous request's, and the one noted for the next.
+    request_ttl_ms: Option<u64>,
+    previous_ttl_ms: Option<u64>,
+    next_ttl_ms: Option<u64>,
     cache_deletion_pending: bool,
     expected_reusable_prefix_tokens: u64,
     cumulative_tokens_lost: u64,
@@ -466,12 +466,33 @@ impl PromptCacheBreakDetector {
         }
     }
 
+    /// Cache lifetime the next recorded request asks for, so an idle gap past it reads as an expiry.
+    pub fn note_cache_ttl_ms(&mut self, ttl_ms: u64) {
+        self.next_ttl_ms = Some(ttl_ms);
+    }
+
+    /// Milliseconds the provider keeps the cached prefix of the latest request, counted from
+    /// that request's send (a read refreshes the entry) down to `now_ms`; zero once it has run
+    /// out. `None` when the route has no cache (nothing was ever cached) or the request asked for
+    /// no lifetime.
+    pub fn remaining_ttl_ms(&self, now_ms: u64) -> Option<u64> {
+        let eligible =
+            self.cache_eligible || self.previous.as_ref().is_some_and(|p| p.cache_eligible);
+        if !eligible {
+            return None;
+        }
+        let ttl = self.request_ttl_ms?;
+        let sent = self.request_ms?;
+        Some(ttl.saturating_sub(now_ms.saturating_sub(sent)))
+    }
+
     /// Phase 1: snapshot the request about to be sent and diff it against the
     /// previous request. `now_ms` is a monotonic-enough wall clock in
     /// milliseconds (any epoch; only differences are used).
     pub fn record_request(&mut self, input: PromptStateInput, now_ms: u64) {
         self.call_count += 1;
-        self.request_ms = Some(now_ms);
+        self.previous_request_ms = self.request_ms.replace(now_ms);
+        self.previous_ttl_ms = std::mem::replace(&mut self.request_ttl_ms, self.next_ttl_ms.take());
         let Some(previous) = self.previous.as_ref() else {
             self.previous = Some(input);
             return;
@@ -510,11 +531,12 @@ impl PromptCacheBreakDetector {
             cache_read: usage.cache_read_tokens,
             cache_creation: usage.cache_creation_tokens,
         });
-        let gap_ms = match (self.last_response_ms, self.request_ms) {
-            (Some(last), Some(request)) => Some(request.saturating_sub(last)),
+        // Send to send, not response to send: the entry was written or refreshed when the previous
+        // request went out, so a long response or tool run counts against its lifetime.
+        let gap_ms = match (self.previous_request_ms, self.request_ms) {
+            (Some(previous), Some(request)) => Some(request.saturating_sub(previous)),
             _ => None,
         };
-        self.last_response_ms = Some(now_ms());
         let pending = self.pending.take();
         let cache_deletion = std::mem::take(&mut self.cache_deletion_pending);
 
@@ -541,7 +563,8 @@ impl PromptCacheBreakDetector {
             return None;
         }
 
-        let (reason, expected, mut detail) = attribute(pending.as_ref(), gap_ms);
+        let (reason, expected, mut detail) =
+            attribute(pending.as_ref(), gap_ms, self.previous_ttl_ms);
         self.cumulative_tokens_lost = self.cumulative_tokens_lost.saturating_add(shortfall);
         detail.push_str(&format!(
             "; cumulative estimated reusable-prefix loss: {} tokens",
@@ -650,14 +673,18 @@ fn diff_snapshots(previous: &PromptStateInput, current: &PromptStateInput) -> Pe
 }
 
 /// Turn pending changes (or the idle gap) into `(primary, expected, detail)`.
-fn attribute(pending: Option<&PendingChanges>, gap_ms: Option<u64>) -> (BreakReason, bool, String) {
+fn attribute(
+    pending: Option<&PendingChanges>,
+    gap_ms: Option<u64>,
+    ttl_ms: Option<u64>,
+) -> (BreakReason, bool, String) {
     // (reason, expected) in precedence order.
     let mut causes: Vec<(BreakReason, bool)> = Vec::new();
     let mut parts: Vec<String> = Vec::new();
 
     if let Some(changes) = pending {
         if changes.model {
-            causes.push((BreakReason::Model, false));
+            causes.push((BreakReason::Model, true));
             parts.push(format!(
                 "model changed ({} -> {})",
                 changes.previous_model, changes.new_model
@@ -767,9 +794,18 @@ fn attribute(pending: Option<&PendingChanges>, gap_ms: Option<u64>) -> (BreakRea
     }
 
     if causes.is_empty() {
-        // TTL policy varies by provider and marker. Time alone is not evidence
-        // that expiry was expected, so every unexplained miss remains visible.
+        // Idle past the lifetime the previous request asked for is an expected expiry. Without a known
+        // lifetime, time alone is not evidence, so every other unexplained miss remains visible.
         return match gap_ms {
+            Some(gap) if ttl_ms.is_some_and(|ttl| gap > ttl) => {
+                let ttl = ttl_ms.unwrap_or_default();
+                let reason = if ttl >= CACHE_TTL_1HOUR_MS {
+                    BreakReason::TtlExpiry1h
+                } else {
+                    BreakReason::TtlExpiry5m
+                };
+                (reason, true, format!("cache expired: unchanged request {gap}ms after the previous send (> {ttl}ms TTL)"))
+            }
             Some(gap) => (
                 BreakReason::ServerSide,
                 false,

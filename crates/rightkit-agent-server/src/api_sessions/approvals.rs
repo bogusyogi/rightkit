@@ -40,6 +40,7 @@ async fn compact_session_once(
         .send(rightkit_agent_engine_core::CompactionCommandV1 {
             id: rightkit_agent_engine_core::compactor::next_compaction_command_id(),
             kind: rightkit_agent_engine_core::CompactionCommandKindV1::Manual,
+            instructions: None,
             response: Some(response_tx),
         })
         .await

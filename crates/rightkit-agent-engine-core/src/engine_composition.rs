@@ -68,6 +68,15 @@ struct BridgeRequest {
     reply: tokio::sync::oneshot::Sender<String>,
 }
 
+/// Hand `payload` to the JavaScript runtime waiting on `reply`. A runtime that already ended no
+/// longer waits, so a reply nobody can receive is dropped.
+#[cfg(feature = "host")]
+fn deliver_bridge_reply(reply: tokio::sync::oneshot::Sender<String>, payload: String) {
+    if reply.send(payload).is_err() {
+        tracing::debug!("exec bridge reply dropped: the JavaScript runtime already ended");
+    }
+}
+
 pub(in crate::engine) async fn execute_exec_call(
     engine: &mut SessionEngine,
     call: &ToolCall,
@@ -425,13 +434,20 @@ async fn wait_for_cancel(
 
 #[cfg(not(feature = "host"))]
 async fn run_js_call(
-    _engine: &mut SessionEngine,
-    _call: &ToolCall,
+    engine: &mut SessionEngine,
+    call: &ToolCall,
     source: &str,
-    _timeout_ms: u64,
-    _cancel_rx: tokio::sync::watch::Receiver<bool>,
+    timeout_ms: u64,
+    cancel_rx: tokio::sync::watch::Receiver<bool>,
 ) -> rightkit_agent_coding_tools::ToolResult {
-    let _ = source;
+    tracing::debug!(
+        session_id = %engine.session_id,
+        call_id = %call.id,
+        source_bytes = source.len(),
+        timeout_ms,
+        cancelled = *cancel_rx.borrow(),
+        "exec JavaScript composition refused: no host QuickJS runtime"
+    );
     rightkit_agent_coding_tools::ToolResult::error(
         "exec JavaScript composition is unavailable on this build (no host QuickJS runtime)",
     )
@@ -484,9 +500,11 @@ async fn run_js_call(
         .name("exec-quickjs".to_string())
         .stack_size(8 * 1024 * 1024)
         .spawn(move || {
-            let _permit = permit;
             let result = run_js_runtime(source_owned, req_tx, abort_for_thread, deadline);
-            let _ = done_tx.send(result);
+            if done_tx.send(result).is_err() {
+                tracing::debug!("exec result dropped: the caller stopped waiting for the runtime");
+            }
+            drop(permit);
         });
     if let Err(error) = spawned {
         return rightkit_agent_coding_tools::ToolResult::error(format!(
@@ -514,9 +532,12 @@ async fn run_js_call(
             result = &mut done_rx => {
                 let mut unfinished = 0usize;
                 while let Ok(request) = req_rx.try_recv() {
-                    let _ = request.reply.send(bridge_error_json(
-                        "exec returned while a nested capability call was still in flight",
-                    ));
+                    deliver_bridge_reply(
+                        request.reply,
+                        bridge_error_json(
+                            "exec returned while a nested capability call was still in flight",
+                        ),
+                    );
                     unfinished += 1;
                 }
                 let outcome = result
@@ -555,13 +576,13 @@ async fn run_js_call(
                             reply,
                         } = request;
                         if aborted.is_some() {
-                            let _ = reply.send(bridge_error_json("exec aborted"));
+                            deliver_bridge_reply(reply, bridge_error_json("exec aborted"));
                             continue;
                         }
                         if Instant::now() >= deadline {
                             aborted = Some(format!("exec timed out after {timeout_ms}ms"));
                             abort.store(true, Ordering::SeqCst);
-                            let _ = reply.send(bridge_error_json("exec timed out"));
+                            deliver_bridge_reply(reply, bridge_error_json("exec timed out"));
                             continue;
                         }
                         if *cancel_check_rx.borrow()
@@ -571,7 +592,7 @@ async fn run_js_call(
                         {
                             aborted = Some("exec cancelled".to_string());
                             abort.store(true, Ordering::SeqCst);
-                            let _ = reply.send(bridge_error_json("exec cancelled"));
+                            deliver_bridge_reply(reply, bridge_error_json("exec cancelled"));
                             continue;
                         }
                         nested_count += 1;
@@ -581,7 +602,7 @@ async fn run_js_call(
                             );
                             limit_exceeded = Some(reason.clone());
                             abort.store(true, Ordering::SeqCst);
-                            let _ = reply.send(bridge_error_json(&reason));
+                            deliver_bridge_reply(reply, bridge_error_json(&reason));
                             continue;
                         }
                         if nested_bytes > MAX_NESTED_RESULT_BYTES {
@@ -590,12 +611,12 @@ async fn run_js_call(
                             );
                             limit_exceeded = Some(reason.clone());
                             abort.store(true, Ordering::SeqCst);
-                            let _ = reply.send(bridge_error_json(&reason));
+                            deliver_bridge_reply(reply, bridge_error_json(&reason));
                             continue;
                         }
                         if let Some(error) = validate_bridge_target(engine, &name, &args_json) {
                             nested_failure = true;
-                            let _ = reply.send(bridge_error_json(&error));
+                            deliver_bridge_reply(reply, bridge_error_json(&error));
                             continue;
                         }
                         let nested_call = ToolCall {
@@ -625,7 +646,11 @@ async fn run_js_call(
                                         .get(&nested_call.id)
                                         .cloned()
                                     {
-                                        let _ = sender.send(true);
+                                        if sender.send(true).is_err() {
+                                            tracing::debug!(
+                                                "the nested call's cancel token has no receiver left"
+                                            );
+                                        }
                                     }
                                     break Err(());
                                 }
@@ -689,7 +714,7 @@ async fn run_js_call(
                                 .to_string()
                             }
                         };
-                        let _ = reply.send(reply_json);
+                        deliver_bridge_reply(reply, reply_json);
                     }
                 }
             }

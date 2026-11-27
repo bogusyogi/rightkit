@@ -1,5 +1,13 @@
 use super::*;
 
+/// Longest the language server may take, across all files of one edit, before its rows are dropped.
+#[cfg(feature = "host")]
+const INLINE_DIAGNOSTICS_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
+#[cfg(feature = "host")]
+const INLINE_DIAGNOSTICS_MAX_FILES: usize = 5;
+#[cfg(feature = "host")]
+const INLINE_DIAGNOSTICS_MAX_ROWS: usize = 20;
+
 impl SessionEngine {
     pub(in crate::engine) async fn checkpoint_sentinel(
         &mut self,
@@ -151,6 +159,71 @@ impl SessionEngine {
             .map_err(|error| error.to_string())
     }
 
+    /// `<file_diagnostics>` rows for the code files `result` mutated, from the language server's
+    /// `diagnostics` operation (the one `post_edit_diagnostics` and the verify fan-out use), under
+    /// [`INLINE_DIAGNOSTICS_BUDGET`] in all. `None` when the setting or the host option is off, no file is a code
+    /// file, no server is configured or reachable in time, or the server reports nothing: a
+    /// missing server drops the block, it never adds a note. The end-of-turn gate still runs.
+    #[cfg(feature = "host")]
+    pub(in crate::engine) async fn inline_file_diagnostics(
+        &self,
+        result: &rightkit_agent_coding_tools::ToolResult,
+    ) -> Option<String> {
+        use rightkit_agent_coding_tools::lsp_tool::{LspTool, DIAGNOSTICS_PREFIX};
+        use rightkit_agent_coding_tools::Tool as _;
+        if !self.auto_post_edit_diagnostics || !crate::host_options::inline_file_diagnostics() {
+            return None;
+        }
+        let started = std::time::Instant::now();
+        let root_uri = format!("file://{}/", self.workspace_root.display());
+        let mut blocks = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for mutation in &result.mutations {
+            if matches!(
+                mutation.kind,
+                rightkit_agent_coding_tools::WorkspaceMutationKind::Deleted
+            ) || !crate::verify_fanout::verifiers::is_code_ext(&mutation.path)
+                || !seen.insert(mutation.path.clone())
+                || seen.len() > INLINE_DIAGNOSTICS_MAX_FILES
+            {
+                continue;
+            }
+            let remaining = INLINE_DIAGNOSTICS_BUDGET.checked_sub(started.elapsed())?;
+            let lsp = LspTool;
+            let args = serde_json::json!({
+                "operation": "diagnostics",
+                "path": mutation.path.to_string_lossy(),
+            });
+            let ctx = crate::verify_fanout::verifiers::with_lsp_process_launcher(
+                rightkit_agent_coding_tools::ToolContext::new(
+                    self.session_id.clone(),
+                    self.workspace_root.clone(),
+                    self.permission_mode,
+                    self.workspace_trust,
+                ),
+                &lsp,
+                &args,
+            );
+            let Ok(answer) = tokio::time::timeout(remaining, lsp.execute(args, &ctx)).await else {
+                return None;
+            };
+            if answer.is_error {
+                continue;
+            }
+            if let Some(body) = answer.content.strip_prefix(DIAGNOSTICS_PREFIX) {
+                for line in body.lines().take(INLINE_DIAGNOSTICS_MAX_ROWS) {
+                    blocks.push(line.replace(&root_uri, ""));
+                }
+            }
+        }
+        (!blocks.is_empty()).then(|| {
+            format!(
+                "<file_diagnostics>\n{}\n</file_diagnostics>",
+                blocks.join("\n")
+            )
+        })
+    }
+
     pub(in crate::engine) fn record_single_tool_result(
         &mut self,
         sid: &str,
@@ -171,6 +244,38 @@ impl SessionEngine {
         // `turn_results` (which is per-turn local state).
         if let Some(note) = self.file_collision_note(call, &result) {
             result.content = format!("{}\n\n{note}", result.content);
+        }
+        // A config file the edit left unparseable is reported in this very result, so the model can repair
+        // it on its next step instead of waiting for the end-of-turn gate.
+        if !result.is_error {
+            for mutation in &result.mutations {
+                if let Some(error) = crate::post_edit_diagnostics::config_parse_error(
+                    &self.workspace_root,
+                    &mutation.path,
+                ) {
+                    // A host that sets `config_error_predating_edit_not_reported` does not report
+                    // an error that was already in the file before this edit: not this edit's fault.
+                    if crate::host_options::config_error_predating_edit_not_reported()
+                        && mutation
+                            .previous_content
+                            .as_deref()
+                            .is_some_and(|previous| {
+                                crate::post_edit_diagnostics::config_error_predates_edit(
+                                    &mutation.path,
+                                    previous,
+                                    &error,
+                                )
+                            })
+                    {
+                        continue;
+                    }
+                    result.content = format!(
+                        "{}\n\nThis file no longer parses: {}: {error}",
+                        result.content,
+                        mutation.path.display()
+                    );
+                }
+            }
         }
         if !result.mutations.is_empty() {
             if let Err(error) = self.record_run_changes(call, &result) {
@@ -276,5 +381,23 @@ impl SessionEngine {
             created_at: now_iso(),
             result: result_msg,
         });
+
+        // A lone todo_write also updates the task graph (the concurrent batch path does the same), so
+        // the daemon's task list and a rebuilt session show the agent's plan.
+        if call.name == "todo_write" && !is_error {
+            let args: serde_json::Value =
+                serde_json::from_str(&call.arguments_json).unwrap_or(serde_json::Value::Null);
+            let tasks = rightkit_agent_coding_tools::todo_write::task_nodes_from_args(&args, "t");
+            if !tasks.is_empty() {
+                let summary = format!("{} todos", tasks.len());
+                self.emit(|seq| ProtocolEvent::TaskGraphUpdated {
+                    session_id: sid.to_string(),
+                    seq,
+                    created_at: now_iso(),
+                    summary,
+                    tasks,
+                });
+            }
+        }
     }
 }

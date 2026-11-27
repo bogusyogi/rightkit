@@ -24,8 +24,8 @@ use crate::tool_dispatch_plumbing::{
     strip_safety_terminated_tool_calls,
 };
 use crate::tool_policy::{
-    evaluate_tool_guardrails, extract_command_arg, extract_path_arg, pre_tool_approval_reason,
-    rule_target_for_call, ToolGuardrailAction, ToolGuardrailDecision,
+    effective_rule_match_for_call, evaluate_tool_guardrails, extract_command_arg, extract_path_arg,
+    pre_tool_approval_reason, ToolGuardrailAction, ToolGuardrailDecision,
 };
 use crate::tool_result_store::ToolResultStore;
 use crate::transcript::{tool_result_trust, Transcript};
@@ -38,7 +38,6 @@ use crate::{cache::today_day, CacheStatus, CacheTracker};
 // Re-export the helper functions from `engine_helpers` so child
 // modules (which use `use super::*;`) can still call them by their
 // short names. FEATURE-MATRIX par §#141 extraction.
-#[allow(unused_imports)]
 pub(crate) use engine_helpers::{now_iso, now_nanos, pinned_system_prefix_as_stable};
 use rightkit_agent_coding_tools::{
     SubagentSpawner, SubagentSupervisor, ToolContext, ToolRegistry, WebSearchConfig,
@@ -292,6 +291,8 @@ pub struct SessionEngine {
     /// model-authored durable write. Kept outside the compacted transcript so
     /// summarization cannot launder provenance.
     content_provenance: rightkit_agent_policy::ContentProvenance,
+    /// The workspace is trusted for this run only (a per-session grant), not by a stored record.
+    run_scoped_workspace_trust: bool,
     /// Fractional iteration budget (FEATURE-MATRIX par §#141). A
     /// non-programmatic turn costs 1.0; a programmatic turn
     /// (read-only tool chaining with no user-visible text) costs
@@ -314,6 +315,10 @@ pub struct SessionEngine {
     /// Live per-session permission rules. These refine the coarse permission
     /// mode without restarting the engine.
     permission_rules: Option<Arc<Mutex<RuleStore>>>,
+    /// Resolves the prices of the model answering right now when it is not the session's own
+    /// (plan-model); `None` from it means the session's own prices apply.
+    price_resolver:
+        Option<std::sync::Arc<dyn Fn() -> Option<crate::usage::ModelPrices> + Send + Sync>>,
     /// Live active-model compaction capability. The daemon updates this whenever
     /// a session model or provider fallback changes.
     compaction_policy_rx:
@@ -410,6 +415,8 @@ pub struct SessionEngine {
     cloudflare_config: Option<rightkit_agent_coding_tools::CloudflareConfig>,
     /// Optional forge credential shared into GitHub API & git push tool contexts.
     github_token: Option<String>,
+    /// Backend of the opt-in `advisor` tool (host-set only when `[features] advisor` is on).
+    advisor_backend: Option<Arc<dyn rightkit_agent_coding_tools::AdvisorBackend>>,
     /// Optional MCP manager for the dynamic MCP tools.
     mcp: Option<Arc<rightkit_mcp::agent_mcp::McpManager>>,
     /// Active surface/channel used for MCP server policy checks.
@@ -438,6 +445,9 @@ pub struct SessionEngine {
     hook_bus: Option<rightkit_hooks::agent_hooks::HookBus>,
     /// Set for sub-agent engines: completion runs `SubagentStop` hooks.
     subagent_role: Option<String>,
+    /// Optional-verifier gaps (verifier id + reason) already reported to the model this session; see
+    /// `optional_gap_keys`.
+    reported_optional_gaps: std::collections::HashSet<String>,
     /// SessionStart hooks fire once per engine, on the first user turn.
     session_start_hooks_fired: bool,
     /// Host-owned H2 receipt projection. Sentinel/Beacon consumes this
@@ -1063,11 +1073,13 @@ impl SessionEngine {
             rightkit_agent_coding_tools::async_inbox::activate_session(&config.session_id);
         let workspace_root = config.workspace_root;
         let assurance_broker_path = workspace_root
-            .join(".rightkit")
+            .join(rightkit_agent_config::state_dir_name())
             .join("sentinel")
             .join("broker.jsonl");
         let skill_dirs = config.skill_dirs;
-        let tool_result_dir = workspace_root.join(".rightkit").join("tool-results");
+        let tool_result_dir = workspace_root
+            .join(rightkit_agent_config::state_dir_name())
+            .join("tool-results");
         #[cfg(feature = "host")]
         let background_shells = config
             .background_shells
@@ -1098,6 +1110,7 @@ impl SessionEngine {
             workspace_root,
             os_sandbox_enforced: false,
             content_provenance: rightkit_agent_policy::ContentProvenance::session(),
+            run_scoped_workspace_trust: false,
             iteration_budget: IterationBudget::new(config.max_iterations),
             auto_post_edit_diagnostics: config.auto_post_edit_diagnostics,
             max_worker_tool_calls: config.max_worker_tool_calls,
@@ -1105,6 +1118,7 @@ impl SessionEngine {
             interrupt_rx: None,
             permission_mode_rx: None,
             permission_rules: config.permission_rules,
+            price_resolver: None,
             compaction_policy_rx: None,
             compaction_policy: crate::compaction_policy::CompactionModelPolicy::default(),
             pending_approvals: Arc::new(Mutex::new(HashMap::new())),
@@ -1148,6 +1162,7 @@ impl SessionEngine {
             image_provider_keys: HashMap::new(),
             cloudflare_config: None,
             github_token: None,
+            advisor_backend: None,
             mcp: None,
             mcp_channel: normalize_mcp_channel(config.mcp_channel),
             toolset: config.toolset,
@@ -1161,6 +1176,7 @@ impl SessionEngine {
             skill_dirs,
             hook_bus: None,
             subagent_role: None,
+            reported_optional_gaps: std::collections::HashSet::new(),
             session_start_hooks_fired: false,
             assurance_broker: {
                 {
@@ -1285,15 +1301,21 @@ impl SessionEngine {
         self.idle_grace.time_until_teardown()
     }
 
-    /// Install the read-time wire projection. Canonical history is never
-    /// mutated by any projection; the payload sent to the provider is a
-    /// projection over it. The daemon installs the rolling-decay projection
-    /// (P2-2); tests and the default keep the identity projection.
+    /// Declare that the workspace is trusted for this run only (`--trust-workspace`), so text
+    /// read from its files counts as untrusted for the typed durable-write sinks.
+    pub fn set_run_scoped_workspace_trust(&mut self, run_scoped: bool) {
+        self.run_scoped_workspace_trust = run_scoped;
+    }
+
     /// Declare that this host runs every shell command under an enforcing OS sandbox.
     pub fn set_os_sandbox_enforced(&mut self, enforced: bool) {
         self.os_sandbox_enforced = enforced;
     }
 
+    /// Install the read-time wire projection. Canonical history is never
+    /// mutated by any projection; the payload sent to the provider is a
+    /// projection over it. The daemon installs the rolling-decay projection
+    /// (P2-2); tests and the default keep the identity projection.
     pub fn set_wire_projection(
         &mut self,
         projection: std::sync::Arc<dyn crate::compaction_archive::WireProjection>,

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-engine-core"
-version = "0.1.4"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Agent engine core: the agent turn loop, tool dispatch, permission and approval flow, compaction, goals, guardian and worker agents"
@@ -23,14 +23,16 @@ rightkit-agent-policy = {version = "0.2.0", path = "../rightkit-agent-policy"}
 rightkit-agent-engine-history = {version = "0.1.1", path = "../rightkit-agent-engine-history"}
 rightkit-mcp = {version = "0.10.0", features = ["advanced-http", "agent_mcp"], path = "../rightkit-mcp"}
 rightkit-agent-coding-tools = { version = "0.2.0", path = "../rightkit-agent-coding-tools" }
+rightkit-agent-config = { version = "0.1.5", path = "../rightkit-agent-config" }
 rightkit-sandbox = {version = "0.7.0", path = "../rightkit-sandbox", features = ["execution"]}
-rightkit-hooks = {version = "0.3.0", path = "../rightkit-hooks", features = ["agent_hooks"]}
+rightkit-hooks = {version = "0.3.1", path = "../rightkit-hooks", features = ["agent_hooks"]}
 rightkit-agent-host-traits = {version = "0.1.0", path = "../rightkit-agent-host-traits"}
 rightkit-agent-engine-runtime-middleware = {version = "0.1.0", path = "../rightkit-agent-engine-runtime-middleware"}
 rightkit-agent-telemetry = { version = "0.1.0", path = "../rightkit-agent-telemetry" }
 serde = {version = "1", features = ["derive"]}
 serde_json = {version = "1"}
 toml = {version = "1.1"}
+serde_yaml = {version = "0.9"}
 thiserror = {version = "2"}
 tokio = {version = "1", features = ["full"]}
 async-trait = {version = "0.1"}
@@ -43,4 +45,5 @@ default = ["host"]
 # The OS credential store for the MCP and provider secrets (implied by `host`). A host without one (an iOS app) leaves it out.
 os-keyring = ["rightkit-agent-coding-tools/os-keyring", "rightkit-mcp/agent_mcp-os-keyring", "rightkit-hooks/agent_hooks-os-keyring"]
 host = ["os-keyring", "rightkit-agent-coding-tools/host", "rightkit-mcp/agent_mcp-host-env", "rightkit-hooks/agent_hooks-host-env", "dep:rquickjs"]
-qualification = []
+# Crash-window fault points for a host's qualification runs: forwards the tools crate's. Never in a release build.
+qualification = ["rightkit-agent-coding-tools/qualification"]

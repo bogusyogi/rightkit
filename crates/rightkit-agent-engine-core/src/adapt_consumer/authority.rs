@@ -43,7 +43,11 @@ pub trait ApplicationAuthorityGate: Send + Sync {
 pub struct DenyAllAuthority;
 
 impl ApplicationAuthorityGate for DenyAllAuthority {
-    fn authorize(&self, _proposal: &SealedRemediationProposalV1) -> AuthorityDecision {
+    fn authorize(&self, proposal: &SealedRemediationProposalV1) -> AuthorityDecision {
+        tracing::debug!(
+            proposal_id = %proposal.proposal_id,
+            "application denied by the fail-closed default authority"
+        );
         AuthorityDecision::Denied {
             reason: "fail-closed default: no application authority is configured; a proposal (however approved) is evidence, never authority".into(),
         }

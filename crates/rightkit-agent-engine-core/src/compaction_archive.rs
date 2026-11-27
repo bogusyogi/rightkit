@@ -228,6 +228,16 @@ pub trait WireProjection: Send + Sync {
     /// Project `canonical` into the payload that goes out over the wire.
     /// `canonical` is borrowed immutably: this is a read, never a write.
     fn project(&self, canonical: &[TranscriptMessage]) -> Vec<TranscriptMessage>;
+
+    /// Like [`Self::project`], told the model's context window in tokens (when known) so a
+    /// projection can clear stale results before the first compaction. Default ignores it.
+    fn project_with_window(
+        &self,
+        canonical: &[TranscriptMessage],
+        _window_tokens: Option<u64>,
+    ) -> Vec<TranscriptMessage> {
+        self.project(canonical)
+    }
 }
 
 /// CR-16: an immutable record of one compaction pass, referencing the exact
@@ -624,6 +634,30 @@ pub struct DecayingObservationProjection {
     pub keep_recent: usize,
     /// Byte threshold: a stale tool summary shorter than this stays resident.
     pub min_decay_bytes: usize,
+    /// Tool output (chars/4 tokens) kept verbatim from the newest results back, before the window
+    /// is half full (A222). Older results become clearing candidates. Used only with the host
+    /// option `pre_compaction_tool_clearing`.
+    pub protect_tokens: u64,
+    /// Clear older results only once this many tokens of them are behind the protected window, so
+    /// the request prefix does not change for a few small results. Used only with the host option
+    /// `pre_compaction_tool_clearing`.
+    pub prune_min_tokens: u64,
+}
+
+/// Newest tool output (tokens) protected from clearing, and how much older output must be
+/// behind it before it is cleared. No contract names these numbers; they are this projection's
+/// own (the ledger's A222 line), overridable per process with the host's `TOOL_PROTECT_TOKENS`
+/// and `TOOL_PRUNE_MIN_TOKENS` environment variables (see `rightkit_agent_config::env_name`).
+pub const DEFAULT_PROTECT_TOKENS: u64 = 50_000;
+/// How many tokens of older tool output must lie behind the protected window before it clears.
+pub const DEFAULT_PRUNE_MIN_TOKENS: u64 = 30_000;
+
+fn env_tokens(suffix: &str, default: u64) -> u64 {
+    std::env::var(rightkit_agent_config::env_name(suffix))
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u64>().ok())
+        .filter(|tokens| *tokens > 0)
+        .unwrap_or(default)
 }
 
 /// Upper bound for the decay threshold (audit C5). Capped results are <= ~4000
@@ -649,7 +683,55 @@ impl DecayingObservationProjection {
             // threshold above that makes decay unreachable. Clamp so a caller
             // passing a legacy 30_000 still gets a live threshold.
             min_decay_bytes: min_decay_bytes.min(MAX_MIN_DECAY_BYTES),
+            protect_tokens: env_tokens("TOOL_PROTECT_TOKENS", DEFAULT_PROTECT_TOKENS),
+            prune_min_tokens: env_tokens("TOOL_PRUNE_MIN_TOKENS", DEFAULT_PRUNE_MIN_TOKENS),
         }
+    }
+
+    /// Replace the token window (A222): newest `protect` tokens of tool output stay, older ones
+    /// clear once `prune_min` tokens of them are behind it.
+    pub fn with_token_window(mut self, protect: u64, prune_min: u64) -> Self {
+        self.protect_tokens = protect;
+        self.prune_min_tokens = prune_min;
+        self
+    }
+
+    /// Where the token window starts clearing, or 0 when nothing is to be cleared yet: the index of
+    /// the oldest tool result inside the newest `protect_tokens` of tool output, taken only when
+    /// at least `prune_min_tokens` of clearable output lie before it, never later than the
+    /// recent-message horizon, and rounded down to a step so a result is cleared once and the
+    /// request prefix changes at most once per step.
+    fn token_window_horizon(
+        &self,
+        canonical: &[TranscriptMessage],
+        clearable: impl Fn(usize, &TranscriptMessage) -> bool,
+    ) -> usize {
+        let mut seen: u64 = 0;
+        let mut protected_from = canonical.len();
+        for (i, message) in canonical.iter().enumerate().rev() {
+            if let TranscriptMessage::Tool { summary, .. } = message {
+                seen += summary.len() as u64 / 4;
+                if seen > self.protect_tokens {
+                    break;
+                }
+                protected_from = i;
+            }
+        }
+        let prunable: u64 = canonical[..protected_from]
+            .iter()
+            .enumerate()
+            .filter(|(i, message)| clearable(*i, message))
+            .map(|(_, message)| match message {
+                TranscriptMessage::Tool { summary, .. } => summary.len() as u64 / 4,
+                _ => 0,
+            })
+            .sum();
+        if prunable < self.prune_min_tokens {
+            return 0;
+        }
+        protected_from.min(canonical.len().saturating_sub(self.keep_recent))
+            / PRE_COMPACTION_CLEAR_STEP
+            * PRE_COMPACTION_CLEAR_STEP
     }
 
     /// Decay stub for a stale large tool output. States the original size so
@@ -668,19 +750,81 @@ impl DecayingObservationProjection {
     }
 }
 
+/// Longest line kept in a cleared result's preview, in characters.
+const CLEARED_PREVIEW_LINE_CHARS: usize = 160;
+/// Lines kept from each end of a cleared result.
+const CLEARED_PREVIEW_LINES: usize = 10;
+
+/// What replaces a result cleared before the first compaction: its size, the first and last ten lines
+/// of what it said, and where the full output is when it was stored (`Full output: <path>` in an
+/// externalized result's text), else a note to run the tool again. Built from the result's own text
+/// alone, so the request stays a pure function of history; a result with no more than ten lines
+/// gets no preview (it would not be shorter).
+fn cleared_marker(summary: &str) -> String {
+    let path = summary
+        .lines()
+        .find_map(|line| line.strip_prefix("Full output: "))
+        .map(str::trim)
+        .filter(|path| !path.is_empty());
+    let head = match path {
+        Some(path) => format!(
+            "[older tool output cleared to save context — {} bytes; full output: {path}]",
+            summary.len()
+        ),
+        None => format!(
+            "[older tool output cleared to save context — {} bytes; run the tool again if you need it]",
+            summary.len()
+        ),
+    };
+    // An externalized result's text is a header, then `--- head ---` and the file's first lines,
+    // then `--- tail ---` and its last lines: the preview is taken from the lines after the header.
+    let body = match summary.find("--- head ---\n") {
+        Some(at) => &summary[at + "--- head ---\n".len()..],
+        None => summary,
+    };
+    let lines: Vec<&str> = body.lines().collect();
+    if lines.len() <= CLEARED_PREVIEW_LINES * 2 {
+        return head;
+    }
+    let cut = |line: &str| -> String { line.chars().take(CLEARED_PREVIEW_LINE_CHARS).collect() };
+    let first: Vec<String> = lines[..CLEARED_PREVIEW_LINES]
+        .iter()
+        .map(|l| cut(l))
+        .collect();
+    let last: Vec<String> = lines[lines.len() - CLEARED_PREVIEW_LINES..]
+        .iter()
+        .map(|l| cut(l))
+        .collect();
+    let marker = format!(
+        "{head}\n--- first {n} lines ---\n{}\n--- last {n} lines ---\n{}",
+        first.join("\n"),
+        last.join("\n"),
+        n = CLEARED_PREVIEW_LINES
+    );
+    if marker.len() < summary.len() {
+        marker
+    } else {
+        head
+    }
+}
+
+/// Before the first compaction, stale results start clearing once the history passes this share
+/// of the window (percent), measured at chars/4 like the compaction trigger.
+pub const PRE_COMPACTION_CLEAR_PERCENT: u64 = 50;
+/// The implicit boundary moves in steps of this many messages, so a result is cleared once and
+/// the request prefix changes at most once per step, not on every turn.
+pub const PRE_COMPACTION_CLEAR_STEP: usize = 8;
+
 impl WireProjection for DecayingObservationProjection {
     fn project(&self, canonical: &[TranscriptMessage]) -> Vec<TranscriptMessage> {
-        // Freeze the projection between explicit compact boundaries. Only
-        // history preceding the latest Compact marker is eligible; appending
-        // a turn cannot make another already-sent result change on the wire.
-        let boundary = canonical
-            .iter()
-            .rposition(|message| matches!(message, TranscriptMessage::Compact { .. }));
-        let Some(boundary) = boundary else {
-            return canonical.to_vec();
-        };
-        let keep_from = boundary.saturating_sub(self.keep_recent);
+        self.project_with_window(canonical, None)
+    }
 
+    fn project_with_window(
+        &self,
+        canonical: &[TranscriptMessage],
+        window_tokens: Option<u64>,
+    ) -> Vec<TranscriptMessage> {
         // Resolve each `tool_call_id` to its tool name by scanning the
         // Assistant messages that carried the calls, so the exempt-class
         // check runs against the real tool that produced the result (the
@@ -712,6 +856,61 @@ impl WireProjection for DecayingObservationProjection {
                 }
             }
         }
+
+        // Freeze the projection between explicit compact boundaries. Only
+        // history preceding the latest Compact marker is eligible; appending
+        // a turn cannot make another already-sent result change on the wire.
+        let boundary = canonical
+            .iter()
+            .rposition(|message| matches!(message, TranscriptMessage::Compact { .. }));
+        // No compaction yet: with the host option `pre_compaction_tool_clearing` on, once the
+        // history passes half the window, clear the results older than a step-quantized horizon
+        // instead of letting them pile up until the first compaction. Off, nothing is projected
+        // away before the first compaction.
+        let mut implicit = false;
+        let (boundary, keep_from) = match boundary {
+            Some(boundary) => (boundary, boundary.saturating_sub(self.keep_recent)),
+            None => {
+                if !crate::host_options::pre_compaction_tool_clearing() {
+                    return canonical.to_vec();
+                }
+                let over = window_tokens.is_some_and(|window| {
+                    window > 0
+                        && serde_json::to_string(canonical).map_or(0, |body| body.len() as u64 / 4)
+                            > window / 100 * PRE_COMPACTION_CLEAR_PERCENT
+                });
+                // One rule, two triggers. The last `keep_recent` messages always stay. With the
+                // window half full everything older clears (CTX-08); before that, the newest
+                // `protect_tokens` of tool output also stay and older results clear once
+                // `prune_min_tokens` of them lie behind that window (A222). The second horizon
+                // is never later than the first, and each only moves forward as the history
+                // grows, so a result cleared once stays cleared until the next compaction.
+                let horizon = if over {
+                    canonical.len().saturating_sub(self.keep_recent) / PRE_COMPACTION_CLEAR_STEP
+                        * PRE_COMPACTION_CLEAR_STEP
+                } else {
+                    self.token_window_horizon(canonical, |i, message| {
+                        let TranscriptMessage::Tool {
+                            summary, pinned, ..
+                        } = message
+                        else {
+                            return false;
+                        };
+                        !*pinned
+                            && summary.len() >= self.min_decay_bytes
+                            && !Self::is_obligation(summary)
+                            && !exempt_rank
+                                .get(&i)
+                                .is_some_and(|rank| *rank < EXEMPT_RESULTS_KEPT_PER_TOOL)
+                    })
+                };
+                if horizon == 0 {
+                    return canonical.to_vec();
+                }
+                implicit = true;
+                (horizon, horizon)
+            }
+        };
 
         canonical
             .iter()
@@ -773,6 +972,22 @@ impl WireProjection for DecayingObservationProjection {
                             process_id: process_id.clone(),
                         };
                     }
+                    if implicit && !Self::is_exempt_tool(
+                        tool_names.get(tool_call_id.as_str()).copied().unwrap_or(""),
+                    ) {
+                        // No durable copy: the stub says to run the tool again.
+                        return TranscriptMessage::Tool {
+                            id: id.clone(),
+                            created_at: created_at.clone(),
+                            tool_call_id: tool_call_id.clone(),
+                            summary: cleared_marker(summary),
+                            output: output.clone(),
+                            trust: trust.clone(),
+                            is_error: *is_error,
+                            pinned: *pinned,
+                            process_id: process_id.clone(),
+                        };
+                    }
                     return msg.clone();
                 };
                 // Decay: replace only the in-context summary; keep the durable
@@ -781,7 +996,13 @@ impl WireProjection for DecayingObservationProjection {
                     id: id.clone(),
                     created_at: created_at.clone(),
                     tool_call_id: tool_call_id.clone(),
-                    summary: Self::decay_stub(summary.len()),
+                    // Cleared by the token window: the marker carries a preview and the path of the full
+                    // output (the externalized result names it); cleared by the older rules: the plain stub.
+                    summary: if implicit && !Self::is_exempt_tool(tool_names.get(tool_call_id.as_str()).copied().unwrap_or("")) {
+                        cleared_marker(summary)
+                    } else {
+                        Self::decay_stub(summary.len())
+                    },
                     output: Some(output_ref.clone()),
                     trust: trust.clone(),
                     is_error: *is_error,

@@ -3,7 +3,7 @@
 // Tracks consecutive compaction failures and trips the breaker after
 // [`DEFAULT_MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES`] consecutive misses so the
 // engine-loop can stop hammering a failing summarizer and surface a status.
-// Mirrors the env var `RIGHTKIT_MAX_AUTOCOMPACT_FAILURES` and the canonical
+// Mirrors the host's `MAX_AUTOCOMPACT_FAILURES` env var and the canonical
 // name `MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES` referenced in the FEATURE
 // MATRIX.
 //
@@ -41,13 +41,15 @@ impl CompactionFailureClassV1 {
 }
 
 /// Default upper bound on consecutive compaction failures before the
-/// circuit-breaker opens. Mirrored in [`MAX_AUTOCOMPACT_FAILURES_ENV`].
+/// circuit-breaker opens. Mirrored in the env var named by [`MAX_AUTOCOMPACT_FAILURES_ENV_SUFFIX`].
 pub const DEFAULT_MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES: u32 = 3;
 
-/// Env var read by [`CompactorBreaker::new_from_env_or_default`] to allow the
-/// operator to tighten the breaker cap. Unparseable / unset values fall back
-/// to [`DEFAULT_MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES`].
-pub const MAX_AUTOCOMPACT_FAILURES_ENV: &str = "RIGHTKIT_MAX_AUTOCOMPACT_FAILURES";
+/// Suffix of the env var read by [`CompactorBreaker::new_from_env_or_default`] to allow the
+/// operator to tighten the breaker cap (the full name is
+/// `rightkit_agent_config::env_name(MAX_AUTOCOMPACT_FAILURES_ENV_SUFFIX)`: the host's prefix, then
+/// this). Unparseable / unset values fall back to
+/// [`DEFAULT_MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES`].
+pub const MAX_AUTOCOMPACT_FAILURES_ENV_SUFFIX: &str = "MAX_AUTOCOMPACT_FAILURES";
 
 /// Error type for failed compaction passes. Distinct from `Summarizer`-level
 /// errors so callers can tell breaker trips from per-message failures.
@@ -140,13 +142,15 @@ impl CompactorBreaker {
         }
     }
 
-    /// Construct from `RIGHTKIT_MAX_AUTOCOMPACT_FAILURES` env var, falling
+    /// Construct from the host's `MAX_AUTOCOMPACT_FAILURES` env var, falling
     /// back to the default cap when unset / unparseable.
     pub fn new_from_env_or_default() -> Self {
-        let parsed = std::env::var(MAX_AUTOCOMPACT_FAILURES_ENV)
-            .ok()
-            .and_then(|s| s.trim().parse::<u32>().ok())
-            .filter(|v| *v > 0);
+        let parsed = std::env::var(rightkit_agent_config::env_name(
+            MAX_AUTOCOMPACT_FAILURES_ENV_SUFFIX,
+        ))
+        .ok()
+        .and_then(|s| s.trim().parse::<u32>().ok())
+        .filter(|v| *v > 0);
         match parsed {
             Some(cap) => Self::with_cap(cap),
             None => Self::new(),
@@ -250,6 +254,11 @@ pub trait FallibleSummarizer: Send + Sync {
     /// Update the active model's compaction-only provider output ceiling.
     /// Non-provider/custom summarizers may ignore it.
     fn set_max_output_tokens(&self, _tokens: Option<u32>) {}
+
+    /// Set the user's own focus text for the NEXT summarization only (the
+    /// argument of `/compact <instructions>`); `None` clears it. Custom
+    /// summarizers that build no prompt may ignore it.
+    fn set_instructions(&self, _instructions: Option<String>) {}
 }
 
 /// Provider-reported usage for one authoritative compaction model call.

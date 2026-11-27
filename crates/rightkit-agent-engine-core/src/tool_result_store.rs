@@ -154,7 +154,11 @@ impl ToolResultStore {
             // content is already durable on disk, so a housekeeping failure
             // must not disown it (CR-29). In-memory bounds are still
             // enforced below.
-            let _ = prune_disk_store(dir, &ref_id, self.max_total_bytes, self.max_entries);
+            if let Err(error) =
+                prune_disk_store(dir, &ref_id, self.max_total_bytes, self.max_entries)
+            {
+                tracing::debug!(%error, "tool-result store prune failed; the stored result is kept");
+            }
         }
         if !self.full.contains_key(&ref_id) {
             self.insertion_order.push_back(ref_id.clone());
@@ -242,7 +246,10 @@ pub(crate) fn content_hash(s: &str) -> String {
 }
 
 fn virtual_path(ref_id: &str) -> String {
-    format!(".rightkit/tool-results/{ref_id}.txt")
+    format!(
+        "{}/tool-results/{ref_id}.txt",
+        rightkit_agent_config::state_dir_name()
+    )
 }
 
 /// Returns whether `summary` is a bounded preview whose full source is not
@@ -356,10 +363,10 @@ fn write_to_disk(dir: &Path, ref_id: &str, content: &str) -> std::io::Result<()>
         ));
     }
     fs::create_dir_all(dir)?;
-    if let Some(host_dir) = dir
-        .parent()
-        .filter(|parent| parent.file_name().and_then(|name| name.to_str()) == Some(".rightkit"))
-    {
+    if let Some(host_dir) = dir.parent().filter(|parent| {
+        parent.file_name().and_then(|name| name.to_str())
+            == Some(rightkit_agent_config::state_dir_name())
+    }) {
         let gitignore = host_dir.join(".gitignore");
         if !gitignore.exists() {
             fs::write(gitignore, "*\n")?;

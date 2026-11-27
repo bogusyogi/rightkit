@@ -4,32 +4,39 @@ fn mutation_operation_id(run_id: &str, tool_call_id: &str) -> String {
     format!("{run_id}:{tool_call_id}")
 }
 
-#[cfg(feature = "host")]
-const EVT006_QUALIFICATION_FAULT_ENV: &str = "RIGHTKIT_QUAL_EVT006_FAULT";
+/// The environment-variable suffix that names the qualification fault point, under the host's
+/// prefix.
+#[cfg(all(feature = "host", feature = "qualification"))]
+const EVT006_QUALIFICATION_FAULT_ENV_SUFFIX: &str = "QUAL_EVT006_FAULT";
 /// CQ-13: fault points only arm inside the qualification harness's isolated
 /// daemon (`tests/support/daemon_process.rs` sets this for every spawned
 /// child). An inherited point variable alone can no longer terminate an
-/// ordinary build.
-#[cfg(feature = "host")]
-const QUALIFICATION_FAULTS_ARMED_ENV: &str = "RIGHTKIT_QUAL_FAULTS_ARMED";
+/// ordinary build. The environment-variable suffix, under the host's prefix.
+#[cfg(all(feature = "host", feature = "qualification"))]
+const QUALIFICATION_FAULTS_ARMED_ENV_SUFFIX: &str = "QUAL_FAULTS_ARMED";
 
-/// Qualification fault points exist only in `host` builds (desktop, daemon,
-/// CLI); the portable mobile profile compiles them out.
-#[cfg(not(feature = "host"))]
+/// Qualification fault points exist only in `host` builds made with the `qualification`
+/// feature (issue 500): a release build must not exit because an environment variable says so,
+/// and the portable mobile profile never compiles them.
+#[cfg(not(all(feature = "host", feature = "qualification")))]
 fn evt006_qualification_fault_after_effect() {}
 
-#[cfg(feature = "host")]
+#[cfg(all(feature = "host", feature = "qualification"))]
 fn evt006_qualification_fault_after_effect() {
-    if std::env::var(QUALIFICATION_FAULTS_ARMED_ENV)
-        .ok()
-        .as_deref()
+    if std::env::var(rightkit_agent_config::env_name(
+        QUALIFICATION_FAULTS_ARMED_ENV_SUFFIX,
+    ))
+    .ok()
+    .as_deref()
         != Some("1")
     {
         return;
     }
-    if std::env::var(EVT006_QUALIFICATION_FAULT_ENV)
-        .ok()
-        .as_deref()
+    if std::env::var(rightkit_agent_config::env_name(
+        EVT006_QUALIFICATION_FAULT_ENV_SUFFIX,
+    ))
+    .ok()
+    .as_deref()
         == Some("after_effect_before_settlement")
     {
         // Simulate process death without unwinding into settlement code.
@@ -95,7 +102,18 @@ impl SessionEngine {
         let sid = self.session_id.clone();
         let mut results = std::collections::HashMap::new();
         match self
-            .resolve_single_tool_permission(&sid, &call, None, None, None, &[], &mut results)
+            .resolve_single_tool_permission(
+                super::single_approval::PermissionRequest {
+                    sid: &sid,
+                    call: &call,
+                    pre_span_id: None,
+                    guardrail: None,
+                    middleware_approval: None,
+                    middleware_decisions: &[],
+                    original_arguments_json: None,
+                },
+                &mut results,
+            )
             .await
         {
             Some(_) => {
@@ -202,6 +220,9 @@ impl SessionEngine {
         self.refresh_permission_mode();
         let sid = self.session_id.clone();
         let mut effective_call = call.clone();
+        // The provider saw these exact argument bytes; keep them on the durable
+        // call fact so a resumed request repeats them.
+        let original_arguments_json = call.arguments_json.clone();
         crate::tool_dispatch_plumbing::record_production_admission_stage(
             &effective_call.id,
             crate::tool_dispatch_plumbing::EffectAdmissionStage::Validate,
@@ -273,7 +294,11 @@ impl SessionEngine {
         let mut hook_approval: Option<AppliedMiddlewareDecision> = None;
         if let Some(bus) = self.hook_bus.clone() {
             let report = bus
-                .run_pre_tool_use_report(&self.session_id, &effective_call.name, &middleware_args)
+                .run_pre_tool_use_report(
+                    &self.session_id,
+                    &crate::tool_policy::hook_tool_name(&effective_call),
+                    &middleware_args,
+                )
                 .await;
             for context in &report.additional_context {
                 self.push_hook_context(&format!("PreToolUse {}", effective_call.name), context);
@@ -354,24 +379,6 @@ impl SessionEngine {
             }
         }
         let guardrail = evaluate_tool_guardrails(&effective_call);
-        if let Some(mutated_arguments_json) = guardrail
-            .as_ref()
-            .and_then(|decision| decision.mutated_arguments_json.clone())
-        {
-            effective_call.arguments_json = mutated_arguments_json;
-            let (validated, error) = parse_tool_arguments_attributed(
-                &effective_call.arguments_json,
-                schema.as_ref(),
-                Some(&effective_call.name),
-                self.repair_attribution.as_ref(),
-            );
-            if let Some(error) = error {
-                self.record_tool_error(&sid, &effective_call, error, turn_results);
-                return;
-            }
-            effective_call.arguments_json = serde_json::to_string(&validated)
-                .expect("serde_json::Value always serializes into tool arguments");
-        }
         let call = &effective_call;
         crate::tool_dispatch_plumbing::record_production_admission_stage(
             &call.id,
@@ -406,7 +413,6 @@ impl SessionEngine {
                 "guardrailAction": guardrail.as_ref().map(|decision| match decision.action {
                     ToolGuardrailAction::Deny => "deny",
                     ToolGuardrailAction::RequireApproval => "requireApproval",
-                    ToolGuardrailAction::MutateArgs => "mutateArgs",
                 }),
                 "middlewareDecisions": middleware_decisions.iter().map(|decision| serde_json::json!({
                     "middlewareId": decision.middleware_id,
@@ -526,12 +532,15 @@ impl SessionEngine {
         );
         let Some(user_approved) = self
             .resolve_single_tool_permission(
-                &sid,
-                call,
-                pre_span_id.as_deref(),
-                guardrail.as_ref(),
-                middleware_approval.as_ref(),
-                &middleware_decisions,
+                super::single_approval::PermissionRequest {
+                    sid: &sid,
+                    call,
+                    pre_span_id: pre_span_id.as_deref(),
+                    guardrail: guardrail.as_ref(),
+                    middleware_approval: middleware_approval.as_ref(),
+                    middleware_decisions: &middleware_decisions,
+                    original_arguments_json: Some(original_arguments_json.as_str()),
+                },
                 turn_results,
             )
             .await
@@ -567,7 +576,20 @@ impl SessionEngine {
             session_id: sid.clone(),
             seq: origin_seq,
             created_at: now_iso(),
-            call: call.clone(),
+            call: {
+                let mut stored = call.clone();
+                let same_arguments = matches!(
+                    (
+                        serde_json::from_str::<serde_json::Value>(&original_arguments_json),
+                        serde_json::from_str::<serde_json::Value>(&call.arguments_json),
+                    ),
+                    (Ok(a), Ok(b)) if a == b
+                );
+                if same_arguments {
+                    stored.arguments_json = original_arguments_json.clone();
+                }
+                stored
+            },
         };
         let origin_outcome = self.record_run_origin_event(&origin_event).await;
         match crate::run_origin::decide_after_origin(&origin_outcome) {
@@ -660,6 +682,17 @@ impl SessionEngine {
             evt006_qualification_fault_after_effect();
         }
 
+        // The language server's view of each code file the edit touched rides in the same result
+        // (bounded, dropped when no server answers), so the model fixes a broken edit next step.
+        #[cfg(feature = "host")]
+        if !result.is_error && !result.mutations.is_empty() {
+            if let Some(block) = self.inline_file_diagnostics(&result).await {
+                result.content = format!("{}\n\n{block}", result.content);
+            }
+        }
+        // A `PostToolUse` hook that declares `rewrite` is awaited before the result is stored.
+        super::rewrite_tool_result_with_hooks(&self.hook_bus, &sid, &call.name, &mut result).await;
+
         #[cfg(feature = "host")]
         let sandbox_denial = result.sandbox_denial.clone();
         self.emit_sandbox_refusal_events(&sid, &call.id, &result);
@@ -682,7 +715,7 @@ impl SessionEngine {
         if let Some(result) = turn_results.get(&call.id).cloned() {
             if let Err(repair) = self.checkpoint_sentinel(call, &result).await {
                 self.transcript
-                    .push_user(format!("[Sentinel repair] {repair}"));
+                    .push_nudge(format!("[Sentinel repair] {repair}"));
             }
         }
     }
@@ -723,7 +756,14 @@ impl SessionEngine {
             Ok(Ok(answers)) => answers,
             _ => return,
         };
-        if answers.get("Sandbox").and_then(serde_json::Value::as_str) != Some("Approve rerun") {
+        // Clients key answers by question index (R40: TUI, web and Tauri send `{"0": ..}`,
+        // iOS an array); the header key is accepted too.
+        let answer = answers
+            .get("0")
+            .or_else(|| answers.get(0))
+            .or_else(|| answers.get("Sandbox"))
+            .and_then(serde_json::Value::as_str);
+        if answer != Some("Approve rerun") {
             return;
         }
         let retry = ToolCall {

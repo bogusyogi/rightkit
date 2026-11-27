@@ -69,7 +69,7 @@ impl StallGuardrail {
         use std::hash::{Hash, Hasher};
         let key = (call.name.clone(), normalize_args_hash(&call.arguments_json));
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        output.hash(&mut hasher);
+        crate::mop::strip_change_report(output).hash(&mut hasher);
         let result = hasher.finish();
         if let Some(previous) = self.last_results.insert(key.clone(), result) {
             if previous != result && self.last.as_ref() == Some(&key) {

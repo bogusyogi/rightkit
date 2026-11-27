@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.1
+
+Additive; no existing item changes. `agent_hooks` (feature `agent_hooks`) gains the process-wide bookkeeping the engine uses to keep a short-lived host alive until its fire-and-forget hooks have run, ported from CodeRight's hooks shim:
+
+- `track_pending(JoinHandle<()>)` remembers a fire-and-forget hook task (a `SessionEnd` hook, which may not block a turn); finished tasks are dropped from the list as new ones arrive.
+- `wait_pending(Duration)` waits up to the limit for every tracked task. A task that ended abnormally, and a wait that ran out of time, are reported on standard error (CodeRight's shim stayed silent in both cases).
+- `note_session_start()` and `note_session_end()` count the turns this process's engine started and ended; `wait_session_ends(Duration)` waits up to the limit until every started turn has recorded its end (a turn that runs in another process counts nothing here). Same standard-error report when the wait runs out.
+
+`wait_pending` and `wait_session_ends` are added with the three recorders because the state lives beside them: a host cannot read it from anywhere else. Nothing runs unless the engine (`rightkit-agent-engine-core` 0.2.0) or a host calls them.
+
 ## 0.3.0
 
 - Removed the deprecated substring `DestructiveGuard` and `DestructiveGuardDecision` (and the public `guard` module); use `rightkit_agent_policy::catastrophic_reason` (rightkit#1687).
