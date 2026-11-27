@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-agent-coding-tools = { version = "=0.2.0" }
+rightkit-agent-coding-tools = { version = "=0.2.1" }

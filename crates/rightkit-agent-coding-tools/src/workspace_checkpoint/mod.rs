@@ -206,7 +206,10 @@ fn authorize(ctx: &ToolContext, read_only: bool) -> Result<(), String> {
 /// `core.autocrlf=true` normalizes CRLF to LF on snapshot and re-expands on
 /// restore, drifting file bytes.
 fn pin_exact_bytes(repo: &Repository) {
-    let path = repo.path().join("rightkit-agent-checkpoint.gitconfig");
+    let path = repo.path().join(format!(
+        "{}-checkpoint.gitconfig",
+        crate::host_names::agent_slug()
+    ));
     let body = "[core]
 	autocrlf = false
 	safecrlf = false
@@ -249,7 +252,10 @@ fn create_checkpoint(
     // `.git/index` is never written, so the user's staged state is untouched
     // either way.
     pin_exact_bytes(repo);
-    let private_index_path = repo.path().join("rightkit-agent-checkpoint.index");
+    let private_index_path = repo.path().join(format!(
+        "{}-checkpoint.index",
+        crate::host_names::agent_slug()
+    ));
     let _ = std::fs::remove_file(&private_index_path);
     let mut index = match Index::open(&private_index_path) {
         Ok(index) => index,
@@ -296,10 +302,11 @@ fn create_checkpoint(
         };
     let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
 
+    let slug = crate::host_names::agent_slug();
     let signature = match repo.signature().or_else(|_| {
         git2::Signature::now(
-            "rightkit-agent-checkpoint",
-            "checkpoint@rightkit-agent.local",
+            &format!("{slug}-checkpoint"),
+            &format!("checkpoint@{slug}.local"),
         )
     }) {
         Ok(signature) => signature,
@@ -602,9 +609,10 @@ pub fn auto_commit_workspace(
     let tree = repo
         .find_tree(tree_oid)
         .map_err(|error| format!("Failed to resolve written tree: {error}"))?;
+    let slug = crate::host_names::agent_slug();
     let signature = repo
         .signature()
-        .or_else(|_| git2::Signature::now("rightkit-agent", "auto-commit@rightkit-agent.local"))
+        .or_else(|_| git2::Signature::now(&slug, &format!("auto-commit@{slug}.local")))
         .map_err(|error| format!("Failed to build commit signature: {error}"))?;
     let oid = repo
         .commit(

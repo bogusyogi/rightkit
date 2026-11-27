@@ -43,8 +43,11 @@ impl Tool for SkillTool {
         // options the host has set by the time the tool is built, not a process-wide first read.
         self.description.get_or_init(|| {
             let state_dir = rightkit_agent_config::state_dir_name();
-            // The mobile build has no env override, so its description names none.
-            let location = if cfg!(feature = "host") {
+            // The mobile build, and a host that turned the read off (`skills_dir_env_disabled`),
+            // has no env override, so the description names none.
+            let location = if cfg!(feature = "host")
+                && !crate::tool_options::skills_dir_env_disabled()
+            {
                 format!(
                     "${}/<slug>.md or ~/{state_dir}/skills/<slug>.md",
                     rightkit_agent_config::env_name("SKILLS_DIR")
@@ -441,10 +444,12 @@ fn default_skill_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     #[cfg(feature = "host")]
     {
-        if let Ok(dir) = std::env::var(rightkit_agent_config::env_name("SKILLS_DIR")) {
-            let trimmed = dir.trim();
-            if !trimmed.is_empty() {
-                dirs.push(PathBuf::from(trimmed));
+        if !crate::tool_options::skills_dir_env_disabled() {
+            if let Ok(dir) = std::env::var(rightkit_agent_config::env_name("SKILLS_DIR")) {
+                let trimmed = dir.trim();
+                if !trimmed.is_empty() {
+                    dirs.push(PathBuf::from(trimmed));
+                }
             }
         }
     }

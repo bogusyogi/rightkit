@@ -21,10 +21,8 @@ const ALLOW_LARGE_OUTPUT_BYTES: usize = 1024 * 1024;
 const FULL_CAP_WINDOW_TOKENS: u64 = 131_072;
 /// Longest edge sent to the provider; larger images are downscaled first (host option
 /// `images_downscaled`).
-#[cfg(feature = "host")]
 const PROVIDER_IMAGE_MAX_EDGE: u32 = 2000;
 /// Most memory the image decoder may allocate for one downscale (host option `images_downscaled`).
-#[cfg(feature = "host")]
 const DOWNSCALE_MAX_ALLOC: u64 = 256 * 1024 * 1024;
 
 /// (default line cap, byte cap) for a model window in tokens; `None` keeps the full caps.
@@ -509,9 +507,9 @@ fn read_image_file(path: &Path) -> ToolResult {
 /// A PNG or JPEG whose longest edge is over the provider limit, scaled to fit it and re-encoded in
 /// the same format, with its new dimensions. `None` when the host option `images_downscaled` is
 /// off, no scaling is needed, the format is not PNG or JPEG, the declared size is over
-/// `MAX_IMAGE_PIXELS` (decoding it could need gigabytes), the image cannot be decoded within the
-/// decoder's memory limit, or this build has no decoder (no `host` feature): the caller then sends
-/// the original bytes.
+/// `MAX_IMAGE_PIXELS` (decoding it could need gigabytes), or the image cannot be decoded within the
+/// decoder's memory limit: the caller then sends the original bytes. Available in every build, with
+/// or without the `host` feature.
 pub(crate) fn downscale_for_provider(
     bytes: &[u8],
     mime: &str,
@@ -521,39 +519,31 @@ pub(crate) fn downscale_for_provider(
     if !crate::tool_options::images_downscaled() {
         return None;
     }
-    #[cfg(feature = "host")]
-    {
-        if width.max(height) <= PROVIDER_IMAGE_MAX_EDGE {
-            return None;
-        }
-        if u64::from(width).saturating_mul(u64::from(height)) > MAX_IMAGE_PIXELS {
-            return None;
-        }
-        let format = match mime {
-            "image/png" => image::ImageFormat::Png,
-            "image/jpeg" => image::ImageFormat::Jpeg,
-            _ => return None,
-        };
-        let mut reader = image::ImageReader::with_format(std::io::Cursor::new(bytes), format);
-        let mut limits = image::Limits::default();
-        limits.max_alloc = Some(DOWNSCALE_MAX_ALLOC);
-        reader.limits(limits);
-        let decoded = reader.decode().ok()?;
-        let scaled = decoded.resize(
-            PROVIDER_IMAGE_MAX_EDGE,
-            PROVIDER_IMAGE_MAX_EDGE,
-            image::imageops::FilterType::Triangle,
-        );
-        let (w, h) = (scaled.width(), scaled.height());
-        let mut out = std::io::Cursor::new(Vec::new());
-        scaled.write_to(&mut out, format).ok()?;
-        Some((out.into_inner(), w, h))
+    if width.max(height) <= PROVIDER_IMAGE_MAX_EDGE {
+        return None;
     }
-    #[cfg(not(feature = "host"))]
-    {
-        let _ = (bytes, mime, width, height);
-        None
+    if u64::from(width).saturating_mul(u64::from(height)) > MAX_IMAGE_PIXELS {
+        return None;
     }
+    let format = match mime {
+        "image/png" => image::ImageFormat::Png,
+        "image/jpeg" => image::ImageFormat::Jpeg,
+        _ => return None,
+    };
+    let mut reader = image::ImageReader::with_format(std::io::Cursor::new(bytes), format);
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(DOWNSCALE_MAX_ALLOC);
+    reader.limits(limits);
+    let decoded = reader.decode().ok()?;
+    let scaled = decoded.resize(
+        PROVIDER_IMAGE_MAX_EDGE,
+        PROVIDER_IMAGE_MAX_EDGE,
+        image::imageops::FilterType::Triangle,
+    );
+    let (w, h) = (scaled.width(), scaled.height());
+    let mut out = std::io::Cursor::new(Vec::new());
+    scaled.write_to(&mut out, format).ok()?;
+    Some((out.into_inner(), w, h))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

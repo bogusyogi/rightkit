@@ -598,14 +598,25 @@ impl BrowserSession {
         // so the operator may opt out of Chrome's sandbox there explicitly; without
         // that opt-in a root launch is refused with the reason, never weakened.
         if running_as_root() {
-            let no_sandbox_variable = rightkit_agent_config::env_name("BROWSER_NO_SANDBOX");
-            if std::env::var(&no_sandbox_variable).as_deref() == Ok("1") {
+            // With the host option `browser_no_sandbox_env_disabled` the variable is never read
+            // and the refusal does not name it.
+            let no_sandbox_variable = (!crate::tool_options::browser_no_sandbox_env_disabled())
+                .then(|| rightkit_agent_config::env_name("BROWSER_NO_SANDBOX"));
+            let opted_out = no_sandbox_variable
+                .as_ref()
+                .is_some_and(|name| std::env::var(name).as_deref() == Ok("1"));
+            if opted_out {
                 options.extra_args.push("--no-sandbox".to_string());
             } else {
+                let hint = match &no_sandbox_variable {
+                    Some(name) => format!(
+                        ", or, in a disposable container or CI, set {name}=1 to run Chrome without its sandbox"
+                    ),
+                    None => String::new(),
+                };
                 return Err(format!(
                     "the browser cannot start as root: Chrome refuses to run its sandbox for \
-                     the root user. Run the host app as a normal user, or, in a disposable container \
-                     or CI, set {no_sandbox_variable}=1 to run Chrome without its sandbox."
+                     the root user. Run the host app as a normal user{hint}."
                 ));
             }
         }

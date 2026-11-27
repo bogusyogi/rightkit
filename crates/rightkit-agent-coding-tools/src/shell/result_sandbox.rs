@@ -1,4 +1,7 @@
 fn sandbox_operator_tier_value() -> Option<String> {
+    if sandbox_tier_env_disabled() {
+        return None;
+    }
     std::env::var(rightkit_agent_config::env_name("SANDBOX_TIER"))
         .ok()
         .map(|value| value.trim().to_string())

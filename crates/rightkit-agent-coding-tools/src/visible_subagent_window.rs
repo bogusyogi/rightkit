@@ -118,7 +118,8 @@ impl std::fmt::Display for VisibleWindowError {
             VisibleWindowError::ExecutableUnresolvable { message } => {
                 write!(
                     f,
-                    "could not resolve the rightkit-agent executable path: {message}"
+                    "could not resolve the {} executable path: {message}",
+                    crate::host_names::agent_slug()
                 )
             }
             VisibleWindowError::SpawnFailed { message } => {

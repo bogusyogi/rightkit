@@ -606,7 +606,7 @@ impl rightkit_sandbox::execution::CommandSandboxAdapter for NativeCommandSandbox
             program: program.to_string(),
             argv: argv.to_vec(),
             backend: if context.sandbox_required {
-                "rightkit-agent-native-policy".into()
+                format!("{}-native-policy", crate::host_names::agent_slug())
             } else {
                 "trusted-internal".into()
             },

@@ -357,7 +357,7 @@ fn spawn_reader_bridge(
     let drain = Arc::new(AtomicBool::new(false));
     let worker_drain = drain.clone();
     std::thread::Builder::new()
-        .name("rightkit-agent-pty-reader".to_string())
+        .name(format!("{}-pty-reader", crate::host_names::agent_slug()))
         .spawn(move || {
             let mut buffer = vec![0_u8; 8192];
             loop {
@@ -409,7 +409,7 @@ fn spawn_writer_bridge(
     let stopped = Arc::new(AtomicBool::new(false));
     let worker_stop = stopped.clone();
     std::thread::Builder::new()
-        .name("rightkit-agent-pty-writer".to_string())
+        .name(format!("{}-pty-writer", crate::host_names::agent_slug()))
         .spawn(move || {
             while !worker_stop.load(Ordering::Acquire) {
                 match rx.recv_timeout(std::time::Duration::from_millis(20)) {

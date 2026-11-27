@@ -239,8 +239,13 @@ async fn crawl_pages_bfs(
 async fn fetch_page_content(url: &str) -> Result<String, String> {
     let client = crate::http_client::crawl_page_client(url, std::time::Duration::from_secs(10))
         .map_err(|e| format!("Failed to fetch: {}", e))?;
-    let request = rightkit_http::Request::get(url)
-        .header("User-Agent", "Mozilla/5.0 (compatible; Agent/1.0)");
+    let request = rightkit_http::Request::get(url).header(
+        "User-Agent",
+        format!(
+            "Mozilla/5.0 (compatible; {})",
+            crate::host_names::user_agent("1.0")
+        ),
+    );
     match client.send_any(&request).await {
         Ok(resp) => Ok(resp.text()),
         Err(e) => Err(format!("Failed to fetch: {}", e)),

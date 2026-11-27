@@ -16,11 +16,14 @@ pub(crate) fn host_trust_store() -> Option<std::path::PathBuf> {
     let path = workspace_trust_store_path();
     // The override variable exists only with the host feature (rightkit-agent-config `host-env`);
     // without it the path above is never the override, so there is nothing to recognise.
+    // With the host option `workspace_trust_store_env_disabled` this crate does not read the
+    // variable, so an override outside the state root is refused.
     #[cfg(feature = "host")]
     let overridden = {
         use rightkit_agent_config::workspace_trust::WORKSPACE_TRUST_STORE_ENV;
-        std::env::var_os(WORKSPACE_TRUST_STORE_ENV)
-            .is_some_and(|v| std::path::Path::new(&v) == path.as_path())
+        !crate::tool_options::workspace_trust_store_env_disabled()
+            && std::env::var_os(WORKSPACE_TRUST_STORE_ENV)
+                .is_some_and(|v| std::path::Path::new(&v) == path.as_path())
     };
     #[cfg(not(feature = "host"))]
     let overridden = false;

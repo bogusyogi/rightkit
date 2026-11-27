@@ -659,6 +659,10 @@
         [
           "--features",
           "host,qualification"
+        ],
+        [
+          "--features",
+          "code-mode"
         ]
       ]
     },

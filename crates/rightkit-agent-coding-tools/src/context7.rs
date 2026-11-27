@@ -17,7 +17,8 @@ const API_BASE: &str = "https://context7.com/api/v1";
 /// API root. `RIGHTKIT_CONTEXT7_API_BASE` redirects the lookups (self-hosted
 /// mirror, or a local fake in offline qualification); unset means context7.com.
 ///
-/// The override is a `host` capability; the mobile profile always uses context7.com.
+/// The override is a `host` capability; the mobile profile always uses context7.com. The host
+/// option `context7_api_base_env_disabled` turns the read off, and the variable is then not read.
 #[cfg(not(feature = "host"))]
 fn api_base() -> String {
     API_BASE.to_string()
@@ -25,6 +26,9 @@ fn api_base() -> String {
 
 #[cfg(feature = "host")]
 fn api_base() -> String {
+    if crate::tool_options::context7_api_base_env_disabled() {
+        return API_BASE.to_string();
+    }
     std::env::var(rightkit_agent_config::env_name("CONTEXT7_API_BASE"))
         .ok()
         .map(|value| value.trim().trim_end_matches('/').to_string())

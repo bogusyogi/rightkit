@@ -6,6 +6,17 @@
 // were before the options existed. A host sets them once at start-up, before the first tool call.
 
 host_option!(
+    /// The shell and the launch adapters no longer read the `SANDBOX_TIER` environment variable of
+    /// the host prefix (see `rightkit_agent_config::env_name`), which otherwise sets the operator's
+    /// sandbox tier and can disable confinement; the variable is not read at all, so the tier comes
+    /// from the workspace's `sandbox-settings.json` and the default. A release build that must not
+    /// let the environment weaken the sandbox sets this. `false` (the default) reads the variable.
+    SANDBOX_TIER_ENV_DISABLED,
+    set_sandbox_tier_env_disabled,
+    sandbox_tier_env_disabled
+);
+
+host_option!(
     /// Removes the credential, daemon-token and licence variables a launch would only get by
     /// inheriting this process's environment, for children of `NativeCommandSandboxAdapter`
     /// (Linux and macOS; Windows already forwards an allowlist), for the shell tool's foreground
