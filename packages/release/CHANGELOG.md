@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.91
 
 - `rightkit-gate clippy` runs on the Mac and the Dell (rightkit#1811). It refused there with `RK_CLIPPY_BROKER_CARRIER_NOT_WIRED` since it was written: it waited on a carrier the 9 November reset removed. It now sends the request through the seam, as the compile stage's clippy rows do: `rustright cargo clippy` from the snapshot, naming the class A verdict its own full class A wrote, under the broker-aware snapshot lock. The broker pins outputs and adds `--keep-going`; the caller's lint levels after `--` reach clippy unchanged. Results come from cargo's JSON messages.
 
