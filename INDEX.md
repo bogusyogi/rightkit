@@ -27,7 +27,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-agent-engine-api-platform` | crates.io | 0.1.3 | none recorded | 0.1.3 | staged, never published | agent-api-platform | Agent engine platform HTTP API types |
 | `rightkit-agent-engine-api-sessions` | crates.io | 0.1.1 | none recorded | 0.1.1 | staged, never published | agent-api-sessions | Agent engine session HTTP API routes |
 | `rightkit-agent-engine-api-workflows` | crates.io | 0.2.2 | none recorded | 0.2.2 | staged, never published | agent-api-workflows | Agent engine workflow HTTP API: request/response types, error mapping and OpenAPI fragments |
-| `rightkit-agent-engine-attention` | crates.io | 0.2.1 | 0.2.0 | 0.2.1 | staged, not yet published | agent-attention | Agent attention inbox: unread/needs-input items, snooze, density, quiet hours and deep links as axum routes |
+| `rightkit-agent-engine-attention` | crates.io | 0.2.2 | 0.2.0 | 0.2.2 | staged, not yet published | agent-attention | Agent attention inbox: unread/needs-input items, snooze, density, quiet hours and deep links as axum routes |
 | `rightkit-agent-engine-cli` | crates.io | 0.1.1 | none recorded | 0.1.1 | staged, never published | agent-cli | Agent engine command-line argument model |
 | `rightkit-agent-engine-core` | crates.io | 0.1.4 | none recorded | 0.1.4 | staged, never published | agent-engine | Agent engine core: the agent turn loop, tool dispatch, permission and approval flow, compaction, goals, guardian and worker agents |
 | `rightkit-agent-engine-history` | crates.io | 0.1.6 | none recorded | 0.1.6 | staged, never published | agent-history | Agent engine conversation history store helpers |

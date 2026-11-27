@@ -211,14 +211,13 @@ async fn snooze_attention_handler(
     if !enforce_workspace_root(&req.workspace_root) {
         return Err(StatusCode::BAD_REQUEST);
     }
-    ensure_attention_dir(&req.workspace_root).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    {
-        let _guard = lock_attention_state();
-        let mut map = read_json::<SnoozeMap>(&snooze_path(&req.workspace_root)).unwrap_or_default();
-        map.by_id.insert(id.clone(), req.snooze_until.clone());
-        write_json(&snooze_path(&req.workspace_root), &map)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // The snooze must name a time it ends, or it could never expire.
+    if parse_snooze_until(&req.snooze_until).is_none() {
+        return Err(StatusCode::BAD_REQUEST);
     }
+    ensure_attention_dir(&req.workspace_root).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    snooze_id(&req.workspace_root, &id, &req.snooze_until)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(json!({
         "id": id,
         "snoozedUntil": req.snooze_until,
@@ -241,13 +240,7 @@ async fn unsnooze_attention_handler(
     if !enforce_workspace_root(&workspace_root) {
         return Err(StatusCode::BAD_REQUEST);
     }
-    {
-        let _guard = lock_attention_state();
-        let mut map = read_json::<SnoozeMap>(&snooze_path(&workspace_root)).unwrap_or_default();
-        map.by_id.remove(&id);
-        write_json(&snooze_path(&workspace_root), &map)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    }
+    unsnooze_id(&workspace_root, &id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(json!({
         "id": id,
         "saved": true,

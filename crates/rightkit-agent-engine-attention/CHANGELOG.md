@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.2
+
+Taken from the CodeRight app's copy (`coderight-attention`) so that copy can be deleted. Additive; defaults unchanged. Written, not compiled.
+
+- A snooze now expires. `parse_snooze_until` (private) reads an RFC 3339 timestamp (`Z` or a numeric offset, optional fraction), `unix:<secs>` or bare epoch seconds; `snooze_active` and `now_unix_secs` (private) decide whether a stored snooze still holds. `build_attention_items` now builds through `build_attention_items_at(workspace_root, density, now_secs)`, which no longer hides an item behind a snooze whose end has passed or that names no readable time (the item shows in its own state, `snoozedUntil` is `null`). Before, a stored snooze hid its item until someone unsnoozed it.
+- `POST /attention/items/{id}/snooze` answers 400 when `snoozeUntil` is not one of those forms (checked after the workspace root, before anything is written), so a snooze can never be stored that could not expire.
+- `snooze_id` and `unsnooze_id` (private, `lib.rs`) take `lock_attention_state()` for the whole read-modify-write of `snooze.json`; the snooze and unsnooze handlers call them instead of holding the lock inline. Same locking as before.
+- Public API, `AttentionConfig` defaults (`.rightkit`, `x-rightkit-source-trust`, `agent`), the route set, the request and response shapes and the OpenAPI fragments are unchanged. `#[cfg(test)]` code in CodeRight's copy (`snooze_expiry_tests`: `concurrent_snoozes_are_not_lost`, `snooze_until_parses_rfc3339_unix_and_offsets`, `an_expired_snooze_no_longer_hides_the_item`) is not ported (0.1.1 ruling: end-to-end tests only).
+- Behaviour change for existing hosts of the routes (`rightkit-agent-server`): an expired snooze stops hiding its item, and a snooze with an unreadable `snoozeUntil` is refused with 400.
+- A host that names itself with `configure(AttentionConfig { .. })` gets its state folder, trust header and default source; nothing in this release reads a product name.
+
 ## 0.2.1
 
 - Adds dependency `rightkit-crypto` 0.1.4 (`sha256` and `hex_encode`, for the safe alert id and the act digest). Additive: the modules `phone_ask`, `phone_relay`, `act_plan` and `duty` are public from this change. `rightkit-assist` now requires 0.2.1. Not compiled.
