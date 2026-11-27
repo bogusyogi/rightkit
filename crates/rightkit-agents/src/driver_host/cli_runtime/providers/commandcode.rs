@@ -28,7 +28,7 @@
 //! per §10 of the architecture plan: each turn is a fresh process
 //! invocation that re-attaches via `--resume <vendor_session_id>`.
 //! The nonce survives the process restart because it is carried by
-//! the the host app session-id seed, not by the vendor process state.
+//! the host app session-id seed, not by the vendor process state.
 //!
 //! Discovery, native login, and model catalog are wired by the
 //! per-vendor PRs. This PR implements them so the adapter is
@@ -46,10 +46,8 @@ use crate::driver_host::cli_runtime::ids::{
     CliAccountProfile, CliProviderCapabilities, CliProviderId, CliTransportKind,
     HarnessIsolationMode, HarnessRequirements, QualificationProbe,
 };
+use crate::driver_host::cli_runtime::qualification::host_qualification_suite;
 use crate::driver_host::cli_runtime::qualification::now_iso;
-use crate::driver_host::cli_runtime::qualification::{
-    DEFAULT_NEGATIVE_PROBES, DEFAULT_POSITIVE_PROBES,
-};
 use crate::driver_host::cli_runtime::transports::resumable_ndjson::{
     CommandCodeDialect, ResumableNdjsonDialect, ResumableNdjsonRequest,
 };
@@ -376,22 +374,13 @@ impl CliProviderAdapter for CommandCodeAdapter {
     }
 }
 
-/// Cached Command Code qualification suite. Built once at process
-/// start by concatenating the default negative and positive probe
-/// suites. The resulting slice is leaked into `'static` so the
-/// trait method can return `&'static [QualificationProbe]`.
-/// Mirrors the pattern [`crate::driver_host::cli_runtime::providers::cursor::cursor_qualification_suite`]
-/// uses so every provider reports a consistent suite shape.
+/// Command Code qualification suite: the default negative and positive probe suites with the
+/// host's current names. The resulting slice is leaked into `'static` once per host naming (see
+/// `host_qualification_suite`) so the trait method can return `&'static [QualificationProbe]`.
+/// Mirrors [`crate::driver_host::cli_runtime::providers::cursor::cursor_qualification_suite`] so
+/// every provider reports a consistent suite shape.
 pub fn commandcode_qualification_suite() -> &'static [QualificationProbe] {
-    use std::sync::OnceLock;
-    static CACHE: OnceLock<&'static [QualificationProbe]> = OnceLock::new();
-    CACHE.get_or_init(|| {
-        let mut probes: Vec<QualificationProbe> =
-            Vec::with_capacity(DEFAULT_NEGATIVE_PROBES.len() + DEFAULT_POSITIVE_PROBES.len());
-        probes.extend_from_slice(&DEFAULT_NEGATIVE_PROBES);
-        probes.extend_from_slice(&DEFAULT_POSITIVE_PROBES);
-        Box::leak(probes.into_boxed_slice())
-    })
+    host_qualification_suite("commandcode", &[])
 }
 
 // ---------------------------------------------------------------------
@@ -744,10 +733,7 @@ fn profile_hash(profile: &CliAccountProfile) -> String {
 /// Codex adapters so all providers carry the same BYOK + daemon
 /// token strip list.
 fn forbidden_env_var_names() -> Vec<String> {
-    crate::driver_host::cli_runtime::auth::FORBIDDEN_BYOK_ENV_VARS
-        .iter()
-        .map(|s| (*s).to_string())
-        .collect()
+    crate::driver_host::host_names::forbidden_byok_env_vars()
 }
 
 fn adapter_error_from_runtime_error(

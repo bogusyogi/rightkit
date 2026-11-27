@@ -16,7 +16,7 @@
 //! - Launch policy — `crate::driver_host::claude` (`ClaudeLaunchOptions::launch_spec`),
 //!   the frozen argv snapshots (`cli_runtime::transports::_argv_snapshot`)
 //!   and the delegation flags (`--tools ""`, `--allowedTools
-//!   mcp__coderight`, `--strict-mcp-config`, `--append-system-prompt`
+//!   mcp__<host slug>`, `--strict-mcp-config`, `--append-system-prompt`
 //!   `RUN_SCOPED_POLICY`). The harness validates the *effective* argv
 //!   fail-closed before every spawn (`delegation`).
 //! - Process supervision — `cli_runtime::transports::process`
@@ -49,16 +49,16 @@
 //! bypass the host app policy, isolation, budgets, task ownership, event
 //! projection, cancellation or persistence:
 //!
-//! 1. every launch is validated to expose *only* the the host app MCP
+//! 1. every launch is validated to expose *only* the host app MCP
 //!    gateway as a tool surface (the native Task/agent tool surface is
-//!    removed by `--tools ""` + `--allowedTools mcp__coderight`), and
+//!    removed by `--tools ""` + `--allowedTools mcp__<host slug>`), and
 //! 2. any Claude-native child-spawn tool call that still surfaces in
 //!    the event stream is detected (`delegation::inspect_tool_use_for_native_child_spawn`),
 //!    counted on the persisted binding, and projected as a typed
 //!    `DelegationBypassDetected` progress event, and
 //! 3. every child spawn is resolved through
 //!    `cli_runtime::policy::resolve_child_runtime` via
-//!    `delegation::delegate_through_coderight`, which records a
+//!    `delegation::delegate_through_host`, which records a
 //!    receipt (backend, resolution source, session-policy digest) and
 //!    enforces the session's `max_parallel_children` budget
 //!    ([`delegation::DelegationLedger`]).

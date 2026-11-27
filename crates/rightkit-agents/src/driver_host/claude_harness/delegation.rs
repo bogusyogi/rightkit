@@ -9,8 +9,8 @@
 //! 1. **Launch policy** — [`enforce_delegation_launch_policy`]
 //!    fail-closed validates the *effective* launch argv: the native
 //!    tool surface is removed (`--tools ""`), the only admitted tool
-//!    surface is the the host app MCP gateway (`--allowedTools
-//!    mcp__coderight`), the MCP config is strict and the host app-only,
+//!    surface is the host app MCP gateway (`--allowedTools
+//!    mcp__<host slug>`), the MCP config is strict and the host app-only,
 //!    the run-scoped policy is appended verbatim, no
 //!    permission-bypass flag is present, and the env-denial set was
 //!    not weakened. With the native Task/agent surface removed, the
@@ -21,7 +21,7 @@
 //!    behind layer 1). The runtime counts every detection on the
 //!    persisted binding and projects a typed
 //!    `DelegationBypassDetected` progress event.
-//! 3. **Delegation gate** — `delegate_through_coderight` is the
+//! 3. **Delegation gate** — `delegate_through_host` is the
 //!    single entry a Claude root uses to spawn child work. It is a
 //!    thin authoritative wrapper over the donor resolver
 //!    `cli_runtime::policy::resolve_child_runtime` (registry check +
@@ -45,11 +45,14 @@ use crate::driver_host::cli_runtime::policy::{
     resolve_child_runtime, CliDelegationPolicy, DelegateTaskRequest, DelegationError,
     RegisteredProviders, RuntimeResolution,
 };
-use crate::driver_host::{ClaudeLaunchOptions, RUN_SCOPED_POLICY};
+use crate::driver_host::host_names;
+use crate::driver_host::ClaudeLaunchOptions;
 use std::path::Path;
 
-/// The tool name of the the host app MCP gateway — the only tool surface
-/// an admitted launch exposes.
+/// The tool name of the default host's MCP gateway — the only tool surface an admitted launch
+/// exposes. Launches and the policy check use [`host_names::mcp_tool_scope`], which is this
+/// value for a host that never named itself and `mcp__<host slug>` (`mcp__coderight` for the
+/// host `CODERIGHT`) for one that did.
 pub const HOST_MCP_TOOL_SCOPE: &str = "mcp__rightkit";
 
 /// Claude-native child-orchestration tool names. The launch policy
@@ -128,25 +131,47 @@ impl std::fmt::Display for LaunchPolicyViolation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             LaunchPolicyViolation::NativeToolSurfaceEnabled { found } => {
-                write!(f, "native tool surface must be removed (`--tools \"\"`), found: {found}")
+                write!(
+                    f,
+                    "native tool surface must be removed (`--tools \"\"`), found: {found}"
+                )
             }
             LaunchPolicyViolation::AllowedToolsNotPinnedToCoderight { found } => {
-                write!(f, "allowed tools must be pinned to {HOST_MCP_TOOL_SCOPE}, found: {found}")
+                write!(
+                    f,
+                    "allowed tools must be pinned to {}, found: {found}",
+                    host_names::mcp_tool_scope()
+                )
             }
-            LaunchPolicyViolation::StrictMcpConfigMissing => {
-                f.write_str("--strict-mcp-config is required so no additional MCP server can be injected")
-            }
+            LaunchPolicyViolation::StrictMcpConfigMissing => f.write_str(
+                "--strict-mcp-config is required so no additional MCP server can be injected",
+            ),
             LaunchPolicyViolation::McpConfigMissingOrEmpty => {
-                f.write_str("--mcp-config must carry the Agent MCP server document")
+                write!(
+                    f,
+                    "--mcp-config must carry the {} MCP server document",
+                    host_names::display_name()
+                )
             }
             LaunchPolicyViolation::SystemPolicyNotRunScoped => {
-                write!(f, "--append-system-prompt must carry RUN_SCOPED_POLICY verbatim")
+                write!(
+                    f,
+                    "--append-system-prompt must carry RUN_SCOPED_POLICY verbatim"
+                )
             }
             LaunchPolicyViolation::BypassPermissionsFlagPresent => {
-                f.write_str("a permission-bypass flag is present; delegation policy cannot hold without the Agent approval gate")
+                write!(
+                    f,
+                    "a permission-bypass flag is present; delegation policy cannot hold without the {} approval gate",
+                    host_names::display_name()
+                )
             }
             LaunchPolicyViolation::EnvDenialWeakened { missing } => {
-                write!(f, "launch env_remove is missing denied variables: {}", missing.join(", "))
+                write!(
+                    f,
+                    "launch env_remove is missing denied variables: {}",
+                    missing.join(", ")
+                )
             }
             LaunchPolicyViolation::LaunchSpecInvalid { reason } => {
                 write!(f, "launch spec rejected before policy scan: {reason}")
@@ -194,8 +219,9 @@ pub fn enforce_delegation_launch_policy(spec: &CliLaunchSpec) -> Result<(), Laun
         }
     }
 
+    let scope = host_names::mcp_tool_scope();
     match flag_value(&args, "--allowedTools") {
-        Some(HOST_MCP_TOOL_SCOPE) => {}
+        Some(found) if found == scope => {}
         Some(other) => {
             return Err(LaunchPolicyViolation::AllowedToolsNotPinnedToCoderight {
                 found: other.to_string(),
@@ -216,7 +242,7 @@ pub fn enforce_delegation_launch_policy(spec: &CliLaunchSpec) -> Result<(), Laun
         _ => return Err(LaunchPolicyViolation::McpConfigMissingOrEmpty),
     }
     match flag_value(&args, "--append-system-prompt") {
-        Some(RUN_SCOPED_POLICY) => {}
+        Some(found) if found == host_names::run_scoped_policy() => {}
         _ => return Err(LaunchPolicyViolation::SystemPolicyNotRunScoped),
     }
     // Fail closed on permission bypass: the host app owns approvals.

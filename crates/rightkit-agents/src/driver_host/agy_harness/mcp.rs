@@ -2,35 +2,40 @@
 //!
 //! Unlike Claude Code (which accepts a per-invocation `--mcp-config`), `agy`
 //! only reads MCP servers from its own user-level config (`agy mcp
-//! add|list|remove`). Exposing the the host app gateway therefore means writing
+//! add|list|remove`). Exposing the host app gateway therefore means writing
 //! shared user state, so the registration is:
 //!
-//! - **uniquely named** (`host app`) and registered **idempotently**: a row
-//!   named `host app` in `agy mcp list` is left untouched, never rewritten;
-//! - **argument-minimal**: `agy mcp add --type stdio host app <host app
+//! - **uniquely named** (the host's server name, [`host_names::mcp_server_name`]) and
+//!   registered **idempotently**: a row with that name in `agy mcp list` is left untouched,
+//!   never rewritten;
+//! - **argument-minimal**: `agy mcp add --type stdio <name> <host app
 //!   exe> -- mcp-server`. No `--workspace` is baked in — `agy` starts MCP
 //!   children in its own working directory, so the stdio server projects the
 //!   turn's cwd — and no `--allow-mutate`, because a user-level entry cannot
 //!   vary per turn or per permission mode. Vendor-native tools cover
-//!   mutations under the vendor's own permission policy; the the host app
+//!   mutations under the vendor's own permission policy; the host app
 //!   server contributes its governed read-only tool surface.
 //!
 //! Consequence to be aware of: the registration is shared user config. An
-//! `agy` invoked outside the host app will also see the `host app` server, and
+//! `agy` invoked outside the host app will also see the host's server, and
 //! the server's workspace follows whatever cwd that `agy` runs in.
 
 use std::path::Path;
 use std::time::Duration;
 
-/// The MCP server name the host app registers inside agy's user config.
+use crate::driver_host::host_names;
+
+/// The MCP server name the default host registers inside agy's user config. The registration
+/// uses [`host_names::mcp_server_name`], which is this value for a host that never named itself
+/// and the host slug (`coderight` for the host `CODERIGHT`) for one that did.
 pub const HOST_MCP_SERVER_NAME: &str = "rightkit-agent";
 
 const MCP_PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Ensure `agy`'s user-level MCP config contains a `host app` stdio server
-/// launching `host_exe mcp-server`.
+/// Ensure `agy`'s user-level MCP config contains a stdio server named
+/// [`host_names::mcp_server_name`] launching `host_exe mcp-server`.
 ///
-/// Idempotent: if `agy mcp list` already shows a `host app` row the config
+/// Idempotent: if `agy mcp list` already shows a row with that name the config
 /// is left alone (it may have been customized deliberately). Any probe
 /// failure — binary missing, timeout, nonzero exit, add rejection — is a
 /// typed error; the caller decides whether MCP-less operation is acceptable.
@@ -38,8 +43,8 @@ pub fn ensure_host_mcp_registered(agy_path: &Path, host_exe: &Path) -> Result<()
     if host_mcp_is_registered(agy_path)? {
         return Ok(());
     }
-    let argv =
-        super::launch::mcp_add_argv(HOST_MCP_SERVER_NAME, host_exe, &["mcp-server".to_string()]);
+    let name = host_names::mcp_server_name();
+    let argv = super::launch::mcp_add_argv(&name, host_exe, &["mcp-server".to_string()]);
     let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
     let output = crate::discovery::run_bounded(agy_path, &argv, MCP_PROBE_TIMEOUT)
         .ok_or_else(|| "agy mcp add timed out or could not be launched".to_string())?;
@@ -48,14 +53,14 @@ pub fn ensure_host_mcp_registered(agy_path: &Path, host_exe: &Path) -> Result<()
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
         Err(format!(
-            "agy mcp add rightkit-agent failed ({}): {}",
+            "agy mcp add {name} failed ({}): {}",
             output.status,
             stderr.trim()
         ))
     }
 }
 
-/// Whether `agy mcp list` already names a `host app` server. The table is
+/// Whether `agy mcp list` already names the host's server. The table is
 /// whitespace-columned (`NAME TYPE STATUS COMMAND/URL`); the name column is
 /// the first token of each non-header row.
 fn host_mcp_is_registered(agy_path: &Path) -> Result<bool, String> {
@@ -72,5 +77,5 @@ fn host_mcp_is_registered(agy_path: &Path) -> Result<bool, String> {
     let stdout = String::from_utf8_lossy(&output.stdout);
     Ok(stdout
         .lines()
-        .any(|line| line.split_whitespace().next() == Some(HOST_MCP_SERVER_NAME)))
+        .any(|line| line.split_whitespace().next() == Some(host_names::mcp_server_name().as_str())))
 }

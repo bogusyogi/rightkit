@@ -49,7 +49,7 @@ use crate::driver_host::cli_runtime::ids::{
     HarnessIsolationMode, HarnessRequirements, ProbePolarity, QualificationProbe, ResumeStrategy,
 };
 use crate::driver_host::cli_runtime::qualification::{
-    now_iso as now_iso_label, DEFAULT_NEGATIVE_PROBES, DEFAULT_POSITIVE_PROBES,
+    host_qualification_suite, now_iso as now_iso_label,
 };
 use crate::driver_host::contracts::{NormalizedEvent, NormalizedEventKind};
 use std::path::PathBuf;
@@ -102,7 +102,7 @@ impl Default for CursorAdapter {
 }
 
 /// Cursor-specific live-capability probe: verify the Cursor binary
-/// actually attaches the the host app MCP server through ACP
+/// actually attaches the host app MCP server through ACP
 /// `session/new`. Versions of Cursor that accept `mcpServers` but
 /// silently drop them fail this probe and disqualify the adapter.
 pub static CURSOR_MCP_ATTACH_PROBE: LazyLock<QualificationProbe> =
@@ -129,23 +129,18 @@ pub static CURSOR_SESSION_LOAD_PROBE: LazyLock<QualificationProbe> =
         mandatory: true,
     });
 
-/// Cached Cursor qualification suite. Built once at process start
-/// by concatenating the default negative and positive probe suites
-/// with the two Cursor-only live-capability probes. The resulting
-/// slice is leaked into `'static` so the trait method can return
-/// `&'static [QualificationProbe]`.
+/// Cursor qualification suite: the default negative and positive probe suites with the host's
+/// current names, then the two Cursor-only live-capability probes. The resulting slice is leaked
+/// into `'static` once per host naming (see `host_qualification_suite`) so the trait method can
+/// return `&'static [QualificationProbe]`.
 pub fn cursor_qualification_suite() -> &'static [QualificationProbe] {
-    use std::sync::OnceLock;
-    static CACHE: OnceLock<&'static [QualificationProbe]> = OnceLock::new();
-    CACHE.get_or_init(|| {
-        let mut probes: Vec<QualificationProbe> =
-            Vec::with_capacity(DEFAULT_NEGATIVE_PROBES.len() + DEFAULT_POSITIVE_PROBES.len() + 2);
-        probes.extend_from_slice(&DEFAULT_NEGATIVE_PROBES);
-        probes.extend_from_slice(&DEFAULT_POSITIVE_PROBES);
-        probes.push((*CURSOR_MCP_ATTACH_PROBE).clone());
-        probes.push((*CURSOR_SESSION_LOAD_PROBE).clone());
-        Box::leak(probes.into_boxed_slice())
-    })
+    host_qualification_suite(
+        "cursor",
+        &[
+            (*CURSOR_MCP_ATTACH_PROBE).clone(),
+            (*CURSOR_SESSION_LOAD_PROBE).clone(),
+        ],
+    )
 }
 
 #[async_trait]

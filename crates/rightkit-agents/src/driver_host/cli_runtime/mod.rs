@@ -60,6 +60,17 @@ pub mod transports;
 pub const BUILT_IN_PROVIDER_IDS: &[&str] =
     &["claude", "codex", "grok", "cursor", "cline", "commandcode"];
 
+/// The ids of the built-in providers this host offers, in the order of
+/// [`BUILT_IN_PROVIDER_IDS`]: all of them unless the host chose its providers with
+/// [`crate::driver_host::host_options::set_built_in_providers`].
+pub fn built_in_provider_ids() -> Vec<&'static str> {
+    BUILT_IN_PROVIDER_IDS
+        .iter()
+        .copied()
+        .filter(|id| crate::driver_host::host_options::built_in_provider_offered(id))
+        .collect()
+}
+
 /// Re-export the most-used types at the module root so callers can
 /// write `driver_host::cli_runtime::CliProviderId` rather than the
 /// deeper paths.
@@ -91,7 +102,7 @@ pub use policy::{
     DelegationError, RegisteredProviders, RejectedHintReason, RejectedRuntimeHint,
     RequestedRuntime, RuntimeResolution, RuntimeResolutionSource,
 };
-pub use profile::PROFILE_LAYOUTS;
+pub use profile::{profile_layouts, PROFILE_LAYOUTS};
 pub use qualification::{
     extract_binary_metadata, run_qualification, ProbeResult, QualificationConfig,
     QualificationContext, QualificationEvidence, QualificationInputs, QualificationObserver,

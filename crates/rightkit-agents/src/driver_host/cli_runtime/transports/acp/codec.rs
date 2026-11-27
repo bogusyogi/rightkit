@@ -330,7 +330,7 @@ impl AcpCodec {
         AcpRequest::new(&self.ids, method, params).encode()
     }
 
-    /// Encode an `initialize` request carrying the the host app client
+    /// Encode an `initialize` request carrying the host app client
     /// identity and capability advertisement. The transport invokes
     /// this as its first wire action after the child process comes
     /// up.

@@ -15,7 +15,7 @@
 //! never hang a picker or flash a console on the operator's desktop.
 
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::Mutex;
 use std::time::Duration;
 
 /// The two subscription vendor CLIs the host app can dispatch turns onto.
@@ -101,14 +101,26 @@ struct VendorSnapshot {
     models: Vec<(String, String)>,
 }
 
+/// The snapshot of `kind`, probed once per distinct value of the host's disable variable
+/// ([`crate::driver_host::host_names::disable_vendor_clis_env_name`]), which the probe reads. A
+/// host that names itself after an earlier call therefore gets a snapshot taken under its own
+/// variable (the earlier one stays leaked and unused); repeated calls reuse the snapshot.
 fn snapshot(kind: VendorCli) -> &'static VendorSnapshot {
-    static CLAUDE: OnceLock<VendorSnapshot> = OnceLock::new();
-    static AGY: OnceLock<VendorSnapshot> = OnceLock::new();
-    let cache = match kind {
-        VendorCli::ClaudeCode => &CLAUDE,
-        VendorCli::Antigravity => &AGY,
-    };
-    cache.get_or_init(|| probe(kind))
+    static SNAPSHOTS: Mutex<Vec<(VendorCli, String, &'static VendorSnapshot)>> =
+        Mutex::new(Vec::new());
+    let variable = crate::driver_host::host_names::disable_vendor_clis_env_name();
+    let mut snapshots = SNAPSHOTS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some((_, _, known)) = snapshots
+        .iter()
+        .find(|(known_kind, known_variable, _)| *known_kind == kind && *known_variable == variable)
+    {
+        return *known;
+    }
+    let taken: &'static VendorSnapshot = Box::leak(Box::new(probe(kind)));
+    snapshots.push((kind, variable, taken));
+    taken
 }
 
 /// One official status/catalog snapshot per process, shared by every picker
@@ -118,7 +130,10 @@ pub fn detect(kind: VendorCli) -> VendorCliStatus {
 }
 
 /// Hosts that must never execute real vendor CLIs (isolated e2e harnesses)
-/// set this; the vendor is then reported as not installed.
+/// set this; the vendor is then reported as not installed. This is the default host's variable;
+/// the probe reads [`crate::driver_host::host_names::disable_vendor_clis_env_name`],
+/// which is `<PREFIX>_DISABLE_VENDOR_CLIS` for a host that named itself
+/// (`CODERIGHT_DISABLE_VENDOR_CLIS` for the host `CODERIGHT`).
 pub const DISABLE_VENDOR_CLIS_ENV: &str = "RIGHTKIT_DISABLE_VENDOR_CLIS";
 
 /// Antigravity's own switch that stops `agy` forking its detached
@@ -127,7 +142,8 @@ pub const DISABLE_VENDOR_CLIS_ENV: &str = "RIGHTKIT_DISABLE_VENDOR_CLIS";
 pub const AGY_DISABLE_AUTO_UPDATE_ENV: &str = "AGY_CLI_DISABLE_AUTO_UPDATE";
 
 fn vendor_clis_disabled() -> bool {
-    std::env::var_os(DISABLE_VENDOR_CLIS_ENV).is_some_and(|value| !value.is_empty() && value != "0")
+    std::env::var_os(crate::driver_host::host_names::disable_vendor_clis_env_name())
+        .is_some_and(|value| !value.is_empty() && value != "0")
 }
 
 fn probe(kind: VendorCli) -> VendorSnapshot {

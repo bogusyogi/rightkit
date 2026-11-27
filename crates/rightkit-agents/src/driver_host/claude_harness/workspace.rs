@@ -1,6 +1,6 @@
 //! Workspace/trust boundary for the Claude harness (PL-005).
 //!
-//! The Claude Code CLI is a different trust domain from the the host app
+//! The Claude Code CLI is a different trust domain from the host app
 //! daemon: it must run inside one explicitly granted workspace root,
 //! under a managed vendor profile, with the daemon's ambient secrets
 //! stripped. The donor for these invariants is the host app's own
@@ -26,8 +26,7 @@ use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::driver_host::cli_runtime::auth::FORBIDDEN_BYOK_ENV_VARS;
-use crate::driver_host::DENIED_VENDOR_SUBPROCESS_ENV_VARS;
+use crate::driver_host::host_names;
 
 use super::HarnessError;
 use std::collections::BTreeSet;
@@ -147,18 +146,17 @@ fn path_starts_with(child: &Path, root: &Path) -> bool {
 
 /// The single env-denial set every Claude harness launch must strip.
 ///
-/// This is the union of the crate's two denial lists — the BYOK list
-/// (`FORBIDDEN_BYOK_ENV_VARS`, which the legacy launch specs populate
+/// This is the union of the crate's two denial lists for the host that is running — the BYOK
+/// list ([`host_names::forbidden_byok_env_vars`], which the legacy launch specs populate
 /// `env_remove` from) and the daemon-secret list
-/// (`DENIED_VENDOR_SUBPROCESS_ENV_VARS`). `lib.rs` already asserts the
-/// two drivers cannot drift apart; the harness asserts the *effective*
-/// launch spec strips the union so a future split cannot weaken one
-/// side silently.
+/// ([`host_names::denied_vendor_subprocess_env_vars`]), each with the host's own daemon token,
+/// gateway token and driver instance secret under the `RIGHTKIT_` spelling and under the host's
+/// prefix. The harness asserts the *effective* launch spec strips the union so a future split
+/// cannot weaken one side silently.
 pub fn harness_denied_env_vars() -> BTreeSet<String> {
-    FORBIDDEN_BYOK_ENV_VARS
-        .iter()
-        .chain(DENIED_VENDOR_SUBPROCESS_ENV_VARS.iter())
-        .map(|name| (*name).to_string())
+    host_names::forbidden_byok_env_vars()
+        .into_iter()
+        .chain(host_names::denied_vendor_subprocess_env_vars())
         .collect()
 }
 

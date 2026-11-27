@@ -4,7 +4,7 @@
 //! supervision and policy:
 //!
 //! - **Session binding** — the vendor session id observed from the
-//!   `system/init` event is bound to the the host app session/agent pair
+//!   `system/init` event is bound to the host app session/agent pair
 //!   on the persisted binding record (`system:init` →
 //!   `SessionStarted`, donor parser).
 //! - **start / resume / steer / interrupt / stop** — the persistent
@@ -37,7 +37,7 @@ use tokio::sync::mpsc;
 use crate::driver_host::cli_runtime::adapter::CliLaunchSpec;
 use crate::driver_host::contracts::{NormalizedEvent, NormalizedEventKind};
 use crate::driver_host::{
-    DedupAdmission, EventDeduplicator, InMemoryEventDeduplicator, RUN_SCOPED_POLICY,
+    host_names, host_options, DedupAdmission, EventDeduplicator, InMemoryEventDeduplicator,
 };
 
 use super::binding::{
@@ -55,8 +55,12 @@ use super::{now_unix_ms, HarnessError};
 /// consumers can detect drops without trusting vendor offsets;
 /// `event_key` is the exact-once identity of the underlying vendor
 /// event (or a `host:` synthetic for host-originated actions).
+///
+/// The id of the host session is serialized under `hostSessionId`, or under
+/// `<host slug>SessionId` (`coderightSessionId` for the host `CODERIGHT`) for a host that named
+/// itself; both keys are read (see the module `wire_keys`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(remote = "Self", rename_all = "camelCase")]
 pub struct HarnessProgressEvent {
     pub binding_id: String,
     pub host_session_id: String,
@@ -64,6 +68,8 @@ pub struct HarnessProgressEvent {
     pub event_key: String,
     pub kind: HarnessProgressKind,
 }
+
+crate::driver_host::wire_keys::session_keyed_serde!(HarnessProgressEvent);
 
 /// Normalized progress kinds. Mapped 1:1 from the shared
 /// `NormalizedEventKind` vocabulary, plus the harness-specific
@@ -299,7 +305,7 @@ fn validate_reopened_binding(
 }
 
 /// One persistent Claude Code root runtime: a supervised vendor
-/// process bound to a the host app session, with validated start/resume,
+/// process bound to a host app session, with validated start/resume,
 /// donor-contract steering/interrupt, exact-once normalized progress
 /// projection and durable binding metadata.
 pub struct ClaudeRootRuntime {
@@ -347,7 +353,7 @@ impl ClaudeRootRuntime {
             trust.verdict(now),
             managed_profile_label,
             managed_home,
-            policy_digest(RUN_SCOPED_POLICY),
+            policy_digest(&host_names::run_scoped_policy()),
             now,
         );
         let record = match store.load(binding_id)? {
@@ -364,7 +370,7 @@ impl ClaudeRootRuntime {
         let runtime = Arc::new(Self {
             binding: Mutex::new(record),
             store,
-            supervisor: ClaudeHarnessSupervisor::new(spawner),
+            supervisor: ClaudeHarnessSupervisor::new(spawner)?,
             trust,
             steering: Mutex::new(SteeringState {
                 steers_sent: 0,
@@ -880,7 +886,19 @@ impl ClaudeRootRuntime {
             record.managed_home.clone()
         };
         let mut spec = launch.clone();
-        for name in ["HOME", "CLAUDE_CONFIG_DIR"] {
+        // A managed profile is a folder the host made: its whole point is isolating the vendor's
+        // files, so `HOME` is pinned to it as well. A linked profile (a folder the user already
+        // had) keeps the real `HOME`, because the login made there may live outside the folder
+        // (the macOS keychain, `~/.claude.json`); only `CLAUDE_CONFIG_DIR` is pinned.
+        let pinned: &[&str] = if host_options::linked_profiles()
+            && !managed_home
+                .starts_with(crate::driver_host::cli_runtime::profile::managed_profile_root())
+        {
+            &["CLAUDE_CONFIG_DIR"]
+        } else {
+            &["HOME", "CLAUDE_CONFIG_DIR"]
+        };
+        for name in pinned.iter().copied() {
             let value = managed_home.display().to_string();
             match spec.env.iter_mut().find(|(key, _)| key.as_str() == name) {
                 Some(entry) => entry.1 = value,

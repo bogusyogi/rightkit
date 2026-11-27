@@ -23,8 +23,8 @@
 //!   vendor's default `request-review` policy.
 //! - `agy mcp add|list|remove` manages MCP servers in the USER-level config.
 //!   Unlike Claude Code there is no per-invocation `--mcp-config` flag, so the
-//!   the host app gateway is registered once, idempotently, as a uniquely-named
-//!   `host app` stdio server (`mcp`). The registration is therefore shared
+//!   host app gateway is registered once, idempotently, as a uniquely-named
+//!   stdio server (`mcp`). The registration is therefore shared
 //!   user state rather than a run-scoped launch flag — it cannot carry
 //!   per-turn arguments, so it is registered without `--allow-mutate` and the
 //!   vendor's own permission policy governs mutations (see `mcp`).

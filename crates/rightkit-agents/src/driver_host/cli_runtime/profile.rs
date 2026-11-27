@@ -1,7 +1,7 @@
 //! Managed account profiles for vendor CLIs.
 //!
 //! PR 2 of the architecture plan. A profile is a vendor-owned login
-//! location, not a the host app secret store. the host app stores only the
+//! location, not a host app secret store. the host app stores only the
 //! identifier, the managed home directory, and a one-way account
 //! fingerprint derived from non-secret metadata. Credentials are
 //! written and consumed exclusively by the vendor CLI launched under
@@ -139,12 +139,21 @@ fn codex_home_for_label(_label: &str) -> PathBuf {
     PathBuf::from(".codex")
 }
 
-/// Resolve the per-provider home layout function for a provider id.
-/// Returns `None` if the provider has no registered layout (for
-/// example a future vendor with a non-standard home convention).
-pub fn home_layout(provider: &CliProviderId) -> Option<ProfileHomeFn> {
+/// The layouts of the providers this host offers: [`PROFILE_LAYOUTS`] limited to the built-in
+/// providers the host chose with [`crate::driver_host::host_options::set_built_in_providers`]
+/// (all of them without a choice).
+pub fn profile_layouts() -> impl Iterator<Item = &'static (&'static str, ProfileHomeFn)> {
     PROFILE_LAYOUTS
         .iter()
+        .filter(|(id, _)| crate::driver_host::host_options::built_in_provider_offered(id))
+}
+
+/// Resolve the per-provider home layout function for a provider id.
+/// Returns `None` if the provider has no registered layout (for
+/// example a future vendor with a non-standard home convention, or a
+/// provider this host does not offer).
+pub fn home_layout(provider: &CliProviderId) -> Option<ProfileHomeFn> {
+    profile_layouts()
         .find(|(id, _)| *id == provider.as_str())
         .map(|(_, f)| *f)
 }
@@ -179,7 +188,7 @@ pub fn sanitize_label(label: &str) -> Result<&str, ProfileStoreError> {
 /// own subdirectory; per-profile directories live beneath that.
 pub fn managed_profile_root() -> PathBuf {
     rightkit_agent_config::state_root()
-        .unwrap_or_else(|| PathBuf::from(".").join(".rightkit"))
+        .unwrap_or_else(|| PathBuf::from(".").join(rightkit_agent_config::state_dir_name()))
         .join("cli-profiles")
 }
 

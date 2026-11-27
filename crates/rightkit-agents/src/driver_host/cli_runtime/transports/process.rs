@@ -27,10 +27,14 @@ pub struct BoundedCapture {
 
 #[derive(Clone)]
 pub struct StdioProcessIo {
-    #[cfg(not(windows))]
+    /// The vendor program, owned through RightKit on every platform: its tree is contained (a
+    /// process group on Unix, a kill-on-close Job Object on Windows) and `terminate_tree` ends it.
     child: Arc<Mutex<rightkit_child_process::OwnedChild>>,
     stdin: Arc<Mutex<ChildStdin>>,
     stdout: Arc<Mutex<BufReader<ChildStdout>>>,
+    /// Windows only: the engine's shell job, nested over the child's own job for its
+    /// active-process limit. RightKit's job owns the tree; this one only caps it. `None` when the
+    /// host chose `host_options::set_windows_job_best_effort` and the job could not be assigned.
     #[cfg(windows)]
     windows_job: Arc<Mutex<Option<rightkit_agent_coding_tools::sandbox::WindowsJob>>>,
 }
@@ -174,7 +178,7 @@ impl StdioProcessIo {
             argv,
             cwd: launch.cwd.to_string_lossy().into_owned(),
             context,
-            env: launch.env.clone(),
+            env: adapter_launch_env(launch),
         };
         let _thread = std::thread::spawn(move || {
             let runtime = tokio::runtime::Builder::new_current_thread()
@@ -310,13 +314,16 @@ impl StdioProcessIo {
             crate::driver_host::vendor_cli::AGY_DISABLE_AUTO_UPDATE_ENV,
             "1",
         );
+        // Linux, with `anchor_children_to_parent`: the vendor program dies with the daemon.
+        // Registered before the sandbox hook; spawned on the anchor thread below so the death
+        // signal is keyed to a thread that lives as long as the daemon, not to this caller's
+        // thread.
+        #[cfg(target_os = "linux")]
+        if rightkit_agent_coding_tools::shell::anchor_children_to_parent() {
+            rightkit_agent_coding_tools::shell::parent_death::kill_on_parent_exit_std(&mut command);
+        }
         configure_sandbox(&mut command, launch)?;
-        // Unix: RightKit's OwnedCommand makes the child lead its own process group and owns the
-        // tree (terminate_tree). Windows: the std child is assigned to the Job Object below.
-        #[cfg(not(windows))]
-        let spawned = rightkit_child_process::OwnedCommand::from_command(command).spawn();
-        #[cfg(windows)]
-        let spawned = command.spawn();
+        let spawned = spawn_owned(command);
         let mut child = spawned.map_err(|error| {
             CliRuntimeError::new(
                 "cli_process_spawn",
@@ -324,17 +331,30 @@ impl StdioProcessIo {
             )
         })?;
         let pid = child.id();
+        // The child is already contained by RightKit's own job. This second job only adds the
+        // engine's active-process limit, and nesting it over a process that is already in a job
+        // can be refused: the launch then fails (the tree is ended first), unless the host chose
+        // `host_options::set_windows_job_best_effort`, which runs the vendor without the cap.
         #[cfg(windows)]
         let windows_job = {
-            let job = rightkit_agent_coding_tools::sandbox::shell_job()
-                .map_err(|error| CliRuntimeError::new("cli_process_job", error.to_string()))?;
-            job.assign_process_id(pid)
-                .map_err(|error| CliRuntimeError::new("cli_process_job", error.to_string()))?;
-            Arc::new(Mutex::new(Some(job)))
+            let limit = rightkit_agent_coding_tools::sandbox::shell_job()
+                .and_then(|job| job.assign_process_id(pid).map(|()| job));
+            match limit {
+                Ok(job) => Arc::new(Mutex::new(Some(job))),
+                Err(error) if crate::driver_host::host_options::windows_job_best_effort() => {
+                    tracing::warn!(%error, pid, "vendor CLI runs without the engine's process-limit job");
+                    Arc::new(Mutex::new(None))
+                }
+                Err(error) => {
+                    let ended = child.terminate_tree();
+                    let message = match ended {
+                        Ok(_) => error.to_string(),
+                        Err(end) => format!("{error}; the process tree was not ended: {end}"),
+                    };
+                    return Err(CliRuntimeError::new("cli_process_job", message));
+                }
+            }
         };
-        #[cfg(windows)]
-        let (child_stdin, child_stdout) = (child.stdin.take(), child.stdout.take());
-        #[cfg(not(windows))]
         let (child_stdin, child_stdout) = (child.take_stdin(), child.take_stdout());
         let stdin = child_stdin.ok_or_else(|| {
             CliRuntimeError::new("cli_process_stdin", "child did not expose stdin")
@@ -346,7 +366,6 @@ impl StdioProcessIo {
             pid,
             generation,
             inner: Box::new(Self {
-                #[cfg(not(windows))]
                 child: Arc::new(Mutex::new(child)),
                 stdin: Arc::new(Mutex::new(stdin)),
                 stdout: Arc::new(Mutex::new(BufReader::new(stdout))),
@@ -464,16 +483,7 @@ impl CliProcessIo for StdioProcessIo {
     }
 
     fn shutdown(&self) -> Result<(), CliRuntimeError> {
-        #[cfg(windows)]
-        {
-            self.windows_job
-                .lock()
-                .map_err(|_| CliRuntimeError::new("cli_process_lock", "job lock poisoned"))?
-                .take();
-            Ok(())
-        }
-        #[cfg(not(windows))]
-        {
+        let ended = {
             let mut child = self
                 .child
                 .lock()
@@ -482,12 +492,63 @@ impl CliProcessIo for StdioProcessIo {
                 .terminate_tree()
                 .map(|_| ())
                 .map_err(|error| CliRuntimeError::new("cli_process_shutdown", error.to_string()))
-        }
+        };
+        // Closing the limit job afterwards ends anything still in it, whatever `terminate_tree`
+        // said.
+        #[cfg(windows)]
+        self.windows_job
+            .lock()
+            .map_err(|_| CliRuntimeError::new("cli_process_lock", "job lock poisoned"))?
+            .take();
+        ended
     }
 
     fn clone_box(&self) -> Box<dyn CliProcessIo> {
         Box::new(self.clone())
     }
+}
+
+/// Spawn `command` as an owned tree: RightKit's `OwnedCommand` makes the child lead its own
+/// process group (Unix) or joins a kill-on-close Job Object (Windows). With the host's
+/// `anchor_children_to_parent` option the whole group is also tied to the daemon, and a failed tie
+/// kills the group and fails the launch, so nothing runs untied. On Linux the spawn runs on the
+/// anchor thread, so the death signal registered by `kill_on_parent_exit_std` is keyed to a
+/// thread that lives as long as the daemon.
+#[cfg(target_os = "linux")]
+fn spawn_owned(command: Command) -> std::io::Result<rightkit_child_process::OwnedChild> {
+    if rightkit_agent_coding_tools::shell::anchor_children_to_parent() {
+        return rightkit_agent_coding_tools::shell::parent_death::run_anchored(move || {
+            rightkit_child_process::OwnedCommand::from_command(command)
+                .spawn()
+                .and_then(|child| {
+                    rightkit_agent_coding_tools::shell::parent_death::tie_group_or_kill(child.id())
+                        .map(|()| child)
+                })
+        })
+        .and_then(|spawned| spawned);
+    }
+    rightkit_child_process::OwnedCommand::from_command(command).spawn()
+}
+
+/// See the Linux variant. macOS has no death signal and no anchor thread: the group is tied to
+/// the daemon by the watchdog alone.
+#[cfg(all(unix, not(target_os = "linux")))]
+fn spawn_owned(command: Command) -> std::io::Result<rightkit_child_process::OwnedChild> {
+    let spawned = rightkit_child_process::OwnedCommand::from_command(command).spawn();
+    if rightkit_agent_coding_tools::shell::anchor_children_to_parent() {
+        return spawned.and_then(|child| {
+            rightkit_agent_coding_tools::shell::parent_death::tie_group_or_kill(child.id())
+                .map(|()| child)
+        });
+    }
+    spawned
+}
+
+/// See the Linux variant. Windows: the child joins RightKit's own Job Object, and the engine's
+/// limit job is assigned after the spawn.
+#[cfg(windows)]
+fn spawn_owned(command: Command) -> std::io::Result<rightkit_child_process::OwnedChild> {
+    rightkit_child_process::OwnedCommand::from_command(command).spawn()
 }
 
 /// Credential variables that outrank a managed Claude profile login (#344).
@@ -517,7 +578,7 @@ pub(crate) fn credential_guard_names(launch: &CliLaunchSpec) -> Vec<&'static str
 /// Build the child environment: keep list, explicit removals, the credential guard, then the
 /// launch's own variables. Guarded names are also dropped from `launch.env` (a managed Claude
 /// profile never gets an API key or token beside it).
-fn apply_launch_env(command: &mut Command, launch: &CliLaunchSpec) {
+pub(crate) fn apply_launch_env(command: &mut Command, launch: &CliLaunchSpec) {
     for name in &launch.env_keep {
         if let Some(value) = std::env::var_os(name) {
             command.env(name, value);
@@ -538,16 +599,48 @@ fn apply_launch_env(command: &mut Command, launch: &CliLaunchSpec) {
     }
 }
 
+/// The explicit environment an adapter-backed vendor launch passes on: `launch.env` with the
+/// credential guard (#344) applied, exactly as `apply_launch_env` does for the std path. Inherited
+/// copies of the guarded and `env_remove` names (all scrubbed credential names) are removed by the
+/// native sandbox adapter itself (audit 2026-11-05 execution H2).
+fn adapter_launch_env(launch: &CliLaunchSpec) -> Vec<(String, String)> {
+    let guarded = credential_guard_names(launch);
+    launch
+        .env
+        .iter()
+        .filter(|(name, _)| !guarded.contains(&name.as_str()))
+        .cloned()
+        .collect()
+}
+
+/// The variables whose value names the managed home, in the order the sandbox looks for one. A
+/// host that chose `host_options::set_linked_profiles` looks at `CLAUDE_CONFIG_DIR` before `HOME`
+/// and at nothing else: a linked Claude profile keeps the user's real `HOME` (their own login
+/// lookup needs it) and pins only `CLAUDE_CONFIG_DIR`, and the sandbox must be confined to that
+/// folder, not to the whole home. For a managed profile both are the same folder, so the order
+/// changes nothing. With neither variable the launch is confined to its absolute `cwd`, or
+/// refused when that is relative: the vendor homes of other providers (`CODEX_HOME`,
+/// `COMMANDCODE_HOME`) are never read as the managed home of a linked-profiles host. The default
+/// (option off) order is `HOME`, `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `COMMANDCODE_HOME`.
+#[cfg(unix)]
+fn managed_home_variables() -> &'static [&'static str] {
+    if crate::driver_host::host_options::linked_profiles() {
+        &["CLAUDE_CONFIG_DIR", "HOME"]
+    } else {
+        &[
+            "HOME",
+            "CODEX_HOME",
+            "CLAUDE_CONFIG_DIR",
+            "COMMANDCODE_HOME",
+        ]
+    }
+}
+
 /// A managed profile is mandatory: sandboxing a vendor process around an arbitrary
 /// host home would merely make host state reachable through another path.
 #[cfg(unix)]
 fn managed_home(launch: &CliLaunchSpec) -> Result<PathBuf, CliRuntimeError> {
-    for name in [
-        "HOME",
-        "CODEX_HOME",
-        "CLAUDE_CONFIG_DIR",
-        "COMMANDCODE_HOME",
-    ] {
+    for name in managed_home_variables().iter().copied() {
         if let Some((_, value)) = launch.env.iter().find(|(key, _)| key == name) {
             let path = PathBuf::from(value);
             if path.is_absolute() {
@@ -568,7 +661,9 @@ fn managed_home(launch: &CliLaunchSpec) -> Result<PathBuf, CliRuntimeError> {
     ))
 }
 
-fn sandboxed_program(launch: &CliLaunchSpec) -> Result<(PathBuf, Vec<String>), CliRuntimeError> {
+pub(crate) fn sandboxed_program(
+    launch: &CliLaunchSpec,
+) -> Result<(PathBuf, Vec<String>), CliRuntimeError> {
     let argv = launch
         .argv
         .first()
@@ -586,7 +681,7 @@ fn sandboxed_program(launch: &CliLaunchSpec) -> Result<(PathBuf, Vec<String>), C
 /// RightKit and applied in the child before exec). Fail closed: no confinement, no launch.
 /// Vendor CLIs talk to their own provider, so egress stays allowed. The process group is set up
 /// by `OwnedCommand` at spawn (after this hook; neither backend restricts `setpgid`).
-fn configure_sandbox(
+pub(crate) fn configure_sandbox(
     _command: &mut Command,
     _launch: &CliLaunchSpec,
 ) -> Result<(), CliRuntimeError> {

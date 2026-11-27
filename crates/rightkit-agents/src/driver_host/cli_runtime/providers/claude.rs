@@ -29,7 +29,7 @@ use std::path::PathBuf;
 
 use crate::driver_host::cli_runtime::adapter::{
     CliAdapterError, CliAuthenticationStatus, CliDiscovery, CliLaunchRequest, CliLaunchSpec,
-    CliModelCatalog, CliProviderAdapter, CliRuntimeError,
+    CliModelCatalog, CliProviderAdapter,
 };
 use crate::driver_host::cli_runtime::ids::{
     CliAccountProfile, CliProviderCapabilities, CliProviderId, CliTransportKind,
@@ -126,9 +126,28 @@ impl CliProviderAdapter for ClaudeAdapter {
         request: &CliLaunchRequest,
     ) -> Result<CliLaunchSpec, CliAdapterError> {
         let legacy = translate_request_to_legacy(request)?;
-        let spec = legacy
+        let mut spec = legacy
             .launch_spec()
             .map_err(|error| adapter_error_from_launch_error(&self.provider_id, error))?;
+        // With linked profiles (`host_options::set_linked_profiles`) the profile's home is the
+        // person's own Claude Code folder for this launch (the account picked for the chat).
+        // Claude Code is started on that folder and on no other sign-in. A home that holds no
+        // sign-in is not a Claude Code folder and is not passed on.
+        if crate::driver_host::host_options::linked_profiles() {
+            let home = &request.profile.managed_home;
+            if crate::driver_host::cli_runtime::account_identity::read_linked_claude_identity(home)
+                .is_some()
+                || crate::driver_host::cli_runtime::account_identity::claude_platform_of(home)
+                    .is_some()
+            {
+                crate::driver_host::apply_claude_account_env(
+                    &mut spec,
+                    Some(&crate::driver_host::ClaudeAccountLaunch::Subscription {
+                        managed_home: home.clone(),
+                    }),
+                );
+            }
+        }
         Ok(CliLaunchSpec {
             provider_id: self.provider_id.clone(),
             transport: TRANSPORT,
@@ -385,21 +404,6 @@ fn adapter_error_from_parse_error(
         }
         crate::driver_host::DriverHostError::UnknownRequiredEvent { method, .. } => {
             CliAdapterError::new(provider_id.clone(), "claude_parse_unknown_event", method)
-        }
-    }
-}
-
-// Re-export the runtime-error helper so downstream callers that
-// reach for the adapter from a non-async context don't pull in
-// the executor crate just to translate errors.
-#[allow(dead_code)]
-fn runtime_error_from_launch_error(error: crate::driver_host::DriverHostError) -> CliRuntimeError {
-    match error {
-        crate::driver_host::DriverHostError::InvalidMessage { message, .. } => {
-            CliRuntimeError::new("claude_launch_invalid", message)
-        }
-        crate::driver_host::DriverHostError::UnknownRequiredEvent { method, .. } => {
-            CliRuntimeError::new("claude_launch_unknown_event", method)
         }
     }
 }

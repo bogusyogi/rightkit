@@ -22,7 +22,7 @@
 //!   capabilities; `--disable-native-tools` removes the
 //!   provider-native file/shell/browser routes. The ACP permission
 //!   broker is the second line of defense — it denies native tool
-//!   calls and approves only the the host app MCP server.
+//!   calls and approves only the host app MCP server.
 //! - **Resume via `ProcessRestartWithResumeFlag`.** Grok's vendor
 //!   session id is forwarded as `--resume <id>` on the next
 //!   process. The conversation identity survives a process restart
@@ -38,9 +38,7 @@
 //!   binary before the readiness gate admits the adapter.
 
 use async_trait::async_trait;
-use rightkit_sandbox::execution::ProcessLaunchAdapter;
 use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
 
 use crate::driver_host::cli_runtime::adapter::{
     CliAdapterError, CliAuthenticationStatus, CliDiscovery, CliLaunchRequest, CliLaunchSpec,
@@ -50,9 +48,7 @@ use crate::driver_host::cli_runtime::ids::{
     CliAccountProfile, CliAuthMode, CliProviderCapabilities, CliProviderId, CliTransportKind,
     HarnessRequirements, QualificationProbe, ResumeStrategy,
 };
-use crate::driver_host::cli_runtime::qualification::{
-    now_iso, DEFAULT_NEGATIVE_PROBES, DEFAULT_POSITIVE_PROBES,
-};
+use crate::driver_host::cli_runtime::qualification::{host_qualification_suite, now_iso};
 use crate::driver_host::contracts::{NormalizedEvent, NormalizedEventKind};
 
 pub const PROVIDER_ID: &str = "grok";
@@ -257,7 +253,7 @@ impl CliProviderAdapter for GrokAdapter {
         argv.push("stdio".to_string());
         // 7. Managed profile directory. Every credential file,
         //    plugin state, skill cache, and conversation history
-        //    lands under the the host app-managed profile directory.
+        //    lands under the host app-managed profile directory.
         argv.push("--profile-dir".to_string());
         argv.push(request.profile.managed_home.display().to_string());
         // 8. Vendor session resume. Grok forwards the vendor
@@ -346,10 +342,10 @@ impl CliProviderAdapter for GrokAdapter {
         // Full default suite. The negative probes confirm
         // Grok's native routes are denied (leader, team,
         // native tools, skills, browser). The positive probes
-        // confirm the the host app MCP is the only capability
+        // confirm the host app MCP is the only capability
         // surface, including `pos.resume` for the
         // `--resume <vendor_session_id>` continuity invariant.
-        &GROK_QUALIFICATION_SUITE
+        grok_qualification_suite()
     }
 
     fn normalize_provider_event(
@@ -360,19 +356,14 @@ impl CliProviderAdapter for GrokAdapter {
     }
 }
 
-/// Full default qualification suite for Grok. Reuses the negative
-/// and positive probes from
-/// [`crate::driver_host::cli_runtime::qualification::DEFAULT_NEGATIVE_PROBES`]
-/// and
-/// [`crate::driver_host::cli_runtime::qualification::DEFAULT_POSITIVE_PROBES`]
-/// so the trait can return a stable `&'static [QualificationProbe]`.
-static GROK_QUALIFICATION_SUITE: LazyLock<Vec<QualificationProbe>> = LazyLock::new(|| {
-    let mut probes =
-        Vec::with_capacity(DEFAULT_NEGATIVE_PROBES.len() + DEFAULT_POSITIVE_PROBES.len());
-    probes.extend_from_slice(&DEFAULT_NEGATIVE_PROBES);
-    probes.extend_from_slice(&DEFAULT_POSITIVE_PROBES);
-    probes
-});
+/// Full default qualification suite for Grok. Reuses the negative and positive probes of
+/// [`crate::driver_host::cli_runtime::qualification::default_negative_probes`] and
+/// [`crate::driver_host::cli_runtime::qualification::default_positive_probes`], with the host's
+/// current names, so the trait can return a stable `&'static [QualificationProbe]` (built and
+/// leaked once per host naming, see `host_qualification_suite`).
+fn grok_qualification_suite() -> &'static [QualificationProbe] {
+    host_qualification_suite("grok", &[])
+}
 
 /// Encode the open session-id field into the wire form the
 /// transport consumes. The Grok adapter uses

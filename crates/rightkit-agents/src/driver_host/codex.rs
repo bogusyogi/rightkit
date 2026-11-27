@@ -1,5 +1,5 @@
-// RIGHTKIT-SERIOUS: rightkit-agents 0.2.0 `codex::parse_line` cannot replace `normalize_notification`: it treats `mcpServer/startupStatus/updated` as bookkeeping, so the the host app MCP gateway readiness that releases a Codex run (`GatewayReady`) and its startup-failure refusal are not derivable; it also drops turn failure text, tool-result content and the `account/rateLimits/updated` windows (report T-5). Usage-limit detection below is RightKit's.
-use crate::driver_host::cli_runtime::auth::FORBIDDEN_BYOK_ENV_VARS;
+// RIGHTKIT-SERIOUS: rightkit-agents 0.2.0 `codex::parse_line` cannot replace `normalize_notification`: it treats `mcpServer/startupStatus/updated` as bookkeeping, so the host app MCP gateway readiness that releases a Codex run (`GatewayReady`) and its startup-failure refusal are not derivable; it also drops turn failure text, tool-result content and the `account/rateLimits/updated` windows (report T-5). Usage-limit detection below is RightKit's.
+use crate::driver_host::host_names;
 use crate::driver_host::{
     event_key, invalid, stable_event_key, validate_model_id, DriverHostError, DriverKind,
     LaunchSpec, NormalizedEvent, NormalizedEventKind,
@@ -37,10 +37,7 @@ impl CodexLaunchOptions {
             program: self.executable.clone(),
             args,
             env: BTreeMap::new(),
-            env_remove: FORBIDDEN_BYOK_ENV_VARS
-                .iter()
-                .map(|name| (*name).to_string())
-                .collect(),
+            env_remove: host_names::forbidden_byok_env_vars().into_iter().collect(),
             cwd: self.cwd.clone(),
         })
     }
@@ -239,7 +236,7 @@ fn normalize_notification(
                         format!("startup status missing server name; fields={keys}"),
                     )
                 })?;
-            if name != "rightkit-agent" {
+            if name != host_names::mcp_server_name() {
                 return Err(invalid(DriverKind::Codex, "unexpected MCP server"));
             }
             let status = server
@@ -252,7 +249,10 @@ fn normalize_notification(
             if !matches!(status, "connected" | "ready" | "running") {
                 return Err(invalid(
                     DriverKind::Codex,
-                    format!("Agent MCP startup failed: {status}"),
+                    format!(
+                        "{} MCP startup failed: {status}",
+                        host_names::display_name()
+                    ),
                 ));
             }
             return Ok(Some(NormalizedEvent {

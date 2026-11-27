@@ -13,7 +13,7 @@
 //!   binary on disk has a different SHA-256 than the one stored, the
 //!   binding cannot be used until the operator re-qualifies the new
 //!   binary.
-//! - `context_epoch` — incremented every time the the host app context
+//! - `context_epoch` — incremented every time the host app context
 //!   is rebuilt (workspace trust changed, user re-authenticated, etc.).
 //!   The executor refuses to attach to a binding whose epoch is stale.
 //!
@@ -191,7 +191,7 @@ pub enum RecoveryError {
         on_disk_sha256: String,
         recovery_hint: String,
     },
-    /// The binding's `context_epoch` does not match the the host app
+    /// The binding's `context_epoch` does not match the host app
     /// session's current epoch. The parent context changed (trust,
     /// auth, model, etc.) and the binding cannot attach.
     ContextEpochStale {
@@ -281,9 +281,11 @@ impl RecoveryError {
             binding_id: binding_id.into(),
             binding_epoch,
             live_epoch,
-            recovery_hint: "The Host context changed (workspace trust, authentication, or model). \
-                 This binding cannot attach to the new context."
-                .to_string(),
+            recovery_hint: format!(
+                "The {} context changed (workspace trust, authentication, or model). \
+                 This binding cannot attach to the new context.",
+                crate::driver_host::host_names::recovery_name()
+            ),
         }
     }
 
@@ -293,8 +295,9 @@ impl RecoveryError {
             current,
             required,
             recovery_hint: format!(
-                "Database schema is at version {current}; Host requires version {required}. \
-                 Run the daemon once with the latest build to apply pending migrations."
+                "Database schema is at version {current}; {} requires version {required}. \
+                 Run the daemon once with the latest build to apply pending migrations.",
+                crate::driver_host::host_names::recovery_name()
             ),
         }
     }

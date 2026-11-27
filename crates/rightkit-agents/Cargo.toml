@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agents"
-version = "0.2.8"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Supervised vendor agent sessions for Right Suite apps: shared agent event model, Claude Code stream-json and Codex app-server protocol clients, session lifecycle with approvals and tree teardown, recorded fixtures. No SDK, no HTTP, no MCP."
@@ -19,22 +19,24 @@ codex = []
 # Session lifecycle: spawn, event stream, approvals, cancel, tree teardown. Pulls in both protocol clients.
 session = ["claude", "codex"]
 agent_acp = []
-driver_host = ["claude", "codex", "dep:rightkit-crypto", "dep:async-trait", "dep:rightkit-agent-coding-tools", "rightkit-child-process/tokio", "dep:rightkit-agent-config", "dep:rightkit-sandbox", "dep:rightkit-fs", "dep:rightkit-sidecar", "dep:rightkit-time", "dep:thiserror", "dep:tokio", "dep:libc"]
+driver_host = ["claude", "codex", "dep:rightkit-crypto", "dep:async-trait", "dep:rightkit-agent-coding-tools", "rightkit-child-process/tokio", "dep:rightkit-agent-config", "dep:rightkit-sandbox", "dep:rightkit-fs", "dep:rightkit-job-queue", "dep:rightkit-sidecar", "dep:rightkit-time", "dep:thiserror", "dep:tokio", "dep:tracing", "dep:libc"]
 
 [dependencies]
 rightkit-agent-engine-protocol = { version = "0.4.0", path = "../rightkit-agent-engine-protocol", optional = true }
 rightkit-mcp = { version = "0.10.0", path = "../rightkit-mcp", optional = true }
 tracing = { version = "0.1", optional = true }
-rightkit-child-process = { version = "0.5.7", path = "../rightkit-child-process" }
+rightkit-child-process = { version = "0.5.17", path = "../rightkit-child-process" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 rightkit-crypto = {version = "0.1.0", path = "../rightkit-crypto", optional = true}
 async-trait = {version = "0.1", optional = true}
 rightkit-agent-coding-tools = { version = "0.2.0", path = "../rightkit-agent-coding-tools", features = ["host"], optional = true }
-rightkit-agent-config = { version = "0.1.3", path = "../rightkit-agent-config", features = ["host-env"], optional = true }
+rightkit-agent-config = { version = "0.1.6", path = "../rightkit-agent-config", features = ["host-env"], optional = true }
 rightkit-sandbox = {version = "0.7.0", path = "../rightkit-sandbox", features = ["execution"], optional = true}
 rightkit-fs = {version = "0.5.0", features = ["fs", "lock", "json", "digest", "transaction"], path = "../rightkit-fs", optional = true}
 rightkit-sidecar = {version = "0.3.0", path = "../rightkit-sidecar", optional = true}
+# `ChildSupervisor`, which supervises the persistent Claude Code harness process.
+rightkit-job-queue = { version = "0.6.2", path = "../rightkit-job-queue", default-features = false, features = ["supervisor"], optional = true }
 rightkit-time = {version = "0.1.1", path = "../rightkit-time", optional = true}
 thiserror = {version = "2", optional = true}
 tokio = {version = "1", features = ["rt", "macros", "process", "io-util", "sync", "time", "net"], optional = true}

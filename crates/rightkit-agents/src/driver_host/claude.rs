@@ -7,10 +7,12 @@
 //! mapping of RightKit's `AgentEvent`s onto the host app's durable `NormalizedEvent` (stable event
 //! keys, source offsets, `DriverHostError`).
 use crate::claude as rk;
-use crate::driver_host::cli_runtime::auth::FORBIDDEN_BYOK_ENV_VARS;
+use crate::driver_host::cli_runtime::account_identity::is_default_claude_home;
+use crate::driver_host::host_names;
+use crate::driver_host::host_options;
 use crate::driver_host::{
     event_key, invalid, stable_event_key, DriverHostError, DriverKind, LaunchSpec, NormalizedEvent,
-    NormalizedEventKind, RUN_SCOPED_POLICY,
+    NormalizedEventKind,
 };
 use crate::event::{AgentEvent, ParseError, ResultSummary, SessionInit, UnknownPolicy};
 use serde_json::Value;
@@ -38,10 +40,16 @@ impl ClaudeLaunchOptions {
     /// [`Self::launch_spec`] plus the optional session-fork and run-limit flags. With default
     /// extras the argv is identical to `launch_spec`.
     ///
-    /// The argv is `crate::claude::build_args_with`, locked down for a the host app run:
-    /// every native tool is disabled (`--tools ""`), only the `host app` MCP server's tools are
-    /// allowed (`--allowedTools mcp__coderight`), the run-scoped policy is appended, and the
-    /// strict MCP config below is the only MCP configuration the CLI may load.
+    /// The argv is `crate::claude::build_args_with`, locked down for a host app run:
+    /// every native tool is disabled (`--tools ""`), only the host's MCP server's tools are
+    /// allowed (`--allowedTools` takes [`host_names::mcp_tool_scope`], `mcp__rightkit` for the
+    /// default host and `mcp__coderight` for the host `CODERIGHT`), the run-scoped policy
+    /// ([`host_names::run_scoped_policy`]) is appended, and the strict MCP config below is the
+    /// only MCP configuration the CLI may load.
+    ///
+    /// `env_remove` carries [`host_names::forbidden_byok_env_vars`] and, when the host turned on
+    /// `rightkit_agent_coding_tools::shell::set_strip_parent_claude_session_env`, the variables
+    /// of a parent Claude Code session ([`CLAUDE_HOST_SESSION_ENV`]).
     pub fn launch_spec_with(
         &self,
         extras: &ClaudeLaunchExtras,
@@ -50,10 +58,10 @@ impl ClaudeLaunchOptions {
             model: self.model.clone(),
             resume_session_id: self.resume_session_id.clone(),
             session_id: self.session_id.clone(),
-            allowed_tools: vec!["mcp__rightkit".to_string()],
+            allowed_tools: vec![host_names::mcp_tool_scope()],
             permission_mode: extras.permission_mode.clone(),
             max_budget_usd: extras.max_budget_usd,
-            append_system_prompt: Some(RUN_SCOPED_POLICY.to_string()),
+            append_system_prompt: Some(host_names::run_scoped_policy()),
             include_partial_messages: true,
             ..rk::ClaudeOptions::default()
         };
@@ -79,13 +87,29 @@ impl ClaudeLaunchOptions {
             program: self.executable.clone(),
             args,
             env: BTreeMap::new(),
-            env_remove: FORBIDDEN_BYOK_ENV_VARS
-                .iter()
-                .map(|name| (*name).to_string())
-                .collect(),
+            env_remove: env_remove_names(),
             cwd: self.cwd.clone(),
         })
     }
+}
+
+/// Variables a Claude Code session exports to the programs it starts; a launch removes them when
+/// the host turned on `rightkit_agent_coding_tools::shell::set_strip_parent_claude_session_env`.
+/// One list for every launch path: see `rightkit_agent_coding_tools::process_launch`.
+pub use rightkit_agent_coding_tools::process_launch::CLAUDE_HOST_SESSION_ENV;
+
+/// The names a Claude launch removes from the child's environment.
+fn env_remove_names() -> std::collections::BTreeSet<String> {
+    let mut names: std::collections::BTreeSet<String> =
+        host_names::forbidden_byok_env_vars().into_iter().collect();
+    if rightkit_agent_coding_tools::shell::strip_parent_claude_session_env() {
+        names.extend(
+            CLAUDE_HOST_SESSION_ENV
+                .iter()
+                .map(|name| (*name).to_string()),
+        );
+    }
+    names
 }
 
 /// Optional launch flags beyond the frozen baseline argv (issues #331 and #339). Every field
@@ -122,17 +146,17 @@ fn set_flag_value(args: &mut Vec<String>, flag: &str, value: String) {
     args.extend([flag.to_string(), value]);
 }
 
-/// Per-run `host app run` flags forwarded to the Claude Code CLI's own flags.
+/// Per-run host app run flags forwarded to the Claude Code CLI's own flags.
 ///
 /// Mapping (Claude Code CLI reference, <https://code.claude.com/docs/en/cli-reference>):
 /// `--max-turns`, `--max-budget-usd` (print mode only), `--system-prompt`,
 /// `--system-prompt-file`, `--append-system-prompt`, `--append-system-prompt-file`,
-/// `--mcp-config` (extra servers; the the host app gateway config and
+/// `--mcp-config` (extra servers; the host app gateway config and
 /// `--strict-mcp-config` stay in force) and `--add-dir`.
 ///
-/// `RUN_SCOPED_POLICY` is never dropped: a replacement system prompt is passed through while the
-/// policy stays appended, and caller append text is merged into the same
-/// `--append-system-prompt` value rather than emitted as a second flag.
+/// The run-scoped policy ([`host_names::run_scoped_policy`]) is never dropped: a replacement
+/// system prompt is passed through while the policy stays appended, and caller append text is
+/// merged into the same `--append-system-prompt` value rather than emitted as a second flag.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ClaudeRunFlags {
     pub max_turns: Option<u32>,
@@ -217,6 +241,15 @@ const CLAUDE_ACCOUNT_STRIPPED_ENV: [&str; 2] = ["ANTHROPIC_API_KEY", "CLAUDE_COD
 ///
 /// - subscription: `CLAUDE_CONFIG_DIR` points at the profile's managed home and both ambient
 ///   credential variables are stripped, so the profile login is the only credential in play.
+///   `HOME` is left alone here, on purpose: a managed profile is a folder the host made, so
+///   isolation of the vendor's files is its whole point (the persistent harness also pins `HOME`
+///   to it), while a linked profile (option [`host_options::set_linked_profiles`]) is a folder
+///   the user already had, whose login may live outside it (the macOS keychain,
+///   `~/.claude.json`), so the real `HOME` must stay for that lookup to work. With that option
+///   on and the home being the default Claude folder (`<home>/.claude`), the variable is
+///   removed instead of set, because Claude Code uses that folder when it is unset and setting
+///   it would move the CLI's state file and keychain name, so the login the user already has
+///   would not be found.
 /// - api key: `ANTHROPIC_API_KEY` is set on this spec only (it is never removed-then-inherited)
 ///   and the ambient OAuth token is stripped.
 pub fn apply_claude_account_env(spec: &mut LaunchSpec, account: Option<&ClaudeAccountLaunch>) {
@@ -227,10 +260,15 @@ pub fn apply_claude_account_env(spec: &mut LaunchSpec, account: Option<&ClaudeAc
                 spec.env.remove(name);
                 spec.env_remove.insert(name.to_string());
             }
-            spec.env.insert(
-                "CLAUDE_CONFIG_DIR".into(),
-                managed_home.to_string_lossy().into_owned(),
-            );
+            if host_options::linked_profiles() && is_default_claude_home(managed_home) {
+                spec.env.remove("CLAUDE_CONFIG_DIR");
+                spec.env_remove.insert("CLAUDE_CONFIG_DIR".into());
+            } else {
+                spec.env.insert(
+                    "CLAUDE_CONFIG_DIR".into(),
+                    managed_home.to_string_lossy().into_owned(),
+                );
+            }
         }
         ClaudeAccountLaunch::ApiKey { key } => {
             spec.env.remove("CLAUDE_CODE_OAUTH_TOKEN");
@@ -251,10 +289,48 @@ fn parse_events(line: &str) -> Result<(String, Value, Vec<AgentEvent>), DriverHo
         .and_then(Value::as_str)
         .ok_or_else(|| invalid(DriverKind::Claude, "missing type"))?
         .to_string();
+    if host_options::ignore_sdk_housekeeping_messages() {
+        if let Some(what) = sdk_message_without_turn_effect(&value, &message_type) {
+            eprintln!(
+                "{}: Claude {what} (no effect on the turn)",
+                host_names::stderr_prefix()
+            );
+            return Ok((message_type, value, Vec::new()));
+        }
+    }
     let events = rk::StreamParser::with_policy(UnknownPolicy::FailClosed)
         .parse_line(line)
         .map_err(map_parse_error)?;
     Ok((message_type, value, events))
+}
+
+/// Messages the Agent SDK defines (`sdk.d.ts` of `@anthropic-ai/claude-agent-sdk` 0.3.327,
+/// Claude Code 2.1.327) that RightKit's fail-closed parser refuses as unknown, and that carry
+/// nothing the turn depends on. They are named here one by one so that a message this list does
+/// not name is still refused: fail-closed stays the rule for anything not understood. Applied
+/// only when the host turned on [`host_options::set_ignore_sdk_housekeeping_messages`].
+///
+/// - `tool_progress`: a heartbeat while a tool runs (elapsed seconds).
+/// - `tool_use_summary`: a one-line summary of tool calls already reported.
+/// - `prompt_suggestion`: a predicted next prompt.
+/// - `active_goal`: the state of Claude Code's own `/goal`, which the host does not use.
+/// - `auth_status`: sign-in progress; a failed sign-in ends the turn through `result`.
+/// - `conversation_reset`: `/clear` and plan-mode exit in Claude Code's own interface.
+/// - `system/permission_denied`: a tool call Claude Code denied by itself; the model receives
+///   the denial as that call's tool result, which is reported as usual.
+/// - `system/mirror_error`: Claude Code's transcript mirror failed to save a batch.
+fn sdk_message_without_turn_effect(value: &Value, message_type: &str) -> Option<String> {
+    match message_type {
+        "tool_progress" | "tool_use_summary" | "prompt_suggestion" | "active_goal"
+        | "auth_status" | "conversation_reset" => Some(message_type.to_string()),
+        "system" => match value.get("subtype").and_then(Value::as_str) {
+            Some(subtype @ ("permission_denied" | "mirror_error")) => {
+                Some(format!("system/{subtype}"))
+            }
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 fn map_parse_error(error: ParseError) -> DriverHostError {
@@ -310,7 +386,8 @@ fn normalize(
                     {
                         let subtype = value.get("subtype").and_then(Value::as_str).unwrap_or("");
                         eprintln!(
-                            "rightkit-agent-driver-host: ignoring Claude system/{subtype} (progress or telemetry)"
+                            "{}: ignoring Claude system/{subtype} (progress or telemetry)",
+                            host_names::stderr_prefix()
                         );
                     }
                     return Ok(None);

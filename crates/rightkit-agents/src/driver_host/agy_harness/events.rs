@@ -195,13 +195,3 @@ fn normalize_result(value: &Value) -> Result<NormalizedEventKind, DriverHostErro
         },
     })
 }
-
-/// Test-only hook: expose the raw `result.response` fallback so a turn that
-/// streamed no deltas still yields its final text to the presentation layer.
-#[allow(dead_code)]
-pub(crate) fn result_response_text(value: &Value) -> Option<&str> {
-    value
-        .get("result")
-        .and_then(|result| result.get("response"))
-        .and_then(Value::as_str)
-}

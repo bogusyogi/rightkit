@@ -13,9 +13,15 @@
 
 //! Vendor-neutral contracts for hosting subscription-authenticated coding drivers.
 //!
-//! The crate deliberately contains no process supervisor or the host app daemon state. It owns the
-//! stable wire boundary: launch specifications, persisted bindings/cursors, vendor event parsing,
-//! and exact-once admission. The daemon supplies persistence and execution capabilities.
+//! This module deliberately contains no host app daemon state. It owns the stable wire boundary:
+//! launch specifications, persisted bindings/cursors, vendor event parsing, and exact-once
+//! admission, plus the launch and supervision of the vendor CLIs. The daemon supplies persistence
+//! and the capabilities each run is granted.
+//!
+//! Every name the module writes (MCP server, environment variables, state folder, persisted
+//! keys, labels) comes from the host's names in [`host_names`] and is the same as in 0.2.8 for a
+//! host that never names itself. The behaviours a host may choose are the options of
+//! [`host_options`].
 
 pub mod agy_harness;
 mod binary_lookup;
@@ -27,8 +33,11 @@ pub mod cli_runtime;
 mod codex;
 mod contracts;
 mod dedupe;
+pub mod host_names;
+pub mod host_options;
 mod rate_limit_state;
 pub mod vendor_cli;
+mod wire_keys;
 
 pub use claude::{
     apply_claude_account_env, parse_claude_assistant_tool_uses, parse_claude_stream_events,
@@ -47,14 +56,17 @@ pub use codex::{
 };
 pub use contracts::*;
 pub use dedupe::{DedupAdmission, EventDeduplicator, InMemoryEventDeduplicator};
+pub use host_names::{denied_vendor_subprocess_env_vars, run_scoped_policy};
 pub use rate_limit_state::{RateLimitSnapshot, RateLimitState};
 
-/// The single policy injected into each vendor run without changing global vendor configuration.
+/// The single policy injected into each vendor run without changing global vendor configuration,
+/// as the default host words it. Launches use [`run_scoped_policy`], which names the host that
+/// named itself; for the default host the two are the same text.
 pub const RUN_SCOPED_POLICY: &str = "Agent is the sole authority for execution, approvals, memory writes, and delegation in this run. Use the rightkit-agent MCP server for every shell command, file mutation, memory write, and delegation. Native tools may only perform read-only inspection. Never request or perform a native side effect; ask Agent through its capability gateway.";
 
 /// Environment variable names stripped from every vendor subprocess before launch.
 ///
-/// A vendor CLI (Codex, Claude) is a different trust domain from the the host app daemon: it must
+/// A vendor CLI (Codex, Claude) is a different trust domain from the host app daemon: it must
 /// never be able to read the provider keys that pay for the host app's own model calls, nor the
 /// daemon's bootstrap auth token, which is the only gate on the daemon's mutating HTTP API. Both
 /// `CodexLaunchOptions::launch_spec` and `ClaudeLaunchOptions::launch_spec` populate
@@ -62,6 +74,10 @@ pub const RUN_SCOPED_POLICY: &str = "Agent is the sole authority for execution, 
 /// spawn site applies `env_remove` before `env` (see `driver_host_runtime`), so a value the host app
 /// deliberately re-grants afterward — e.g. a scoped `RIGHTKIT_DAEMON_TOKEN` issued for this one
 /// run's MCP callback — still reaches the child; only ambient inheritance is denied.
+///
+/// This is the default host's list. Launches use [`denied_vendor_subprocess_env_vars`], which adds
+/// the daemon token, gateway token and driver instance secret under the prefix of a host that
+/// named itself and never drops a name of this list.
 pub const DENIED_VENDOR_SUBPROCESS_ENV_VARS: &[&str] = &[
     "OPENROUTER_API_KEY",
     "MINIMAX_API_KEY",

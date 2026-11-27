@@ -5,7 +5,7 @@
 //!
 //! ```json
 //! {"type":"control_request","request_id":"<id>","request":{"subtype":"can_use_tool",
-//!  "tool_name":"mcp__coderight__write_file","input":{...},"tool_use_id":"toolu_..",
+//!  "tool_name":"mcp__<host slug>__write_file","input":{...},"tool_use_id":"toolu_..",
 //!  "permission_suggestions":[...],"blocked_path":"..","agent_id":".."}}
 //! ```
 //!
@@ -81,7 +81,15 @@ impl ClaudePermissionDecision {
             .get("message")
             .or_else(|| answer.get("reason"))
             .and_then(Value::as_str)
-            .unwrap_or("Denied by Agent");
+            .map_or_else(
+                || {
+                    format!(
+                        "Denied by {}",
+                        crate::driver_host::host_names::display_name()
+                    )
+                },
+                str::to_string,
+            );
         Self::deny(message)
     }
 
