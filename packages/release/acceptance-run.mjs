@@ -43,8 +43,37 @@ export function caseCommit(repo, base, edits, name, scratch) {
 /** The history file the gate keeps for a store (class-a-cache-history.mjs: named after the store's path, lowercased on Windows only). */
 export const historyFileOf = (managed, storeDir) => path.join(managed, "runs", "rightkit-class-a-history", `${sha256(process.platform === "win32" ? path.resolve(storeDir).toLowerCase() : path.resolve(storeDir))}.json`);
 const moveAside = (from, to) => { if (!fs.existsSync(from)) return false; fs.mkdirSync(path.dirname(to), { recursive: true }); fs.renameSync(from, to); return true; };
-/** Ends the gate and every program it started (Windows: the whole tree by pid; elsewhere the process group is the launcher's to signal). */
-const killTree = (pid) => { try { if (process.platform === "win32") execFileSync("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" }); else process.kill(pid, "SIGKILL"); } catch { /* already gone */ } };
+/** Every live process as { pid, ppid, startMs } (Windows), or null when the list cannot be read. */
+const windowsProcesses = () => {
+  try {
+    const text = execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", "Get-CimInstance Win32_Process | ForEach-Object { '{0} {1} {2}' -f $_.ProcessId, $_.ParentProcessId, $_.CreationDate.ToUniversalTime().ToString('o') }"], { encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "ignore"] });
+    return text.split(/\r?\n/).filter(Boolean).map((l) => { const [pid, ppid, t] = l.trim().split(" "); return { pid: Number(pid), ppid: Number(ppid), startMs: Date.parse(t) }; }).filter((p) => Number.isInteger(p.pid) && Number.isInteger(p.ppid) && Number.isFinite(p.startMs));
+  } catch { return null; }
+};
+/**
+ * Ends the gate and every program it started. Elsewhere the process group is the launcher's to signal. On Windows `taskkill /T` walks the tree once, so a
+ * child the gate starts in the milliseconds of the kill is not in the walk and lives on as an orphan (0.6.92 acceptance, 27 Nov: `cargo tree` started 3 ms
+ * before the gate died, case 7 NN08). So the walk is repeated: every live process descended from a process of this tree (by parent pid, started no earlier
+ * than the gate, so a reused pid is not taken) is ended, until a walk finds none, bounded at 10 s.
+ */
+export const killTree = (pid) => {
+  if (process.platform !== "win32") { try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ } return; }
+  const before = windowsProcesses(); const root = before?.find((p) => p.pid === pid) ?? null;
+  const since = root ? root.startMs - 1000 : Date.now() - 24 * 3600 * 1000;
+  const tree = new Set([pid]);
+  // The tree as it stood just before the kill, so an orphan whose parent the kill ended is still known by that parent's pid.
+  const grow = (list) => { let grew = true; while (grew) { grew = false; for (const p of list) if (!tree.has(p.pid) && tree.has(p.ppid) && p.startMs >= since) { tree.add(p.pid); grew = true; } } };
+  grow(before ?? []);
+  try { execFileSync("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" }); } catch { /* already gone */ }
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const live = windowsProcesses(); if (!live) return;
+    grow(live);
+    const left = live.filter((p) => tree.has(p.pid) && p.startMs >= since);
+    if (!left.length) return;
+    for (const p of left) { try { execFileSync("taskkill", ["/PID", String(p.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" }); } catch { /* already gone */ } }
+  }
+};
 
 /**
  * The machine's total CPU load, sampled every two seconds for the whole acceptance run (Adrian, 2026-11-25: "run the 7 cases on a quiet machine with CPU load
