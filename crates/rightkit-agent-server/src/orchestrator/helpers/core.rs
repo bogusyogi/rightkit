@@ -154,6 +154,7 @@ fn persist_agent_model(role: &str, model_id: &str) {
             AgentOverride {
                 model_id: model_id.to_string(),
                 provider_id: "openrouter".to_string(),
+                ..AgentOverride::default()
             },
         );
     });

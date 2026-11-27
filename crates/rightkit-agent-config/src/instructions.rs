@@ -97,6 +97,63 @@ pub struct InstructionFile {
 #[derive(Debug, Clone)]
 pub struct InstructionLoader {
     roots: HashMap<InstructionScope, PathBuf>,
+    /// Directories from the project root down to the parent of the Project root (the working
+    /// directory), outermost first, whose instruction files load before the Project root's own.
+    /// Used only after [`set_hardened_instructions`].
+    walk_dirs: Vec<PathBuf>,
+}
+
+/// Instruction text read from one scope is capped at this many bytes after
+/// [`set_hardened_instructions`]. The project walk's directories count toward the Project scope's
+/// cap.
+pub const INSTRUCTION_ROOT_CAP_BYTES: usize = 32 * 1024;
+/// Instruction text handed to the prompt in total is capped at this many bytes after
+/// [`set_hardened_instructions`].
+pub const INSTRUCTION_TOTAL_CAP_BYTES: usize = 96 * 1024;
+/// The per-directory override of `AGENTS.md` (Codex parity): read instead of it when present,
+/// after [`set_hardened_instructions`].
+pub const AGENTS_OVERRIDE_FILE: &str = "AGENTS.override.md";
+
+/// Path of the synthetic entry that carries the "files were dropped" marker into the prompt:
+/// `<host slug>:instruction-cap` (`myapp:instruction-cap` for a host whose env prefix is
+/// `MYAPP`; see [`crate::host_slug`]).
+pub fn instruction_cap_marker_path() -> String {
+    format!("{}:instruction-cap", crate::host_slug())
+}
+
+static HARDENED_INSTRUCTIONS: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+
+/// Select the hardened instruction discovery for this process (once per process; returns `false`
+/// if it was already selected). Until it is called [`InstructionLoader::discover`] and
+/// [`InstructionLoader::discover_gated`] behave as they always did. After it, both:
+///
+/// - read the Project and Local roots only when the trust check says so, for every file kind
+///   (`CLAUDE.md`, `AGENTS.md`, `right.md`, `.claude/rules`, `.claude/instructions`); the Managed
+///   and User roots always load. [`InstructionLoader::discover`] passes a check that trusts every
+///   root, so only the walk, order, caps and `--ignore-rules` change there;
+/// - also read the directories added with [`InstructionLoader::add_project_walk`], outermost first;
+/// - read `AGENTS.override.md` instead of `AGENTS.md` where it exists, and sort the files of the
+///   rules folders by name;
+/// - cap the text at [`INSTRUCTION_ROOT_CAP_BYTES`] per scope and [`INSTRUCTION_TOTAL_CAP_BYTES`]
+///   in total, dropping a file that would pass a cap whole and adding one marker entry
+///   ([`instruction_cap_marker_path`]) that names every dropped file;
+/// - load no file at all after [`set_ignore_rules`](crate::cli_flags::set_ignore_rules)`(true)`;
+/// - log one line for each file or folder that cannot be read.
+pub fn set_hardened_instructions() -> bool {
+    HARDENED_INSTRUCTIONS.set(()).is_ok()
+}
+
+fn hardened_instructions_selected() -> bool {
+    HARDENED_INSTRUCTIONS.get().is_some()
+}
+
+/// The nearest ancestor of `cwd` (or `cwd` itself) that holds a `.git` entry: the project root
+/// (Codex's project-root marker). `None` when there is none within 64 levels.
+pub fn find_project_root(cwd: &Path) -> Option<PathBuf> {
+    cwd.ancestors()
+        .take(64)
+        .find(|dir| dir.join(".git").exists())
+        .map(Path::to_path_buf)
 }
 
 impl InstructionLoader {
@@ -104,7 +161,29 @@ impl InstructionLoader {
     pub fn new() -> Self {
         InstructionLoader {
             roots: HashMap::new(),
+            walk_dirs: Vec::new(),
         }
+    }
+
+    /// Also read the instruction files of every directory from the project root (the nearest
+    /// ancestor with a `.git` entry) down to `cwd`, outermost first, so a monorepo package's
+    /// `AGENTS.md` and the repository's both reach the prompt. `cwd` itself is the registered
+    /// Project root. They are Project scope, so they stay withheld in an untrusted workspace and
+    /// count toward the Project scope's cap. Does nothing when `cwd` has no project root above it.
+    /// Read only after [`set_hardened_instructions`].
+    pub fn add_project_walk(&mut self, cwd: &Path) {
+        self.walk_dirs.clear();
+        let Some(root) = find_project_root(cwd) else {
+            return;
+        };
+        let mut dirs: Vec<PathBuf> = cwd
+            .ancestors()
+            .skip(1)
+            .take_while(|dir| dir.starts_with(&root))
+            .map(Path::to_path_buf)
+            .collect();
+        dirs.reverse();
+        self.walk_dirs = dirs;
     }
 
     /// Register a root directory for a given scope.
@@ -132,10 +211,20 @@ impl InstructionLoader {
     /// Root-level files (CLAUDE.md, AGENTS.md, right.md) and
     /// `.claude/instructions` stay ungated to match the workspace-trust lane
     /// (#131); Managed and User roots always load rules.
+    ///
+    /// After [`set_hardened_instructions`] the trust gate covers every project file kind and the
+    /// walk, override file, caps and `--ignore-rules` apply; see that function.
     pub fn discover_gated(
         &self,
         workspace_trusted: impl Fn(&Path) -> bool,
     ) -> Vec<InstructionFile> {
+        if hardened_instructions_selected() {
+            return self.discover_hardened(workspace_trusted);
+        }
+        self.discover_default(workspace_trusted)
+    }
+
+    fn discover_default(&self, workspace_trusted: impl Fn(&Path) -> bool) -> Vec<InstructionFile> {
         let mut files = Vec::new();
 
         for (scope, root) in &self.roots {
@@ -201,6 +290,147 @@ impl InstructionLoader {
         files.sort_by_key(|f| f.scope);
 
         files
+    }
+
+    /// [`Self::discover_gated`] after [`set_hardened_instructions`]: the project walk, the trust
+    /// gate on every project file kind, `AGENTS.override.md`, the caps and `--ignore-rules`.
+    fn discover_hardened(&self, workspace_trusted: impl Fn(&Path) -> bool) -> Vec<InstructionFile> {
+        // `--ignore-rules`: a hermetic run reads no instruction file at all.
+        if crate::cli_flags::ignore_rules() {
+            return Vec::new();
+        }
+        let mut files = Vec::new();
+
+        // Registered roots, scope order; the project walk's directories come before the Project
+        // root (outermost directory first).
+        let mut scopes: Vec<_> = self.roots.iter().collect();
+        scopes.sort_by_key(|(scope, _)| **scope);
+        let mut ordered: Vec<(InstructionScope, &PathBuf)> = Vec::new();
+        for (scope, root) in scopes {
+            if *scope == InstructionScope::Project {
+                ordered.extend(self.walk_dirs.iter().map(|dir| (*scope, dir)));
+            }
+            ordered.push((*scope, root));
+        }
+
+        for (scope, root) in ordered {
+            let scope = &scope;
+            let allowed = !matches!(scope, InstructionScope::Project | InstructionScope::Local)
+                || workspace_trusted(root);
+            if !allowed {
+                continue;
+            }
+            for name in ["CLAUDE.md", "AGENTS.md", "right.md"] {
+                // Codex parity: in each directory `AGENTS.override.md`, when present, is read
+                // instead of `AGENTS.md`.
+                let override_path = root.join(AGENTS_OVERRIDE_FILE);
+                let path = if name == "AGENTS.md" && override_path.exists() {
+                    override_path
+                } else {
+                    root.join(name)
+                };
+                if path.exists() {
+                    if let Some(file) = Self::load_context_file_reporting(*scope, &path) {
+                        files.push(file);
+                    }
+                }
+            }
+            for sub in ["rules", "instructions"] {
+                let dir = root.join(".claude").join(sub);
+                if !dir.exists() {
+                    continue;
+                }
+                match std::fs::read_dir(&dir) {
+                    Ok(entries) => {
+                        // Directory order is not defined: sort by file name (rule 65 order).
+                        let mut paths: Vec<PathBuf> =
+                            entries.flatten().map(|entry| entry.path()).collect();
+                        paths.sort();
+                        for path in paths {
+                            if path.extension().is_some_and(|ext| ext == "md") {
+                                if let Some(file) = Self::load_context_file_reporting(*scope, &path)
+                                {
+                                    files.push(file);
+                                }
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        eprintln!(
+                            "[instructions] skipped {}: cannot read the directory: {error}",
+                            dir.display()
+                        );
+                    }
+                }
+            }
+        }
+
+        // Sort by scope: managed < user < project < local (stable: order within a scope holds).
+        files.sort_by_key(|f| f.scope);
+
+        Self::apply_caps(files)
+    }
+
+    /// Rule 66: drop whole files past the per-scope and total caps and name them in one marker.
+    fn apply_caps(files: Vec<InstructionFile>) -> Vec<InstructionFile> {
+        let mut kept = Vec::with_capacity(files.len());
+        let mut per_scope: HashMap<InstructionScope, usize> = HashMap::new();
+        let mut total = 0usize;
+        let mut dropped: Vec<String> = Vec::new();
+        let mut last_scope = InstructionScope::Project;
+        for file in files {
+            let len = file.body.len();
+            let used = per_scope.entry(file.scope).or_default();
+            if *used + len > INSTRUCTION_ROOT_CAP_BYTES || total + len > INSTRUCTION_TOTAL_CAP_BYTES
+            {
+                eprintln!(
+                    "[instructions] dropped {} ({len} bytes): over the instruction size cap",
+                    file.path
+                );
+                last_scope = file.scope;
+                dropped.push(file.path);
+                continue;
+            }
+            *used += len;
+            total += len;
+            kept.push(file);
+        }
+        if !dropped.is_empty() {
+            kept.push(InstructionFile {
+                scope: last_scope,
+                path: instruction_cap_marker_path(),
+                frontmatter: Frontmatter::default(),
+                body: format!(
+                    "[Instruction files dropped: over the {} KiB per-scope or {} KiB total cap: {}]",
+                    INSTRUCTION_ROOT_CAP_BYTES / 1024,
+                    INSTRUCTION_TOTAL_CAP_BYTES / 1024,
+                    dropped.join(", ")
+                ),
+            });
+            kept.sort_by_key(|f| f.scope);
+        }
+        kept
+    }
+
+    fn load_context_file_reporting(
+        scope: InstructionScope,
+        path: &Path,
+    ) -> Option<InstructionFile> {
+        let content = match std::fs::read_to_string(path) {
+            Ok(content) => content,
+            Err(error) => {
+                eprintln!("[instructions] skipped {}: {error}", path.display());
+                return None;
+            }
+        };
+        let content = Self::sanitize_context_file_content(path, content);
+        let (frontmatter, body) = Self::parse_frontmatter(&content);
+        Some(InstructionFile {
+            scope,
+            path: path.to_string_lossy().to_string(),
+            frontmatter,
+            body,
+        })
     }
 
     fn load_context_file(scope: InstructionScope, path: &Path) -> Option<InstructionFile> {

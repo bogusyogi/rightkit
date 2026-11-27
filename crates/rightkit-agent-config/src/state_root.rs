@@ -104,11 +104,24 @@ fn process_suite() -> Result<Suite, SuiteError> {
     }
 }
 
+/// The name stderr lines start with: `rightkit-agent` for the default host, the host's slug once
+/// it has named itself.
+fn log_prefix() -> String {
+    if env_prefix() == DEFAULT_ENV_PREFIX {
+        "rightkit-agent".to_string()
+    } else {
+        host_slug()
+    }
+}
+
 fn open(suite: &Suite) -> Resolved {
     let app = match suite.app_root(app_name()) {
         Ok(app) => app,
         Err(error) => {
-            eprintln!("rightkit-agent: the state directory is unavailable: {error}");
+            eprintln!(
+                "{}: the state directory is unavailable: {error}",
+                log_prefix()
+            );
             return None;
         }
     };
@@ -121,7 +134,10 @@ pub fn state_root() -> Option<PathBuf> {
     let suite = match process_suite() {
         Ok(suite) => suite,
         Err(error) => {
-            eprintln!("rightkit-agent: the state directory is unavailable: {error}");
+            eprintln!(
+                "{}: the state directory is unavailable: {error}",
+                log_prefix()
+            );
             return None;
         }
     };
@@ -141,4 +157,80 @@ pub fn state_root_is_isolated() -> bool {
 /// and other tools' dot directories). Never join the host app state onto it; use [`state_root`].
 pub fn os_home_dir() -> Option<PathBuf> {
     dirs::home_dir()
+}
+
+/// Name the host in one idempotent call: the environment prefix, the workspace state folder name
+/// and the state folder name under `Orthic Labs` (what [`set_env_prefix`], [`set_state_dir_name`]
+/// and [`set_app_name`] set one by one). A name that is not yet set is set; a name already set to
+/// the same value is accepted; a name already set to a different value is an error naming it
+/// (nothing is overwritten). For a process that has several start-up paths (a shell that resolves
+/// the state root before the engine names the host) so each can name the host without a panic
+/// when another path got there first.
+pub fn ensure_host_names(
+    env_prefix_value: &str,
+    state_dir_value: &str,
+    app_name_value: &str,
+) -> Result<(), String> {
+    fn ensure(what: &str, newly_set: bool, in_effect: &str, wanted: &str) -> Result<(), String> {
+        if newly_set || in_effect == wanted {
+            Ok(())
+        } else {
+            Err(format!(
+                "the {what} is already {in_effect:?}, not {wanted:?}; it is set once at start-up"
+            ))
+        }
+    }
+    ensure(
+        "environment prefix",
+        set_env_prefix(env_prefix_value),
+        env_prefix(),
+        env_prefix_value,
+    )?;
+    ensure(
+        "state folder name",
+        set_state_dir_name(state_dir_value),
+        state_dir_name(),
+        state_dir_value,
+    )?;
+    ensure(
+        "app name",
+        set_app_name(app_name_value),
+        app_name(),
+        app_name_value,
+    )
+}
+
+/// The host's lower-case short name: the environment prefix in lower case (`MYAPP` gives
+/// `myapp`). It names the host in persisted strings that are not paths, such as the definition-pin
+/// schema (`myapp.definition-pins.v1`), the instruction cap marker (`myapp:instruction-cap`), the
+/// config schema file (`myapp-config.v1.schema.json`) and the `myapp: ...` prefix of start-up
+/// failures. For the default prefix it is `rightkit`.
+pub fn host_slug() -> String {
+    env_prefix().to_ascii_lowercase()
+}
+
+/// [`state_root`] for the start-up path of a process that cannot run without durable state: when
+/// the platform data dir does not resolve it prints the reason and exits with status 2. There is
+/// no fallback location: a missing state root fails, it never redirects state into the working
+/// directory or the temp dir. [`state_root`] itself is unchanged.
+pub fn state_root_required() -> PathBuf {
+    state_root().unwrap_or_else(|| {
+        eprintln!(
+            "{}: cannot continue without a state directory; refusing to fall back",
+            host_slug()
+        );
+        std::process::exit(2)
+    })
+}
+
+/// [`os_home_dir`] for a start-up path that needs it: prints the reason and exits with status 2
+/// when the home directory does not resolve, with no working-directory fallback.
+pub fn os_home_dir_required() -> PathBuf {
+    os_home_dir().unwrap_or_else(|| {
+        eprintln!(
+            "{}: cannot continue without a home directory; refusing to fall back",
+            host_slug()
+        );
+        std::process::exit(2)
+    })
 }

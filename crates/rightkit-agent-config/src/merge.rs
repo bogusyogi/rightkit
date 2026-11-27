@@ -1,8 +1,9 @@
-//! Layered merge logic for [`CodeRightConfig`].
+//! Layered merge logic for [`HostConfig`].
 
 use crate::types::{
-    BudgetConfig, FeatureConfig, HostConfig, MemoryConfig, ModelConfig, OrchestrationConfig,
-    PermissionsConfig, PromptConfig, RemoteConfig, SessionConfig, ToolsConfig, TuiConfig,
+    BudgetConfig, FeatureConfig, HooksConfig, HostConfig, LoopDetectorSettings, MemoryConfig,
+    ModelConfig, OrchestrationConfig, PermissionsConfig, PromptConfig, RemoteConfig, SessionConfig,
+    ToolsConfig, TuiConfig, TurnConfig,
 };
 use std::collections::HashMap;
 
@@ -51,6 +52,7 @@ pub fn merge(base: HostConfig, overlay: HostConfig) -> HostConfig {
     HostConfig {
         model: merge_model(base.model, overlay.model),
         provider_routes: merge_map_replace(base.provider_routes, overlay.provider_routes),
+        model_limits: merge_map_replace(base.model_limits, overlay.model_limits),
         session: merge_session(base.session, overlay.session),
         permissions: merge_permissions(base.permissions, overlay.permissions),
         tools: merge_tools(base.tools, overlay.tools),
@@ -62,12 +64,81 @@ pub fn merge(base: HostConfig, overlay: HostConfig) -> HostConfig {
         prompt: merge_prompt(base.prompt, overlay.prompt),
         memory: merge_memory(base.memory, overlay.memory),
         tui: merge_tui(base.tui, overlay.tui),
+        hooks: merge_hooks(base.hooks, overlay.hooks),
+        compaction: crate::types::CompactionConfig {
+            builtin_summarizer_routes: base.compaction.builtin_summarizer_routes
+                || overlay.compaction.builtin_summarizer_routes,
+        },
+        turn: TurnConfig {
+            max_wall_clock_minutes: option_scalar(
+                base.turn.max_wall_clock_minutes,
+                overlay.turn.max_wall_clock_minutes,
+            ),
+            tool_timeout_secs: option_scalar(
+                base.turn.tool_timeout_secs,
+                overlay.turn.tool_timeout_secs,
+            ),
+        },
+        loop_detector: LoopDetectorSettings {
+            window_size: option_scalar(
+                base.loop_detector.window_size,
+                overlay.loop_detector.window_size,
+            ),
+            exact_warn_threshold: option_scalar(
+                base.loop_detector.exact_warn_threshold,
+                overlay.loop_detector.exact_warn_threshold,
+            ),
+            exact_stop_threshold: option_scalar(
+                base.loop_detector.exact_stop_threshold,
+                overlay.loop_detector.exact_stop_threshold,
+            ),
+            kind_warn_threshold: option_scalar(
+                base.loop_detector.kind_warn_threshold,
+                overlay.loop_detector.kind_warn_threshold,
+            ),
+            kind_stop_threshold: option_scalar(
+                base.loop_detector.kind_stop_threshold,
+                overlay.loop_detector.kind_stop_threshold,
+            ),
+        },
+    }
+}
+
+/// Hook lists per event extend the base list in order: the user layer's hooks run first, then the
+/// overlay's (one ordered chain, any deny wins). An entry equal to one already in the chain is
+/// kept once, so the same hook in two layers (or a file that already holds copies) runs once.
+fn merge_hooks(mut base: HooksConfig, overlay: HooksConfig) -> HooksConfig {
+    for (event, value) in overlay.0 {
+        match (base.0.get_mut(&event), value) {
+            (Some(serde_json::Value::Array(existing)), serde_json::Value::Array(more)) => {
+                push_unique(existing, more);
+            }
+            (_, serde_json::Value::Array(more)) => {
+                let mut list = Vec::with_capacity(more.len());
+                push_unique(&mut list, more);
+                base.0.insert(event, serde_json::Value::Array(list));
+            }
+            (_, value) => {
+                base.0.insert(event, value);
+            }
+        }
+    }
+    base
+}
+
+fn push_unique(list: &mut Vec<serde_json::Value>, more: Vec<serde_json::Value>) {
+    for entry in more {
+        if !list.contains(&entry) {
+            list.push(entry);
+        }
     }
 }
 
 fn merge_tui(base: TuiConfig, overlay: TuiConfig) -> TuiConfig {
     let mut keymap = base.keymap;
     keymap.extend(overlay.keymap);
+    let mut quick_slots = base.quick_slots;
+    quick_slots.extend(overlay.quick_slots);
     TuiConfig {
         theme: scalar(base.theme, overlay.theme),
         notify: scalar(base.notify, overlay.notify),
@@ -85,6 +156,8 @@ fn merge_tui(base: TuiConfig, overlay: TuiConfig) -> TuiConfig {
             overlay.statusline
         },
         keymap,
+        quick_slots,
+        statusline_command: scalar(base.statusline_command, overlay.statusline_command),
     }
 }
 
@@ -102,6 +175,8 @@ fn merge_model(base: ModelConfig, overlay: ModelConfig) -> ModelConfig {
     ModelConfig {
         default_model: scalar(base.default_model, overlay.default_model),
         fallback_models: extend_dedup(base.fallback_models, overlay.fallback_models),
+        small_model: scalar(base.small_model, overlay.small_model),
+        plan_model: scalar(base.plan_model, overlay.plan_model),
         max_tokens: scalar(base.max_tokens, overlay.max_tokens),
         temperature: scalar(base.temperature, overlay.temperature),
     }
@@ -135,6 +210,7 @@ fn merge_tools(base: ToolsConfig, overlay: ToolsConfig) -> ToolsConfig {
         web_search_api_key: option_scalar(base.web_search_api_key, overlay.web_search_api_key),
         lazy_tool_loading: option_scalar(base.lazy_tool_loading, overlay.lazy_tool_loading),
         model_interface: option_scalar(base.model_interface, overlay.model_interface),
+        eager_tools: extend_dedup(base.eager_tools, overlay.eager_tools),
     }
 }
 
@@ -148,6 +224,8 @@ fn merge_features(base: FeatureConfig, overlay: FeatureConfig) -> FeatureConfig 
             base.workflow_import_trusted_public_keys,
             overlay.workflow_import_trusted_public_keys,
         ),
+        self_review: option_scalar(base.self_review, overlay.self_review),
+        advisor: option_scalar(base.advisor, overlay.advisor),
     }
 }
 
@@ -203,6 +281,11 @@ fn merge_orchestration(
                 overlay.routing.aggressiveness.clone()
             },
         },
+        sibling_start_hold_ms: option_scalar(
+            base.sibling_start_hold_ms,
+            overlay.sibling_start_hold_ms,
+        ),
+        advisor_model: scalar(base.advisor_model, overlay.advisor_model),
     }
 }
 
