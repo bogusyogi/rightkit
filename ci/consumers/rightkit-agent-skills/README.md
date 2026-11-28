@@ -1,7 +1,7 @@
-# rightkit-agent-skills 0.1.0 registry consumer
+# rightkit-agent-skills 0.2.0 registry consumer
 
 Standalone package outside the RightKit workspace. It depends on `rightkit-agent-skills` by exact registry pin
-(`=0.1.0`) with default features. It has no path, Git, workspace or patch dependency and no
+(`=0.2.0`) with default features. It has no path, Git, workspace or patch dependency and no
 committed `Cargo.lock`.
 
 Path routing, trigger equality, positional argument substitution and quoted argument splitting. No I/O.

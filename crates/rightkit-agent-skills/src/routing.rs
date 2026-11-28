@@ -21,7 +21,7 @@ struct AffinityRule {
 /// Rules are evaluated in insertion order; all matching slugs are returned.
 ///
 /// ```rust
-/// use crate::routing::PathAffinityRouter;
+/// use rightkit_agent_skills::routing::PathAffinityRouter;
 ///
 /// let mut router = PathAffinityRouter::new();
 /// router.add_rule("*.rs", "rust-expert").unwrap();

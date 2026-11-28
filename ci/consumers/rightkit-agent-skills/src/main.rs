@@ -1,4 +1,4 @@
-// rightkit-agent-skills 0.1.0 consumed by exact registry pin (`=0.1.0`), outside the workspace.
+// rightkit-agent-skills 0.2.0 consumed by exact registry pin (`=0.2.0`), outside the workspace.
 //
 // Proves, through the public API only, the pure routing, trigger and argument rules:
 // - PathAffinityRouter maps a glob to a skill slug, routes a matching path, refuses a bad glob;
@@ -68,5 +68,5 @@ fn main() {
         split_args("one \"two words\"") == vec!["one".to_string(), "two words".to_string()],
         "a quoted group is one argument",
     );
-    println!("OK rightkit-agent-skills 0.1.0 (registry consumer)");
+    println!("OK rightkit-agent-skills 0.2.0 (registry consumer)");
 }

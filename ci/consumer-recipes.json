@@ -3895,9 +3895,9 @@
       "pkId": "PK173",
       "id": "ci/consumers/rightkit-agent-skills/src/main.rs",
       "files": {
-        "Cargo.toml": "1543f44b4a2c87c30d71a12b76de683483fd806849dca951d653170a20aad3e0",
-        "README.md": "342c8e7e44f1b6860ef31bbc1cb76a0336c7a060c9a976338ad38ebbc07e2d65",
-        "src/main.rs": "eb4f531f51b94bc6c61cb4513d15812e9ca156705c3ca9ae89ba4d9ef072e781"
+        "Cargo.toml": "ae6a143384ea5428d6f1699204b559fc9d69214fdca10c8dfe1280bdd4324af3",
+        "README.md": "c1aa7cfc7c4ad5337062561eea539963247d9a5380f0a82adb1a3994b77f8f01",
+        "src/main.rs": "133df2f19d804d3265839934837a16569f63852d94fb8af01fbf9db5f70d5197"
       }
     },
     "rightkit-app-lock": {

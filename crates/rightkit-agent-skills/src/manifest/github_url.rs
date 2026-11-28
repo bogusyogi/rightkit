@@ -19,7 +19,9 @@ pub fn normalize_skill_pack_github_url(raw: &str) -> Result<String, SkillError> 
                 ));
             }
             let mut raw_url = parsed.clone();
-            let _ = raw_url.set_host(Some("raw.githubusercontent.com"));
+            raw_url
+                .set_host(Some("raw.githubusercontent.com"))
+                .map_err(|e| SkillError::Install(format!("invalid GitHub URL: {e}")))?;
             let new_path = format!(
                 "/{}/{}/{}/{}",
                 parts[0],

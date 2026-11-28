@@ -2,7 +2,7 @@
 //!
 //! Installing a skill pack means taking raw markdown fetched from a
 //! provenance-checked source (see [`crate::normalize_skill_pack_github_url`]
-//! for URL validation) and turning it into a manifest the host app will load
+//! for URL validation) and turning it into a manifest the host will load
 //! from disk. This module owns the acceptance gate between "bytes we fetched"
 //! and "manifest the runtime will discover": every check in
 //! [`validate_for_install`] must pass before a caller is allowed to write the
@@ -75,7 +75,7 @@ pub struct InstallableSkill {
 /// Runs, in order:
 /// 1. Size bound ([`MAX_SKILL_SOURCE_BYTES`]).
 /// 2. Manifest parse (`SkillManifest::from_markdown`) — auto-detects
-///    Anthropic `SKILL.md` (YAML) vs. the host app native (TOML) frontmatter.
+///    Anthropic `SKILL.md` (YAML) vs. the host's native (TOML) frontmatter.
 /// 3. Manifest validation (`SkillManifest::validate`) — compiles the trigger
 ///    DSL expression, if present.
 /// 4. Install-specific policy: safe name, valid required-env-var names, and

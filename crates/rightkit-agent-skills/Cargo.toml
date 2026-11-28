@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-agent-skills"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Agent skills and slash-command grammar: skill discovery, manifests, the shared command table and interactive effects"
@@ -21,6 +21,9 @@ globset = {version = "0.4"}
 regex = {version = "1"}
 toml = {version = "1.1"}
 url = {version = "2"}
+rightkit-agent-config = {version = "0.1.6", path = "../rightkit-agent-config"}
+# `digest`: SHA-256 of a skill file for project-skill activation. `fs`: the no-follow read open.
+rightkit-fs = {version = "0.5.0", path = "../rightkit-fs", default-features = false, features = ["digest", "fs"]}
 
 [features]
 default = []

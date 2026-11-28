@@ -12,15 +12,21 @@ pub(super) fn parse_skill_category(value: &str) -> SkillCategory {
     }
 }
 
-pub(super) fn parse_skill_lifecycle(value: &str) -> SkillLifecycle {
+pub(super) fn parse_known_lifecycle(value: &str) -> Option<SkillLifecycle> {
     match value.trim().replace('-', "_").to_ascii_lowercase().as_str() {
-        "proposed" => SkillLifecycle::Proposed,
-        "quarantined" | "quarantine" => SkillLifecycle::Quarantined,
-        "benchmarked" => SkillLifecycle::Benchmarked,
-        "approved" => SkillLifecycle::Approved,
-        "retired" => SkillLifecycle::Retired,
-        _ => SkillLifecycle::Active,
+        "active" => Some(SkillLifecycle::Active),
+        "proposed" => Some(SkillLifecycle::Proposed),
+        "quarantined" | "quarantine" => Some(SkillLifecycle::Quarantined),
+        "benchmarked" => Some(SkillLifecycle::Benchmarked),
+        "approved" => Some(SkillLifecycle::Approved),
+        "retired" => Some(SkillLifecycle::Retired),
+        _ => None,
     }
+}
+
+/// Fail closed: an unrecognised lifecycle must never load into model context.
+pub(super) fn parse_skill_lifecycle(value: &str) -> SkillLifecycle {
+    parse_known_lifecycle(value).unwrap_or(SkillLifecycle::Quarantined)
 }
 
 pub(super) fn parse_gate_mode(value: &str) -> Option<SkillGateMode> {
@@ -53,6 +59,108 @@ pub(super) fn parse_inline_list(s: &str) -> Vec<String> {
         .map(|t| unquote(t.trim()))
         .filter(|t| !t.is_empty())
         .collect()
+}
+
+/// Join YAML block scalars (`>`, `|`, with chomp/indent markers) and quoted values that span
+/// lines into one logical line each (`key: text`; a literal block keeps its newlines), so the
+/// line-based frontmatter reader sees the value instead of its continuation lines.
+pub(super) fn fold_yaml_multiline(front: &str) -> Vec<String> {
+    fn indent_of(line: &str) -> usize {
+        line.chars().take_while(|ch| ch.is_whitespace()).count()
+    }
+    let lines: Vec<&str> = front.lines().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        i += 1;
+        let trimmed = line.trim();
+        let Some((key, value)) = line.split_once(':') else {
+            out.push(line.to_string());
+            continue;
+        };
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            out.push(line.to_string());
+            continue;
+        }
+        let value = value.trim();
+        let key_indent = indent_of(line);
+        let is_block = (value.starts_with('>') || value.starts_with('|'))
+            && value.len() <= 3
+            && value[1..]
+                .chars()
+                .all(|ch| matches!(ch, '+' | '-' | '0'..='9'));
+        if is_block {
+            let literal = value.starts_with('|');
+            let mut body: Vec<&str> = Vec::new();
+            while i < lines.len() {
+                let next = lines[i];
+                if !next.trim().is_empty() && indent_of(next) <= key_indent {
+                    break;
+                }
+                body.push(next);
+                i += 1;
+            }
+            let min_indent = body
+                .iter()
+                .filter(|l| !l.trim().is_empty())
+                .map(|l| indent_of(l))
+                .min()
+                .unwrap_or(0);
+            let stripped: Vec<String> = body
+                .iter()
+                .map(|l| {
+                    l.chars()
+                        .skip(min_indent)
+                        .collect::<String>()
+                        .trim_end()
+                        .to_string()
+                })
+                .collect();
+            let text = if literal {
+                stripped.join("\n")
+            } else {
+                let mut folded = String::new();
+                for l in &stripped {
+                    if l.is_empty() {
+                        folded.push('\n');
+                    } else {
+                        if !folded.is_empty() && !folded.ends_with('\n') {
+                            folded.push(' ');
+                        }
+                        folded.push_str(l);
+                    }
+                }
+                folded
+            };
+            out.push(format!("{key}: {}", text.trim()));
+            continue;
+        }
+        if let Some(quote) = value.chars().next().filter(|ch| matches!(*ch, '"' | '\'')) {
+            if !(value.len() >= 2 && value.ends_with(quote)) {
+                let mut joined = value.to_string();
+                let mut j = i;
+                let mut closed = false;
+                while j < lines.len() {
+                    let piece = lines[j].trim();
+                    j += 1;
+                    joined.push(' ');
+                    joined.push_str(piece);
+                    if piece.ends_with(quote) {
+                        closed = true;
+                        break;
+                    }
+                }
+                if closed {
+                    i = j;
+                    out.push(format!("{key}: {joined}"));
+                    continue;
+                }
+            }
+        }
+        out.push(line.to_string());
+    }
+    out
 }
 
 /// Split a `---`-delimited YAML frontmatter block from the markdown body.
