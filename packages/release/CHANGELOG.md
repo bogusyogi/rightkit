@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- New `smoke-run.mjs`: the host smoke a peer promote needs (rustright-install `trusted-gate promote --peer-result --smoke`, rightkit#1848). On a host that cannot run the acceptance (the Mac), it shows the candidate gate prints its archive version, reads the broker digest through the agent shim the way the gate does, and runs one compile through this host's broker with every job tagged by the contract-run nonce (`RK_GATE_CONTRACT_*`, step `smoke`), so the installer can bind each signed claim to that candidate. It writes `rightkit.host-smoke/1` and `job-claims/` beside it.
+
 ## 0.6.93
 
 - The acceptance judge counts a cargo-deny row's own preparation as its work when it checks that Class A rows start beside free lanes (NN03). The row runs `cargo fetch --locked` and `cargo metadata` before `cargo deny`; on 28 Nov a cold metadata took 3.9 s, the row's `cargo deny` started 3.6 s after the program before it, and NN03 read the row as waiting beside a free lane though it had started on time. Only those two exact calls count (no other part of a run starts cargo with those arguments); every other line still reads only the row's own program.
