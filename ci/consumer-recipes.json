@@ -2232,7 +2232,7 @@
       "pkId": "PK04",
       "id": "ci/consumers/rightkit-app-settings/src/main.rs",
       "files": {
-        "Cargo.toml": "22b5f2151f0791c5ca6b8a098f6f68b398d1f235fa41e39748e0c41135943bcf",
+        "Cargo.toml": "5d9ceed176230c65813bc20d3c54024f5854f715604a65d598562497d20a8647",
         "README.md": "d04715c60bc17f93254375ddff629e2acc170cd7ad46241f325943ed688152b5",
         "src/main.rs": "acb605e873cb4d2d819eee90e4047cebfbd3ac1d7f9a3095053658c522e9fcfa"
       }
@@ -2286,7 +2286,7 @@
       "pkId": "PK08",
       "id": "ci/consumers/rightkit-tauri-shell/src/main.rs",
       "files": {
-        "Cargo.toml": "cacdf4cf88914b3921d07882ca2647b5603551b2b329acaefc91a78f9ce7cb65",
+        "Cargo.toml": "cb9c119448c7283f9ca92be408e58ad71a850ba71949798c005b792a2762eb2f",
         "README.md": "a2282b07f9d914c51a800347320775a5ff75793554fcd33e84c429066ad37aa7",
         "src/main.rs": "4466993524e48ab50d8c4771cc6ad800763b9062217ac40773d1aa3fe6e6bee0"
       },
@@ -2345,7 +2345,7 @@
       "gateEvidence": "pure and offline: public keys and vectors copied verbatim from crates/rightkit-license/test-vectors (public material, verified byte-equal); clock ledger in a temp directory; client feature enabled for explicitly disabled LicenseClient status with synthetic device id; no network, no OS keychain or real user data; configured client operations, update-auth, engine-gate and subject-entitlement not exercised",
       "consumes": "PK05 plan (01-packages.md:167-183): every app licence migration; public items exercised: verify_token (crates/rightkit-license/src/lib.rs:514), VerifyError (src/lib.rs:390), verify_lease_envelope (src/lease.rs:168), FileClockStore (src/file_store.rs:184), ClockStore::load (src/clock.rs:305), MemoryClockStore (src/clock.rs:348), ProcessAnchor::new (src/clock.rs:243), NativeEntitlementSource (src/native_engine.rs:42), NativeEngineEntitlements::new and current_at (src/native_engine.rs:158,208), LifecyclePolicy (src/lifecycle.rs:118), LicenseClient::new/status/is_disabled (src/client/mod.rs:108,157,140) in Disabled mode only",
       "files": {
-        "Cargo.toml": "4288bad0bd71926e0fb4c3f8de32c8e56b633da71c760b6f92610767b3d7f3e9",
+        "Cargo.toml": "16f4ce69919783a45a4de0de0dc3887249ff463fd74f65a9c04af6790a6c4398",
         "README.md": "b279b7b7ec7afe4439b1ba813c3cabf043cbd1e37874abf25b9e72e93c96f232",
         "src/main.rs": "37e527929bb03573ecaf8fe0b59952a25ac6fdc14b360ccea41a1922f0456c40"
       },
@@ -2627,7 +2627,7 @@
       "pkId": "PK19",
       "id": "ci/consumers/rightkit-audio/src/main.rs",
       "files": {
-        "Cargo.toml": "8d5717cf040d68a19098ad3da5f86927a624ecae00b6f41888bb46c6ee4386e4",
+        "Cargo.toml": "701c50cdb4d4bb14c0086548c1fc857dd862844ada3da91bcb13c474ad89b24f",
         "README.md": "df869ff38ab41ec3c708dd21b21dd19c0354f5ce3f0a15e75f65f557b6d23b08",
         "src/main.rs": "3137d2e7bfe3964b09dbda3956476a04a316652ea19a81373778e8b786450c87"
       }
@@ -3567,7 +3567,7 @@
       "pkId": "PK140",
       "id": "ci/consumers/rightkit-dictation-app-runtime/src/main.rs",
       "files": {
-        "Cargo.toml": "dfe6d825d2a2414efa2e0b457dce3f52700835b3c412922672e8dbc74948e073",
+        "Cargo.toml": "331e1477737f89e403dd797556320a2de35f0aadda678d8af22bb96f5c0378ad",
         "README.md": "a67091c99142c2f2d71ba200b102ad0f9fa491ca044f5aa0c7c3f5b1fdbc0b4a",
         "src/main.rs": "a582b87e931e022e21491fdf74d06d839a639860f982b1c309f2c724cc742685"
       },
