@@ -29,7 +29,7 @@ fn path_parameters(path: &str) -> Vec<Value> {
         .collect()
 }
 
-fn operation_id(method: &str, path: &str) -> String {
+pub(crate) fn operation_id(method: &str, path: &str) -> String {
     let suffix = path
         .split('/')
         .filter(|segment| !segment.is_empty())

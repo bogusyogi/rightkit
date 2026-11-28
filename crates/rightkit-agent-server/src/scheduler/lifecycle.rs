@@ -127,7 +127,7 @@ pub(crate) async fn ensure_workflow_schedule_mapping(
             .unwrap_or_else(|| format!("wft_legacy_{}", entry.id)),
         workflow_id,
         kind: "cron".into(),
-        enabled: !entry.paused && workflow_schedule_cutover_enabled(),
+        enabled: !entry.paused && workflow_schedule_cutover_enabled(state),
         cron_expression: Some(entry.cron_expr.clone()),
         timezone: Some(entry.time_zone.clone()),
         version_pin: Some(compiled.0),
@@ -343,7 +343,7 @@ pub(crate) fn sync_workflow_schedule_compat(
         && trigger.cron_expression.as_deref() == Some(entry.cron_expr.as_str())
         && trigger.timezone.as_deref() == Some(entry.time_zone.as_str())
         && version_ok;
-    let desired_enabled = compatible && !entry.paused && workflow_schedule_cutover_enabled();
+    let desired_enabled = compatible && !entry.paused && workflow_schedule_cutover_enabled(state);
     if trigger.enabled != desired_enabled {
         let _ = repo.set_trigger_enabled(&trigger.id, desired_enabled, &crate::api::now_iso());
     }
@@ -405,10 +405,16 @@ fn workflow_schedule_cutover(
         && trigger.enabled
         && trigger.cron_expression.as_deref() == Some(entry.cron_expr.as_str())
         && trigger.timezone.as_deref() == Some(entry.time_zone.as_str());
-    matches && workflow_schedule_cutover_enabled()
+    matches && workflow_schedule_cutover_enabled(state)
 }
 
-pub(crate) fn workflow_schedule_cutover_enabled() -> bool {
+/// Whether workflow rows own schedule execution: workflows are enabled for this process and
+/// `<PREFIX>_WORKFLOW_SCHEDULE_CUTOVER` is `1` or `true`. With workflows off the variable is
+/// never read.
+pub(crate) fn workflow_schedule_cutover_enabled(state: &DaemonState) -> bool {
+    if !state.workflows_feature.is_enabled() {
+        return false;
+    }
     matches!(
         std::env::var(rightkit_agent_config::env_name("WORKFLOW_SCHEDULE_CUTOVER")).as_deref(),
         Ok("1") | Ok("true") | Ok("TRUE")

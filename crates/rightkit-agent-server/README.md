@@ -2,7 +2,7 @@
 
 Agent server host: daemon API routes, CLI and interactive-session runtime and session hosting for coding-agent applications.
 
-Call `run(identity)` from a thin binary. Moved into RightKit from the CodeRight engine binary on 2026-11-01; CodeRight's current binary (36356aa9b) is merged in (0.3.0).
+Call `run(identity)` from a thin binary. Moved into RightKit from the CodeRight engine binary on 2026-11-01; CodeRight's current binary (36356aa9b) is merged in (0.3.0); 0.3.1 closes the review of that merge (see the changelog).
 
 ## Host identity
 
@@ -22,10 +22,14 @@ Before `run`, the host takes the steps listed in the crate documentation, in ord
 
 ## Host options
 
-`host_options` holds the conventions one host wants and another may not (guest links and the LAN listener, the `rpc`, `ssh`, `acp-server` and `contract` commands, the cloud workspace routes, the plugin marketplace, the Adapt routes, the legacy `--auto-approve` flags, bundled skills, tool registry controls, `/web` client files, and smaller ones; each setter is documented in the module). Each is set once, before `run`, and reads as this crate's own behaviour when nobody sets it. Security-relevant fixes are not options: they apply to every host.
+`host_options` holds the conventions one host wants and another may not (guest links and the LAN listener, the `rpc`, `ssh`, `acp-server` and `contract` commands, the cloud workspace routes, the plugin marketplace, the Adapt routes, the peer-team routes, the Membrane background review route, the legacy `--auto-approve` flags, bundled skills, tool registry controls, `/web` client files, and smaller ones; each setter is documented in the module). Each is set once, before `run`, and reads as this crate's own behaviour when nobody sets it. Security-relevant fixes are not options: they apply to every host.
+
+`data/option-gated-routes.json` lists, per option, the method and path of every route that exists only while the option is on, the contract operation ids of those that the contract documents, and each option's default. The server builds its contract from that file, and a unit test keeps it in step with the endpoint tables. A tool that cannot run this code (a client generator, a contract check) reads the same file: it takes the endpoint tables under `src/api_contract/endpoints/`, then drops every route of each option whose value for the host is `false` (an option the host does not set has the `default` in the file).
 
 ## Features
 
+- `state-store-env` (on by default): the environment may move the state stores (`<PREFIX>_{TEAM,MESSAGE,INSTINCTS,PERMISSION_RULE,PERMISSION_DENIAL,WORKSPACE_TRUST}_STORE`, `<PREFIX>_RUN_CHANGES_DIR`, `<PREFIX>_TELEGRAM_BINDINGS`, `<PREFIX>_PEER_TEAM_STORE_ROOT`), subject to `host_options::state_store_paths_from_environment`. Without it none of those names or reads is compiled in, the workspace trust rule is not installed, and every store sits under the state root; the option's setter still returns a value but it has no effect.
+- `workflow-a2a-env` (on by default): the environment may configure a remote A2A workflow executor (`<PREFIX>_A2A_TRUST_ROOT_PUBKEY`, `<PREFIX>_A2A_DESCRIPTOR_JSON`, `<PREFIX>_A2A_EXECUTOR_URL`). Without it those names, the reads, the trust-root verifier and the remote transport are not compiled in, and workflows never get an A2A adapter.
 - `benchmarks` (off by default): the evaluation harness (`/runtime/benchmark`, `/runtime/compare`, the terminal-bench task pack, the executed and corpus bake-offs, the soak run) and the benchmark history. Without it those routes do not exist and `/benchmarks` reports none recorded.
 
 It holds no private copy of a shared crate: the GitHub App and sign-in are `rightkit-github`'s, the schedule model and bot profiles `rightkit-scheduler`'s, the Telegram transport `rightkit-bot-messaging`'s, the host observation shapes `rightkit-context-protocol`'s. What still sits here but is planned elsewhere (scheduler runner, workflow host, engine, agents, llm, orchestration, sandbox and evidence code) is listed in docs/audits/2026-11-11-shape-matrix/reports/agent-server-redraw.md.

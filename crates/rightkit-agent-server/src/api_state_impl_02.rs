@@ -149,22 +149,6 @@ impl DaemonState {
         self
     }
 
-    /// PR 13: drain every deferred active-binding update at the turn
-    /// boundary. Returns the [`DeferredApplyReport`] so the caller
-    /// (engine task, journal sweep, or operator action) can observe
-    /// how many updates landed and how many were dropped. Safe to
-    /// call when no storage is attached: the helper short-circuits
-    /// and the queue is left intact for the next call.
-    pub async fn drain_cli_recovery_updates(
-        &self,
-    ) -> rightkit_agents::driver_host::cli_runtime::DeferredApplyReport {
-        let Some(storage) = self.storage.clone() else {
-            return rightkit_agents::driver_host::cli_runtime::DeferredApplyReport::default();
-        };
-        let drained = self.cli_recovery_deferred_updates.drain();
-        crate::cli_recovery_runtime::apply_deferred_binding_updates(&storage, drained).await
-    }
-
     /// Override the resolved workflow feature gate. The merged
     /// `HostConfig.features.workflows_enabled` is the canonical source
     /// for this value; tests may flip the gate at will.

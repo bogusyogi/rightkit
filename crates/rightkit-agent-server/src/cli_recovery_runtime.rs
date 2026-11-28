@@ -12,11 +12,6 @@
 //!   `driver_bindings` row into a [`BindingSnapshot`] and runs the
 //!   shared walker; the returned outcomes drive UI banners and the
 //!   resume-after-restart decision.
-//! - [`apply_deferred_binding_updates`] drains the
-//!   `DeferredBindingUpdates` queue at a turn boundary (never
-//!   mid-turn) and applies each pending update against storage,
-//!   preserving the `idx_one_active_binding_per_agent` UNIQUE
-//!   invariant.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -24,9 +19,8 @@ use std::sync::{Arc, Mutex};
 
 use rightkit_agent_engine_storage::DriverBindingRow;
 use rightkit_agents::driver_host::cli_runtime::recovery::{
-    walk_active_bindings_for_resume, BindingResumeGuard, BindingSnapshot, DeferredApplyReport,
-    DeferredBindingUpdate, DeferredUpdateKind, DriverBindingRecoveryRow, LiveContextEpoch,
-    RecoveryError, ResumeDecision, ResumeWalkOutcome,
+    walk_active_bindings_for_resume, BindingResumeGuard, BindingSnapshot, DriverBindingRecoveryRow,
+    LiveContextEpoch, RecoveryError, ResumeDecision, ResumeWalkOutcome,
 };
 use rightkit_agents::driver_host::cli_runtime::{ContextEpoch, ContextEpochReason};
 
@@ -247,70 +241,4 @@ pub async fn walk_active_bindings_at_startup(
         .map(IntoRecoverySnapshot::into_recovery_snapshot)
         .collect();
     walk_active_bindings_for_resume(&snapshots, &live_generations.snapshot(), live_epoch)
-}
-
-/// Apply a batch of [`DeferredBindingUpdate`] values to storage.
-/// Returns a [`DeferredApplyReport`] summarising how many updates
-/// were applied and how many were dropped because the binding
-/// no longer exists.
-///
-/// This is intentionally a free function, not a method on
-/// `DaemonState`, so the turn boundary can be wired from any call
-/// site (turn completion, journal scan, or operator action) without
-/// taking a mutable borrow on the daemon state.
-pub async fn apply_deferred_binding_updates(
-    storage: &SharedStorage,
-    updates: Vec<DeferredBindingUpdate>,
-) -> DeferredApplyReport {
-    let mut report = DeferredApplyReport::default();
-    for update in updates {
-        let result = match update.kind.clone() {
-            DeferredUpdateKind::IncrementProcessGeneration { next_generation } => {
-                let guard = storage.lock().await;
-                guard
-                    .set_driver_binding_process_generation(
-                        &update.binding_id,
-                        next_generation,
-                        &update.queued_at,
-                    )
-                    .map_err(|error| format!("{error}"))
-            }
-            DeferredUpdateKind::BumpContextEpoch { new_epoch } => {
-                let guard = storage.lock().await;
-                guard
-                    .set_driver_binding_context_epoch(
-                        &update.binding_id,
-                        new_epoch.value,
-                        &update.queued_at,
-                    )
-                    .map_err(|error| format!("{error}"))
-            }
-            DeferredUpdateKind::RecordExecutableDigest { new_sha256 } => {
-                let guard = storage.lock().await;
-                guard
-                    .set_driver_binding_executable_sha256(
-                        &update.binding_id,
-                        &new_sha256,
-                        &update.queued_at,
-                    )
-                    .map_err(|error| format!("{error}"))
-            }
-        };
-        match result {
-            Ok(true) => {
-                report.applied += 1;
-            }
-            Ok(false) => {
-                // Storage returned "no row matched" — binding no longer
-                // exists; drop the update.
-                report.dropped_unknown_binding += 1;
-            }
-            Err(_error) => {
-                // Best-effort: a transient error here should not block
-                // turn completion. The applier logs and continues.
-                report.dropped_unknown_binding += 1;
-            }
-        }
-    }
-    report
 }

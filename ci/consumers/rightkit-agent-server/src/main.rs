@@ -1,4 +1,4 @@
-// rightkit-agent-server 0.3.0 consumed by exact registry pin (`=0.3.0`), outside the workspace.
+// rightkit-agent-server 0.3.1 consumed by exact registry pin (`=0.3.1`), outside the workspace.
 //
 // `run` is the host binary entry. Calling it starts the agent server, installs crash hooks and
 // reads licence locators, and it needs the product's identity. So
@@ -82,5 +82,5 @@ fn main() {
         "an app name that is not a lowercase slug is refused",
     );
 
-    println!("OK rightkit-agent-server 0.3.0 (registry consumer, entry not invoked)");
+    println!("OK rightkit-agent-server 0.3.1 (registry consumer, entry not invoked)");
 }

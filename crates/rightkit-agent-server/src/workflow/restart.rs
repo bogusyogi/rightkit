@@ -18,7 +18,7 @@
 //! 2. **Lease hygiene.** A lease whose holder matches a "dead PID" is
 //!    released in one recovery command. The dead-PID check uses a
 //!    process-liveness probe on Unix.
-//! 3. **Single-source replay.** `replay_single` and `rehydrate` both
+//! 3. **Single-source replay.** `rehydrate` and the per-run recovery step both
 //!    call the pure [`reduce`] function from `rightkit_workflow` —
 //!    never a parallel state machine. That is the property the
 //!    cross-module test asserts: replay-twice must equal replay-once.
@@ -62,13 +62,10 @@ use crate::workflow::supervisor::SupervisorError;
 /// * `Rehydrated { run_ids }` — the rehydrate pass processed these runs.
 ///   The runs were replayed through the reducer, had their leases
 ///   audited, and received a `run_resumed` journal event.
-/// * `Replayed { state }` — a single-run replay produced this lifecycle
-///   state. Returned by [`RecoveryWorker::replay_single`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum RecoveryOutcome {
     None,
     Rehydrated { run_ids: Vec<String> },
-    Replayed { state: LifecycleState },
 }
 
 // ─── Recovery worker ────────────────────────────────────────────────────────
@@ -78,9 +75,8 @@ pub enum RecoveryOutcome {
 /// `Arc`s.
 ///
 /// The worker is the **only** path that performs a "cold start" rebuild
-/// of workflow lifecycle state. Its two public methods ([`rehydrate`]
-/// and [`replay_single`]) wrap the same private replay helper, so the
-/// single-replay and multi-replay code paths cannot diverge.
+/// of workflow lifecycle state. [`rehydrate`] replays every active run through the private
+/// replay helper, so the live and recovery code paths cannot diverge.
 pub struct RecoveryWorker {
     storage: SharedStorage,
     clock: Arc<dyn Clock>,
@@ -159,37 +155,6 @@ impl RecoveryWorker {
             "recovery: rehydrate pass complete"
         );
         Ok(RecoveryOutcome::Rehydrated { run_ids: processed })
-    }
-
-    /// Single-run replay: replay one run's journal through the reducer
-    /// and return the resulting [`LifecycleState`]. Used by the daemon
-    /// to surface a run's current state without going through the
-    /// multi-run rehydrate path, and by the test suite to assert the
-    /// reducer replay is deterministic.
-    pub async fn replay_single(&self, run_id: &str) -> Result<RecoveryOutcome, SupervisorError> {
-        let storage = self.storage.clone();
-        let run_id_owned = run_id.to_string();
-
-        let state: LifecycleState =
-            tokio::task::spawn_blocking(move || -> Result<LifecycleState, SupervisorError> {
-                let storage_guard = storage.blocking_lock();
-                let conn = storage_guard.conn();
-                let repo = WorkflowRepository::new(conn);
-                let run_row: WorkflowRunRow = repo
-                    .find_run(&run_id_owned)
-                    .map_err(SupervisorError::Storage)?
-                    .ok_or_else(|| {
-                        SupervisorError::NotFound(format!("workflow_run {run_id_owned}"))
-                    })?;
-                let journal = repo
-                    .replay_journal(&run_id_owned)
-                    .map_err(SupervisorError::Storage)?;
-                Ok(replay_journal_through_reducer(&run_row, &journal))
-            })
-            .await
-            .map_err(|e| SupervisorError::Internal(format!("spawn_blocking join: {e}")))??;
-
-        Ok(RecoveryOutcome::Replayed { state })
     }
 
     /// Process one active run: replay its journal, audit its lease for
@@ -316,8 +281,8 @@ impl RecoveryWorker {
 /// current skeleton reducer) per event.
 ///
 /// This helper is the single source of truth for "what state does this
-/// run end up in after replay". It is wrapped by both `rehydrate` and
-/// `replay_single` so the live and recovery paths cannot diverge.
+/// run end up in after replay". `rehydrate` goes through it so the live and recovery
+/// paths cannot diverge.
 fn replay_journal_through_reducer(
     run: &WorkflowRunRow,
     journal: &[WorkflowJournalRow],

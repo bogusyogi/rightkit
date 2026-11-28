@@ -1,0 +1,94 @@
+{
+  "schema": "rightkit-agent-server.option-gated-routes.v1",
+  "about": "Routes that exist only while a host option is on. Each key is a getter in src/host_options.rs. A route is mounted (and, when contract is true, listed in the contract and the OpenAPI document) exactly when its option's value is true. default is the value of an option nobody set. operationId is what the OpenAPI document names the operation (lower-case method, then the path segments joined with underscores, braces dropped). contract false: the route is mounted but the contract does not list it. The server builds its contract from this file (src/option_gated_routes.rs); a unit test keeps it in step with the endpoint tables.",
+  "options": {
+    "mcp_public_server": {
+      "default": true,
+      "routes": [
+        {"method": "GET", "path": "/mcp/server/status", "operationId": "get_mcp_server_status", "contract": true}
+      ]
+    },
+    "plugin_marketplace": {
+      "default": true,
+      "routes": [
+        {"method": "GET", "path": "/plugins/marketplace", "operationId": "get_plugins_marketplace", "contract": true},
+        {"method": "POST", "path": "/plugins/marketplace/sync", "operationId": "post_plugins_marketplace_sync", "contract": true},
+        {"method": "POST", "path": "/plugins/marketplace/{id}/install", "operationId": "post_plugins_marketplace_id_install", "contract": true},
+        {"method": "GET", "path": "/plugins/marketplace/categories", "operationId": "get_plugins_marketplace_categories", "contract": false},
+        {"method": "POST", "path": "/plugins/{id}/rollback", "operationId": "post_plugins_id_rollback", "contract": false},
+        {"method": "GET", "path": "/plugins/{id}/versions", "operationId": "get_plugins_id_versions", "contract": false}
+      ]
+    },
+    "adapt_routes": {
+      "default": true,
+      "routes": [
+        {"method": "GET", "path": "/runtime/context/adapt/status", "operationId": "get_runtime_context_adapt_status", "contract": true},
+        {"method": "POST", "path": "/runtime/context/adapt/review-taste", "operationId": "post_runtime_context_adapt_review_taste", "contract": true},
+        {"method": "POST", "path": "/runtime/context/adapt/adjudicate-taste", "operationId": "post_runtime_context_adapt_adjudicate_taste", "contract": true},
+        {"method": "POST", "path": "/runtime/context/adapt/apply-insights", "operationId": "post_runtime_context_adapt_apply_insights", "contract": true},
+        {"method": "POST", "path": "/runtime/context/adapt/apply-taste", "operationId": "post_runtime_context_adapt_apply_taste", "contract": true},
+        {"method": "POST", "path": "/runtime/context/adapt/recall", "operationId": "post_runtime_context_adapt_recall", "contract": true}
+      ]
+    },
+    "peer_teams": {
+      "default": true,
+      "routes": [
+        {"method": "GET", "path": "/peer-teams/{team_id}/board", "operationId": "get_peer_teams_team_id_board", "contract": false},
+        {"method": "POST", "path": "/peer-teams/{team_id}/board", "operationId": "post_peer_teams_team_id_board", "contract": false},
+        {"method": "POST", "path": "/peer-teams/{team_id}/board/claim", "operationId": "post_peer_teams_team_id_board_claim", "contract": false},
+        {"method": "POST", "path": "/peer-teams/{team_id}/board/{item_id}/status", "operationId": "post_peer_teams_team_id_board_item_id_status", "contract": false},
+        {"method": "GET", "path": "/peer-teams/{team_id}/mailbox", "operationId": "get_peer_teams_team_id_mailbox", "contract": false},
+        {"method": "POST", "path": "/peer-teams/{team_id}/mailbox", "operationId": "post_peer_teams_team_id_mailbox", "contract": false},
+        {"method": "POST", "path": "/peer-teams/{team_id}/mailbox/{message_id}/ack", "operationId": "post_peer_teams_team_id_mailbox_message_id_ack", "contract": false},
+        {"method": "GET", "path": "/peer-teams/{team_id}/mission-log", "operationId": "get_peer_teams_team_id_mission_log", "contract": false},
+        {"method": "POST", "path": "/peer-teams/{team_id}/mission-log", "operationId": "post_peer_teams_team_id_mission_log", "contract": false}
+      ]
+    },
+    "membrane_background_review": {
+      "default": true,
+      "routes": [
+        {"method": "POST", "path": "/runtime/membrane/background-review", "operationId": "post_runtime_membrane_background_review", "contract": false}
+      ]
+    },
+    "cloud_workspaces": {
+      "default": false,
+      "routes": [
+        {"method": "GET", "path": "/forges", "operationId": "get_forges", "contract": true},
+        {"method": "POST", "path": "/forges/github/connect", "operationId": "post_forges_github_connect", "contract": true},
+        {"method": "DELETE", "path": "/forges/github/connect", "operationId": "delete_forges_github_connect", "contract": true},
+        {"method": "GET", "path": "/forges/github/installations", "operationId": "get_forges_github_installations", "contract": true},
+        {"method": "GET", "path": "/forges/github/repositories", "operationId": "get_forges_github_repositories", "contract": true},
+        {"method": "POST", "path": "/cloud-workspaces", "operationId": "post_cloud_workspaces", "contract": true},
+        {"method": "GET", "path": "/cloud-workspaces", "operationId": "get_cloud_workspaces", "contract": true},
+        {"method": "GET", "path": "/cloud-workspaces/{id}", "operationId": "get_cloud_workspaces_id", "contract": true},
+        {"method": "DELETE", "path": "/cloud-workspaces/{id}", "operationId": "delete_cloud_workspaces_id", "contract": true},
+        {"method": "GET", "path": "/cloud-workspaces/{id}/events", "operationId": "get_cloud_workspaces_id_events", "contract": true},
+        {"method": "POST", "path": "/cloud-workspaces/{id}/sessions", "operationId": "post_cloud_workspaces_id_sessions", "contract": true}
+      ]
+    },
+    "guest_shares": {
+      "default": false,
+      "routes": [
+        {"method": "POST", "path": "/sessions/{id}/shares", "operationId": "post_sessions_id_shares", "contract": true},
+        {"method": "GET", "path": "/shares", "operationId": "get_shares", "contract": true},
+        {"method": "DELETE", "path": "/shares/{id}", "operationId": "delete_shares_id", "contract": true},
+        {"method": "GET", "path": "/guest/whoami", "operationId": "get_guest_whoami", "contract": true}
+      ]
+    },
+    "browser_consent_routes": {
+      "default": false,
+      "routes": [
+        {"method": "GET", "path": "/browser/consent/sources", "operationId": "get_browser_consent_sources", "contract": true},
+        {"method": "GET", "path": "/browser/consents", "operationId": "get_browser_consents", "contract": true},
+        {"method": "POST", "path": "/browser/consents", "operationId": "post_browser_consents", "contract": true},
+        {"method": "POST", "path": "/browser/consents/{id}/revoke", "operationId": "post_browser_consents_id_revoke", "contract": true}
+      ]
+    },
+    "license_status_route": {
+      "default": false,
+      "routes": [
+        {"method": "GET", "path": "/license/status", "operationId": "get_license_status", "contract": false}
+      ]
+    }
+  }
+}

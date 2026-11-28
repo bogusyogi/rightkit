@@ -86,7 +86,7 @@ async fn run_schedule_now_inner(
     // An untrusted workspace gets no workflow mapping and no workflow admission (scheduler R41):
     // its run goes the direct way below, where it fails visibly with `untrusted_workspace`.
     if state.workflows_feature.is_enabled()
-        && crate::scheduler::workflow_schedule_cutover_enabled()
+        && crate::scheduler::workflow_schedule_cutover_enabled(state)
         && rightkit_agent_config::is_workspace_trusted(&root)
     {
         let schedules = load_api_schedules(&root).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;

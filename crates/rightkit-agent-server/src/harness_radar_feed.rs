@@ -166,8 +166,14 @@ pub fn generate_harness_radar_proposals(
             && rows.iter().any(|entry| mentions_protocol(entry))
         {
             (
-                "Open protocol projects increased; review host interop.".to_string(),
-                "Protocol-oriented harness entries changed, so the host should re-check external gateway compatibility.".to_string(),
+                format!(
+                    "Open protocol projects increased; review {} interop.",
+                    rightkit_agent_config::app_name()
+                ),
+                format!(
+                    "Protocol-oriented harness entries changed, so {} should re-check external gateway compatibility.",
+                    rightkit_agent_config::app_name()
+                ),
             )
         } else if rows.len() > 1 {
             (

@@ -273,23 +273,6 @@ pub enum LearningCommand {
 }
 
 #[derive(Subcommand, Debug, PartialEq)]
-pub enum InsightsCommand {
-    /// Mine completed session transcripts for recurring failure reports.
-    /// This reads exported evidence and never admits findings to Cortex.
-    List {
-        /// One or more session IDs whose exported transcripts should be mined.
-        #[arg(long = "session", required = true)]
-        session_ids: Vec<String>,
-        /// Adapt issue scope.
-        #[arg(long, default_value = "workspace")]
-        scope: String,
-        /// Minimum recurrence count for an issue.
-        #[arg(long, default_value_t = 2)]
-        min_recurrence: u32,
-    },
-}
-
-#[derive(Subcommand, Debug, PartialEq)]
 pub enum DiagnosticsCommand {
     /// Read bounded daemon diagnostics once or at a fixed cadence.
     Watch {

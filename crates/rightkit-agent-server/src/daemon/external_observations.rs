@@ -195,17 +195,7 @@ pub struct ReactionPolicy {
     pub approval_granted: bool,
 }
 
-impl ReactionPolicy {
-    /// Convenient explicit opt-in for a caller that has already performed the
-    /// daemon's normal trust/policy/approval checks.
-    pub const fn allow_all() -> Self {
-        Self {
-            workspace_trusted: true,
-            policy_allows: true,
-            approval_granted: true,
-        }
-    }
-}
+impl ReactionPolicy {}
 
 /// A lease identifies the currently active observation controller.  A stale
 /// lease can never deliver a reaction after takeover/rotation.
@@ -362,14 +352,6 @@ impl ExternalObservationLoop {
         ControllerLease {
             epoch: self.controller_epoch,
         }
-    }
-
-    /// Rotate the controller.  Existing facts remain durable, but only the
-    /// returned lease may deliver their pending reactions.
-    pub fn rotate_controller(&mut self) -> ControllerLease {
-        self.controller_epoch = self.controller_epoch.saturating_add(1).max(1);
-        self.ledger.controller_epoch = self.controller_epoch;
-        self.current_lease()
     }
 
     /// Record/merge one observation.  This method has no task side effects.

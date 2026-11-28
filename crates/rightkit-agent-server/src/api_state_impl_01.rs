@@ -115,9 +115,6 @@ impl DaemonState {
             cli_recovery_live_epoch: Arc::new(
                 crate::cli_recovery_runtime::LiveContextEpochState::default(),
             ),
-            cli_recovery_deferred_updates: Arc::new(
-                rightkit_agents::driver_host::cli_runtime::DeferredBindingUpdates::new(),
-            ),
             comparisons: Arc::new(Mutex::new(HashMap::new())),
             trajectories: crate::trajectory::TrajectoryStore::new(),
             plugin_dir: default_plugin_dir(),

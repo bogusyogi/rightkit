@@ -744,8 +744,16 @@ async fn serve(
                     // configured, daemon startup now injects a real, fail-closed
                     // adapter (trusted transport + ed25519 trust-root verifier)
                     // through `new_with_a2a_adapter`. When unconfigured, A2A
-                    // stays closed (`None`), preserving the fail-closed default.
-                    let a2a_adapter = crate::workflow::executors::try_build_daemon_a2a_adapter();
+                    // stays closed (`None`), preserving the fail-closed default. Without
+                    // feature `workflow-a2a-env` the environment is not read and A2A is
+                    // always closed.
+                    #[cfg(feature = "workflow-a2a-env")]
+                    let a2a_adapter =
+                        crate::workflow::executors::try_build_daemon_a2a_adapter(workflows_feature);
+                    #[cfg(not(feature = "workflow-a2a-env"))]
+                    let a2a_adapter: Option<
+                        std::sync::Arc<crate::workflow::executors::A2aAdapter>,
+                    > = None;
                     let dispatcher = std::sync::Arc::new(
                         crate::workflow::dispatcher::RuntimeNodeDispatcher::new_with_a2a_adapter(
                             workflow_state,

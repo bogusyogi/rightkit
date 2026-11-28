@@ -1,6 +1,6 @@
 //! WP-06 — Occurrence admission policy.
 //!
-//! Once the [`super::inbox::TriggerInbox`] has durably admitted a
+//! Once a trigger delivery has been shaped into a
 //! [`NormalizedTriggerEvent`], the *next* question is "should this fire
 //! run a workflow?". The occurrence admission layer answers that with the
 //! typed [`OccurrenceDecision`] enum, which combines:
@@ -45,9 +45,7 @@ use rightkit_workflow::control_plane::clock::{Clock, UnixMs};
 use rightkit_workflow::control_plane::domain::{
     occurrence_id, workflow_version_id, TriggerId, WorkflowVersionId,
 };
-use rightkit_workflow::control_plane::prelude::{
-    DedupeStrategy, MisfirePolicy, OccurrencePolicy, OverlapPolicy,
-};
+use rightkit_workflow::control_plane::prelude::{MisfirePolicy, OccurrencePolicy, OverlapPolicy};
 
 use super::event::NormalizedTriggerEvent;
 
@@ -588,28 +586,4 @@ fn make_occurrence_id(
 
 fn now_iso(ms: UnixMs) -> String {
     super::event::format_unix_ms_as_iso(ms)
-}
-
-// `TriggerEventId` is referenced for documentation; the lint keeps the
-// import.
-#[allow(dead_code)]
-type _TriggerEventId = ();
-
-// `DedupeStrategy` is referenced from the policy but we don't dispatch
-// on it here — the supervisor (WP-07) owns the strategy switching. We
-// accept the unused-import signal by re-exporting a marker function.
-#[allow(dead_code)]
-fn _dedupe_strategy_marker(strategy: DedupeStrategy) -> &'static str {
-    match strategy {
-        DedupeStrategy::None => "none",
-        DedupeStrategy::KeyHash => "key_hash",
-        DedupeStrategy::IdempotencyKey => "idempotency_key",
-    }
-}
-
-// `TriggerId` is referenced from `trigger_id.to_string()` comparisons
-// in the production code paths; the lint keeps the import.
-#[allow(dead_code)]
-fn _trigger_id_marker(id: TriggerId) -> String {
-    id.to_string()
 }
