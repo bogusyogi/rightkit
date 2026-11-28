@@ -9,7 +9,9 @@
 //     installer can bind each signed claim to this candidate and a smoke for another candidate (or an earlier one) does not verify.
 // It writes rightkit.host-smoke/1 and its job-claims/ beside it. Exit 0 when the smoke is written, whether or not it passed: the verdict is in the record.
 //
-//   node smoke-run.mjs --sealed <candidate sha256> --managed <managed root> --repo <primary RightKit checkout> --out <dir> [--host mac] [--unit cargo:rightkit-time]
+//   node smoke-run.mjs --sealed <candidate sha256> --managed <managed root> --repo <primary checkout> --out <dir> [--host mac] [--commit <sha>] [--unit cargo:rightkit-<name> | --unit none]
+// --unit none compiles the whole repository (`--to compile`): a repository without a committed .rightkit-local-build.json, such as rk-witness-fixture,
+// takes no unit (the gate refuses a unit there). --commit defaults to the repository's HEAD.
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -63,7 +65,7 @@ export function buildSmoke({ runId, host, sealed, archive, versionPrinted, runti
 export async function main(argv = process.argv.slice(2), { out = console.log } = {}) {
   const opt = (name) => { const i = argv.indexOf(name); return i < 0 ? null : argv[i + 1]; };
   const sealed = opt("--sealed"); const managed = opt("--managed"); const repo = opt("--repo"); const outDir = opt("--out");
-  const host = opt("--host") ?? (process.platform === "darwin" ? "mac" : process.platform === "win32" ? "dell" : "linux"); const unit = opt("--unit") ?? "cargo:rightkit-time";
+  const host = opt("--host") ?? (process.platform === "darwin" ? "mac" : process.platform === "win32" ? "dell" : "linux"); const unit = opt("--unit") ?? "cargo:rightkit-time"; const wantCommit = opt("--commit");
   if (!HEX64.test(String(sealed)) || !managed || !repo || !outDir) { out("usage: smoke-run.mjs --sealed <candidate sha256> --managed <root> --repo <primary RightKit checkout> --out <dir> [--host mac] [--unit cargo:rightkit-time]"); return 2; }
   const candidate = path.join(managed, "trusted-gates", "candidates", sealed);
   const release = path.join(candidate, "node_modules", "@rightkit", "release");
@@ -85,11 +87,11 @@ export async function main(argv = process.argv.slice(2), { out = console.log } =
     } catch (error) { problems.push(`the runtime manifest beside ${client} cannot be read: ${error.message}`); }
   }
   const git = (args) => String(spawnSync("git", ["-C", repo, ...args], { encoding: "utf8", windowsHide: true }).stdout ?? "").trim();
-  const commit = git(["rev-parse", "HEAD"]); const tree = git(["rev-parse", "HEAD^{tree}"]);
+  const commit = git(["rev-parse", wantCommit ?? "HEAD"]); const tree = git(["rev-parse", `${commit}^{tree}`]);
   const runId = crypto.randomBytes(32).toString("hex");
   const jobsFile = path.join(path.resolve(outDir), "jobs.jsonl");
   const log = fs.openSync(path.join(outDir, "compile.log"), "w");
-  const compiled = spawnSync(process.execPath, [gate, "--to", "compile", "--unit", unit, "--commit", commit], {
+  const compiled = spawnSync(process.execPath, [gate, "--to", "compile", ...(unit === "none" ? [] : ["--unit", unit]), "--commit", commit], {
     cwd: repo, windowsHide: true, stdio: ["ignore", log, log],
     env: { ...process.env, [CONTRACT_RUN_ID_ENV]: runId, [CONTRACT_SEALED_ENV]: sealed, [CONTRACT_STEP_ENV]: SMOKE_STEP, [CONTRACT_JOBS_ENV]: jobsFile },
   });
