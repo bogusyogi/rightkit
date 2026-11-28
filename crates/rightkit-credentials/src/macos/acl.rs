@@ -126,8 +126,8 @@ extern "C" {
 
 #[link(name = "CoreFoundation", kind = "framework")]
 extern "C" {
-    #[allow(non_upper_case_globals)]
-    static kCFTypeArrayCallBacks: u8;
+    #[link_name = "kCFTypeArrayCallBacks"]
+    static K_CF_TYPE_ARRAY_CALL_BACKS: u8;
     fn CFRelease(cf: *const c_void);
     fn CFArrayCreate(
         allocator: *const c_void,
@@ -464,7 +464,7 @@ fn self_only_access() -> Result<Cf> {
             null(),
             values.as_ptr(),
             1,
-            std::ptr::addr_of!(kCFTypeArrayCallBacks).cast::<c_void>(),
+            std::ptr::addr_of!(K_CF_TYPE_ARRAY_CALL_BACKS).cast::<c_void>(),
         ));
         if trusted.0.is_null() {
             return Err(Error::Unavailable("the trusted list cannot be made".into()));
