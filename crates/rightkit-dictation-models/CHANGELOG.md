@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.4
+
+- Add `shared::dispatch_unregister_flag` (run `unregister` when a process flag is present; fixed stderr line on failure; exit code 0/1) and `install_flow::ensure_active` (the onboarding activation: skip when not the shared backend or already verified, else `prepare_shared_model` plus `post_prepare_decision` over the host's `fallback_model_present`). Additive.
+
 ## 0.3.3
 - Add `local_model_status`: `LocalAsrModelStatus`, `LocalAsrLabels`, `local_asr_model_status`, `canonical_local_asr_backend`, `local_asr_subdir`, `local_asr_label` and `classify_model_source`, so a host reports installed/source/label for the local ASR models without its own matrix. Hosts pass the family labels and a closure for the replacement-pending fact (asked only for the current backend). Additive.
 

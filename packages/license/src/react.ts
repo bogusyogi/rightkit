@@ -4,6 +4,15 @@
 // native code authorises every paid operation again when it runs. Imports only `react`.
 import { useCallback, useEffect, useState } from 'react';
 import type { AppAccountDevice, AppAccountStatus } from './index.js';
+import {
+  acknowledgeExpiredTrialNotice,
+  dialogForLicenseLifecycle,
+  isExpiredTrialNoticeAcknowledged,
+  type ExpiredTrialNoticeStore,
+  type LicenseLifecycleDialog,
+  type LicenseLifecycleDialogOptions,
+  type LicenseLifecycleSnapshot,
+} from './lifecycle.js';
 
 // ---- a subscribed value --------------------------------------------------------------------------
 
@@ -508,5 +517,70 @@ export function useAccountDeviceRow(
     rename,
     cancelRename,
     remove,
+  };
+}
+
+// ---- licence notice dialog -----------------------------------------------------------------------
+
+export interface UseLicenseNoticeOptions extends LicenseLifecycleDialogOptions, ExpiredTrialNoticeStore {
+  /** Opens the purchase page; called by the primary action of the expired-trial notice. */
+  openPricing: () => unknown;
+  /** Re-reads the licence online; called by the primary action of every other notice. */
+  refresh: () => unknown;
+}
+
+export interface LicenseNotice {
+  /** The notice to show, or null when none is due or it was dismissed. Words come from `dialogForLicenseLifecycle`. */
+  dialog: LicenseLifecycleDialog | null;
+  /** The primary action: expired trial acknowledges, opens pricing and dismisses; any other notice refreshes online. */
+  onPrimary: () => void;
+  /** The secondary action: expired trial acknowledges and dismisses; any other notice dismisses until the state changes. */
+  onSecondary: () => void;
+}
+
+const NOTICE_KINDS: readonly string[] = ['expired_trial', 'verification_required', 'migration_required', 'clock_repair_required'];
+
+/**
+ * The state of the licence notice dialog: which notice a lifecycle state asks for, whether it was dismissed, and what
+ * its two buttons do. An expired-trial notice is acknowledged in storage (`storageKey`, so it is not asked again for
+ * the same entitlement and expiry) and dismissed for the session; every other notice is dismissed for the session
+ * only, and again when the state leaves the notice kinds. The app renders `dialog` in its own markup and words.
+ * Display only: native code authorises every paid operation again when it runs.
+ */
+export function useLicenseNotice(state: LicenseLifecycleSnapshot, options: UseLicenseNoticeOptions): LicenseNotice {
+  const { appName, paidTier, spelling, storageKey, storage, openPricing, refresh } = options;
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const ack: ExpiredTrialNoticeStore = { storageKey, storage };
+
+  useEffect(() => {
+    if (!NOTICE_KINDS.includes(state.kind)) setDismissed(null);
+  }, [state.kind]);
+
+  const expired = state.kind === 'expired_trial';
+  const expiredKey = state.entitlementId ?? 'expired_trial';
+  const dialog = dialogForLicenseLifecycle(state, { appName, paidTier, spelling });
+  const shown =
+    dialog !== null &&
+    (expired ? !isExpiredTrialNoticeAcknowledged(state, ack) && dismissed !== expiredKey : dismissed !== state.kind);
+
+  return {
+    dialog: shown ? dialog : null,
+    onSecondary: () => {
+      if (expired) {
+        acknowledgeExpiredTrialNotice(state, ack);
+        setDismissed(expiredKey);
+      } else {
+        setDismissed(state.kind);
+      }
+    },
+    onPrimary: () => {
+      if (expired) {
+        acknowledgeExpiredTrialNotice(state, ack);
+        void openPricing();
+        setDismissed(expiredKey);
+      } else {
+        void refresh();
+      }
+    },
   };
 }

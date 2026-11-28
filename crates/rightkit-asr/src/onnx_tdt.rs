@@ -4,7 +4,8 @@
 //! names, five output names — for one model family down one path: a
 //! dictation runtime that owns its own decode loop.
 //!
-//! Deliberately contains NO decode policy. Search, scoring, the emission
+//! Deliberately contains no search policy; the one decode here is the plain greedy walk in
+//! [`decode_greedy`]. Search, scoring, the emission
 //! reward, phrase bias and detokenization live in `crate::parakeet_core`.
 //! This module returns logits and states; what to do with them is decided
 //! by the caller.
@@ -27,12 +28,14 @@
 
 #[cfg(target_os = "windows")]
 mod environment;
+mod greedy;
 mod model;
 mod session;
 
 #[cfg(target_os = "windows")]
 pub use environment::init_windows_ort;
 
+pub use greedy::decode_greedy;
 pub use model::{
     encoder_pass_age, take_batched_run_stats, EncoderOutput, MelFeatures, OnnxAsr, OnnxAsrConfig,
 };

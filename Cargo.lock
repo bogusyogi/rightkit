@@ -10714,7 +10714,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-asr"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "half",
  "hound",
@@ -11268,7 +11268,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.5.10"
+version = "0.5.11"
 dependencies = [
  "block2",
  "getrandom 0.4.3",
@@ -11542,7 +11542,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-models"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "dirs",
  "rightkit-child-process",
@@ -11612,7 +11612,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-tauri"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "rightkit-audio",
  "rightkit-automation",
@@ -12782,7 +12782,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-qa"
-version = "0.10.16"
+version = "0.10.17"
 dependencies = [
  "getrandom 0.4.3",
  "png",

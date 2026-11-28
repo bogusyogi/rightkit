@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.7
+Additive; existing exports unchanged.
+
+- Add `showAndFocusWindow(win)` and `TauriShowableWindow` (`./window`): shows the window, restores it if minimised, then focuses it (on macOS a shown but unfocused window draws inactive traffic lights). Each call is awaited in order and a rejection reaches the caller.
+
 ## 0.4.6
 
 - Add `useHotkeyConflict` (`./react`): reads the current hotkey conflict, follows the conflict event and retries registration.

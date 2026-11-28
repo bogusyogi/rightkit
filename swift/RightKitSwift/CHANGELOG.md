@@ -1,5 +1,13 @@
 # RightKitSwift changelog
 
+## 0.9.7 - additive
+
+Additive only: no existing signature, behaviour or dependency changes. Written, not compiled, not run on a Mac. No tests added.
+
+- RightKitUI adds `RightKitHoverRegion(tooltip:onChange:)` and `RightKitSecondaryClickRegion(action:)` (macOS, NSViewRepresentable pointer overlays; hover is `.activeAlways` and never hit-tests, the secondary-click view hit-tests only for a right mouse down), `RightKitFonts.register(names:in:additionalRoots:)` (idempotent per file name, looks in `<bundle>/Resources/fonts` then the extra roots), `RightKitTextMetrics.width(_:font:)` (ceil of the rendered glyph width, macOS), `CoreTextWarmup.prime(fontName:size:sample:)` (draws once into a private bitmap, safe off main) and `View.rightKitCardPresence(presented:animation:entranceScale:entranceOffset:anchor:)` (opacity, scale and slide in and out, instant under Reduce Motion, no hits and hidden from accessibility while not presented).
+- RightKitAudio adds `PCMWavWriter.wavData(mono:sampleRate:)`: the in-memory mono 16-bit PCM WAV (same header as `write`), for hosts that synthesize their own samples.
+- RightKitDictationPill adds `RightKitPillDataSoundPlayer(queueLabel:data:log:)` with `play()` (an `AVAudioPlayer` on a private serial queue, macOS) and `rightKitBoundedString(_:maxBytes:)` (UTF-8 truncation that never splits a character).
+
 ## 0.9.6 - 2026-11-24
 
 - RightKitOAuth adds the RFC 8628 device authorization grant: DeviceCodeClient, DeviceCodeConfig with a GitHub preset, DeviceCodePresenting and SystemDeviceCodePresenter. OAuthError gains deviceCodeExpired, accessDenied and deviceFlowDisabled.

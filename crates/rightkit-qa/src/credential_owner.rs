@@ -127,20 +127,28 @@
 //! snapshot store is used only where the process can establish that, and `snapshot_isolation`
 //! runs on every order after the sender proof and the token:
 //!
-//! * macOS: REFUSED, always, with `isolation_not_established`, until the credentials crate offers
-//!   a per-slot access-control proof (HANDOFF.md, "Crate-side API needed"). A signed identity of the
-//!   running process is necessary and is still checked (`SecCodeCopySelf`, `SecCodeCheckValidity`
-//!   against the declared [`MacAppIdentity`]), but it cannot certify the access control of an
-//!   item: the crate's `Store::set` creates an absent item through the legacy add call, which takes
-//!   no access object, and UPDATES a present item in place
-//!   (`SecKeychainItemModifyAttributesAndData`), which keeps whatever access control that item
-//!   already has. A slot that exists before this process first writes it (created or re-created by
-//!   any same-user process, with an access control that names that process) would therefore keep
-//!   its access control, and the signed identity of this process says nothing about it. The
-//!   crate exposes no call that reads an item's access object or sets one, so this module can
-//!   neither verify a pre-existing slot nor replace it provably: the gate fails closed
-//!   (`mac_slot_acl`), and `Shadow::set` refuses on macOS as well, so that no value or record is
-//!   written to a slot whose access control was not proven.
+//! * macOS: used only when the running process validates as the declared [`MacAppIdentity`]
+//!   (`SecCodeCopySelf`, `SecCodeCheckValidity`; necessary, and not enough on its own, because it
+//!   says nothing about the access control of an item) AND every slot it reads or writes is
+//!   proven to be readable by this app only (`mac_slot_acl`, rightkit-credentials 0.5.11):
+//!   * a write is `Store::set_isolated`: an absent slot is created with an explicit access that
+//!     trusts only this process and is read back, a present slot is updated only when its access
+//!     is proven self-only, and a present slot that is not proven (created or re-created by any
+//!     same-user process, with an access that names that process) is REFUSED and left alone, never
+//!     updated in place and never replaced;
+//!   * a read is `Store::access_admits_only_self` before and after `Store::get` (an absent slot is
+//!     simply absent); a value from a slot that is not proven self-only is never returned;
+//!   * the gate itself (`mac_slot_acl::established`, run on every order) proves the two control
+//!     records `cur` and `pending`, which every order reads, are absent or self-only; the
+//!     per-generation item slots are proven at the point of use above, because their names are
+//!     not known until the order names a generation.
+//!   A proof is: every access entry that can read the secret trusts exactly one application, which
+//!   this executable satisfies, with no "any application" entry; an entry that can change the
+//!   access trusts no other application; the partition list, if there is one, names only the
+//!   declared team. Anything unreadable or unrecognised is not proven, and a refused or failed
+//!   proof is `isolation_not_established` for the gate and a failed slot operation after it. A
+//!   same-user process that pre-creates a slot with its own access can therefore only make the
+//!   owner refuse; it cannot make the owner read from it or write into it.
 //! * Windows: refused, always, with `snapshot_store_unisolated`. Credential Manager entries are
 //!   readable by any process of the same user; a value sealed with a key kept in that store is
 //!   opened by whoever reads the key; DPAPI opens for the same user; Windows Hello binds use to
@@ -408,8 +416,8 @@ pub struct SnapshotStore {
     pub service: &'static str,
     /// The installed app's own Developer ID identity, which the running process must validate
     /// against before it uses the store on macOS. Necessary and not sufficient: macOS refuses
-    /// every order with `isolation_not_established` whatever is declared here until the credentials
-    /// crate can prove a slot's access control (`mac_slot_acl`). `None` refuses in any case.
+    /// every order with `isolation_not_established` unless the slots it uses are proven to be
+    /// readable by this app only (`mac_slot_acl`). `None` refuses in any case.
     /// Ignored on every other platform, where the store is refused.
     pub mac_app: Option<MacAppIdentity>,
 }
@@ -1020,29 +1028,73 @@ mod mac_self {
     }
 }
 
-/// macOS: the per-slot access-control proof the snapshot store needs and the credentials crate
-/// (0.5.6) cannot give. The crate's macOS backend is the legacy file keychain
-/// (`SecKeychainAddGenericPassword`, `SecKeychainItemModifyAttributesAndData`,
-/// `SecKeychainItemDelete`); it has no call that reads an item's access object
-/// (`SecKeychainItemCopyAccess`, `SecAccessCopyACLList`, `SecACLCopyContents`) and none that
-/// creates an item with an explicit one (`SecKeychainItemCreateFromContent`). Both functions here
-/// therefore refuse, and nothing in this module may be written to claim otherwise until the crate
-/// provides the API specified in HANDOFF.md ("Crate-side API needed"), at which point they are the
-/// only two places to change: `mac_slot_acl::before_write` becomes the crate's isolated write,
-/// and `mac_slot_acl::established` the proof that every slot the order can write is isolated.
+/// macOS: the per-slot access-control proof and the isolated write of the snapshot store, on the
+/// credentials crate's `Store::access_admits_only_self` and `Store::set_isolated` (0.5.11; before
+/// that the crate had no call to read an item's access object or to create an item with an
+/// explicit one, and this module refused everything). The crate does the keychain work; this module
+/// only decides what to ask and treats every answer but "absent" and "self-only" as a refusal.
+///
+/// * `established`: the gate. Proves the two control records `cur` and `pending` (read by every
+///   order) are absent or self-only.
+/// * `get`: a slot is read only when it is absent or proven self-only, before and after the read.
+/// * `set`: the crate's isolated write; a slot that is not proven is refused untouched.
+///
+/// The per-generation item slots (`g-<generation>-<n>`) are proven at their point of use, in `get`
+/// and `set`, because their names are only known once an order names a generation.
 #[cfg(target_os = "macos")]
 mod mac_slot_acl {
-    /// Whether every snapshot-store slot an order can write has an access control that admits only
-    /// this app. Always `false` today: there is no call to read one.
-    pub(super) fn established() -> bool {
-        false
+    use super::{
+        shadow_namespace, Config, OwnerHost, Secret, Store, SHADOW_CURRENT, SHADOW_PENDING,
+    };
+    use rightkit_credentials::macos::AccessProof;
+
+    /// Whether `cur` and `pending`, the two slots every order reads, are absent or proven readable
+    /// by this app only. `false` on any failure to prove, including a missing team identity.
+    pub(super) fn established(host: &OwnerHost) -> bool {
+        let Some(app) = host.snapshot_store.mac_app else {
+            return false;
+        };
+        let Ok(ns) = shadow_namespace(&host.snapshot_store) else {
+            return false;
+        };
+        let store = Store::open(Config::new(ns));
+        [SHADOW_CURRENT, SHADOW_PENDING].iter().all(|account| {
+            matches!(
+                store.access_admits_only_self(account, app.team_id),
+                Ok(AccessProof::Absent | AccessProof::SelfOnly)
+            )
+        })
     }
 
-    /// Before a slot is written (created or updated). Always an error today, so a pre-existing slot
-    /// with a foreign access control is never updated in place and no slot is created with an
-    /// access control nobody read back.
-    pub(super) fn before_write() -> Result<(), ()> {
-        Err(())
+    /// Reads `account` only from a slot that is absent or proven self-only; the proof is made again
+    /// after the read when a value came back, so a slot that appeared or was replaced in between
+    /// is never trusted. The value of a slot that fails the second proof is dropped (zeroized).
+    pub(super) fn get(store: &Store, team_id: &str, account: &str) -> Result<Option<Secret>, ()> {
+        match store.access_admits_only_self(account, team_id) {
+            Ok(AccessProof::Absent | AccessProof::SelfOnly) => {}
+            _ => return Err(()),
+        }
+        let value = store.get(account).map_err(|_| ())?;
+        if value.is_some()
+            && !matches!(
+                store.access_admits_only_self(account, team_id),
+                Ok(AccessProof::SelfOnly)
+            )
+        {
+            return Err(());
+        }
+        Ok(value)
+    }
+
+    /// The crate's isolated write: creates the slot with an access that trusts only this process, or
+    /// updates a slot already proven self-only, and refuses any other present slot.
+    pub(super) fn set(
+        store: &Store,
+        team_id: &str,
+        account: &str,
+        value: &Secret,
+    ) -> Result<(), ()> {
+        store.set_isolated(account, value, team_id).map_err(|_| ())
     }
 }
 
@@ -1055,13 +1107,14 @@ fn snapshot_isolation(host: &OwnerHost) -> Result<(), (&'static str, &'static st
     #[cfg(target_os = "macos")]
     {
         // The signed identity is necessary, never sufficient: the access control of a slot is
-        // what keeps the runner out, and `mac_slot_acl::established` is the proof of that.
+        // what keeps the runner out. `mac_slot_acl::established` proves the two records every
+        // order reads; every other slot is proven where it is read or written (`Shadow`).
         let identity = host
             .snapshot_store
             .mac_app
             .as_ref()
             .is_some_and(|app| mac_self::verify_self(app).is_ok());
-        if identity && mac_slot_acl::established() {
+        if identity && mac_slot_acl::established(host) {
             Ok(())
         } else {
             Err((
@@ -1815,12 +1868,24 @@ struct Shadow {
     store: Store,
     ns: Namespace,
     live: Vec<Ident>,
+    /// macOS: the declared app's team, which every slot proof and isolated write is made for
+    /// (`open_shadow` fills it from the declared [`MacAppIdentity`] and refuses without one).
+    #[cfg(target_os = "macos")]
+    team_id: &'static str,
 }
 
 impl Shadow {
     fn get(&self, slot: &ShadowSlot) -> Result<Option<Secret>, ()> {
         let account = slot.account().ok_or(())?;
-        self.store.get(&account).map_err(|_| ())
+        // macOS: a slot is read only when it is absent or proven readable by this app only.
+        #[cfg(target_os = "macos")]
+        {
+            mac_slot_acl::get(&self.store, self.team_id, &account)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            self.store.get(&account).map_err(|_| ())
+        }
     }
 
     /// The account of `slot`, only when it cannot address any declared live slot.
@@ -1835,11 +1900,17 @@ impl Shadow {
 
     fn set(&self, slot: &ShadowSlot, value: &Secret) -> Result<(), ()> {
         let account = self.guarded(slot)?;
-        // `Store::set` updates a present item in place and keeps its access control. No slot is
-        // written on macOS until its access control is proven (`mac_slot_acl`).
+        // macOS: never `Store::set` (it updates a present item in place and keeps whatever access
+        // control that item has): the crate's isolated write creates the slot with an access that
+        // trusts only this process, and refuses a present slot it cannot prove (`mac_slot_acl`).
         #[cfg(target_os = "macos")]
-        mac_slot_acl::before_write()?;
-        self.store.set(&account, value).map_err(|_| ())
+        {
+            mac_slot_acl::set(&self.store, self.team_id, &account, value)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            self.store.set(&account, value).map_err(|_| ())
+        }
     }
 
     fn delete(&self, slot: &ShadowSlot) -> Result<(), ()> {
@@ -1928,10 +1999,20 @@ fn open_shadow(host: &OwnerHost) -> Result<Shadow, Refusal> {
     let Ok(ns) = shadow_namespace(&host.snapshot_store) else {
         return refuse("failed", "the snapshot store namespace is invalid");
     };
+    #[cfg(target_os = "macos")]
+    let Some(app) = host.snapshot_store.mac_app
+    else {
+        return refuse(
+            REASON_ISOLATION,
+            "the snapshot store is not established as isolated from the runner",
+        );
+    };
     Ok(Shadow {
         store: Store::open(Config::new(ns.clone())),
         ns,
         live: host.live_slots.clone(),
+        #[cfg(target_os = "macos")]
+        team_id: app.team_id,
     })
 }
 

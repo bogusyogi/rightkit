@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.17
+
+- macOS credential-owner snapshot store (GATE-CONTRACT #1552): the two refusing stubs in `mac_slot_acl` are replaced by the credentials crate's access proof and isolated write (`rightkit-credentials` 0.5.11). Every shadow write is `Store::set_isolated` (an absent slot is created with an access that trusts only the running app and is read back; a present slot is updated only when proven self-only; any other present slot is refused untouched, never updated in place, never replaced). Every shadow read is `Store::access_admits_only_self` before and after `Store::get`, so a value from a slot that is not proven readable by this app only is never returned. The isolation gate proves the two records every order reads (`cur`, `pending`) are absent or self-only; item slots are proven at their point of use. Refusal codes and texts are unchanged (`isolation_not_established`). Needs the declared `MacAppIdentity` team. The live app's items are never read for ACL or edited, no foreign reader is a fallback, and no QA binary is signed as the app. Written, not compiled, not run on a Mac.
+
 ## 0.10.16
 
 - Snapshot: `[snapshot] exclude` names paths inside a snapshotted folder that the run neither copies nor restores (absolute or `~/...`; an entry under no snapshotted folder is ignored, one that is or holds a root is refused). For live state other processes keep writing during a run: Pulse's chat transport writes routes and traces into its own data folder whenever any agent chat sends, which failed the snapshot (`cannot copy ...chat/reply-routes/...`, `... differs chat/trace.sqlite3`). Each root's excludes are kept in the restore marker.

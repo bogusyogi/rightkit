@@ -97,6 +97,42 @@ pub trait Backend: Send + Sync + 'static {
     ) -> Result<bool>;
     /// `Ok(true)` if an item was removed, `Ok(false)` if there was none.
     fn delete(&self, ns: &Namespace, account: &str, mode: Interaction) -> Result<bool>;
+    /// macOS only: whether the item's access control admits only the running process (see
+    /// [`crate::macos::AccessProof`]). Read-only: no secret is read and nothing changes. The
+    /// default refuses (`Error::Unavailable`): a backend that cannot read an item's access cannot
+    /// prove it.
+    #[cfg(target_os = "macos")]
+    fn access_admits_only_self(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        team_id: &str,
+        mode: Interaction,
+    ) -> Result<crate::macos::AccessProof> {
+        let _ = (team_id, mode);
+        check_target(ns, account)?;
+        Err(Error::Unavailable(
+            "this backend cannot read an item's access control".into(),
+        ))
+    }
+    /// macOS only: create the item with an access that trusts only the running process, or update
+    /// it in place when its access is already proven so; an existing item whose access is not
+    /// proven is refused and left untouched. The default refuses (`Error::Unavailable`).
+    #[cfg(target_os = "macos")]
+    fn set_isolated(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        secret: &Secret,
+        team_id: &str,
+        mode: Interaction,
+    ) -> Result<()> {
+        let _ = (secret, team_id, mode);
+        check_target(ns, account)?;
+        Err(Error::Unavailable(
+            "this backend cannot create an item with an explicit access control".into(),
+        ))
+    }
     /// Remove the item only if it still holds `expected`, as one step that no writer of this
     /// store can interleave with. The default is [`ConditionalDelete::Unsupported`]: it removes
     /// nothing, which is the safe answer for a store that cannot compare and delete atomically

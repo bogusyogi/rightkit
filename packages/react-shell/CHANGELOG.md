@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.10
+Additive; no existing export, signature or behaviour changes. New module imports only `react` (in `./headless`).
+
+- `useForcedTheme(store, choice, hooks?)`, `ForcedThemeHooks` (`forced-theme.ts`): applies `choice` through the theme store while the component is mounted and applies the store's own choice again on unmount; the saved choice is not changed. A save while mounted is re-forced on the next microtask. `hooks.onForce` / `hooks.onRestore` run after each apply, for an app that paints more than `data-theme`.
+
 ## 0.7.9
 Additive. Moved from HeardRight; no existing export, signature or behaviour changes. New modules import only `react` (headless-safe, in `./headless`), except `bootstrapWindows`, which imports `react-dom/client` (in `./react` only).
 

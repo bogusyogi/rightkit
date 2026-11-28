@@ -49,6 +49,7 @@ export {
   type SplashStatus,
   type UseSplashStallOptions,
 } from "./splash.js";
+export { useForcedTheme, type ForcedThemeHooks } from "./forced-theme.js";
 export { createFieldStore, useField, type FieldStore } from "./field-store.js";
 export { createErrorHumanizer, humanizeError, type ErrorRule, type HumanizeErrorOptions } from "./humanize-error.js";
 export { usePaletteFocusRestore, type UsePaletteFocusRestoreOptions } from "./palette-focus-restore.js";

@@ -44,6 +44,14 @@
 //! reference, so no secret bytes are fetched and no ACL authorization is evaluated. Every call
 //! sets the process-wide UI policy first; non-interactive calls fail with
 //! `errSecInteractionNotAllowed` instead of showing a dialog.
+//!
+//! ## Access control proof and isolated write (0.5.11)
+//! `acl` adds what the calls above cannot do: [`Backend::access_admits_only_self`] reads an item's
+//! access object and answers [`AccessProof`], and [`Backend::set_isolated`] creates an item with an
+//! explicit access that trusts only the running process, refusing to touch an existing item whose
+//! access it cannot prove. Both go through `Store` (`Store::access_admits_only_self`,
+//! `Store::set_isolated`), so the keychain pinning, the destination checks and the per-target
+//! exclusion above apply unchanged. See `acl.rs` for exactly what is checked.
 
 use crate::backend::{Backend, Interaction};
 use crate::error::{Error, Result};
@@ -53,6 +61,9 @@ use std::ffi::{c_char, c_void, CString};
 use std::path::{Path, PathBuf};
 use std::ptr::{null, null_mut};
 use std::sync::{Arc, Mutex};
+
+mod acl;
+pub use acl::AccessProof;
 
 type OSStatus = i32;
 
@@ -583,6 +594,35 @@ impl Backend for KeychainBackend {
                 DUPLICATE => Ok(false),
                 st => Err(map("add", st)),
             }
+        })?
+    }
+
+    fn access_admits_only_self(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        team_id: &str,
+        mode: Interaction,
+    ) -> Result<AccessProof> {
+        check_target(ns, account)?;
+        Self::with_ui(mode, || {
+            let kc = self.keychain()?;
+            acl::proof(&kc, ns, account, team_id)
+        })?
+    }
+
+    fn set_isolated(
+        &self,
+        ns: &Namespace,
+        account: &str,
+        secret: &Secret,
+        team_id: &str,
+        mode: Interaction,
+    ) -> Result<()> {
+        check_target(ns, account)?;
+        Self::with_ui(mode, || {
+            let kc = self.keychain()?;
+            acl::set_isolated(self, &kc, ns, account, secret, team_id, mode)
         })?
     }
 
