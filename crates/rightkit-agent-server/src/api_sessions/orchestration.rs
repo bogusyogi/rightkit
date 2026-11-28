@@ -108,21 +108,74 @@ async fn orchestrate_session_once(
     let st = state.clone();
     let sid = id.clone();
     tokio::spawn(async move {
-        if let Err(e) = st.run_conductor(&sid, &goal, dry_run).await {
+        let result = st.run_conductor(&sid, &goal, dry_run).await;
+        if result.is_ok() {
+            // Issue 450 (W9T-03): the turn ends on `sessionTurnFinished`.
+            crate::api_sessions::messages::publish_turn_finished(
+                &session.conduit,
+                &sid,
+                &format!("conductor-{}", crate::api::now_millis()),
+                "completed",
+            );
+        }
+        if let Err(e) = result {
             tracing::error!(session_id = %sid, error = %e, "orchestrate handler error");
             let seq = session.conduit.next_seq();
+            let (kind, hint) = conductor_failure_class(&e);
             session.conduit.publish(ProtocolEvent::RunFailed {
                 session_id: sid.clone(),
                 seq,
                 created_at: now_iso(),
                 error: e,
-                kind: "orchestration".into(),
-                hint: "Check that the conductor's model and provider key are configured.".into(),
+                kind: kind.into(),
+                hint: hint.into(),
             });
         }
     });
     Ok(Json(serde_json::json!({ "accepted": true })))
 }
+/// The failure kind and hint for a conductor run that ended with an error
+/// (orchestration rule 40, D25): the hint names the cause class, so a wall-clock
+/// stop does not tell the user to check the provider key.
+pub(crate) fn conductor_failure_class(error: &str) -> (&'static str, &'static str) {
+    let lower = error.to_ascii_lowercase();
+    if lower.contains("wall-clock") || lower.contains("wall clock") {
+        (
+            "timeout",
+            "The run reached the wall-clock limit. Raise orchestration.budget.max-wall-clock-minutes or narrow the goal.",
+        )
+    } else if lower.contains("ceiling") || lower.contains("budget") {
+        (
+            "budget",
+            "The run hit a cost ceiling. Raise the per-goal budget or narrow the goal.",
+        )
+    } else if lower.contains("planner")
+        || lower.contains("invalid plan")
+        || lower.contains("task graph")
+    {
+        (
+            "planner",
+            "The planner did not return a valid task graph (JSON with tasks). Retry, or choose a conductor model that follows JSON instructions.",
+        )
+    } else if lower.contains("api key")
+        || lower.contains("no provider")
+        || lower.contains("provider")
+        || lower.contains("401")
+        || lower.contains("403")
+        || lower.contains("authentication")
+    {
+        (
+            "provider",
+            "The conductor's provider rejected or could not serve the request. Check that its model and key are configured.",
+        )
+    } else {
+        (
+            "orchestration",
+            "The conductor stopped before finishing. The error above says why; no worker output was lost.",
+        )
+    }
+}
+
 pub(crate) async fn bind_session_spec_handler(
     State(state): State<DaemonState>,
     Path(id): Path<String>,
@@ -254,7 +307,8 @@ pub(crate) async fn get_taskgraph(
         .collect();
     Ok(Json(serde_json::json!(rows)))
 }
-/// F1 — per-sub-agent roster rows for the session agent rail.
+/// F1 — per-sub-agent roster rows for the session agent rail (flat array of
+/// child rows; the TUI and the in-process session host read this shape).
 pub(crate) async fn get_session_agents(
     State(state): State<DaemonState>,
     Path(id): Path<String>,
@@ -264,4 +318,23 @@ pub(crate) async fn get_session_agents(
     Ok(Json(
         serde_json::to_value(rows).unwrap_or(serde_json::json!([])),
     ))
+}
+
+/// `GET /sessions/{id}/agents`. Default: the flat array above. With
+/// `?withMain=true`: an object `{ main, agents, totalCostUsd, costKnown }`
+/// where `main` is the session's own entry, so clients that assume every array
+/// entry is a child never see it.
+pub(crate) async fn get_session_agents_route(
+    State(state): State<DaemonState>,
+    Path(id): Path<String>,
+    Query(query): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if query
+        .get("withMain")
+        .is_some_and(|v| matches!(v.as_str(), "true" | "1"))
+    {
+        let live = state.get_session(&id).ok_or(StatusCode::NOT_FOUND)?;
+        return Ok(Json(crate::api::agent_roster_view(&live)));
+    }
+    get_session_agents(State(state), Path(id)).await
 }

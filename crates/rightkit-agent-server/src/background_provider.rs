@@ -14,7 +14,7 @@ use crate::membrane_binding::{
     BackgroundSemanticReviewStatusV1, ForegroundMemoryCursorV1, ForegroundMemoryStateV1,
     LiveProviderAuthorityV1, MemoryCandidateV1, SemanticCurationProposalV1,
 };
-use rightkit_llm::agent_providers::{CompletedTurn, OpenAiCompatClient};
+use rightkit_llm::agent_providers::CompletedTurn;
 use serde::Deserialize;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -52,7 +52,7 @@ struct ProviderPayloadV1 {
 /// material nor provider response text can redefine authority.
 #[derive(Clone)]
 pub struct ConfiguredBackgroundProvider {
-    client: OpenAiCompatClient,
+    route: crate::provider_client::ProviderRoute,
     authority: LiveProviderAuthorityV1,
 }
 
@@ -63,7 +63,7 @@ impl ConfiguredBackgroundProvider {
 
     pub fn new(config: &EngineConfig, authority: LiveProviderAuthorityV1) -> Self {
         Self {
-            client: OpenAiCompatClient::new(&config.api_key, &config.model_id, &config.base_url),
+            route: crate::provider_client::projection_route(config),
             authority,
         }
     }
@@ -147,7 +147,7 @@ impl ConfiguredBackgroundProvider {
 
         let completion = match tokio::time::timeout(
             Duration::from_millis(remaining_ms),
-            self.client.complete(messages),
+            crate::provider_client::complete_on_route(&self.route, messages),
         )
         .await
         {

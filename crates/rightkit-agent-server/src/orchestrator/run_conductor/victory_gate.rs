@@ -1,3 +1,60 @@
+/// The `completionArbitrated` event: GDS, jury consensus, jury approval and the
+/// arbiter's state, recorded for every goal verification (orchestration rule
+/// 10). It rides the observation event so clients and the journal need no new
+/// event kind.
+fn completion_arbitrated_event(
+    session_id: &str,
+    seq: i64,
+    gds: f64,
+    consensus: bool,
+    approved: bool,
+    state: &str,
+) -> ProtocolEvent {
+    let now = now_iso();
+    let mut fields = std::collections::HashMap::new();
+    fields.insert("gds".to_string(), format!("{gds:.4}"));
+    fields.insert("consensus".to_string(), consensus.to_string());
+    fields.insert("approved".to_string(), approved.to_string());
+    fields.insert("state".to_string(), state.to_string());
+    ProtocolEvent::OrchestrationObservationRecorded {
+        session_id: session_id.to_string(),
+        seq,
+        created_at: now.clone(),
+        observation: rightkit_agent_engine_protocol::OrchestrationObservation {
+            id: format!("completion-arbitrated-{seq}"),
+            kind: "completionArbitrated".into(),
+            subject: session_id.to_string(),
+            summary: format!(
+                "completion arbitrated: {state} (GDS {gds:.2}, consensus {consensus}, approved {approved})"
+            ),
+            fields,
+            created_at: now,
+        },
+    }
+}
+
+/// The arbiter's answer when the same unresolved criterion survives repeated
+/// independent verifications: an explicit escalation (orchestration rule 11).
+fn stalled_verification_arbitration(gds: f64) -> rightkit_agent_orchestration::coding::Arbitration {
+    rightkit_agent_orchestration::coding::arbitrate(
+        &rightkit_agent_orchestration::coding::CompletionInput {
+            gds,
+            verification_present: true,
+            jury_consensus: true,
+            verification_approved: false,
+            escalate: true,
+        },
+        &rightkit_agent_orchestration::coding::CompletionConfig::default(),
+    )
+}
+
+/// The report line for a juror that returned no verdict (orchestration rule
+/// 9): the missing juror is named with the reason instead of being dropped.
+fn juror_no_verdict_line(role: &str, reason: &str) -> String {
+    let reason: String = reason.split_whitespace().collect::<Vec<_>>().join(" ");
+    format!("juror {role}: no verdict ({})", truncate(&reason, 200))
+}
+
 impl DaemonState {
     /// Spawn an agent with a hard timeout so a slow/stuck verifier or juror
     /// cannot hang the victory gate forever.
@@ -181,13 +238,18 @@ impl DaemonState {
             if let rightkit_agent_engine_core::GoalGapObservation::Stalled { count } =
                 gap_observation
             {
+                // Repeated failure is the arbiter's escalation condition: the
+                // goal is handed to the user as Blocked, so `Escalate` is
+                // reachable (orchestration rule 11).
+                let arb = stalled_verification_arbitration(gds);
                 return (
-                    CompletionState::NeedsReview,
+                    arb.state,
                     format!(
-                    "NeedsReview: goal paused after {count} consecutive independent verifications \
+                        "{}: goal paused after {count} consecutive independent verifications \
                  reported the same unresolved criterion/evidence set.\n{}",
-                    truncate(&verification, 400)
-                ),
+                        arb.state.as_str(),
+                        truncate(&verification, 400)
+                    ),
                 );
             }
             // Verification present but failed → arbiter bands by GDS.
@@ -231,15 +293,19 @@ impl DaemonState {
             self.spawn_with_timeout(juror_roles[1], &jp_auditor, session_id, gate_timeout),
         );
         let mut verdicts: Vec<JurorVerdict> = Vec::new();
+        let mut missing_jurors: Vec<String> = Vec::new();
         for (jr, result) in juror_roles.iter().zip([r0, r1]) {
-            if let Ok(t) = result {
-                let (approve, confidence) = parse_verdict(&t);
-                verdicts.push(JurorVerdict {
-                    juror: jr.to_string(),
-                    approve,
-                    confidence,
-                    reasoning: t,
-                });
+            match result {
+                Ok(t) => {
+                    let (approve, confidence) = parse_verdict(&t);
+                    verdicts.push(JurorVerdict {
+                        juror: jr.to_string(),
+                        approve,
+                        confidence,
+                        reasoning: t,
+                    });
+                }
+                Err(reason) => missing_jurors.push(juror_no_verdict_line(jr, &reason)),
             }
         }
 
@@ -295,6 +361,19 @@ impl DaemonState {
             &rightkit_agent_orchestration::coding::CompletionConfig::default(),
         );
         let approve_count = verdicts.iter().filter(|v| v.approve).count();
+        // Orchestration rule 10: the arbiter's inputs and its answer are one
+        // recorded event, not only text in the report.
+        {
+            let seq = conduit.next_seq();
+            conduit.publish(completion_arbitrated_event(
+                session_id,
+                seq,
+                gds,
+                consensus,
+                approved,
+                arb.state.as_str(),
+            ));
+        }
         {
             let mut evidence =
                 lock_recover(&session.completion_evidence, "session.completion_evidence");
@@ -321,6 +400,11 @@ impl DaemonState {
             verdicts.len(),
             arb.rationale,
         );
+
+        for line in &missing_jurors {
+            summary.push('\n');
+            summary.push_str(line);
+        }
 
         // Eval-hack advisory: inspect the run's diff for scoring exploitation
         // patterns before accepting a green verification.

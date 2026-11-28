@@ -9,6 +9,7 @@ pub(crate) struct NofileDiagnostic {
     pub(crate) detail: String,
 }
 
+#[cfg(unix)]
 pub(crate) fn target_nofile_soft(current_soft: u64, hard: u64) -> u64 {
     current_soft.max(TARGET_NOFILE_SOFT.min(hard))
 }
@@ -51,6 +52,7 @@ where
     }
 }
 
+#[cfg(unix)]
 fn nofile_read_failure(error: String) -> NofileDiagnostic {
     NofileDiagnostic {
         supported: cfg!(unix),
@@ -62,6 +64,7 @@ fn nofile_read_failure(error: String) -> NofileDiagnostic {
     }
 }
 
+#[cfg(unix)]
 fn nofile_result(
     current: u64,
     hard: u64,
@@ -117,15 +120,19 @@ pub(crate) fn raise_nofile_soft_limit() -> NofileDiagnostic {
     }
 }
 
-#[cfg_attr(not(unix), allow(unused_variables))]
+#[cfg(unix)]
 pub(crate) fn file_descriptor_error(
     error: &std::io::Error,
     diagnostic: &NofileDiagnostic,
 ) -> String {
-    #[cfg(unix)]
     if matches!(error.raw_os_error(), Some(libc::EMFILE | libc::ENFILE)) {
-        return format!("file descriptor exhaustion ({error}); current soft limit={}; hard limit={}. Close idle sessions/processes or raise the host nofile limit, then restart RightKit.", diagnostic.applied_soft.or(diagnostic.current_soft).map(|v| v.to_string()).unwrap_or_else(|| "unknown".into()), diagnostic.hard.map(|v| v.to_string()).unwrap_or_else(|| "unknown".into()));
+        return format!("file descriptor exhaustion ({error}); current soft limit={}; hard limit={}. Close idle sessions/processes or raise the host nofile limit, then restart {app}.", diagnostic.applied_soft.or(diagnostic.current_soft).map(|v| v.to_string()).unwrap_or_else(|| "unknown".into()), diagnostic.hard.map(|v| v.to_string()).unwrap_or_else(|| "unknown".into()), app = rightkit_agent_config::app_name());
     }
+    error.to_string()
+}
+
+#[cfg(not(unix))]
+pub(crate) fn file_descriptor_error(error: &std::io::Error) -> String {
     error.to_string()
 }
 

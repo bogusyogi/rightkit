@@ -4,7 +4,49 @@ pub use rightkit_agent_daemon::{DaemonSettingsStore, EngineConfig, LiveTurnHandl
 /// treats `capacity() < SESSION_MSG_CHANNEL_CAPACITY` as queued user work.
 pub(crate) const SESSION_MSG_CHANNEL_CAPACITY: usize = 32;
 
+/// The prompt-cache prefix a live session last read or wrote, and when the provider drops it.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CacheWarmth {
+    pub tokens: u64,
+    pub expires: std::time::Instant,
+}
+
+impl CacheWarmth {
+    /// What a `turnUsage` event says is warm: the response's cache reads and writes, kept for the
+    /// lifetime the request asked for (the 5-minute lifetime when the event names none).
+    pub(crate) fn from_turn_usage(
+        cached_input_tokens: i64,
+        cache_creation_tokens: i64,
+        cache_ttl_ms: Option<u64>,
+        now: std::time::Instant,
+    ) -> Option<Self> {
+        let tokens = u64::try_from(cached_input_tokens.max(0))
+            .unwrap_or(0)
+            .saturating_add(u64::try_from(cache_creation_tokens.max(0)).unwrap_or(0));
+        let ttl_ms = cache_ttl_ms
+            .unwrap_or(rightkit_agent_engine_core::prompt_cache_break::CACHE_TTL_5MIN_MS);
+        (tokens > 0 && ttl_ms > 0).then(|| Self {
+            tokens,
+            expires: now + std::time::Duration::from_millis(ttl_ms),
+        })
+    }
+
+    /// The warning for switching the model now, or `None` once the cached prefix has expired.
+    pub(crate) fn switch_warning(&self, now: std::time::Instant) -> Option<String> {
+        let left = self.expires.checked_duration_since(now)?;
+        let minutes = left.as_secs().div_ceil(60).max(1);
+        Some(format!(
+            "Switching the model will miss the prompt cache (~{} tokens warm, expires in {} min); the next request pays for the whole prefix again.",
+            self.tokens, minutes
+        ))
+    }
+}
+
 pub struct LiveSession {
+    /// The system prompt the session's engine was started with, as sent (a context fork reuses it).
+    pub(crate) rendered_system_prompt: Arc<Mutex<Option<String>>>,
+    /// Latest cached prefix of this session's provider requests (see [`CacheWarmth`]).
+    pub(crate) cache_warmth: Arc<Mutex<Option<CacheWarmth>>>,
     pub compaction_snapshot_feed:
         Arc<std::sync::RwLock<rightkit_agent_engine_core::CompactionSnapshotV1>>,
     pub id: String,
@@ -186,6 +228,9 @@ pub struct LiveSession {
     /// be conflated with zero. Surfaced as `costUsd` on the session row and
     /// `{app} agents --json`.
     pub cost_usd: Arc<Mutex<Option<f64>>>,
+    /// True when every priced request so far carried the provider's own charge (billed), not a
+    /// price-table estimate. Surfaced as `costBilled` on the session row.
+    pub cost_billed: Arc<std::sync::atomic::AtomicBool>,
     /// Shared counter the engine bumps on every successful typed
     /// `WorkspaceMutation`. Read by `finalize_goal` so the unbacked-victory
     /// gate sees the real count from the engine task, not a hardcoded zero.
@@ -363,6 +408,7 @@ impl rightkit_agent_coding_tools::UserQuestioner for DaemonQuestioner {
             );
             let (tx, rx) = tokio::sync::oneshot::channel::<serde_json::Value>();
             lock_recover(&store, "session.pending_questions").insert(qid.clone(), tx);
+            crate::api_sessions::approvals::note_pending_question(&session_id, &qid, &parsed);
 
             let seq = conduit.next_seq();
             conduit.publish(ProtocolEvent::UserQuestionAsked {
@@ -377,14 +423,15 @@ impl rightkit_agent_coding_tools::UserQuestioner for DaemonQuestioner {
             // client must release the pending request instead of pinning a
             // worker forever. The keyed answer route remains the sole way to
             // resolve a question before this deadline.
-            let answer =
-                match tokio::time::timeout(std::time::Duration::from_secs(30 * 60), rx).await {
-                    Ok(result) => result.map_err(|_| "question was cancelled".to_string())?,
-                    Err(_) => {
-                        lock_recover(&store, "session.pending_questions").remove(&qid);
-                        return Err("question timed out awaiting operator response".to_string());
-                    }
-                };
+            let waited = tokio::time::timeout(std::time::Duration::from_secs(30 * 60), rx).await;
+            crate::api_sessions::approvals::forget_pending_question(&session_id, &qid);
+            let answer = match waited {
+                Ok(result) => result.map_err(|_| "question was cancelled".to_string())?,
+                Err(_) => {
+                    lock_recover(&store, "session.pending_questions").remove(&qid);
+                    return Err("question timed out awaiting operator response".to_string());
+                }
+            };
 
             let seq2 = conduit.next_seq();
             conduit.publish(ProtocolEvent::UserQuestionAnswered {
@@ -400,8 +447,8 @@ impl rightkit_agent_coding_tools::UserQuestioner for DaemonQuestioner {
 
 // ── Daemon state ──────────────────────────────────────────────────────────────
 
-/// Per session id: the plugins unloaded for it and how many registrations that removed.
-pub type SessionPluginUnloads = Arc<Mutex<std::collections::HashMap<String, (Vec<String>, usize)>>>;
+/// Per-session plugin unload bookkeeping: plugin ids and the unload count.
+pub(crate) type SessionPluginUnloadMap = std::collections::HashMap<String, (Vec<String>, usize)>;
 
 #[derive(Clone)]
 pub struct DaemonState {
@@ -477,14 +524,17 @@ pub struct DaemonState {
     /// consult this set while holding the same mutex through their storage write,
     /// preventing an interrupted background agent from resurrecting deleted rows.
     pub deleted_session_ids: Arc<Mutex<HashSet<String>>>,
-    #[allow(dead_code)]
     pub token: String,
     pub engine_cfg: Option<EngineConfig>,
-    /// Fixed Pro feature set. Empty; the licence gate below decides.
+    /// Fixed Pro feature set. Empty in production, where the licence gate below decides; only a
+    /// test or `test-mode` build seeds it (never from the environment).
     pub licensed_features: Arc<Mutex<HashSet<String>>>,
     /// The daemon's own verification of the stored licence record (`crate::license`). When set it
     /// is the only source of Pro features; absent means no licence locators were given (Free).
     pub license_gate: Option<Arc<crate::license::LicenseGate>>,
+    /// Whether a missing Pro feature refuses a route (the host option `license_enforced`). When it
+    /// is false every feature check passes for every user: Pro exists but nothing is enforced.
+    pub license_enforced: bool,
     pub agent_registry: Arc<AgentRegistry>,
     pub settings: Arc<Mutex<DaemonSettingsStore>>,
     /// The actual TCP port the daemon bound to (0 until `with_runtime_info`).
@@ -525,6 +575,9 @@ pub struct DaemonState {
     /// Session/event store, when persistence is available. Used to purge a
     /// session's persisted rows on delete.
     pub storage: Option<SharedStorage>,
+    /// Why the daemon's database could not be opened at start, when it could not (rule 7). While set,
+    /// the daemon refuses to start a turn rather than run without persistence.
+    pub storage_open_failure: Option<String>,
     /// Live process-generation table for the CLI runtime recovery flow
     /// (PR 13). One entry per binding; advanced when the supervisor
     /// restarts a vendor process.
@@ -630,7 +683,7 @@ pub struct DaemonState {
     /// Observable so the unload is provable at the call site rather than only
     /// logged: a test that merely composes the same calls would pass with the
     /// production wiring deleted.
-    pub session_plugin_unloads: SessionPluginUnloads,
+    pub session_plugin_unloads: Arc<Mutex<SessionPluginUnloadMap>>,
     /// EFF-006: reconciliation of mutation batches that never settled,
     /// recorded per session when that session opened its workspace.
     ///
@@ -729,4 +782,31 @@ pub(crate) fn lock_recover<'a, T>(mutex: &'a Mutex<T>, label: &str) -> MutexGuar
             poisoned.into_inner()
         }
     }
+}
+
+/// The per-request overrides a provider route is built with: reasoning effort, thinking-token
+/// budget, and whether thinking is switched off.
+#[derive(Clone)]
+pub(crate) struct RouteOverrides {
+    pub(crate) effort: Option<String>,
+    pub(crate) thinking_budget_tokens: Option<u32>,
+    pub(crate) disable_thinking: bool,
+}
+
+/// Who a live session is: its id and role, the workspace it works in, its title and its parent.
+pub(crate) struct SessionIdentity<'a> {
+    pub(crate) id: &'a str,
+    pub(crate) role: Option<&'a str>,
+    pub(crate) workspace_root: &'a str,
+    pub(crate) title: &'a str,
+    pub(crate) parent_session_id: Option<&'a str>,
+}
+
+/// What a session starts from when it is rebuilt rather than created: the visible and the
+/// engine transcript, the highest event seq already stored, and the compaction epoch.
+pub(crate) struct SessionSeed {
+    pub(crate) seed: Option<Vec<TranscriptMessage>>,
+    pub(crate) engine_seed: Option<Vec<TranscriptMessage>>,
+    pub(crate) high_water: i64,
+    pub(crate) compaction_epoch: u64,
 }

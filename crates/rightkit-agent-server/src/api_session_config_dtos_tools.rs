@@ -23,9 +23,16 @@ pub struct CreateSession {
     #[serde(default)]
     pub active_skills: Vec<String>,
     pub toolset: Option<String>,
+    /// Tool profile for this session's own tools only; children do not inherit it.
+    #[serde(default)]
+    pub own_toolset: Option<String>,
     pub execution_backend: Option<String>,
     pub execution_workspace_id: Option<String>,
     pub driver_kind: Option<String>,
+    /// Claude account this chat runs on (`GET /accounts` id). Recorded as the session's selection
+    /// when the session is created; absent means the project default applies.
+    #[serde(default)]
+    pub account_id: Option<String>,
     pub mcp_channel: Option<String>,
     pub spec_id: Option<String>,
     pub effort: Option<String>,
@@ -57,6 +64,9 @@ pub struct CreateSession {
     pub system_prompt: Option<String>,
     #[serde(default)]
     pub append_system_prompt: Option<String>,
+    /// JSON Schema the final answer must satisfy (`run --output-schema`).
+    #[serde(default)]
+    pub output_schema: Option<serde_json::Value>,
     #[serde(default)]
     pub bare: bool,
     #[serde(default)]
@@ -65,6 +75,10 @@ pub struct CreateSession {
     pub add_dir: Vec<String>,
     #[serde(default)]
     pub mcp_config: Option<String>,
+    /// Per-session workspace-trust grant (`run --trust-workspace`). Honoured on create only, never
+    /// persisted and never written to the trust store; it does not enable bypass mode.
+    #[serde(default)]
+    pub trust_workspace: bool,
 }
 
 #[derive(Deserialize)]
@@ -120,9 +134,9 @@ pub(crate) fn normalize_effort(effort: Option<String>) -> Result<Option<String>,
         return Ok(None);
     }
     match normalized.as_str() {
-        "low" | "medium" | "high" => Ok(Some(normalized)),
+        "low" | "medium" | "high" | "xhigh" | "max" => Ok(Some(normalized)),
         _ => Err(format!(
-            "Invalid effort '{raw}'. Expected one of: low, medium, high."
+            "Invalid effort '{raw}'. Expected one of: low, medium, high, xhigh, max."
         )),
     }
 }
@@ -141,8 +155,9 @@ pub(crate) fn api_workspace_root(workspace_root: &str) -> String {
     workspace_root.trim().replace('\\', "/")
 }
 
+/// One key function for every trust reader and writer (rules 11, 60).
 pub(crate) fn workspace_trust_key(workspace_root: &str) -> String {
-    api_workspace_root(workspace_root)
+    rightkit_agent_config::workspace_trust_key(workspace_root)
 }
 
 pub(crate) fn workspace_trust_label(trust: rightkit_agent_policy::WorkspaceTrust) -> &'static str {
@@ -236,10 +251,9 @@ pub(crate) fn build_session_tool_registry_for_plugins(
 pub(crate) fn load_workspace_config_with_env(
     workspace: &FsPath,
 ) -> rightkit_agent_config::HostConfig {
-    let loader = rightkit_agent_config::ConfigLoader::new();
-    let base = loader.load_files_for_workspace(workspace);
-    let env_vars: HashMap<String, String> = std::env::vars().collect();
-    loader.apply_env(base, &env_vars)
+    // One loader for both paths (issue 445 review): the granted path differs only in the
+    // grant bit, so the two cannot drift.
+    crate::daemon_state::load_workspace_config_granted(workspace, false)
 }
 
 pub(crate) fn web_search_config_from_config(

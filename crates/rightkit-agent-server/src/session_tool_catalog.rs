@@ -190,6 +190,113 @@ pub(crate) fn build_session_tool_registry_for_plugins(
     registry
 }
 
+/// Put the tools of the session's `expose = "direct"` MCP servers into `registry` under their
+/// qualified names, never withheld from the model's tool list. Safe mode registers none (it
+/// strips every MCP path); a `--tools` allow-list that names `mcp__` tools admits only those, and
+/// a deny removes the name, so a direct tool obeys the same filters `mcp_call` does.
+pub(crate) fn register_direct_mcp_tools(
+    registry: &mut ToolRegistry,
+    defs: &[rightkit_mcp::agent_mcp::McpToolDef],
+    safe_mode: bool,
+    role_allowed_tools: Option<&Vec<String>>,
+    requested_allowed_tools: &[String],
+    requested_disallowed_tools: &[String],
+) {
+    if safe_mode || defs.is_empty() {
+        return;
+    }
+    let allowed = crate::api::effective_tool_filter(
+        role_allowed_tools,
+        requested_allowed_tools,
+        requested_disallowed_tools,
+    );
+    let mut added = Vec::new();
+    // An allow-list keeps MCP tools unless it names some (`mcp__...`): then only those. Names are exact or
+    // globs (`mcp__*`, `mcp__server__*`), as in `--tools` and `--exclude-tools`.
+    let name_filter = rightkit_mcp::agent_mcp::McpToolNameFilter {
+        include: allowed
+            .as_ref()
+            .map(|selected| {
+                selected
+                    .iter()
+                    .filter(|tool| tool.starts_with("mcp__"))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default(),
+        exclude: requested_disallowed_tools.to_vec(),
+    };
+    for def in defs {
+        if rightkit_agent_coding_tools::mcp_tools::mcp_definition_changed(def) {
+            continue;
+        }
+        let name = def.name.as_str();
+        let permitted = name_filter.selects(name);
+        if permitted && registry.get(name).is_none() {
+            registry.register(Box::new(
+                rightkit_agent_coding_tools::mcp_tools::McpDirectTool::new(def),
+            ));
+            added.push(name.to_string());
+        }
+    }
+    if !added.is_empty() {
+        registry.add_eager_tools(added);
+        registry.refresh_tool_search_catalog();
+    }
+}
+
+/// Put the tools of the session's deferred MCP servers into `registry` under their qualified
+/// names without making them eager: a registered non-eager tool whose `defer_schema_by_default()`
+/// is true stays out of the tools block until `tool_search` scopes it. Same filters as
+/// [`register_direct_mcp_tools`]; a name already registered (a `direct` tool) is never downgraded.
+pub(crate) fn register_deferred_mcp_tools(
+    registry: &mut ToolRegistry,
+    defs: &[rightkit_mcp::agent_mcp::McpToolDef],
+    safe_mode: bool,
+    role_allowed_tools: Option<&Vec<String>>,
+    requested_allowed_tools: &[String],
+    requested_disallowed_tools: &[String],
+) {
+    if safe_mode || defs.is_empty() {
+        return;
+    }
+    let allowed = crate::api::effective_tool_filter(
+        role_allowed_tools,
+        requested_allowed_tools,
+        requested_disallowed_tools,
+    );
+    let mut added = false;
+    let name_filter = rightkit_mcp::agent_mcp::McpToolNameFilter {
+        include: allowed
+            .as_ref()
+            .map(|selected| {
+                selected
+                    .iter()
+                    .filter(|tool| tool.starts_with("mcp__"))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default(),
+        exclude: requested_disallowed_tools.to_vec(),
+    };
+    for def in defs {
+        if rightkit_agent_coding_tools::mcp_tools::mcp_definition_changed(def) {
+            continue;
+        }
+        let name = def.name.as_str();
+        let permitted = name_filter.selects(name);
+        if permitted && registry.get(name).is_none() {
+            registry.register(Box::new(
+                rightkit_agent_coding_tools::mcp_tools::McpDirectTool::new_deferred(def),
+            ));
+            added = true;
+        }
+    }
+    if added {
+        registry.refresh_tool_search_catalog();
+    }
+}
+
 /// Names approved under safe mode: every read-only builtin capability plus
 /// the host-owned Blueprint read paths in [`TOOL_NAMES`], which are
 /// registered by the host outside the builtin factory table. This set is the
@@ -333,5 +440,71 @@ impl SessionToolCatalog {
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .revision
+    }
+}
+
+#[cfg(test)]
+mod direct_mcp_tests {
+    use super::*;
+
+    fn def(name: &str) -> rightkit_mcp::agent_mcp::McpToolDef {
+        serde_json::from_value(serde_json::json!({
+            "name": name, "description": "d", "input_schema": {"type": "object", "properties": {}},
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn direct_tools_are_registered_eager_and_obey_the_filters() {
+        let defs = [def("mcp__a__one"), def("mcp__a__two")];
+        let mut registry = ToolRegistry::build_default();
+        register_direct_mcp_tools(
+            &mut registry,
+            &defs,
+            false,
+            None,
+            &[],
+            &["mcp__a__two".to_string()],
+        );
+        assert!(registry.get("mcp__a__one").is_some());
+        assert!(
+            registry.get("mcp__a__two").is_none(),
+            "a denied name is not registered"
+        );
+        assert!(registry.is_eager_tool("mcp__a__one"));
+
+        let mut safe = ToolRegistry::build_default();
+        register_direct_mcp_tools(&mut safe, &defs, true, None, &[], &[]);
+        assert!(
+            safe.get("mcp__a__one").is_none(),
+            "safe mode registers no MCP tool"
+        );
+
+        let mut narrowed = ToolRegistry::build_default();
+        register_direct_mcp_tools(
+            &mut narrowed,
+            &defs,
+            false,
+            None,
+            &["mcp__a__two".to_string()],
+            &[],
+        );
+        assert!(narrowed.get("mcp__a__one").is_none() && narrowed.get("mcp__a__two").is_some());
+    }
+
+    #[test]
+    fn deferred_mcp_tools_are_registered_but_not_eager() {
+        let defs = [def("mcp__a__one")];
+        let mut registry = ToolRegistry::build_default();
+        register_deferred_mcp_tools(&mut registry, &defs, false, None, &[], &[]);
+        assert!(registry.get("mcp__a__one").is_some());
+        assert!(!registry.is_eager_tool("mcp__a__one"));
+
+        let mut safe = ToolRegistry::build_default();
+        register_deferred_mcp_tools(&mut safe, &defs, true, None, &[], &[]);
+        assert!(
+            safe.get("mcp__a__one").is_none(),
+            "safe mode registers no MCP tool"
+        );
     }
 }

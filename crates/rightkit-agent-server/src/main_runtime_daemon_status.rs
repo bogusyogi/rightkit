@@ -1,7 +1,17 @@
 // ── `{app} status|stop|ps|agents|resume|fork` ────────────────────────────
 
+/// R12: every `--json` output carries `schema_version`.
+fn status_schema_version() -> String {
+    crate::host_identity::schema("cli.status.v1")
+}
+
+/// R26 (inbox ruling R41): the async inbox lives in daemon memory, so the status says what a
+/// daemon exit costs. Pending inbox items never keep a daemon resident.
+const INBOX_NOTE: &str =
+    "Pending inbox messages are held in memory and are lost when the daemon exits.";
+
 async fn daemon_status() -> i32 {
-    let resolution = resolve_daemon_state();
+    let resolution = resolve_daemon_state(true);
     let (base_url, token) = match resolution {
         DaemonResolution::Resolved(resolved) => resolved,
         DaemonResolution::Stopped => {
@@ -66,15 +76,7 @@ async fn daemon_status() -> i32 {
         }
     };
 
-    let session_count = sessions.as_array().map(Vec::len).unwrap_or(0);
-    let mut status = serde_json::json!({
-        "running": true,
-        "status": daemon_machine_status_from_health(&health).as_str(),
-        "daemonUrl": base_url,
-        "health": health,
-        "sessionCount": session_count,
-        "sessions": sessions,
-    });
+    let mut status = status_running_json(&base_url, health, sessions);
     // Reuse the daemon's authenticated native binding projection. A missing
     // metrics response is retained as unavailable; status never invents a
     // healthy context from daemon reachability alone.
@@ -103,7 +105,7 @@ async fn daemon_status() -> i32 {
 /// DL-014: `{app} stop`. Routes directly through the shared `authority()`
 /// singleton's `Stop` command; no independent stop path is implemented here.
 async fn daemon_stop(force: bool) -> i32 {
-    use rightkit_agent_daemon::LifecycleCommand;
+    use rightkit_agent_daemon::lifecycle::LifecycleCommand;
 
     match crate::daemon::lifecycle_backend::authority()
         .execute_cli(LifecycleCommand::Stop { force })
@@ -130,8 +132,27 @@ fn daemon_status_client(base_url: &str) -> Result<rightkit_http::AsyncClient, St
     )
 }
 
+fn status_running_json(
+    base_url: &str,
+    health: serde_json::Value,
+    sessions: serde_json::Value,
+) -> serde_json::Value {
+    let session_count = sessions.as_array().map(Vec::len).unwrap_or(0);
+    serde_json::json!({
+        "schema_version": status_schema_version(),
+        "running": true,
+        "status": daemon_machine_status_from_health(&health).as_str(),
+        "daemonUrl": base_url,
+        "health": health,
+        "sessionCount": session_count,
+        "sessions": sessions,
+        "inboxNote": INBOX_NOTE,
+    })
+}
+
 fn status_unreachable_json(base_url: &str, error: &str) -> serde_json::Value {
     serde_json::json!({
+        "schema_version": status_schema_version(),
         "running": false,
         "status": DaemonMachineStatus::Unreachable.as_str(),
         "daemonUrl": base_url,
@@ -141,6 +162,7 @@ fn status_unreachable_json(base_url: &str, error: &str) -> serde_json::Value {
 
 fn status_degraded_json(base_url: &str, error: &str) -> serde_json::Value {
     serde_json::json!({
+        "schema_version": status_schema_version(),
         "running": true,
         "status": DaemonMachineStatus::Degraded.as_str(),
         "daemonUrl": base_url,
@@ -150,6 +172,7 @@ fn status_degraded_json(base_url: &str, error: &str) -> serde_json::Value {
 
 fn status_stopped_json() -> serde_json::Value {
     serde_json::json!({
+        "schema_version": status_schema_version(),
         "running": false,
         "status": DaemonMachineStatus::Stopped.as_str(),
     })
@@ -163,8 +186,8 @@ fn daemon_machine_status_from_health(health: &serde_json::Value) -> DaemonMachin
     }
 }
 
-async fn daemon_ps() -> i32 {
-    daemon_session_list(None, None).await
+async fn daemon_ps(json: bool) -> i32 {
+    daemon_session_list(None, None, json).await
 }
 
 async fn daemon_agents(session_id: Option<&str>, json: bool, all: bool, cwd: bool) -> i32 {
@@ -255,6 +278,7 @@ async fn daemon_fork(
     all: bool,
     all_workspaces: bool,
     title: Option<&str>,
+    before_seq: Option<i64>,
 ) -> i32 {
     let parent_id = if let Some(id) = session_id.map(str::trim).filter(|id| !id.is_empty()) {
         id.to_string()
@@ -286,6 +310,9 @@ async fn daemon_fork(
     };
 
     let mut body = serde_json::json!({});
+    if let Some(before) = before_seq {
+        body["beforeSeq"] = serde_json::json!(before);
+    }
     if let Some(title) = title.map(str::trim).filter(|value| !value.is_empty()) {
         body["title"] = serde_json::json!(title);
     }

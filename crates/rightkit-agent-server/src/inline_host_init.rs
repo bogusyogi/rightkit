@@ -12,12 +12,10 @@
 //!   SAME attempt; the builder runs exactly once per attempt.
 //! - A failed attempt is never cached -- the very next call starts a fresh
 //!   attempt (retry within the same process).
-//! - A successful attempt is cached until [`InlineHostInitializer::invalidate`]
-//!   is called (e.g. because a cached resident lease could no longer be
-//!   re-acquired: worker generation changed or the lease was lost).
+//! - A successful attempt is cached for the life of the process.
 //! - Every attempt has a monotonically increasing id. A result computed by
-//!   an attempt that has since been superseded (by `invalidate`, which may
-//!   race an in-flight build) is discarded rather than published as current.
+//!   an attempt that has since been superseded is discarded rather than
+//!   published as current.
 //! - Waiting is cancellation-safe: dropping the calling future while it is
 //!   `.await`ing [`InlineHostInitializer::ensure`] never poisons shared
 //!   state for the next caller.
@@ -58,16 +56,6 @@ enum Action<T: Clone + Send + Sync + 'static> {
 }
 
 impl<T: Clone + Send + Sync + 'static> InlineHostInitializer<T> {
-    /// Force the next [`ensure`](Self::ensure) to start a fresh attempt even
-    /// though a value is currently cached. Any attempt already in flight at
-    /// the time this is called is orphaned: if it later succeeds, its
-    /// result is discarded rather than published as current (see module
-    /// docs -- obsolete-attempt discard).
-    pub fn invalidate(&self) {
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        *state = State::Idle;
-    }
-
     /// The cached value if a build already succeeded; never starts or joins
     /// a build. Presentation polling uses this so a slow or failing context
     /// build can never stall the terminal loop.
@@ -117,7 +105,7 @@ impl<T: Clone + Send + Sync + 'static> InlineHostInitializer<T> {
                                 };
                             }
                             // This attempt is no longer the current one
-                            // (superseded by `invalidate` or a later
+                            // (superseded by a later
                             // `Ready`/`InFlight`); its result -- success or
                             // failure -- must never become current. Loop
                             // and pick up whatever is current now.

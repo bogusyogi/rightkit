@@ -330,7 +330,7 @@ pub fn record_process_restart(
     ));
 }
 
-/// Helper used when the RightKit context rebuilds (workspace trust
+/// Helper used when the host context rebuilds (workspace trust
 /// changed, user re-authenticated, etc.). Advances the live epoch and
 /// queues a deferred update for every binding the daemon knows
 /// about so each binding row gets re-stamped at the turn boundary.

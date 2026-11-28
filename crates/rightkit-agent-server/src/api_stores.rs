@@ -3,49 +3,38 @@ use std::collections::HashMap;
 use std::path::{Path as FsPath, PathBuf};
 
 fn host_state_file(name: &str) -> PathBuf {
-    rightkit_agent_config::state_root()
-        .unwrap_or_else(|| {
-            std::env::current_dir()
-                .unwrap_or_else(|_| PathBuf::from("."))
-                .join(crate::host_identity::home_dir())
-        })
-        .join(name)
+    rightkit_agent_config::state_root_required().join(name)
+}
+
+/// The store file for `name`, or the file the host's `<env prefix>_<env_suffix>` variable names.
+fn store_path(env_suffix: &str, name: &str) -> PathBuf {
+    std::env::var_os(rightkit_agent_config::env_name(env_suffix))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| host_state_file(name))
 }
 
 pub(crate) fn default_team_store_path() -> PathBuf {
-    std::env::var_os("RIGHTKIT_TEAM_STORE")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| host_state_file("teams.json"))
+    store_path("TEAM_STORE", "teams.json")
 }
 
 pub(crate) fn default_message_store_path() -> PathBuf {
-    std::env::var_os("RIGHTKIT_MESSAGE_STORE")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| host_state_file("messages.json"))
+    store_path("MESSAGE_STORE", "messages.json")
 }
 
 pub(crate) fn default_instincts_store_path() -> PathBuf {
-    std::env::var_os("RIGHTKIT_INSTINCTS_STORE")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| host_state_file("instincts.json"))
+    store_path("INSTINCTS_STORE", "instincts.json")
 }
 
 pub(crate) fn default_permission_rule_store_path() -> PathBuf {
-    std::env::var_os("RIGHTKIT_PERMISSION_RULE_STORE")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| host_state_file("permission-rules.json"))
+    store_path("PERMISSION_RULE_STORE", "permission-rules.json")
 }
 
 pub(crate) fn default_permission_denial_store_path() -> PathBuf {
-    std::env::var_os("RIGHTKIT_PERMISSION_DENIAL_STORE")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| host_state_file("permission-denials.json"))
+    store_path("PERMISSION_DENIAL_STORE", "permission-denials.json")
 }
 
 pub(crate) fn default_workspace_trust_store_path() -> PathBuf {
-    std::env::var_os("RIGHTKIT_WORKSPACE_TRUST_STORE")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| host_state_file("workspace-trust.json"))
+    store_path("WORKSPACE_TRUST_STORE", "workspace-trust.json")
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -153,6 +142,54 @@ pub(crate) fn permission_rule_store_load_error(path: &FsPath) -> Option<Permissi
         .cloned()
 }
 
+/// What a store file looked like when this process last read it: enough to tell cheaply (one
+/// `stat`, no read) that another process has replaced it since. Every writer replaces the file
+/// by rename, so the file identity changes even when two writes land in one clock tick.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct StoreFileStamp {
+    modified: Option<std::time::SystemTime>,
+    len: u64,
+    file_id: u64,
+}
+
+/// The stamp of the file at `path`, `None` when there is no file.
+fn store_file_stamp(path: &FsPath) -> Option<StoreFileStamp> {
+    let meta = std::fs::metadata(path).ok()?;
+    #[cfg(unix)]
+    let file_id = std::os::unix::fs::MetadataExt::ino(&meta);
+    #[cfg(not(unix))]
+    let file_id = 0;
+    Some(StoreFileStamp {
+        modified: meta.modified().ok(),
+        len: meta.len(),
+        file_id,
+    })
+}
+
+fn store_file_stamps() -> &'static std::sync::Mutex<HashMap<PathBuf, Option<StoreFileStamp>>> {
+    static STAMPS: std::sync::OnceLock<std::sync::Mutex<HashMap<PathBuf, Option<StoreFileStamp>>>> =
+        std::sync::OnceLock::new();
+    STAMPS.get_or_init(Default::default)
+}
+
+/// Records `stamp` as the last state of `path` this process read. Take the stamp BEFORE reading
+/// the file: a replacement between the two is then seen as a change by the next check.
+fn remember_store_file_stamp(path: &FsPath, stamp: Option<StoreFileStamp>) {
+    store_file_stamps()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(path.to_path_buf(), stamp);
+}
+
+/// Whether `stamp` differs from the last one recorded for `path` (true when none was recorded).
+fn store_file_stamp_changed(path: &FsPath, stamp: &Option<StoreFileStamp>) -> bool {
+    store_file_stamps()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(path)
+        != Some(stamp)
+}
+
 /// Strict load. A missing file is an empty store; anything unreadable or unparseable is an error.
 pub(crate) fn try_load_permission_rule_store(
     path: &FsPath,
@@ -190,6 +227,7 @@ fn deny_all_permission_rule_store() -> PersistentPermissionRuleStore {
 /// (see [`permission_rule_store_load_error`]) and the returned store denies everything; the
 /// corrupt content is never replaced by an empty (allow-by-default) store.
 pub(crate) fn load_permission_rule_store(path: &FsPath) -> PersistentPermissionRuleStore {
+    remember_store_file_stamp(path, store_file_stamp(path));
     match try_load_permission_rule_store(path) {
         Ok(store) => {
             record_permission_rule_load_result(path, None);
@@ -225,20 +263,101 @@ pub(crate) fn reload_permission_rule_store(
     }
 }
 
-/// If the last load of `path` failed, retry it: a repaired file replaces the held store and
-/// clears the recorded error; a still-broken file keeps the held (last good or deny-all) store.
-/// Returns the current unresolved error, if any. Cheap no-op when nothing is flagged.
+/// Brings the held store up to date with the file. Two cases reload it:
+/// - the last load of `path` failed: retry it, so a repaired file replaces the held store and
+///   clears the recorded error;
+/// - the file was replaced since this process last read it (another process of the host added or
+///   removed a rule): its rules, denies included, replace the held copy.
+///
+/// A file that cannot be loaded keeps the held (last good or deny-all) store and records the
+/// error. Returns the current unresolved error, if any. When nothing is flagged and the file is
+/// unchanged this costs one `stat`.
+///
+/// The held store's mutex is kept for the whole check, as the writers keep it for their write,
+/// so a reload can never put an older file back over a newer write of this process.
 pub(crate) fn refresh_permission_rule_store(
     path: &FsPath,
     store: &std::sync::Mutex<PersistentPermissionRuleStore>,
 ) -> Option<PermissionRuleLoadError> {
-    permission_rule_store_load_error(path)?;
     let mut guard = store
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let stamp = store_file_stamp(path);
+    if permission_rule_store_load_error(path).is_none() && !store_file_stamp_changed(path, &stamp) {
+        return None;
+    }
+    remember_store_file_stamp(path, stamp);
     let (next, error) = reload_permission_rule_store(path, &guard);
     *guard = next;
     error
+}
+
+/// Why [`update_permission_rule_store`] changed nothing.
+#[derive(Debug)]
+pub(crate) enum PermissionRuleUpdateError<E> {
+    /// The change itself was refused (bad input, a rule that is no longer the one named).
+    Rejected(E),
+    /// The file could not be locked, read or written.
+    Storage(String),
+}
+
+/// One change to the persisted permission rules, safe with several processes writing.
+///
+/// Under the cross-process lock the FILE is read again, `change` is applied to that copy (never
+/// to this process's in-memory copy), the result is written atomically, and only then does it
+/// become the held store. So a rule another process added is kept, a rule another process
+/// removed stays removed, and a deny written elsewhere is never dropped by this write.
+///
+/// `change` gets the store as it is on disk (to modify) and the store this process held (what
+/// its clients were last shown). `Ok(None)` means there is nothing to change: nothing is written.
+/// Whenever the file was read, the held store is brought up to date with it, also on a refusal,
+/// so the client's next listing shows what is really there. A failed write leaves the held store
+/// as it was. A file that fails to load is refused and never replaced.
+pub(crate) fn update_permission_rule_store<T, E>(
+    path: &FsPath,
+    held: &std::sync::Mutex<PersistentPermissionRuleStore>,
+    change: impl FnOnce(
+        &mut PersistentPermissionRuleStore,
+        &PersistentPermissionRuleStore,
+    ) -> Result<Option<T>, E>,
+) -> Result<Option<T>, PermissionRuleUpdateError<E>> {
+    use PermissionRuleUpdateError::{Rejected, Storage};
+    if let Some(error) = permission_rule_store_load_error(path) {
+        // Do not overwrite a file the operator still needs to repair with a store derived
+        // from the fail-closed placeholder.
+        return Err(Storage(format!(
+            "refusing to write permission rules: {error}"
+        )));
+    }
+    crate::store_write::with_store_lock(path, "permission-rules", || {
+        // Lock order everywhere: file lock, then the held store's mutex.
+        let mut held = held.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let stamp = store_file_stamp(path);
+        let on_disk = try_load_permission_rule_store(path)
+            .map_err(|error| Storage(format!("refusing to update permission rules: {error}")))?;
+        let mut next = on_disk.clone();
+        match change(&mut next, &held) {
+            Ok(Some(value)) => {
+                let raw = serde_json::to_string_pretty(&next)
+                    .map_err(|error| Storage(error.to_string()))?;
+                write_store_file(path, &raw).map_err(Storage)?;
+                remember_store_file_stamp(path, store_file_stamp(path));
+                *held = next;
+                Ok(Some(value))
+            }
+            Ok(None) => {
+                remember_store_file_stamp(path, stamp);
+                *held = on_disk;
+                Ok(None)
+            }
+            Err(refusal) => {
+                remember_store_file_stamp(path, stamp);
+                *held = on_disk;
+                Err(Rejected(refusal))
+            }
+        }
+    })
+    .map_err(Storage)?
 }
 
 /// Writes a JSON store atomically (`rightkit-fs`: temp file, flush, rename; parents created), so a
@@ -280,19 +399,122 @@ pub struct PermissionDenialRow {
     pub reason: String,
 }
 
-pub(crate) fn load_permission_denial_store(path: &FsPath) -> Vec<PermissionDenialRow> {
-    let Ok(raw) = std::fs::read_to_string(path) else {
-        return Vec::new();
+/// Reads a JSON store that may not exist yet. A missing file is `Ok(None)`; a file that cannot be
+/// read or parsed is an error, so a corrupt store is never mistaken for an empty one (rule 10).
+fn read_json_store<T: serde::de::DeserializeOwned>(path: &FsPath) -> Result<Option<T>, String> {
+    let raw = match std::fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("{} is unreadable: {error}", path.display())),
     };
-    serde_json::from_str(&raw).unwrap_or_default()
+    serde_json::from_str(&raw)
+        .map(Some)
+        .map_err(|error| format!("{} is corrupt: {error}", path.display()))
 }
 
-pub(crate) fn write_permission_denial_store(
+pub(crate) fn load_permission_denial_store(path: &FsPath) -> Vec<PermissionDenialRow> {
+    remember_store_file_stamp(path, store_file_stamp(path));
+    match read_json_store(path) {
+        Ok(rows) => rows.unwrap_or_default(),
+        Err(error) => {
+            tracing::error!(%error, "permission denial store failed to load; writes are refused until it is repaired");
+            Vec::new()
+        }
+    }
+}
+
+/// How many denial rows and message rows a store keeps (the oldest are dropped).
+const HISTORY_ROW_LIMIT: usize = 500;
+
+fn keep_newest_rows<T>(rows: &mut Vec<T>) {
+    if rows.len() > HISTORY_ROW_LIMIT {
+        let keep_from = rows.len() - HISTORY_ROW_LIMIT;
+        rows.drain(0..keep_from);
+    }
+}
+
+/// Adds one denial row to the store, safe with several processes writing: under the
+/// cross-process lock the file is read again, the row is appended to THAT list (unless a row
+/// with the same non-empty correlation is already there) and the list is written atomically, so
+/// rows other processes recorded are kept. The list as it now is on disk becomes the `held` one
+/// before the lock is released, so two threads of this process cannot leave the older list held.
+/// A corrupt file is an error and is never replaced (rule 10); `held` is then left as it was.
+pub(crate) fn append_permission_denial_row(
     path: &FsPath,
-    rows: &[PermissionDenialRow],
+    held: &std::sync::Mutex<Vec<PermissionDenialRow>>,
+    row: PermissionDenialRow,
 ) -> Result<(), String> {
-    let raw = serde_json::to_string_pretty(rows).map_err(|e| e.to_string())?;
-    write_store_file(path, &raw)
+    crate::store_write::with_store_lock(path, "permission-denials", || {
+        let stamp = store_file_stamp(path);
+        let mut rows = read_json_store::<Vec<PermissionDenialRow>>(path)
+            .map_err(|detail| format!("refusing to overwrite {detail}; repair or remove it first"))?
+            .unwrap_or_default();
+        let recorded = !row.correlation.is_empty()
+            && rows
+                .iter()
+                .any(|existing| existing.correlation == row.correlation);
+        if recorded {
+            remember_store_file_stamp(path, stamp);
+        } else {
+            rows.push(row);
+            keep_newest_rows(&mut rows);
+            let raw = serde_json::to_string_pretty(&rows).map_err(|e| e.to_string())?;
+            write_store_file(path, &raw)?;
+            remember_store_file_stamp(path, store_file_stamp(path));
+        }
+        // Lock order everywhere: file lock, then the held list's mutex.
+        *held.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = rows;
+        Ok(())
+    })?
+}
+
+/// Replaces a held copy of a store with the file's when the file was replaced since this process
+/// last looked (another process of the host wrote it). One `stat` when nothing changed. `load`
+/// returns `None` for a file that is missing or cannot be used: the held copy is then kept.
+///
+/// The held copy's mutex is kept for the whole check, and every writer assigns its result to the
+/// held copy before releasing the file lock, so a reload never leaves an older state held.
+fn refresh_held_store<T>(
+    path: &FsPath,
+    held: &std::sync::Mutex<T>,
+    load: impl FnOnce(&FsPath) -> Option<T>,
+) {
+    let mut guard = held.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let stamp = store_file_stamp(path);
+    if !store_file_stamp_changed(path, &stamp) {
+        return;
+    }
+    remember_store_file_stamp(path, stamp);
+    if let Some(loaded) = load(path) {
+        *guard = loaded;
+    }
+}
+
+/// Brings the held denial rows up to date with rows other processes recorded
+/// (see [`refresh_held_store`]). A missing or unreadable file keeps the held rows.
+pub(crate) fn refresh_permission_denial_store(
+    path: &FsPath,
+    held: &std::sync::Mutex<Vec<PermissionDenialRow>>,
+) {
+    refresh_held_store(path, held, |path| read_json_store(path).ok().flatten());
+}
+
+/// Brings the held message history up to date with rows other processes recorded
+/// (see [`refresh_held_store`]).
+pub(crate) fn refresh_message_history_store(
+    path: &FsPath,
+    held: &std::sync::Mutex<Vec<MessageHistoryRow>>,
+) {
+    refresh_held_store(path, held, crate::store_write::load_or_set_aside);
+}
+
+/// Brings the held team presets up to date with teams other processes saved or removed
+/// (see [`refresh_held_store`]).
+pub(crate) fn refresh_team_store(
+    path: &FsPath,
+    held: &std::sync::Mutex<HashMap<String, rightkit_agent_coding_tools::TeamDefinition>>,
+) {
+    refresh_held_store(path, held, crate::store_write::load_or_set_aside);
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -310,18 +532,60 @@ pub struct WorkspaceTrustRecord {
 }
 
 pub(crate) fn load_workspace_trust_store(path: &FsPath) -> WorkspaceTrustStore {
-    let Ok(raw) = std::fs::read_to_string(path) else {
-        return WorkspaceTrustStore::default();
-    };
-    serde_json::from_str(&raw).unwrap_or_default()
+    match read_json_store(path) {
+        Ok(store) => store.unwrap_or_default(),
+        Err(error) => {
+            // Reads fail safe: an unreadable store grants no trust. Writes are refused.
+            tracing::error!(%error, "workspace trust store failed to load; writes are refused until it is repaired");
+            WorkspaceTrustStore::default()
+        }
+    }
 }
 
-pub(crate) fn write_workspace_trust_store(
+/// Records one trust decision with a read-modify-write of the file under a cross-process lock, so
+/// the daemon, the CLI and the TUI each keep the others' decisions (rule 12). A corrupt file is an
+/// error and is never replaced (rule 10). Returns the merged store as written.
+pub(crate) fn upsert_workspace_trust_record(
     path: &FsPath,
-    store: &WorkspaceTrustStore,
-) -> Result<(), String> {
-    let raw = serde_json::to_string_pretty(store).map_err(|e| e.to_string())?;
-    write_store_file(path, &raw)
+    key: String,
+    record: WorkspaceTrustRecord,
+) -> Result<WorkspaceTrustStore, String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let mut lock_name = path.as_os_str().to_owned();
+    lock_name.push(".lock");
+    let options = rightkit_fs::lock::LockOptions::wait(std::time::Duration::from_secs(10))
+        .labeled("workspace-trust");
+    let approves = record.trust.trim().eq_ignore_ascii_case("trusted");
+    let pin_scope = key.clone();
+    rightkit_fs::lock::with_lock(FsPath::new(&lock_name), &options, || {
+        let mut store = read_json_store::<WorkspaceTrustStore>(path)
+            .map_err(|detail| format!("refusing to update {detail}; repair or remove it first"))?
+            .unwrap_or_default();
+        store.projects.insert(key, record);
+        let raw = serde_json::to_string_pretty(&store).map_err(|e| e.to_string())?;
+        write_store_file(path, &raw)?;
+        if approves {
+            clear_hook_set_pins(&pin_scope);
+        }
+        Ok(store)
+    })
+    .map_err(|error| format!("workspace trust store is locked: {error}"))?
+}
+
+fn clear_hook_set_pins(key: &str) {
+    let Some(store) = rightkit_agent_config::definition_pins::pin_store_path("hook-sets.json")
+    else {
+        return;
+    };
+    rightkit_agent_config::definition_pins::clear_scopes_under(&store, key);
+    if let Ok(real) = std::fs::canonicalize(key) {
+        rightkit_agent_config::definition_pins::clear_scopes_under(
+            &store,
+            &rightkit_agent_config::workspace_trust_key(&real.to_string_lossy()),
+        );
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -338,31 +602,68 @@ pub struct MessageHistoryRow {
     pub error: Option<String>,
 }
 
+/// A missing file is an empty history. A file that exists but cannot be read or parsed is set
+/// aside and logged first (storage rule 14), so the empty history is never saved over it.
 pub(crate) fn load_message_history_store(path: &FsPath) -> Vec<MessageHistoryRow> {
-    let Ok(raw) = std::fs::read_to_string(path) else {
-        return Vec::new();
-    };
-    serde_json::from_str(&raw).unwrap_or_default()
+    crate::store_write::load_or_set_aside(path).unwrap_or_default()
 }
 
-pub(crate) fn write_message_history_store(
-    path: &FsPath,
-    rows: &[MessageHistoryRow],
-) -> Result<(), String> {
+fn write_message_history_store(path: &FsPath, rows: &[MessageHistoryRow]) -> Result<(), String> {
     let raw = serde_json::to_string_pretty(rows).map_err(|e| e.to_string())?;
     write_store_file(path, &raw)
 }
 
+/// Adds one row to the message history, safe with several processes writing: under the
+/// cross-process lock the file is read again, the row is appended to THAT list and the list is
+/// written atomically, so rows other processes recorded are kept. A damaged file is set aside
+/// first, as at load. The list as it now is on disk becomes the `held` one before the lock is
+/// released; on an error `held` is left as it was.
+pub(crate) fn append_message_history_row(
+    path: &FsPath,
+    held: &std::sync::Mutex<Vec<MessageHistoryRow>>,
+    row: MessageHistoryRow,
+) -> Result<(), String> {
+    crate::store_write::with_store_lock(path, "messages", || {
+        let mut rows = load_message_history_store(path);
+        rows.push(row);
+        keep_newest_rows(&mut rows);
+        write_message_history_store(path, &rows)?;
+        *held.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = rows;
+        Ok(())
+    })?
+}
+
+/// One change to the team presets, safe with several processes writing: under the cross-process
+/// lock the file is read again, `change` is applied to THAT map (one team added or removed) and
+/// the map is written atomically, so teams other processes saved are kept. A damaged file is set
+/// aside first, as at load. `change` returns whether to write. The map as it now is on disk
+/// becomes the `held` one before the lock is released; on an error `held` is left as it was.
+pub(crate) fn update_team_store(
+    path: &FsPath,
+    held: &std::sync::Mutex<HashMap<String, rightkit_agent_coding_tools::TeamDefinition>>,
+    change: impl FnOnce(&mut HashMap<String, rightkit_agent_coding_tools::TeamDefinition>) -> bool,
+) -> Result<(), String> {
+    crate::store_write::with_store_lock(path, "teams", || {
+        let mut teams = load_team_store(path);
+        if change(&mut teams) {
+            write_team_store(path, &teams)?;
+        }
+        *held.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = teams;
+        Ok(())
+    })?
+}
+
+/// A missing file is an empty store. A file that exists but does not parse is
+/// set aside first (`crate::store_write::set_aside_damaged`), so the empty
+/// store the daemon starts with is never saved over the only copy of the team
+/// presets (orchestration rule 23, CR-46).
 pub(crate) fn load_team_store(
     path: &FsPath,
 ) -> HashMap<String, rightkit_agent_coding_tools::TeamDefinition> {
-    let Ok(raw) = std::fs::read_to_string(path) else {
-        return HashMap::new();
-    };
-    serde_json::from_str(&raw).unwrap_or_default()
+    crate::store_write::load_or_set_aside(path).unwrap_or_default()
 }
 
-pub(crate) fn write_team_store(
+fn write_team_store(
     path: &FsPath,
     teams: &HashMap<String, rightkit_agent_coding_tools::TeamDefinition>,
 ) -> Result<(), String> {

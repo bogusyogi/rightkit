@@ -63,6 +63,21 @@ fn persist_execution_process_snapshots(
     let mut roots: std::collections::BTreeMap<PathBuf, Vec<ExecutionProcessRecord>> =
         std::collections::BTreeMap::new();
     for process in processes {
+        // A row whose lease could not be read (an input flush held it) keeps its last record.
+        let (
+            Some(attachment),
+            Some(lease_epoch),
+            Some(next_input_sequence),
+            Some(last_acked_input_sequence),
+        ) = (
+            process.attachment.clone(),
+            process.lease_epoch,
+            process.next_input_sequence,
+            process.last_acked_input_sequence,
+        )
+        else {
+            continue;
+        };
         roots
             .entry(PathBuf::from(&process.workspace_root))
             .or_default()
@@ -77,10 +92,10 @@ fn persist_execution_process_snapshots(
                 command: process.command.clone(),
                 execution_channel: process.execution_channel.clone(),
                 persistence: process.persistence.clone(),
-                attachment: process.attachment.clone(),
-                lease_epoch: process.lease_epoch,
-                next_input_sequence: process.next_input_sequence,
-                last_acked_input_sequence: process.last_acked_input_sequence,
+                attachment,
+                lease_epoch,
+                next_input_sequence,
+                last_acked_input_sequence,
                 status: process.status.clone(),
                 status_label: process.status_label.clone(),
                 last_seen_at: now.clone(),

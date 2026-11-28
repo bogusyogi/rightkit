@@ -1,15 +1,47 @@
+/// The permission mode pre-gate commands run under, or why they must not run.
+/// Never `Bypass`; never in a workspace the user has not trusted (orchestration
+/// rule 38, D32).
+fn pre_gate_permission_mode(
+    trust: rightkit_agent_policy::WorkspaceTrust,
+) -> Result<rightkit_agent_policy::PermissionMode, &'static str> {
+    match trust {
+        rightkit_agent_policy::WorkspaceTrust::Trusted => {
+            Ok(rightkit_agent_policy::PermissionMode::AutoSafe)
+        }
+        _ => Err("the workspace is not trusted, so its configured pre-gate commands do not run"),
+    }
+}
+
+/// What a conductor run plans and executes against: the agent roster and its router, the
+/// budget limits, and the matched team preset, if any.
+struct ConductorPlan<'a> {
+    registry: &'a AgentRegistry,
+    router: &'a AgentRouter,
+    budget_cfg: &'a rightkit_agent_config::BudgetConfig,
+    team_preset: Option<&'a TeamExecutionPreset>,
+}
+
+/// The goal a conductor run executes, with the remembered context that is appended to it.
+struct ConductorGoal<'a> {
+    goal: &'a str,
+    memory_ctx: Option<&'a str>,
+}
+
 impl DaemonState {
-    #[allow(clippy::too_many_arguments)]
     fn publish_conductor_dry_run(
         &self,
         session_id: &str,
         conduit: &rightkit_agent_engine_core::Conduit,
         graph: &TaskGraph,
-        registry: &AgentRegistry,
-        router: &AgentRouter,
+        plan: &ConductorPlan<'_>,
         projected: f64,
-        team_preset: Option<&TeamExecutionPreset>,
     ) -> RunOutcome {
+        let ConductorPlan {
+            registry,
+            router,
+            team_preset,
+            ..
+        } = *plan;
         let mut lines = vec![format!(
             "Dry run — would execute {} task(s) (projected ${projected:.4}):",
             graph.len()
@@ -47,7 +79,7 @@ impl DaemonState {
                 pinned: false,
                 origin: None,
             },
-            phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
+            phase: rightkit_agent_engine_protocol::AssistantMessagePhase::Final,
         });
         RunOutcome {
             completed: false,
@@ -89,10 +121,34 @@ impl DaemonState {
         if pre_gate_specs.is_empty() {
             return None;
         }
+        // Orchestration rule 38: a pre-gate command (from workspace config)
+        // never runs in an untrusted workspace and never in Bypass mode.
+        let pre_gate_mode = match pre_gate_permission_mode(session.workspace_trust) {
+            Ok(mode) => mode,
+            Err(reason) => {
+                let seq = conduit.next_seq();
+                conduit.publish(ProtocolEvent::AssistantMessageCompleted {
+                    session_id: session_id.to_string(),
+                    seq,
+                    created_at: now_iso(),
+                    message: TranscriptMessage::Assistant {
+                        id: format!("assistant-{}", now_millis()),
+                        created_at: now_iso(),
+                        content: format!("Pre-gate checks skipped: {reason}."),
+                        reasoning_content: None,
+                        tool_calls: Vec::new(),
+                        pinned: false,
+                        origin: None,
+                    },
+                    phase: rightkit_agent_engine_protocol::AssistantMessagePhase::Interim,
+                });
+                return None;
+            }
+        };
         let ctx = rightkit_agent_coding_tools::ToolContext::new(
             session_id,
             session.workspace_root.trim(),
-            rightkit_agent_policy::PermissionMode::Bypass,
+            pre_gate_mode,
             session.workspace_trust,
         );
         if let rightkit_agent_coding_tools::check_runner::PreGateDecision::SkipJuryFailed(reasons) =
@@ -115,7 +171,7 @@ impl DaemonState {
                     pinned: false,
                     origin: None,
                 },
-                phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
+                phase: rightkit_agent_engine_protocol::AssistantMessagePhase::Final,
             });
             return Some(RunOutcome {
                 completed: false,
@@ -127,20 +183,22 @@ impl DaemonState {
         None
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn execute_conductor_graph(
         &self,
         session_id: &str,
         workspace_root: &str,
-        goal: &str,
-        memory_ctx: Option<&str>,
+        goal: ConductorGoal<'_>,
         graph: &mut TaskGraph,
-        registry: &AgentRegistry,
-        router: &AgentRouter,
-        budget_cfg: &rightkit_agent_config::BudgetConfig,
-        team_preset: Option<&TeamExecutionPreset>,
+        plan: &ConductorPlan<'_>,
         conduit: &Arc<rightkit_agent_engine_core::Conduit>,
     ) -> Result<RunOutcome, String> {
+        let ConductorGoal { goal, memory_ctx } = goal;
+        let ConductorPlan {
+            registry,
+            router,
+            budget_cfg,
+            team_preset,
+        } = *plan;
         let root_mechanism = resolve_conductor_mechanism(session_id, goal).await;
         let root_session = self
             .get_session(session_id)
@@ -188,7 +246,10 @@ impl DaemonState {
         let max_concurrent = effective_max_workers(budget_cfg.max_workers as usize, team_preset);
         let wall_clock_minutes = budget_cfg.max_wall_clock_minutes;
         let wall_clock_limit = Duration::from_secs((wall_clock_minutes as u64).max(1) * 60);
-        let checkpoint_run_id = conductor_checkpoint_run_id(session_id, &exec_goal);
+        // Key the checkpoint on the user's goal, not `exec_goal`: the Membrane
+        // context appended to `exec_goal` changes after every run, which made
+        // the key miss and stranded checkpoints of crashed runs forever.
+        let checkpoint_run_id = conductor_checkpoint_run_id(session_id, goal);
         let checkpoint_store =
             GraphCheckpointStore::open(&self.database_path).map_err(|error| error.to_string())?;
         match tokio::time::timeout(
@@ -262,7 +323,7 @@ impl DaemonState {
                         pinned: false,
                         origin: None,
                     },
-                    phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
+                    phase: rightkit_agent_engine_protocol::AssistantMessagePhase::Final,
                 });
                 Err(format!(
                     "conductor run exceeded wall-clock limit of {wall_clock_minutes} minutes"
@@ -302,7 +363,7 @@ impl DaemonState {
                 push_artifact(
                     &session,
                     ProtocolArtifact {
-                        id: format!("art-{}", now_millis()),
+                        id: crate::daemon_state::next_artifact_id(),
                         path: String::new(),
                         kind: "worker_result".into(),
                         content_hash: content_hash(&r.output),
@@ -324,4 +385,18 @@ impl DaemonState {
 fn conductor_checkpoint_run_id(session_id: &str, goal: &str) -> String {
     let digest = rightkit_crypto::sha256(format!("{session_id}\0{goal}").as_bytes());
     format!("conductor-{}", rightkit_crypto::hex_encode(&digest))
+}
+
+#[cfg(test)]
+mod checkpoint_key_tests {
+    use super::conductor_checkpoint_run_id;
+
+    #[test]
+    fn checkpoint_key_is_stable_per_session_and_goal() {
+        let a = conductor_checkpoint_run_id("s1", "fix the bug");
+        assert_eq!(a, conductor_checkpoint_run_id("s1", "fix the bug"));
+        assert_ne!(a, conductor_checkpoint_run_id("s2", "fix the bug"));
+        assert_ne!(a, conductor_checkpoint_run_id("s1", "fix another bug"));
+        assert!(a.starts_with("conductor-"));
+    }
 }

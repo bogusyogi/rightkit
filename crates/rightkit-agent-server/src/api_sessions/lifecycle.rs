@@ -32,10 +32,22 @@ use crate::api_toolsets::{
 pub(crate) struct ForkSessionRequest {
     id: Option<String>,
     title: Option<String>,
+    /// Turn-scoped fork (sessions D20, rule 31 option (b)): branch from just before the
+    /// parent's `userMessageSubmitted` event with this seq. Absent: the whole session.
+    #[serde(default)]
+    before_seq: Option<i64>,
+    /// Turn-scoped fork counted from the end: branch before the Nth-last user turn (1 = the
+    /// last). Ignored when `beforeSeq` is set.
+    #[serde(default)]
+    turns_back: Option<usize>,
     /// Durable idempotency key (CR3 #57): an identical retry replays the
     /// original response instead of creating a second session.
     #[serde(default)]
     nonce: Option<String>,
+    /// The folder the fork works in; absent: the parent's. A session whose folder is gone is forked
+    /// into the folder the caller is in (`run --session-id ID --fork`).
+    #[serde(default)]
+    workspace_root: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -48,6 +60,9 @@ pub(crate) struct SessionListQuery {
     order: Option<String>,
     #[serde(default)]
     include_subagents: bool,
+    /// `needsYou=true` (or `needs_you=true`): only chats waiting on the person (an approval or a question).
+    #[serde(default, alias = "needs_you")]
+    needs_you: Option<bool>,
 }
 
 /// Longest first-message preview a session-list row carries, in characters
@@ -83,17 +98,35 @@ pub(crate) async fn list_sessions(
     let live = state.list_sessions();
     let mut out: Vec<serde_json::Value> = Vec::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // What each live session is waiting on, for the state mark added at the end.
+    let mut live_waits: std::collections::HashMap<String, (usize, Option<String>, usize)> =
+        std::collections::HashMap::new();
     for s in &live {
         seen.insert(s.id.clone());
+        {
+            let approvals = lock_recover(&s.pending_approvals, "session.pending_approvals").len();
+            let approval_tool = lock_recover(
+                &s.pending_approval_contexts,
+                "session.pending_approval_contexts",
+            )
+            .values()
+            .next()
+            .map(|context| context.tool_name.clone());
+            let questions = lock_recover(&s.pending_questions, "session.pending_questions").len()
+                + lock_recover(&s.pending_elicitations, "session.pending_elicitations").len();
+            live_waits.insert(s.id.clone(), (approvals, approval_tool, questions));
+        }
         let mut row = session_row(s);
         row["preview"] = serde_json::json!(transcript_session_preview(&lock_recover(
             &s.transcript,
             "session.transcript"
         ))
         .unwrap_or_default());
-        // A live engine owns runtime status; persisted status is a restart
-        // snapshot and must not overwrite an active session projection.
-        row["status"] = serde_json::json!("running");
+        // A live engine owns runtime status while a turn runs; between turns
+        // the persisted status (idle for a top-level session, the terminal
+        // status for a child) is patched in below.
+        let turn_active = row["turnActive"].as_bool().unwrap_or(false);
+        row["status"] = serde_json::json!(if turn_active { "running" } else { "idle" });
         out.push(row);
     }
     // Merge in persisted sessions. Live sessions retain runtime status while
@@ -137,13 +170,16 @@ pub(crate) async fn list_sessions(
                     // Patch the live entry with persisted metadata. Live engine
                     // ownership is authoritative for runtime handles, while
                     // storage is authoritative for operator-edited labels.
-                    if let Some(entry) = out
-                        .iter_mut()
-                        .find(|e| e["id"].as_str() == Some(r.id.as_str()))
-                    {
+                    if let Some(entry) = out.iter_mut().find(|e| e["id"].as_str() == Some(&r.id)) {
                         let cfg: serde_json::Value =
                             serde_json::from_str(&r.config_json).unwrap_or(serde_json::Value::Null);
                         entry["title"] = serde_json::json!(r.title);
+                        if entry["turnActive"].as_bool() != Some(true)
+                            && !r.status.is_empty()
+                            && r.status != "running"
+                        {
+                            entry["status"] = serde_json::json!(r.status);
+                        }
                         if let Some(model) = cfg.get("model").and_then(|v| v.as_str()) {
                             entry["model"] = serde_json::json!(model);
                         }
@@ -197,15 +233,7 @@ pub(crate) async fn list_sessions(
                             &r.tags
                         )
                         .unwrap_or_default());
-                        // Persisted recovery marker (P1 J1) takes priority —
-                        // it's set by startup housekeeping + on every
-                        // journal.open() and cleared on journal.close().
-                        entry["recoverable"] = match r.recovery_marker.as_deref() {
-                            Some(json) => {
-                                serde_json::from_str(json).unwrap_or(serde_json::Value::Null)
-                            }
-                            None => serde_json::Value::Null,
-                        };
+                        entry["recoverable"] = recoverable_marker(&r.status, &r.updated_at);
                     }
                     continue;
                 }
@@ -249,35 +277,10 @@ pub(crate) async fn list_sessions(
                     // so it is unknown here — null, matching the "unknown, not
                     // zero" contract used for unpriced models on live sessions.
                     "costUsd": serde_json::Value::Null,
-                    // Persistent recovery marker (P1 J1) read from the row so
-                    // a dormant session stays "recoverable" across list
-                    // calls until the next startup reconciles (or the user
-                    // resumes and cleanly completes).
-                    "recoverable": match r.recovery_marker.as_deref() {
-                        Some(json) => serde_json::from_str(json)
-                            .unwrap_or(serde_json::Value::Null),
-                        None => serde_json::Value::Null,
-                    },
+                    // A session stored as `interrupted` is recoverable: the
+                    // status is the crash record (sessions rule 34).
+                    "recoverable": recoverable_marker(&r.status, &r.updated_at),
                 }));
-            }
-        }
-    }
-    // Fallback recovery-marker FS read: ONLY for rows that don't already
-    // carry a persisted marker. Persisted markers (set by startup
-    // housekeeping + on every journal.open()/close()) are authoritative;
-    // the FS read is a last-resort for the brief window between a fresh
-    // session creation and the housekeeping sweep.
-    if let Some(journal_dir) = &state.journal_dir {
-        for row in out.iter_mut() {
-            if !row["recoverable"].is_null() {
-                continue;
-            }
-            let Some(id) = row["id"].as_str().map(|s| s.to_string()) else {
-                continue;
-            };
-            let marker = crate::journal::recovery_marker_for(journal_dir, &id).await;
-            if let Some(m) = marker {
-                row["recoverable"] = serde_json::to_value(m).unwrap_or(serde_json::Value::Null);
             }
         }
     }
@@ -291,13 +294,13 @@ pub(crate) async fn list_sessions(
         out.retain(|s| {
             s["tags"]
                 .as_array()
-                .map(|arr| arr.iter().any(|v| v.as_str() == Some(tag.as_str())))
+                .map(|arr| arr.iter().any(|v| v.as_str() == Some(tag)))
                 .unwrap_or(false)
         });
     }
     // Apply optional status filter.
     if let Some(ref status) = query.status {
-        out.retain(|s| s["status"].as_str() == Some(status.as_str()));
+        out.retain(|s| s["status"].as_str() == Some(status));
     }
     if let Some(q) = query.q.as_deref().map(str::trim).filter(|q| !q.is_empty()) {
         let q = q.to_lowercase();
@@ -307,6 +310,71 @@ pub(crate) async fn list_sessions(
                 .filter_map(|key| session[*key].as_str())
                 .any(|value| value.to_lowercase().contains(&q))
         });
+    }
+    // The state mark and the goal on every row. `status` keeps its old meaning; `chatState`
+    // says which chat is waiting on the person and why, which finished unread, which stopped.
+    {
+        use super::chat_state::{
+            chat_state_json, goal_json, seen_snapshot, session_is_from_schedule, ChatFacts,
+        };
+        let ids: Vec<String> = out
+            .iter()
+            .filter_map(|row| row["id"].as_str().map(str::to_owned))
+            .collect();
+        let (tails, goals) = match &state.storage {
+            Some(storage) => {
+                let storage = storage.clone();
+                tokio::task::spawn_blocking(move || {
+                    let store = storage.blocking_lock();
+                    let mut tails = std::collections::HashMap::new();
+                    let mut goals = std::collections::HashMap::new();
+                    for id in ids {
+                        if let Ok(tail) = store.session_tail(&id) {
+                            tails.insert(id.clone(), tail);
+                        }
+                        if let Ok(Some(goal)) = store.newest_displayable_goal_for_session(&id) {
+                            goals.insert(id, goal);
+                        }
+                    }
+                    (tails, goals)
+                })
+                .await
+                .unwrap_or_default()
+            }
+            None => Default::default(),
+        };
+        let seen_at = seen_snapshot();
+        // Which account each chat runs on (a session's own choice, else its project's default).
+        let accounts = tokio::task::spawn_blocking(crate::api_accounts::accounts_snapshot)
+            .await
+            .ok();
+        for row in out.iter_mut() {
+            let id = row["id"].as_str().unwrap_or_default().to_string();
+            row["account"] = accounts
+                .as_ref()
+                .and_then(|snapshot| {
+                    snapshot.view_for(&id, row["workspaceRoot"].as_str().unwrap_or_default())
+                })
+                .unwrap_or(serde_json::Value::Null);
+            let waits = live_waits.get(&id);
+            let stored_status = row["status"].as_str().unwrap_or_default().to_string();
+            let facts = ChatFacts {
+                live: waits.is_some(),
+                turn_active: row["turnActive"].as_bool().unwrap_or(false),
+                pending_approvals: waits.map(|w| w.0).unwrap_or(0),
+                approval_tool: waits.and_then(|w| w.1.as_deref()),
+                pending_questions: waits.map(|w| w.2).unwrap_or(0),
+                stored_status: &stored_status,
+                tail: tails.get(&id),
+                seen_at: seen_at.get(&id).map(String::as_str),
+                from_schedule: session_is_from_schedule(&id),
+            };
+            row["chatState"] = chat_state_json(&facts);
+            row["goal"] = goal_json(goals.get(&id));
+        }
+    }
+    if query.needs_you == Some(true) {
+        out.retain(|row| row["chatState"]["needsYou"].as_bool() == Some(true));
     }
     let sort = query.sort.as_deref().unwrap_or("created");
     let descending = match query.order.as_deref().unwrap_or("desc") {
@@ -430,9 +498,124 @@ pub(crate) async fn delete_session_handler(
     // Mark the complete tree before touching storage. Persisters hold this same
     // lock through writes, so deletion is ordered after any already-started write
     // and before every later event from an interrupted engine.
-    lock_recover(&state.deleted_session_ids, "deleted_session_ids")
-        .extend(deleted_ids.iter().cloned());
+    // Only the ids this call tombstoned are lifted again if the storage delete fails.
+    let newly_tombstoned: Vec<String> = {
+        let mut tombstones = lock_recover(&state.deleted_session_ids, "deleted_session_ids");
+        deleted_ids
+            .iter()
+            .filter(|session_id| tombstones.insert((*session_id).clone()))
+            .cloned()
+            .collect()
+    };
 
+    // Sessions rule 41: deleting a session deletes its history snapshots. Find their
+    // workspaces now, while the rows that name them still exist; the snapshots, the live
+    // engines and the compaction state are only touched once the storage delete commits,
+    // so a failed delete leaves the session whole (audit M3).
+    let mut workspaces: Vec<(String, String)> = {
+        let sessions = lock_recover(&state.sessions, "sessions");
+        deleted_ids
+            .iter()
+            .filter_map(|session_id| sessions.get(session_id))
+            .map(|live| (live.id.clone(), live.workspace_root.clone()))
+            .collect()
+    };
+    {
+        if let Some(storage) = state.storage.clone() {
+            let known: HashSet<String> = workspaces.iter().map(|(id, _)| id.clone()).collect();
+            let stored_ids: Vec<String> = deleted_ids
+                .iter()
+                .filter(|session_id| !known.contains(*session_id))
+                .cloned()
+                .collect();
+            let stored = tokio::task::spawn_blocking(move || {
+                let store = storage.blocking_lock();
+                stored_ids
+                    .into_iter()
+                    .filter_map(|session_id| {
+                        let row = store.get_session(&session_id).ok().flatten()?;
+                        Some((session_id, row.workspace_root))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .await
+            .unwrap_or_default();
+            workspaces.extend(stored);
+        }
+    }
+    let mut deleted_persisted = false;
+    if let Some(storage) = &state.storage {
+        let storage2 = storage.clone();
+        let root_id = id.clone();
+        let outcome = tokio::task::spawn_blocking(move || {
+            let mut store = storage2.blocking_lock();
+            store.delete_session_tree(&root_id)
+        })
+        .await;
+        let failed = match outcome {
+            Ok(Ok(result)) => {
+                deleted_persisted = result.deleted_sessions > 0;
+                false
+            }
+            Ok(Err(err)) => {
+                tracing::error!(session_id = %id, error = %err, "delete_session_tree failed");
+                true
+            }
+            Err(join_err) => {
+                tracing::error!(session_id = %id, error = %join_err, "delete_session_tree join failed");
+                true
+            }
+        };
+        if failed {
+            // The delete is one transaction, so nothing durable changed: lift this call's
+            // tombstones so the still-listed session keeps persisting its writes.
+            {
+                let mut tombstones =
+                    lock_recover(&state.deleted_session_ids, "deleted_session_ids");
+                for session_id in &newly_tombstoned {
+                    tombstones.remove(session_id);
+                }
+            }
+            // While tombstoned, the event persister skipped (did not buffer) every event a
+            // live engine emitted. A skipped seq never reaches SQLite, so that session's
+            // persister stalls behind it and its in-memory seq runs ahead of the durable log.
+            // Wait briefly for writes already in flight; if the log still ends short of the
+            // seqs the engine reserved, latch persistence failure. The latch interrupts the
+            // engine, refuses further events and tells live clients why. The client can
+            // retry the delete. A session that emitted nothing in the window stays whole.
+            let live: Vec<Arc<LiveSession>> = {
+                let sessions = lock_recover(&state.sessions, "sessions");
+                newly_tombstoned
+                    .iter()
+                    .filter_map(|session_id| sessions.get(session_id).cloned())
+                    .collect()
+            };
+            for live in live {
+                let reserved = live.conduit.current_high_water();
+                let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+                let durable = loop {
+                    let durable = storage.lock().await.latest_seq(&live.id).ok();
+                    if durable.is_some_and(|seq| seq >= reserved)
+                        || tokio::time::Instant::now() >= deadline
+                    {
+                        break durable;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                };
+                if !durable.is_some_and(|seq| seq >= reserved) {
+                    let reason = format!(
+                        "session delete failed and events emitted during it were not persisted \
+                         (durable log ends at seq {}, engine reached seq {reserved}); \
+                         the session is stopped: delete it again",
+                        durable.map_or_else(|| "unknown".to_string(), |seq| seq.to_string()),
+                    );
+                    tracing::error!(session_id = %live.id, %reason, "failed delete left a persistence hole");
+                    live.conduit.latch_persistence_failure(reason);
+                }
+            }
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    }
     let removed: Vec<Arc<LiveSession>> = {
         let mut sessions = lock_recover(&state.sessions, "sessions");
         deleted_ids
@@ -440,6 +623,27 @@ pub(crate) async fn delete_session_handler(
             .filter_map(|session_id| sessions.remove(session_id))
             .collect()
     };
+    // A deleted session never resumes with its `trustWorkspace` config grant.
+    for session_id in &deleted_ids {
+        crate::daemon_state::set_session_config_grant(session_id, false);
+    }
+    {
+        let _ = tokio::task::spawn_blocking(move || {
+            for (session_id, workspace_root) in workspaces {
+                for root in session_history_roots(std::path::Path::new(&workspace_root), &session_id) {
+                    let store = rightkit_agent_engine_history::HistoryStore::new(
+                        &root,
+                        rightkit_agent_config::state_dir_name(),
+                        &session_id,
+                    );
+                    if let Err(error) = store.delete_session() {
+                        tracing::warn!(session_id = %session_id, %error, "could not delete the session's history snapshots");
+                    }
+                }
+            }
+        })
+        .await;
+    }
     let had_live = !removed.is_empty();
     for live in &removed {
         if let Some(tx) = &live.interrupt_tx {
@@ -469,31 +673,22 @@ pub(crate) async fn delete_session_handler(
     for session_id in &deleted_ids {
         rightkit_agent_engine_core::retire_session_compaction_state(session_id);
     }
-    let mut deleted_persisted = false;
-    if let Some(storage) = &state.storage {
-        let storage2 = storage.clone();
-        let root_id = id.clone();
-        let outcome = tokio::task::spawn_blocking(move || {
-            let mut store = storage2.blocking_lock();
-            store.delete_session_tree(&root_id)
-        })
-        .await;
-        match outcome {
-            Ok(Ok(result)) => {
-                deleted_persisted = result.deleted_sessions > 0;
-            }
-            Ok(Err(err)) => {
-                tracing::error!(session_id = %id, error = %err, "delete_session_tree failed");
-                return Err(StatusCode::INTERNAL_SERVER_ERROR);
-            }
-            Err(join_err) => {
-                tracing::error!(session_id = %id, error = %join_err, "delete_session_tree join failed");
-                return Err(StatusCode::INTERNAL_SERVER_ERROR);
-            }
-        }
-    }
     if !deleted_persisted && !had_live {
         return Err(StatusCode::NOT_FOUND);
+    }
+    // Storage rule 35: deleting a session also removes its files (shell-output copies, trace,
+    // run-change records). Failures are logged and never undo the committed deletion.
+    if let Some(state_root) = rightkit_agent_config::state_root() {
+        let run_changes = crate::api_run_changes::shared_run_changes_store();
+        for session_id in &deleted_ids {
+            crate::store_write::remove_session_files(&state_root, session_id);
+            run_changes.forget_session(session_id);
+        }
+    }
+    // A deleted chat's "seen" mark would otherwise stay in the seen file for good.
+    for session_id in &deleted_ids {
+        super::messages::retire_steering_queue(session_id);
+        super::chat_state::forget_seen(session_id);
     }
     // Lane-C: the session tree is committed-deleted, so tombstone each
     // session's absorbed transcript stream in Membrane. Local exporter
@@ -513,16 +708,204 @@ pub(crate) async fn delete_session_handler(
         "deletedSessionIds": deleted_ids,
     })))
 }
+/// Why a session create failed. A refusal carries its reason (tools rule 62 names the trust
+/// state); every other failure is a bare status as before.
+#[derive(Debug)]
+pub(crate) enum CreateSessionError {
+    Status(StatusCode),
+    Refused {
+        status: StatusCode,
+        message: String,
+    },
+    /// The chosen account cannot be used; `body` is the plain error JSON from `api_accounts`.
+    Account {
+        status: StatusCode,
+        body: serde_json::Value,
+    },
+}
+
+impl std::fmt::Display for CreateSessionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CreateSessionError::Status(status) => write!(f, "{status}"),
+            CreateSessionError::Refused { status, message } => write!(f, "{status}: {message}"),
+            CreateSessionError::Account { status, body } => write!(f, "{status}: {body}"),
+        }
+    }
+}
+
+impl From<StatusCode> for CreateSessionError {
+    fn from(status: StatusCode) -> Self {
+        CreateSessionError::Status(status)
+    }
+}
+
+impl axum::response::IntoResponse for CreateSessionError {
+    fn into_response(self) -> axum::response::Response {
+        match self {
+            CreateSessionError::Status(status) => status.into_response(),
+            CreateSessionError::Account { status, body } => (status, Json(body)).into_response(),
+            CreateSessionError::Refused { status, message } => (
+                status,
+                Json(serde_json::json!({ "error": message, "code": "bypass_refused_untrusted" })),
+            )
+                .into_response(),
+        }
+    }
+}
+
+/// Rule 62: `Bypass` combined with an untrusted workspace is refused at session create, whether
+/// the mode came from the request or from the workspace config.
+fn create_bypass_refusal(state: &DaemonState, body: &CreateSession) -> Option<String> {
+    let root = body.workspace_root.trim();
+    let requested = body
+        .permission_mode
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let mode = match requested {
+        Some(mode) => rightkit_agent_policy::parse_permission_mode_strict(mode)?,
+        None => {
+            // C6: the request's `trustWorkspace` makes the configured mode visible here (so a
+            // `bypass` the workspace file configures is refused), while the trust below still
+            // comes from the store only: the grant never enables bypass.
+            let config = rightkit_agent_config::ConfigLoader::new()
+                .load_files_for_workspace_granted(FsPath::new(root), body.trust_workspace);
+            let configured = config.permissions.mode.trim();
+            if !configured.is_empty() {
+                rightkit_agent_policy::parse_permission_mode(Some(configured))
+            } else {
+                // No mode anywhere: the engine's defaults (`Ask`, or `AutoSafe` for a session with
+                // a `parentSessionId`) are never `Bypass`.
+                return None;
+            }
+        }
+    };
+    rightkit_agent_policy::TrustPolicy::bypass_refusal(mode, state.session_workspace_trust(root))
+}
+
+/// HTTP entry for `POST /sessions`. A `trustWorkspace` grant (issue 445) is honoured only from a
+/// trusted source, the same authority every other mutation demands; from a lower-trust source
+/// (for example a mobile client) the grant is dropped and the session is created untrusted.
+pub(crate) async fn create_session_route(
+    State(state): State<DaemonState>,
+    headers: HeaderMap,
+    Json(mut body): Json<CreateSession>,
+) -> Result<Json<serde_json::Value>, CreateSessionError> {
+    if body.trust_workspace
+        && crate::api_permissions::enforce_trusted_source_authority(&headers).is_err()
+    {
+        tracing::warn!("trustWorkspace dropped: the request is not from a trusted source");
+        body.trust_workspace = false;
+    }
+    create_session_handler(State(state), Json(body)).await
+}
+
 pub(crate) async fn create_session_handler(
     State(state): State<DaemonState>,
     Json(body): Json<CreateSession>,
+) -> Result<Json<serde_json::Value>, CreateSessionError> {
+    if let Some(message) = create_bypass_refusal(&state, &body) {
+        return Err(CreateSessionError::Refused {
+            status: StatusCode::FORBIDDEN,
+            message,
+        });
+    }
+    // An unknown or unready account is refused with a plain message before anything is created.
+    if let Some(account_id) = body.account_id.as_deref() {
+        crate::api_accounts::validate_new_session_account(account_id)
+            .map_err(|(status, Json(body))| CreateSessionError::Account { status, body })?;
+    }
+    create_session_checked(State(state), Json(body))
+        .await
+        .map_err(CreateSessionError::Status)
+}
+
+/// Ids a create request is still working on. The 409 checks below are separated from the
+/// insert by awaits, and the insert hands back an existing session with the same id, so a
+/// second concurrent create must be refused here rather than given the first caller's
+/// session (audit M2).
+static CREATING_SESSION_IDS: std::sync::LazyLock<std::sync::Mutex<HashSet<String>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// Releases a `CREATING_SESSION_IDS` claim when the request ends, however it ends.
+struct CreatingSessionId(String);
+
+impl Drop for CreatingSessionId {
+    fn drop(&mut self) {
+        CREATING_SESSION_IDS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&self.0);
+    }
+}
+
+async fn create_session_checked(
+    State(state): State<DaemonState>,
+    Json(body): Json<CreateSession>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
+    let explicit_id = body.id.is_some();
+    if body
+        .id
+        .as_deref()
+        .is_some_and(|id| !is_safe_client_session_id(id))
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
     let id = body.id.unwrap_or_else(|| format!("s-{}", uuid_v7()));
+    if !CREATING_SESSION_IDS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(id.clone())
+    {
+        return Err(StatusCode::CONFLICT);
+    }
+    let _creating = CreatingSessionId(id.clone());
     if state.get_session(&id).is_some() {
         return Err(StatusCode::CONFLICT);
     }
+    if explicit_id {
+        // A stored (dormant) session already owns this id. Creating a fresh one over it would
+        // restart the event counter at 1 and collide with the durable rows, so the caller must
+        // resume it instead (the message route does that), exactly as for a live session.
+        if let Some(storage) = state.storage.clone() {
+            if storage
+                .lock()
+                .await
+                .get_session(&id)
+                .ok()
+                .flatten()
+                .is_some()
+            {
+                return Err(StatusCode::CONFLICT);
+            }
+        }
+    }
+    // Per-session `trustWorkspace` grant (issue 445), honoured on this create only: the resume
+    // path (409 / `ensure_session`) and `patch_route` never reach here. It needs an `Inside`
+    // binding that is neither the filesystem root nor the home directory.
+    let trust_grant =
+        body.trust_workspace && crate::daemon_state::trust_grant_allowed(&body.workspace_root);
+    // Issue 494 item 4: a grant that was asked for and not given is reported in the response.
+    let trust_grant_dropped = body.trust_workspace && !trust_grant;
+    // Issue 489: an explicit own toolset must name a real profile (fail closed, visibly).
+    if let Some(own) = body
+        .own_toolset
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    {
+        let config = crate::daemon_state::load_workspace_config_granted(
+            FsPath::new(body.workspace_root.trim()),
+            trust_grant,
+        );
+        if crate::api_toolsets::resolve_toolset_profile_with_config(own, &config).is_err() {
+            tracing::warn!(toolset = %own, "create refused: ownToolset is not a known profile");
+            return Err(StatusCode::BAD_REQUEST);
+        }
+    }
     let workspace_config = rightkit_agent_config::ConfigLoader::new()
-        .load_files_for_workspace(FsPath::new(body.workspace_root.trim()));
+        .load_files_for_workspace_granted(FsPath::new(body.workspace_root.trim()), trust_grant);
     let requested_model = body.model.clone();
     let inference_selection = body.inference_selection.clone();
     if requested_model.is_some() && inference_selection.is_some() {
@@ -667,6 +1050,16 @@ pub(crate) async fn create_session_handler(
     };
     let driver_kind =
         normalize_driver_kind(body.driver_kind).map_err(|_| StatusCode::BAD_REQUEST)?;
+    // The chosen account is recorded as this session's selection before the session exists, and
+    // taken back if creation then fails, so a chat never starts on a different account than the
+    // one asked for and a failed create leaves no selection behind.
+    let account_selection = match body.account_id.as_deref() {
+        Some(account_id) => Some(
+            crate::api_accounts::record_new_session_account(&id, account_id)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+        ),
+        None => None,
+    };
     let live = state.create_session_with_options(
         &id,
         body.role.as_deref(),
@@ -688,8 +1081,7 @@ pub(crate) async fn create_session_handler(
             allowed_tools,
             disallowed_tools,
             toolset: toolset_profile.as_ref().map(|profile| profile.id.clone()),
-            verifier_model: None,
-            verifier_is_independent: None,
+            own_toolset: body.own_toolset.clone(),
             active_skills: body
                 .active_skills
                 .into_iter()
@@ -713,10 +1105,15 @@ pub(crate) async fn create_session_handler(
             budget_ceiling_usd: body.budget_ceiling_usd,
             system_prompt: body.system_prompt,
             append_system_prompt: body.append_system_prompt,
+            output_schema: body.output_schema,
             add_dir: body.add_dir,
             bare: body.bare,
+            fork_seed: None,
+            fork_system_prompt: None,
             no_mcp: body.no_mcp,
             mcp_config: body.mcp_config,
+            trust_workspace: trust_grant,
+            config_grant: false,
             lineage_budget: None,
             fable_mode: body.fable_mode.unwrap_or(false),
             brief_default: body
@@ -768,6 +1165,7 @@ pub(crate) async fn create_session_handler(
         if let Some(err) = saw_error {
             tracing::error!(session_id = %live.id, error = %err, "session creation persistence failed");
             lock_recover(&state.sessions, "sessions").remove(&live.id);
+            crate::daemon_state::set_session_config_grant(&live.id, false);
             return Err(StatusCode::SERVICE_UNAVAILABLE);
         }
         if !acknowledged {
@@ -788,18 +1186,40 @@ pub(crate) async fn create_session_handler(
             if !exists {
                 tracing::error!(session_id = %live.id, "session row not persisted after timeout");
                 lock_recover(&state.sessions, "sessions").remove(&live.id);
+                crate::daemon_state::set_session_config_grant(&live.id, false);
                 return Err(StatusCode::SERVICE_UNAVAILABLE);
             }
         }
     }
-    Ok(Json(session_row(&live)))
+    if let Some(selection) = account_selection {
+        selection.keep();
+    }
+    let mut row = session_row(&live);
+    if trust_grant_dropped {
+        row["trustWorkspaceDropped"] = serde_json::Value::String(TRUST_GRANT_DROPPED.to_string());
+    }
+    Ok(Json(row))
 }
+
+/// Why a `trustWorkspace` grant was not given (issue 494 item 4). The session is still created,
+/// untrusted, exactly as without the flag.
+const TRUST_GRANT_DROPPED: &str = "the trust grant was not applied: it covers a project folder only, never the home directory, the filesystem root or a path outside a project; the session was created untrusted";
 
 fn effective_session_toolset(safe_mode: bool, requested: Option<&str>) -> Option<&str> {
     if safe_mode {
         Some("read-only")
     } else {
         requested
+    }
+}
+
+/// The `recoverable` field of a session row: set only for a session whose last
+/// turn never finished (status `interrupted`), `null` otherwise.
+pub(crate) fn recoverable_marker(status: &str, last_active_at: &str) -> serde_json::Value {
+    if status == "interrupted" {
+        serde_json::json!({ "lastActiveAt": last_active_at })
+    } else {
+        serde_json::Value::Null
     }
 }
 
@@ -813,7 +1233,7 @@ pub(crate) async fn fork_session_handler(
     let nonce = super::idempotency::normalize_nonce(body.nonce.as_deref())?;
     let digest = super::idempotency::request_digest(
         "fork_session",
-        &serde_json::json!({ "id": body.id, "title": body.title }),
+        &serde_json::json!({ "id": body.id, "title": body.title, "beforeSeq": body.before_seq, "turnsBack": body.turns_back, "workspaceRoot": body.workspace_root }),
     );
     let storage = state.storage.clone();
     let scope_id = parent_id.clone();
@@ -823,166 +1243,322 @@ pub(crate) async fn fork_session_handler(
     .await
 }
 
+/// Fork a session: a whole-session copy that becomes a new top-level, dormant
+/// session with one predecessor link (`forkedFromSessionId`). It is not a
+/// sub-agent and not an empty child (sessions rules 7, 8 and 31). Only the
+/// canonical replay facts are copied, no prior tool action is dispatched
+/// again, and the copy is refused with 409 while the source has an active
+/// turn. The fork's first message resumes it from the copied transcript in the
+/// default permission mode, never Bypass (rule 35); it carries no child
+/// ceiling (rule 38).
 async fn fork_session_once(
     state: DaemonState,
     parent_id: String,
     headers: HeaderMap,
     body: ForkSessionRequest,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    // Fork creates a new durable session tree and is therefore a mutation,
-    // not a read-only transcript operation. Require the same trusted-source
-    // authority used by delete/message mutation routes before any state is
-    // inspected or allocated.
     enforce_trusted_source_authority(&headers)?;
-    let new_id = body.id.unwrap_or_else(|| format!("s-{}", uuid_v7()));
-    if state.get_session(&new_id).is_some() || persisted_session_exists(&state, &new_id).await {
+    let parent_live = state.get_session(&parent_id);
+    if parent_live
+        .as_ref()
+        .is_some_and(|live| live.live_turn_handle.is_active())
+    {
         return Err(StatusCode::CONFLICT);
     }
-
-    let (role, workspace_root, parent_title, mut options) =
-        if let Some(parent) = state.get_session(&parent_id) {
-            (
-                parent.role.clone(),
-                parent.workspace_root.clone(),
-                lock_recover(&parent.title, "session.title").clone(),
-                SessionRuntimeOptions {
-                    model: Some(lock_recover(&parent.model, "session.model").clone()),
-                    provider_id: lock_recover(&parent.provider_id, "session.provider_id").clone(),
-                    allowed_tools: parent.allowed_tools.clone(),
-                    disallowed_tools: parent.disallowed_tools.clone(),
-                    toolset: parent.toolset.clone(),
-                    active_skills: parent.active_skills.clone(),
-                    execution_backend: parent.execution_backend.clone(),
-                    execution_workspace_id: parent.execution_workspace_id.clone(),
-                    execution_workspace_path: parent.execution_workspace_path.clone(),
-                    execution_network_profile: parent.execution_network_profile.clone(),
-                    driver_kind: lock_recover(&parent.driver_kind, "session.driver_kind").clone(),
-                    mcp_channel: parent.mcp_channel.clone(),
-                    spec_id: lock_recover(&parent.spec_id, "session.spec_id").clone(),
-                    effort: lock_recover(&parent.effort, "session.effort").clone(),
-                    thinking_budget_tokens: parent.thinking_budget_tokens,
-                    disable_thinking: parent.disable_thinking,
-                    safe_mode: parent.safe_mode,
-                    ..SessionRuntimeOptions::default()
-                },
-            )
-        } else {
-            let row = persisted_session_row(&state, &parent_id)
+    if let Some(live) = &parent_live {
+        let target = live.persistence_state.snapshot().last_published_seq;
+        if target > 0 {
+            crate::api::await_event_persistence(live.persistence_state.clone(), target)
                 .await
-                .ok_or(StatusCode::NOT_FOUND)?;
-            (
-                row.role.clone(),
-                row.workspace_root.clone(),
-                row.title.clone(),
-                crate::api::session_runtime_options_from_config(&row.config_json),
-            )
-        };
-
-    let title = body
-        .title
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| format!("Fork of {parent_title}"));
-    options.forked_from_session_id = Some(parent_id.clone());
-    if !options.brief_default {
-        options.brief_default = rightkit_agent_config::ConfigLoader::new()
-            .load_files_for_workspace(FsPath::new(workspace_root.trim()))
-            .prompt
-            .brief_default();
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        }
     }
-    let live = state.create_session_with_options(
-        &new_id,
-        role.as_deref(),
-        &workspace_root,
-        &title,
-        Some(&parent_id),
-        options,
-    );
-    // FM-177: fork row persistence acknowledged — same 503 semantics as create.
-    if let Some(storage) = state.storage.clone() {
-        let live_persistence = live.persistence_state.clone();
-        let id_clone = live.id.clone();
-        let _state_clone = state.clone();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-        let mut acknowledged = false;
-        let mut saw_error: Option<String> = None;
-        while std::time::Instant::now() < deadline {
-            let snap = live_persistence.snapshot();
-            if let Some(err) = snap.last_error.clone() {
-                saw_error = Some(err);
-                break;
-            }
-            let exists = {
-                let store = storage.clone();
-                let id = id_clone.clone();
-                tokio::task::spawn_blocking(move || {
-                    store
-                        .blocking_lock()
-                        .get_session(&id)
-                        .ok()
-                        .flatten()
-                        .is_some()
-                })
-                .await
-                .unwrap_or(false)
-            };
-            if exists {
-                acknowledged = true;
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    let storage = state
+        .storage
+        .clone()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    if body
+        .id
+        .as_deref()
+        .is_some_and(|id| !is_safe_client_session_id(id))
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let id = body.id.unwrap_or_else(|| format!("s-{}", uuid_v7()));
+    if state.get_session(&id).is_some() {
+        return Err(StatusCode::CONFLICT);
+    }
+    let id_for_storage = id.clone();
+    let parent_id_for_storage = parent_id.clone();
+    let title_override = body.title;
+    let workspace_override = body
+        .workspace_root
+        .as_deref()
+        .map(str::trim)
+        .filter(|root| !root.is_empty())
+        .map(str::to_string);
+    let before_seq = body.before_seq;
+    let turns_back = body.turns_back;
+    let result = tokio::task::spawn_blocking(move || {
+        let store = storage.blocking_lock();
+        if store
+            .get_session(&id_for_storage)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .is_some()
+        {
+            return Err(StatusCode::CONFLICT);
         }
-        if let Some(err) = saw_error {
-            tracing::error!(session_id = %live.id, error = %err, "fork session persistence failed");
-            lock_recover(&state.sessions, "sessions").remove(&live.id);
+        let parent_row = store
+            .get_session(&parent_id_for_storage)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::NOT_FOUND)?;
+        let title = title_override
+            .as_deref()
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("Fork of {}", parent_row.title));
+        let now = now_iso();
+        let mut config: serde_json::Value =
+            serde_json::from_str(&parent_row.config_json).unwrap_or_else(|_| serde_json::json!({}));
+        if let Some(object) = config.as_object_mut() {
+            object.insert(
+                "forkedFromSessionId".to_string(),
+                serde_json::Value::String(parent_id_for_storage.clone()),
+            );
+        }
+        let row = rightkit_agent_engine_storage::SessionRow {
+            id: id_for_storage.clone(),
+            title: title.clone(),
+            workspace_root: workspace_override.unwrap_or_else(|| parent_row.workspace_root.clone()),
+            created_at: now.clone(),
+            updated_at: now,
+            parent_session_id: None,
+            role: parent_row.role.clone(),
+            status: "dormant".to_string(),
+            config_json: serde_json::to_string(&config).unwrap_or_else(|_| "{}".to_string()),
+            tags: parent_row.tags.clone(),
+            recovery_marker: None,
+        };
+        store
+            .create_session(&row)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let mut parent_events = store
+            .all_events(&parent_id_for_storage)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        // A turn-scoped fork cuts just before one of the parent's own user turns.
+        let mut cut_at: Option<String> = None;
+        let before_seq = match (before_seq, turns_back) {
+            (Some(seq), _) => Some(seq),
+            (None, Some(back)) => {
+                let user_turns: Vec<i64> = parent_events
+                    .iter()
+                    .filter(|event| event.kind == "userMessageSubmitted")
+                    .map(|event| event.seq)
+                    .collect();
+                if back == 0 || back > user_turns.len() {
+                    return Err(StatusCode::BAD_REQUEST);
+                }
+                Some(user_turns[user_turns.len() - back])
+            }
+            (None, None) => None,
+        };
+        if let Some(before) = before_seq {
+            let cut = parent_events
+                .iter()
+                .find(|event| event.seq == before && event.kind == "userMessageSubmitted")
+                .ok_or(StatusCode::BAD_REQUEST)?;
+            cut_at = Some(cut.created_at.clone());
+            parent_events.retain(|event| event.seq < before);
+        }
+        let mut next_seq = store
+            .latest_seq(&id_for_storage)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            + 1;
+        // Parse outside the storage lock and append in chunks, so a long log
+        // does not freeze every other session while it copies. The new id is
+        // private until this returns, so nobody else writes to it.
+        drop(store);
+        let mut prepared: Vec<(String, String)> = Vec::new();
+        for parent_event in parent_events {
+            let Ok(mut payload) =
+                serde_json::from_str::<serde_json::Value>(&parent_event.payload_json)
+            else {
+                continue;
+            };
+            let is_replay_fact = matches!(
+                parent_event.kind.as_str(),
+                "userMessageSubmitted"
+                    | "assistantMessageCompleted"
+                    | "toolCallStarted"
+                    | "toolApprovalRequested"
+                    | "toolResultAdded"
+                    | "sessionCompacted"
+                    | "sessionContextFolded"
+            ) || (parent_event.kind == "humanSteeringInjected"
+                && matches!(payload["injectedBy"].as_str(), Some("rewind" | "redo")));
+            // Rewind and redo markers replay, so the fork's transcript matches the parent's.
+            if !is_replay_fact {
+                continue;
+            }
+            if payload["sessionId"].as_str() != Some(parent_id_for_storage.as_str()) {
+                continue;
+            }
+            let Some(object) = payload.as_object_mut() else {
+                continue;
+            };
+            object.insert(
+                "sessionId".to_string(),
+                serde_json::Value::String(id_for_storage.clone()),
+            );
+            object.insert("seq".to_string(), serde_json::json!(next_seq));
+            if parent_event.kind == "userMessageSubmitted" {
+                object.insert("nonce".to_string(), serde_json::Value::Null);
+            }
+            let Ok(mut event) = serde_json::from_value::<ProtocolEvent>(payload) else {
+                continue;
+            };
+            event.canonicalize_identity(next_seq);
+            let payload =
+                serde_json::to_string(&event).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            prepared.push((parent_event.kind.clone(), payload));
+            next_seq += 1;
+        }
+        let copied = prepared.len();
+        for chunk in prepared.chunks(200) {
+            let mut store = storage.blocking_lock();
+            for (kind, payload) in chunk {
+                store
+                    .append_event(&id_for_storage, kind, payload)
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            }
+        }
+        Ok::<_, StatusCode>((row, copied, cut_at, before_seq))
+    })
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let (row, copied, cut_at, before_seq) = match result {
+        Ok(result) => result,
+        Err(status) => {
+            if status != StatusCode::CONFLICT {
+                if let Some(storage) = state.storage.clone() {
+                    let id = id.clone();
+                    let _ = tokio::task::spawn_blocking(move || {
+                        storage.blocking_lock().delete_session_tree(&id)
+                    })
+                    .await;
+                }
+            }
+            return Err(status);
+        }
+    };
+    let cfg: serde_json::Value =
+        serde_json::from_str(&row.config_json).unwrap_or(serde_json::Value::Null);
+    // The copied `inferenceSelection` resumes only with a binding keyed to the
+    // fork's own id (`resume_binding_matches`), so qualify and bind it as session
+    // create does. It runs before the history copy, so a failure here rolls back
+    // with the row delete alone and leaves no copied snapshots on disk.
+    if let Some(selection) = cfg.get("inferenceSelection").cloned().and_then(|value| {
+        serde_json::from_value::<crate::inference_runtime::InferenceSelection>(value).ok()
+    }) {
+        let bound =
+            match crate::inference_runtime::ensure_inference_selection_qualified(&state, &selection)
+                .await
+            {
+                // The fork may not move the parent's route: a parent whose stored
+                // binding drifted cannot resume, so neither may its copy.
+                Ok(route) => match crate::inference_runtime::resume_binding_matches(
+                    &state, &parent_id, &route,
+                )
+                .await
+                {
+                    Ok(()) => crate::inference_runtime::bind_inference_route(
+                        &state, &id, &id, None, &route,
+                    )
+                    .await
+                    .map_err(|error| {
+                        tracing::warn!(session_id = %id, error = ?error, "the fork could not bind the parent's inference route");
+                        StatusCode::SERVICE_UNAVAILABLE
+                    }),
+                    Err(error) => {
+                        tracing::warn!(session_id = %id, error = ?error, "fork refused: the parent's stored inference binding does not match");
+                        Err(StatusCode::BAD_REQUEST)
+                    }
+                },
+                // Session create answers the same qualification failure with 400.
+                Err(error) => {
+                    tracing::warn!(session_id = %id, error = ?error, "fork refused: the parent's inference selection no longer qualifies");
+                    Err(StatusCode::BAD_REQUEST)
+                }
+            };
+        if let Err(status) = bound {
+            if let Some(storage) = state.storage.clone() {
+                let id = id.clone();
+                let _ = tokio::task::spawn_blocking(move || {
+                    storage.blocking_lock().delete_session_tree(&id)
+                })
+                .await;
+            }
+            return Err(status);
+        }
+    }
+    // Sessions rules 41 and 42: the fork gets its own copy of the parent's
+    // snapshots (the whole active branch), never a shared lineage.
+    {
+        // A session whose bypass mode forced isolation ran (and kept its history) in
+        // `<workspace>/<state-dir>/worktrees/<id>`; the fork runs in the workspace itself
+        // (see `fork_history_roots`).
+        let workspace = std::path::PathBuf::from(&row.workspace_root);
+        let (parent, child) = (parent_id.clone(), id.clone());
+        let copied_history = tokio::task::spawn_blocking(move || {
+            let (parent_root, child_root) = fork_history_roots(&workspace, &parent);
+            rightkit_agent_engine_history::HistoryStore::fork_from(
+                &parent_root,
+                &child_root,
+                rightkit_agent_config::state_dir_name(),
+                &parent,
+                &child,
+                history_cutoff_ns(cut_at.as_deref()),
+            )
+        })
+        .await;
+        if !matches!(copied_history, Ok(Ok(()))) {
+            tracing::error!(session_id = %id, "the fork could not copy the parent's history snapshots");
+            if let Some(storage) = state.storage.clone() {
+                let id = id.clone();
+                let _ = tokio::task::spawn_blocking(move || {
+                    storage.blocking_lock().delete_session_tree(&id)
+                })
+                .await;
+            }
             return Err(StatusCode::SERVICE_UNAVAILABLE);
-        }
-        if !acknowledged {
-            let exists = {
-                let store = storage.clone();
-                let id = live.id.clone();
-                tokio::task::spawn_blocking(move || {
-                    store
-                        .blocking_lock()
-                        .get_session(&id)
-                        .ok()
-                        .flatten()
-                        .is_some()
-                })
-                .await
-                .unwrap_or(false)
-            };
-            if !exists {
-                tracing::error!(session_id = %live.id, "fork session row not persisted after timeout");
-                lock_recover(&state.sessions, "sessions").remove(&live.id);
-                return Err(StatusCode::SERVICE_UNAVAILABLE);
-            }
         }
     }
     Ok(Json(serde_json::json!({
-        "id": live.id,
-        "parentSessionId": parent_id,
-        "title": title,
-        "workspaceRoot": crate::api::api_workspace_root(&workspace_root),
-        "session": session_row(&live),
+        "id": row.id,
+        "forkedFromSessionId": parent_id,
+        "title": row.title,
+        "workspaceRoot": crate::api::api_workspace_root(&row.workspace_root),
+        "status": row.status,
+        "copiedEvents": copied,
+        "beforeSeq": before_seq,
+        "session": {
+            "id": row.id,
+            "title": row.title,
+            "model": cfg.get("model").and_then(|v| v.as_str()).unwrap_or(""),
+            "workspaceRoot": crate::api::api_workspace_root(&row.workspace_root),
+            "status": row.status,
+            "role": row.role,
+            "toolset": cfg.get("toolset").cloned().unwrap_or(serde_json::Value::Null),
+            "activeSkills": cfg.get("activeSkills").cloned().unwrap_or_else(|| serde_json::json!([])),
+            "createdAt": row.created_at,
+            "updatedAt": row.updated_at,
+            "parentSessionId": serde_json::Value::Null,
+            "forkedFromSessionId": parent_id,
+        }
     })))
 }
 
-pub(crate) async fn persisted_session_exists(state: &DaemonState, id: &str) -> bool {
-    persisted_session_row(state, id).await.is_some()
-}
-
-pub(crate) async fn persisted_session_row(
-    state: &DaemonState,
-    id: &str,
-) -> Option<rightkit_agent_engine_storage::SessionRow> {
-    let storage = state.storage.as_ref()?.clone();
-    let id = id.to_string();
-    tokio::task::spawn_blocking(move || storage.blocking_lock().get_session(&id).ok().flatten())
-        .await
-        .ok()
-        .flatten()
-}
 pub(crate) async fn get_transcript(
     State(state): State<DaemonState>,
     Path(id): Path<String>,
@@ -1002,7 +1578,10 @@ pub(crate) async fn get_transcript(
     let id2 = id.clone();
     let events = tokio::task::spawn_blocking(move || {
         let store = storage2.blocking_lock();
-        store.all_events(&id2)
+        let mut events = store.all_events(&id2)?;
+        // Audit M4: show oversized events whole, as the live transcript did.
+        store.restore_spilled_payloads(&id2, &mut events)?;
+        Ok::<_, rightkit_agent_engine_storage::StorageError>(events)
     })
     .await
     .map_err(|_| StatusCode::NOT_FOUND)?
@@ -1189,6 +1768,8 @@ pub(crate) async fn kill_session(
         });
     }
     lock_recover(&state.sessions, "sessions").remove(&id);
+    // A killed session goes dormant; rehydrate never revives the config grant.
+    crate::daemon_state::set_session_config_grant(&id, false);
     Ok(Json(serde_json::json!({ "killed": true })))
 }
 pub(crate) async fn patch_session(
@@ -1299,6 +1880,7 @@ pub(crate) async fn patch_session(
     }
     let model_updated = body.model.is_some();
     let mut model_applies_to = serde_json::Value::Null;
+    let mut cache_warning: Option<String> = None;
     if body.model.is_some() || body.provider_id.is_some() || body.effort.is_some() {
         // model/providerId/effort move as one route patch. An omitted model
         // keeps the session's current model so provider- or effort-only
@@ -1321,6 +1903,10 @@ pub(crate) async fn patch_session(
                 })
                 .ok_or(StatusCode::BAD_REQUEST)?,
         };
+        // Judged before the switch commits: afterwards the live model is already the new one.
+        cache_warning = model_updated
+            .then(|| crate::api::model_switch_cache_warning(&state, &id, &model))
+            .flatten();
         let applied_live = update_session_route(
             &state,
             &id,
@@ -1410,7 +1996,7 @@ pub(crate) async fn patch_session(
             inference_selection_applies_to = serde_json::Value::String("resume".into());
         }
     }
-    Ok(Json(serde_json::json!({
+    let mut reply = serde_json::json!({
         "updated": true,
         "id": id,
         "modelUpdated": model_updated,
@@ -1419,7 +2005,12 @@ pub(crate) async fn patch_session(
         "driverKind": driver_kind_value,
         "inferenceSelectionUpdated": inference_selection_updated,
         "inferenceSelectionAppliesTo": inference_selection_applies_to,
-    })))
+    });
+    // A warning, not a refusal: the switch above already committed.
+    if let Some(warning) = cache_warning {
+        reply["cacheWarning"] = serde_json::Value::String(warning);
+    }
+    Ok(Json(reply))
 }
 
 /// Switch a session's root conductor, in durable config AND in the live
@@ -1501,13 +2092,14 @@ pub(crate) async fn update_session_lifecycle_status(
         return Ok(());
     };
     let id_owned = id.to_string();
+    let status_owned = status;
     let updated_at = now.clone();
     let updated = tokio::task::spawn_blocking(move || {
         let store = store.blocking_lock();
         if store.get_session(&id_owned)?.is_none() {
             return Ok(false);
         }
-        store.update_session_status(&id_owned, status, &updated_at)?;
+        store.update_session_status(&id_owned, status_owned, &updated_at)?;
         Ok::<bool, rightkit_agent_engine_storage::StorageError>(true)
     })
     .await
@@ -1522,196 +2114,6 @@ pub(crate) async fn update_session_lifecycle_status(
     apply_live_session_status(state, id, status).await
 }
 
-/// Clone a conversation into an independent dormant session. Unlike `fork`,
-/// clone keeps a top-level session and copies only canonical replay facts;
-/// no prior tool action is dispatched again.
-pub(crate) async fn clone_session_handler(
-    State(state): State<DaemonState>,
-    Path(source_id): Path<String>,
-    headers: HeaderMap,
-    Json(body): Json<ForkSessionRequest>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
-    enforce_trusted_source_authority(&headers)?;
-    let nonce = super::idempotency::normalize_nonce(body.nonce.as_deref())?;
-    let digest = super::idempotency::request_digest(
-        "clone_session",
-        &serde_json::json!({ "id": body.id, "title": body.title }),
-    );
-    let storage = state.storage.clone();
-    let scope_id = source_id.clone();
-    super::idempotency::run_idempotent(storage, &scope_id, "clone_session", nonce, digest, || {
-        clone_session_once(state, source_id, headers, body)
-    })
-    .await
-}
-
-async fn clone_session_once(
-    state: DaemonState,
-    source_id: String,
-    headers: HeaderMap,
-    body: ForkSessionRequest,
-) -> Result<Json<serde_json::Value>, StatusCode> {
-    enforce_trusted_source_authority(&headers)?;
-    let source_live = state.get_session(&source_id);
-    if source_live
-        .as_ref()
-        .is_some_and(|live| live.live_turn_handle.is_active())
-    {
-        return Err(StatusCode::CONFLICT);
-    }
-    if let Some(live) = &source_live {
-        let target = live.persistence_state.snapshot().last_published_seq;
-        if target > 0 {
-            crate::api::await_event_persistence(live.persistence_state.clone(), target)
-                .await
-                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        }
-    }
-    let storage = state
-        .storage
-        .clone()
-        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
-    let id = body.id.unwrap_or_else(|| format!("s-{}", uuid_v7()));
-    if state.get_session(&id).is_some() {
-        return Err(StatusCode::CONFLICT);
-    }
-    let id_for_storage = id.clone();
-    let source_id_for_storage = source_id.clone();
-    let title_override = body.title;
-    let result = tokio::task::spawn_blocking(move || {
-        let mut store = storage.blocking_lock();
-        if store
-            .get_session(&id_for_storage)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-            .is_some()
-        {
-            return Err(StatusCode::CONFLICT);
-        }
-        let source = store
-            .get_session(&source_id_for_storage)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-            .ok_or(StatusCode::NOT_FOUND)?;
-        let title = title_override
-            .as_deref()
-            .map(str::trim)
-            .filter(|title| !title.is_empty())
-            .map(str::to_string)
-            .unwrap_or_else(|| format!("Clone of {}", source.title));
-        let now = now_iso();
-        let mut config: serde_json::Value =
-            serde_json::from_str(&source.config_json).unwrap_or_else(|_| serde_json::json!({}));
-        if let Some(object) = config.as_object_mut() {
-            object.insert(
-                "forkedFromSessionId".to_string(),
-                serde_json::Value::String(source_id_for_storage.clone()),
-            );
-        }
-        let row = rightkit_agent_engine_storage::SessionRow {
-            id: id_for_storage.clone(),
-            title: title.clone(),
-            workspace_root: source.workspace_root.clone(),
-            created_at: now.clone(),
-            updated_at: now,
-            parent_session_id: None,
-            role: source.role.clone(),
-            status: "dormant".to_string(),
-            config_json: serde_json::to_string(&config).unwrap_or_else(|_| "{}".to_string()),
-            tags: source.tags.clone(),
-            recovery_marker: None,
-        };
-        store
-            .create_session(&row)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        let source_events = store
-            .all_events(&source_id_for_storage)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        let mut next_seq = store
-            .latest_seq(&id_for_storage)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-            + 1;
-        let mut copied = 0usize;
-        for source_event in source_events {
-            let Ok(mut payload) =
-                serde_json::from_str::<serde_json::Value>(&source_event.payload_json)
-            else {
-                continue;
-            };
-            let is_replay_fact = matches!(
-                source_event.kind.as_str(),
-                "userMessageSubmitted"
-                    | "assistantMessageCompleted"
-                    | "toolCallStarted"
-                    | "toolApprovalRequested"
-                    | "toolResultAdded"
-                    | "sessionCompacted"
-                    | "sessionContextFolded"
-            );
-            if !is_replay_fact {
-                continue;
-            }
-            if payload["sessionId"].as_str() != Some(source_id_for_storage.as_str()) {
-                continue;
-            }
-            let Some(object) = payload.as_object_mut() else {
-                continue;
-            };
-            object.insert(
-                "sessionId".to_string(),
-                serde_json::Value::String(id_for_storage.clone()),
-            );
-            object.insert("seq".to_string(), serde_json::json!(next_seq));
-            if source_event.kind == "userMessageSubmitted" {
-                object.insert("nonce".to_string(), serde_json::Value::Null);
-            }
-            let Ok(mut event) = serde_json::from_value::<ProtocolEvent>(payload) else {
-                continue;
-            };
-            event.canonicalize_identity(next_seq);
-            let payload =
-                serde_json::to_string(&event).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-            store
-                .append_event(&id_for_storage, &source_event.kind, &payload)
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-            next_seq += 1;
-            copied += 1;
-        }
-        Ok::<_, StatusCode>((row, copied))
-    })
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let (row, copied) = match result {
-        Ok(result) => result,
-        Err(status) => {
-            if status != StatusCode::CONFLICT {
-                if let Some(storage) = state.storage.clone() {
-                    let id = id.clone();
-                    let _ = tokio::task::spawn_blocking(move || {
-                        storage.blocking_lock().delete_session_tree(&id)
-                    })
-                    .await;
-                }
-            }
-            return Err(status);
-        }
-    };
-    Ok(Json(serde_json::json!({
-        "id": row.id,
-        "sourceSessionId": source_id,
-        "title": row.title,
-        "workspaceRoot": crate::api::api_workspace_root(&row.workspace_root),
-        "status": row.status,
-        "copiedEvents": copied,
-        "session": {
-            "id": row.id,
-            "title": row.title,
-            "workspaceRoot": crate::api::api_workspace_root(&row.workspace_root),
-            "status": row.status,
-            "parentSessionId": serde_json::Value::Null,
-            "forkedFromSessionId": source_id,
-        }
-    })))
-}
-
 async fn apply_live_session_status(
     state: &DaemonState,
     id: &str,
@@ -1723,6 +2125,7 @@ async fn apply_live_session_status(
                 let _ = tx.send(true);
             }
         }
+        crate::daemon_state::set_session_config_grant(id, false);
     } else if status == "running" {
         state
             .resume_session(id)
@@ -1730,4 +2133,303 @@ async fn apply_live_session_status(
             .ok_or(StatusCode::NOT_FOUND)?;
     }
     Ok(())
+}
+
+/// A client-chosen session id becomes a directory name (history snapshots,
+/// isolation worktrees, traces), so refuse ids that are empty, `.`/`..`,
+/// contain a path separator or control character, or are unreasonably long.
+/// The rule is the same on every OS, because a session can move between hosts:
+/// ids Windows cannot hold as a directory name are refused everywhere too
+/// (the characters `: * ? " < > |`, a trailing `.` or space, and the reserved
+/// device names `CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`, with
+/// or without an extension). Windows rejects or rewrites those names (`...`
+/// resolves to the parent directory), so the isolation worktree would fall
+/// back to running in place (audit 2026-11-05 round 2, finding 5).
+pub(super) fn is_safe_client_session_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 256
+        && id != "."
+        && id != ".."
+        && !id.chars().any(|c| {
+            matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control()
+        })
+        && !id.ends_with('.')
+        && !id.ends_with(' ')
+        && !is_windows_reserved_name(id)
+}
+
+/// Whether `name` is a Windows device name (`CON`, `NUL`, `COM1`, `LPT9`, ...),
+/// in any case, alone or followed by an extension (`nul.txt`) or trailing spaces.
+fn is_windows_reserved_name(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or(name).trim_end_matches(' ');
+    let upper = stem.to_ascii_uppercase();
+    match upper.as_str() {
+        "CON" | "PRN" | "AUX" | "NUL" => true,
+        _ => {
+            let bytes = upper.as_bytes();
+            bytes.len() == 4
+                && (upper.starts_with("COM") || upper.starts_with("LPT"))
+                && (b'1'..=b'9').contains(&bytes[3])
+        }
+    }
+}
+
+/// Where a fork's history copy is read from and written to (audit 2026-11-05
+/// round 2, finding 1): `(parent_root, child_root)`.
+///
+/// The parent's history lives where it ran: its forced isolation worktree
+/// (`<workspace>/<state-dir>/worktrees/<id>`, a real checkout with `.git`) when
+/// bypass mode forced one, else the workspace. A fork never runs in such a
+/// worktree: it is a stored session that only ever resumes, a resume restores
+/// Ask or Plan and never Bypass (sessions rule 35), and only Bypass forces
+/// isolation. So the fork runs, and keeps its history, in the stored workspace
+/// root, and the copy goes there, its paths rebased from the parent's worktree
+/// onto the workspace. The old target, `worktrees/<child>`, was read by nothing,
+/// survived session delete, and, once written, made any later `git worktree
+/// add` for that id refuse the non-empty directory.
+fn fork_history_roots(
+    workspace: &std::path::Path,
+    parent_id: &str,
+) -> (std::path::PathBuf, std::path::PathBuf) {
+    let parent_isolated = workspace
+        .join(rightkit_agent_config::state_dir_name())
+        .join("worktrees")
+        .join(parent_id);
+    if parent_isolated.join(".git").exists() {
+        (parent_isolated, workspace.to_path_buf())
+    } else {
+        (workspace.to_path_buf(), workspace.to_path_buf())
+    }
+}
+
+/// Every root a session's history may live under: the workspace, and its
+/// isolation worktree directory when one exists (a session that ran isolated
+/// and later resumed in place has history in both). Deleting both also removes
+/// a copy an earlier fork wrote into `worktrees/<child>`, a directory that never
+/// became a checkout (audit 2026-11-05 round 2, finding 1).
+fn session_history_roots(workspace: &std::path::Path, session_id: &str) -> Vec<std::path::PathBuf> {
+    let mut roots = vec![workspace.to_path_buf()];
+    let isolated = workspace
+        .join(rightkit_agent_config::state_dir_name())
+        .join("worktrees")
+        .join(session_id);
+    if isolated.is_dir() {
+        roots.push(isolated);
+    }
+    roots
+}
+
+/// History snapshots a turn-scoped fork keeps: those taken before the cut user turn
+/// (`created_at`: epoch seconds as the event log stores it, or RFC 3339 for older
+/// rows), or all of them for a whole-session fork.
+fn history_cutoff_ns(cut_at: Option<&str>) -> u128 {
+    cut_at
+        .and_then(|at| {
+            at.trim().parse::<u128>().ok().or_else(|| {
+                rightkit_time::DateTime::parse_rfc3339(at)
+                    .and_then(|at| u128::try_from(at.unix_seconds()).ok())
+            })
+        })
+        .map(|secs| secs * 1_000_000_000)
+        .unwrap_or(u128::MAX)
+}
+
+#[cfg(test)]
+mod client_session_id_tests {
+    use super::is_safe_client_session_id;
+
+    #[test]
+    fn ids_that_could_escape_a_directory_are_refused() {
+        for id in [
+            "", ".", "..", "../x", "a/b", "a\\b", "..\\..", "/", "a\0b", "a\nb",
+        ] {
+            assert!(!is_safe_client_session_id(id), "{id:?}");
+        }
+        assert!(!is_safe_client_session_id(&"x".repeat(257)));
+    }
+
+    #[test]
+    fn ordinary_ids_are_accepted() {
+        for id in [
+            "s-0193a1b2",
+            "my-session",
+            "a.b",
+            "日本",
+            "console",
+            "COM0",
+            "LPT10",
+            "nul-x",
+        ] {
+            assert!(is_safe_client_session_id(id), "{id:?}");
+        }
+    }
+
+    #[test]
+    fn ids_windows_cannot_hold_as_a_directory_are_refused_everywhere() {
+        for id in [
+            "x:y", "a*b", "a?b", "a\"b", "a<b", "a>b", "a|b", "...", "a.", "a ", "CON", "con",
+            "Nul", "nul.txt", "AUX", "PRN", "COM1", "com9.log", "LPT1", "CON .x",
+        ] {
+            assert!(!is_safe_client_session_id(id), "{id:?}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod fork_history_tests {
+    use super::{fork_history_roots, session_history_roots};
+
+    fn git(dir: &std::path::Path, args: &[&str]) -> bool {
+        rightkit_child_process::command_std("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .is_ok_and(|output| output.status.success())
+    }
+
+    #[test]
+    fn a_fork_of_an_isolated_parent_copies_into_the_workspace_it_runs_in() {
+        let ws = tempfile::tempdir().unwrap();
+        let root = ws.path();
+        if !git(root, &["init", "-q"]) {
+            eprintln!("git unavailable; skipped");
+            return;
+        }
+        std::fs::write(root.join("f.txt"), b"x").unwrap();
+        assert!(git(root, &["add", "f.txt"]));
+        assert!(git(
+            root,
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-q",
+                "-m",
+                "init"
+            ]
+        ));
+        let worktrees = root
+            .join(rightkit_agent_config::state_dir_name())
+            .join("worktrees");
+        let parent = worktrees.join("P");
+        std::fs::create_dir_all(&parent).unwrap();
+        assert!(git(
+            root,
+            &[
+                "worktree",
+                "add",
+                "--detach",
+                "--force",
+                parent.to_str().unwrap(),
+                "HEAD"
+            ]
+        ));
+        let parent_file = parent.join("f.txt");
+        let store = rightkit_agent_engine_history::HistoryStore::new(
+            &parent,
+            rightkit_agent_config::state_dir_name(),
+            "P",
+        );
+        store
+            .snapshot_targets(std::slice::from_ref(&parent_file))
+            .unwrap();
+        std::fs::write(&parent_file, b"y").unwrap();
+        assert!(store
+            .record_after_targets(std::slice::from_ref(&parent_file))
+            .is_empty());
+
+        let (parent_root, child_root) = fork_history_roots(root, "P");
+        assert_eq!(parent_root, parent);
+        assert_eq!(child_root, root);
+        rightkit_agent_engine_history::HistoryStore::fork_from(
+            &parent_root,
+            &child_root,
+            rightkit_agent_config::state_dir_name(),
+            "P",
+            "C",
+            u128::MAX,
+        )
+        .unwrap();
+        assert!(
+            !worktrees.join("C").exists(),
+            "nothing is written where a `git worktree add` for the child would go"
+        );
+        let copy = root
+            .join(rightkit_agent_config::state_dir_name())
+            .join("history")
+            .join("C");
+        assert!(copy.is_dir(), "the copy is where the child runs");
+
+        // The copy is the child's: rebased onto the workspace, so a rewind in the child
+        // restores the workspace file and never touches the parent's worktree.
+        std::fs::write(root.join("f.txt"), b"y").unwrap();
+        let report = rightkit_agent_engine_history::HistoryStore::new(
+            root,
+            rightkit_agent_config::state_dir_name(),
+            "C",
+        )
+        .restore_since(root, 0);
+        assert_eq!(report.restored.len(), 1, "{report:?}");
+        assert_eq!(std::fs::read(root.join("f.txt")).unwrap(), b"x");
+        assert_eq!(std::fs::read(&parent_file).unwrap(), b"y");
+
+        // Session delete removes the copy.
+        for history_root in session_history_roots(root, "C") {
+            rightkit_agent_engine_history::HistoryStore::new(
+                &history_root,
+                rightkit_agent_config::state_dir_name(),
+                "C",
+            )
+            .delete_session()
+            .unwrap();
+        }
+        assert!(!copy.exists());
+    }
+
+    #[test]
+    fn a_fork_of_a_parent_that_ran_in_place_copies_in_place() {
+        let ws = tempfile::tempdir().unwrap();
+        let (parent_root, child_root) = fork_history_roots(ws.path(), "P");
+        assert_eq!(parent_root, ws.path());
+        assert_eq!(child_root, ws.path());
+    }
+
+    #[test]
+    fn delete_also_clears_a_copy_left_in_a_directory_that_never_became_a_worktree() {
+        let ws = tempfile::tempdir().unwrap();
+        let stray = ws
+            .path()
+            .join(rightkit_agent_config::state_dir_name())
+            .join("worktrees")
+            .join("C");
+        let store = rightkit_agent_engine_history::HistoryStore::new(
+            &stray,
+            rightkit_agent_config::state_dir_name(),
+            "C",
+        );
+        let file = stray.join("f.txt");
+        std::fs::create_dir_all(&stray).unwrap();
+        std::fs::write(&file, b"x").unwrap();
+        store.snapshot_targets(&[file]).unwrap();
+        let copy = stray
+            .join(rightkit_agent_config::state_dir_name())
+            .join("history")
+            .join("C");
+        assert!(copy.is_dir());
+        for root in session_history_roots(ws.path(), "C") {
+            rightkit_agent_engine_history::HistoryStore::new(
+                &root,
+                rightkit_agent_config::state_dir_name(),
+                "C",
+            )
+            .delete_session()
+            .unwrap();
+        }
+        assert!(!copy.exists());
+    }
 }

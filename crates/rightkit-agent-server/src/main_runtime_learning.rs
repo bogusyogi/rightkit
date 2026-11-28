@@ -1,6 +1,15 @@
 async fn cli_learning(command: LearningCommand) -> i32 {
-    let (path, label) = learning_command_request(command);
-    daemon_post_pretty_json(&path, serde_json::json!({}), label).await
+    match command {
+        LearningCommand::List => {
+            return daemon_get_pretty_json("/runtime/learning", "learning list").await
+        }
+        LearningCommand::Instincts => {
+            return daemon_get_pretty_json("/runtime/instincts", "learning instincts").await
+        }
+        _ => {}
+    }
+    let (path, label, body) = learning_command_request(command);
+    daemon_post_pretty_json(&path, body, label).await
 }
 
 async fn cli_insights(session_ids: Vec<String>, scope: String, min_recurrence: u32) -> i32 {
@@ -17,10 +26,23 @@ async fn cli_insights(session_ids: Vec<String>, scope: String, min_recurrence: u
     .await
 }
 
-fn learning_command_request(command: LearningCommand) -> (String, &'static str) {
-    let (proposal_id, action, label) = match command {
-        LearningCommand::Approve { proposal_id } => (proposal_id, "approve", "learning approve"),
-        LearningCommand::Reject { proposal_id } => (proposal_id, "reject", "learning reject"),
+fn learning_command_request(command: LearningCommand) -> (String, &'static str, serde_json::Value) {
+    let (proposal_id, action, label, body) = match command {
+        LearningCommand::Approve { proposal_id, rule } => (
+            proposal_id,
+            "approve",
+            "learning approve",
+            serde_json::json!({ "rule": rule }),
+        ),
+        LearningCommand::Reject { proposal_id } => (
+            proposal_id,
+            "reject",
+            "learning reject",
+            serde_json::json!({}),
+        ),
+        LearningCommand::List | LearningCommand::Instincts => {
+            unreachable!("list commands are answered by cli_learning")
+        }
     };
     (
         format!(
@@ -29,6 +51,7 @@ fn learning_command_request(command: LearningCommand) -> (String, &'static str) 
             action
         ),
         label,
+        body,
     )
 }
 
@@ -71,11 +94,7 @@ async fn daemon_get_json_value(path: &str, label: &str) -> Result<serde_json::Va
     let (base_url, token) = match resolved {
         Ok(Some(p)) => p,
         Ok(None) => {
-            eprintln!(
-                "No running daemon found. Start one with `{app} serve`.",
-                app = crate::host_identity::app()
-            );
-            return Err(1);
+            return Err(host_unreachable_exit(false));
         }
         Err(_) => {
             eprintln!("Timed out after 60s waiting for the daemon to become ready.");
@@ -129,11 +148,7 @@ async fn daemon_json_request(
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!(
-                "No running daemon found. Start one with `{app} serve`.",
-                app = crate::host_identity::app()
-            );
-            return 1;
+            return host_unreachable_exit(false);
         }
     };
 

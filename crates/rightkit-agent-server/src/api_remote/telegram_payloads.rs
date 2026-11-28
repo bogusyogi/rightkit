@@ -132,10 +132,13 @@ fn telegram_test_payload(
         } else {
             "not configured"
         },
-        if status.token_configured {
-            ""
+        &if status.token_configured {
+            String::new()
         } else {
-            "Set remote.telegram-token in config or RIGHTKIT_TELEGRAM_TOKEN."
+            format!(
+                "Set remote.telegram-token in config or {}.",
+                rightkit_agent_config::env_name("TELEGRAM_TOKEN")
+            )
         },
     ));
     checks.push(check(

@@ -20,13 +20,28 @@ async fn list_execution_processes(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(PathBuf::from);
-    let mut processes = live_execution_processes(&state, workspace_filter.as_deref(), false);
+    let list_filter = ProcessListFilter {
+        session_id: query
+            .session_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        include_children: query.include_children.unwrap_or(false),
+        running_only: query.running_only.unwrap_or(false),
+    };
+    let mut processes =
+        live_execution_processes_filtered(&state, workspace_filter.as_deref(), &list_filter, false);
     persist_execution_process_snapshots(&processes)?;
     let store_path = workspace_filter
         .as_deref()
         .map(execution_process_store_path);
-    if let Some(root) = workspace_filter.as_deref() {
-        merge_historical_processes(root, &mut processes)?;
+    // Historical rows carry no session tree or running state; a session or
+    // running-only list is about live processes.
+    if list_filter.session_id.is_none() && !list_filter.running_only {
+        if let Some(root) = workspace_filter.as_deref() {
+            merge_historical_processes(root, &mut processes)?;
+        }
     }
     Ok(Json(serde_json::json!({
         "storePath": store_path,
@@ -261,6 +276,8 @@ async fn kill_execution_process(
     Query(query): Query<ExecutionProcessQuery>,
 ) -> Result<Json<serde_json::Value>, ExecutionError> {
     enforce_execution_trusted_source_authority(&headers)?;
+    // Assigned only on the live-process branch below; the other branch returns early.
+    let stop_outcome: Option<(bool, &'static str)>;
     let process = if let Some((process_before_kill, shell)) =
         live_execution_process(&state, &id, true)?
     {
@@ -268,6 +285,28 @@ async fn kill_execution_process(
             enforce_execution_backend_license(&state)?;
         }
         let killed = shell.kill();
+        // The runner ends the whole process tree before it records the end
+        // (a session/group kill on Linux and macOS, the Job Object on
+        // Windows), so wait for that record to say "stopped" truthfully.
+        // Wait on the shared shell-event signal, not on a timer (#377). Subscribe before the
+        // first status read so a change cannot be missed.
+        let mut shell_events =
+            rightkit_agent_coding_tools::background_shell::subscribe_shell_events();
+        let stop_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(8);
+        while matches!(
+            shell.status(),
+            rightkit_agent_coding_tools::background_shell::BgStatus::Running
+        ) {
+            let now = tokio::time::Instant::now();
+            if now >= stop_deadline {
+                break;
+            }
+            match tokio::time::timeout(stop_deadline - now, shell_events.changed()).await {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) | Err(_) => break,
+            }
+        }
+        stop_outcome = Some(kill_outcome(killed, &shell.status()));
         if killed {
             if let Some(live) = state.get_session(&process_before_kill.session_id) {
                 let seq = live.conduit.next_seq();
@@ -305,7 +344,27 @@ async fn kill_execution_process(
         )));
     };
     persist_execution_process_snapshots(std::slice::from_ref(&process))?;
-    Ok(Json(serde_json::json!({ "process": process })))
+    let (stopped, detail) = stop_outcome.unwrap_or((false, "Not running"));
+    Ok(Json(serde_json::json!({
+        "process": process,
+        "stopped": stopped,
+        "detail": detail,
+    })))
+}
+
+/// Plain-words result of a stop request. The engine does not count the
+/// children it ended, so the words say only whether it stopped.
+fn kill_outcome(
+    signalled: bool,
+    status: &rightkit_agent_coding_tools::background_shell::BgStatus,
+) -> (bool, &'static str) {
+    use rightkit_agent_coding_tools::background_shell::BgStatus;
+    match status {
+        BgStatus::Running => (false, "Still stopping"),
+        BgStatus::Killed => (true, "Stopped, with its child processes"),
+        _ if signalled => (true, "Stopped"),
+        _ => (true, "Already finished"),
+    }
 }
 
 async fn write_execution_process_stdin(
@@ -598,4 +657,26 @@ async fn doctor_execution_backend(
         .doctor(&id, workspace.as_deref())
         .ok_or_else(|| ExecutionError::not_found("execution backend not found"))?;
     Ok(Json(report))
+}
+
+#[cfg(test)]
+mod kill_outcome_tests {
+    use super::*;
+    use rightkit_agent_coding_tools::background_shell::BgStatus;
+
+    #[test]
+    fn kill_outcome_words() {
+        assert_eq!(
+            kill_outcome(true, &BgStatus::Running),
+            (false, "Still stopping")
+        );
+        assert_eq!(
+            kill_outcome(true, &BgStatus::Killed),
+            (true, "Stopped, with its child processes")
+        );
+        assert_eq!(
+            kill_outcome(false, &BgStatus::Exited(0)),
+            (true, "Already finished")
+        );
+    }
 }

@@ -14,8 +14,8 @@ use crate::api::{
     DaemonState, LiveSession,
 };
 use crate::api_stores::{
-    write_permission_rule_store, write_workspace_trust_store, PersistentPermissionRule,
-    PersistentPermissionRuleStore, WorkspaceTrustRecord,
+    update_permission_rule_store, upsert_workspace_trust_record, write_permission_rule_store,
+    PersistentPermissionRule, PersistentPermissionRuleStore, WorkspaceTrustRecord,
 };
 
 pub fn permission_routes() -> Router<DaemonState> {
@@ -67,11 +67,17 @@ pub struct AddPermissionRule {
     pub effect: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct PersistentPermissionRuleQuery {
     pub scope: Option<String>,
     #[serde(rename = "workspaceRoot", alias = "workspace_root")]
     pub workspace_root: Option<String>,
+    /// Delete only: the pattern the client listed at this index. When given (with or without
+    /// `effect`), a rule at the index that no longer matches is refused with 409 instead of
+    /// deleting whatever moved into that position.
+    pub pattern: Option<String>,
+    /// Delete only: the effect the client listed at this index (see `pattern`).
+    pub effect: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -107,8 +113,8 @@ pub struct SetWorkspaceTrust {
 include!("api_permissions/openapi.rs");
 
 // `enforce_trusted_source_authority` / `lower_source_trust` moved to the
-// binary-independent `rightkit-agent-daemon` crate (src/authority.rs, from
-// the host app's `{app}-daemon-core`) so extracted domain crates (e.g. `{app}-attention`)
+// binary-independent published `rightkit-agent-daemon` crate (`src/authority.rs`;
+// the header name is set in `host_init.rs`) so extracted domain crates (e.g. the attention crate)
 // can call the gate without depending on this binary crate. Re-exported here
 // so this module's ~58 existing `crate::api_permissions::...` call sites are
 // unaffected.
@@ -123,12 +129,19 @@ include!("api_permissions/handlers.rs");
 /// In-process entry for the interactive host's mode switch (`/yolo`,
 /// Shift+Tab): the same live-session change and descendant tightening the
 /// `permission-mode` route performs, without an HTTP round trip.
+///
+/// Tools rule 62: `Bypass` in an untrusted workspace is refused with a message naming the trust
+/// state; the live mode is left unchanged.
 pub(crate) fn apply_live_permission_mode(
     state: &DaemonState,
     live: &std::sync::Arc<LiveSession>,
     mode: rightkit_agent_policy::PermissionMode,
-) {
+) -> Result<(), String> {
+    if let Some(message) = permission_mode_refusal(state, live, mode) {
+        return Err(message);
+    }
     set_permission_mode_and_tighten_descendants(state, live, mode);
+    Ok(())
 }
 
 include!("api_permissions/serialization.rs");

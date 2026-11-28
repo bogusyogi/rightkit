@@ -47,11 +47,7 @@ async fn daemon_kill(session_id: &str) -> i32 {
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!(
-                "No running daemon found. Start one with `{app} serve`.",
-                app = crate::host_identity::app()
-            );
-            return 1;
+            return host_unreachable_exit(false);
         }
     };
 
@@ -85,41 +81,126 @@ async fn daemon_kill(session_id: &str) -> i32 {
     }
 }
 
+/// `{app} queue SESSION --message TEXT [--resume]`: put one message on the
+/// session's steering queue (`POST /sessions/{id}/steer` with `action: enqueue`).
+/// The daemon delivers it after the running turn; the call returns at once.
+async fn daemon_queue(session_id: &str, message: &str, resume: bool) -> i32 {
+    if message.trim().is_empty() {
+        eprintln!(
+            "`{app} queue` needs a non-empty --message",
+            app = crate::host_identity::app()
+        );
+        return 2;
+    }
+    let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
+        Some(p) => p,
+        None => {
+            return host_unreachable_exit(false);
+        }
+    };
+    let encoded_session_id = url_encode_component(session_id);
+    if resume {
+        match rightkit_agent_daemon::http_client::daemon_call(
+            rightkit_http::Method::Post,
+            &format!("{base_url}/sessions/{encoded_session_id}/resume"),
+            &token,
+            None,
+        )
+        .await
+        {
+            Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status) => {}
+            Ok(resp) => {
+                eprintln!(
+                    "Daemon returned {} resuming session {session_id}",
+                    resp.status
+                );
+                return 1;
+            }
+            Err(e) => {
+                eprintln!("Failed to contact daemon: {e}");
+                return 1;
+            }
+        }
+    }
+    let body = serde_json::json!({ "action": "enqueue", "text": message });
+    match rightkit_agent_daemon::http_client::daemon_call(
+        rightkit_http::Method::Post,
+        &format!("{base_url}/sessions/{encoded_session_id}/steer"),
+        &token,
+        Some(&body),
+    )
+    .await
+    {
+        Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status) => {
+            let value = resp
+                .json::<serde_json::Value>()
+                .unwrap_or(serde_json::Value::Null);
+            match value
+                .pointer("/queued/id")
+                .and_then(serde_json::Value::as_str)
+            {
+                Some(id) => println!("Queued message {id} for session {session_id}."),
+                None => println!("Queued a message for session {session_id}."),
+            }
+            0
+        }
+        Ok(resp) => {
+            eprintln!("{}", queue_refusal(resp.status, session_id));
+            1
+        }
+        Err(e) => {
+            eprintln!("Failed to contact daemon: {e}");
+            1
+        }
+    }
+}
+
+/// What a refused `queue` call means, in words.
+fn queue_refusal(status: u16, session_id: &str) -> String {
+    match status {
+        404 => format!(
+            "Session {session_id} is not live in the daemon; pass --resume to wake a dormant session first."
+        ),
+        429 => format!("Session {session_id} already holds the most queued messages it accepts."),
+        status => format!("Daemon returned {status} queuing a message for session {session_id}"),
+    }
+}
+
 async fn daemon_handoff(session_id: &str) -> i32 {
     match fetch_daemon_handoff(session_id).await {
         Ok(payload) => {
             print_handoff_payload(&payload);
             0
         }
-        Err(message) => {
-            eprintln!("{message}");
-            1
-        }
+        Err(message) => daemon_error_exit(false, &message),
     }
 }
 
 async fn daemon_app_open(session_id: &str) -> i32 {
     match fetch_daemon_handoff(session_id).await {
         Ok(_) => {}
-        Err(message) => {
-            eprintln!("{message}");
-            return 1;
-        }
+        Err(message) => return daemon_error_exit(false, &message),
     }
 
     let url = session_deeplink_url(session_id);
-    match open_deeplink_url(&url) {
+    match crate::open_url::open_url(&url) {
         Ok(status) if status.success() => {
-            println!("Opening RightKit: {url}");
+            println!("Opening {}: {url}", rightkit_agent_config::app_name());
             0
         }
         Ok(status) => {
-            eprintln!("Failed to open RightKit link (exit {status}). Open manually: {url}");
+            eprintln!(
+                "Failed to open {} link (exit {status}). Open manually: {url}",
+                rightkit_agent_config::app_name()
+            );
             eprintln!("{}", render_app_open_handoff_hint(session_id));
             1
         }
         Err(error) => {
-            eprintln!("Failed to open RightKit link: {error}. Open manually: {url}");
+            eprintln!(
+                "Failed to open {} link: {error}. Open manually: {url}",
+                rightkit_agent_config::app_name()
+            );
             eprintln!("{}", render_app_open_handoff_hint(session_id));
             1
         }
@@ -145,10 +226,7 @@ async fn fetch_daemon_handoff(session_id: &str) -> Result<serde_json::Value, Str
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            return Err(format!(
-                "No running daemon found. Start one with `{app} serve`.",
-                app = crate::host_identity::app()
-            ));
+            return Err(no_daemon_message());
         }
     };
 
@@ -194,36 +272,4 @@ fn percent_encode_path_segment(value: &str) -> String {
         }
     }
     out
-}
-
-fn open_deeplink_url(url: &str) -> std::io::Result<std::process::ExitStatus> {
-    #[cfg(target_os = "windows")]
-    {
-        return rightkit_child_process::command_std("rundll32.exe")
-            .arg("url.dll,FileProtocolHandler")
-            .arg(url)
-            .status();
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        return rightkit_child_process::command_std("open")
-            .arg(url)
-            .status();
-    }
-
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        return rightkit_child_process::command_std("xdg-open")
-            .arg(url)
-            .status();
-    }
-
-    #[allow(unreachable_code)]
-    {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "opening app links is unsupported on this platform",
-        ))
-    }
 }

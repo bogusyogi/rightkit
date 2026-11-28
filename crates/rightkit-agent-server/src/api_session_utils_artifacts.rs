@@ -4,6 +4,48 @@ use super::*;
 /// Also feeds the F2 budget meter: the active goal's `tokens_used` is the
 /// sub-agent rollup (parent + ALL children), so a runaway sub-agent fleet trips
 /// the goal's token cap — the [council P0] correctness fix.
+/// The main agent's rail entry, read from the session row's own sources so the
+/// rail and the row (`session_row`) cannot disagree: model and provider under
+/// one guard, `costUsd` from the same `cost_usd` slot (null = unknown).
+pub(crate) fn main_agent_entry(
+    parent: &LiveSession,
+) -> rightkit_agent_engine_protocol::AgentRosterMain {
+    let (model, provider) = {
+        let model = lock_recover(&parent.model, "session.model");
+        (
+            model.clone(),
+            lock_recover(&parent.provider_id, "session.provider_id").clone(),
+        )
+    };
+    rightkit_agent_engine_protocol::AgentRosterMain {
+        sub_session_id: parent.id.clone(),
+        role: "main".into(),
+        label: "Main".into(),
+        model,
+        provider: provider.filter(|p| !p.is_empty()),
+        cost_usd: *lock_recover(&parent.cost_usd, "session.cost_usd"),
+        status: if parent.live_turn_handle.is_active() {
+            "running"
+        } else {
+            "idle"
+        }
+        .into(),
+    }
+}
+
+/// The roster as the rail reads it: children, the main agent, and the total.
+pub(crate) fn agent_roster_view(parent: &LiveSession) -> serde_json::Value {
+    let rows = lock_recover(&parent.agent_roster, "session.agent_roster").rows();
+    let main = main_agent_entry(parent);
+    let (total, known) = rightkit_agent_engine_protocol::roster_total_cost(main.cost_usd, &rows);
+    serde_json::json!({
+        "main": main,
+        "agents": rows,
+        "totalCostUsd": total,
+        "costKnown": known,
+    })
+}
+
 pub(crate) fn publish_agent_roster(parent: &LiveSession) {
     let (agents, rollup) = {
         let mut roster = lock_recover(&parent.agent_roster, "session.agent_roster");
@@ -17,15 +59,17 @@ pub(crate) fn publish_agent_roster(parent: &LiveSession) {
     if let Some(goal) = lock_recover(&parent.goal_state, "session.goal_state").as_mut() {
         goal.tokens_used = (rollup.tokens_in + rollup.tokens_out) as i64;
     }
+    let main = main_agent_entry(parent);
+    let (total, known) = rightkit_agent_engine_protocol::roster_total_cost(main.cost_usd, &agents);
     let seq = parent.conduit.next_seq();
     parent.conduit.publish(ProtocolEvent::AgentRosterUpdated {
         session_id: parent.id.clone(),
         seq,
         created_at: now_iso(),
         agents,
-        main: None,
-        total_cost_usd: None,
-        cost_known: true,
+        main: Some(main),
+        total_cost_usd: Some(total),
+        cost_known: known,
     });
 }
 
@@ -37,6 +81,7 @@ pub(crate) fn spawn_event_persister(
     store: SharedStorage,
     deleted_session_ids: Arc<Mutex<HashSet<String>>>,
     persistence_state: rightkit_agent_engine_storage::EventPersistenceState,
+    initial_events: Vec<(i64, String, String)>,
 ) {
     // Explicit persistence ingress is installed synchronously before the
     // session becomes reachable. Durable facts never depend on subscribing to
@@ -45,6 +90,39 @@ pub(crate) fn spawn_event_persister(
     let mut admissions = conduit.install_persistence_gate();
     let conduit_for_commit = conduit.clone();
     tokio::spawn(async move {
+        // Events that precede everything the session publishes (a forked child's seed): stored
+        // first, in order, waiting for the session row they belong to.
+        for (seq, kind, payload) in initial_events {
+            let mut stored = false;
+            for attempt in 0..60 {
+                if attempt > 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+                let store = store.clone();
+                let sid = session_id.clone();
+                let (kind, payload) = (kind.clone(), payload.clone());
+                let result = tokio::task::spawn_blocking(move || {
+                    let mut storage = store.blocking_lock();
+                    crate::api::append_event_via_storage_authority(
+                        &mut storage,
+                        &sid,
+                        seq,
+                        &kind,
+                        &payload,
+                    )
+                })
+                .await;
+                if matches!(result, Ok(Ok(()))) {
+                    stored = true;
+                    break;
+                }
+            }
+            if !stored {
+                conduit_for_commit
+                    .latch_persistence_failure(format!("seed event {seq} could not be stored"));
+                break;
+            }
+        }
         // Producers reserve sequence numbers before constructing/publishing
         // events. A concurrent producer can therefore enqueue N+1 before N.
         // Keep that event until its predecessor commits instead of exhausting
@@ -264,8 +342,125 @@ pub(crate) fn spawn_event_persister(
     });
 }
 
+/// Keep a coarse, bounded snapshot of the reply that is still streaming, so a
+/// crash mid-reply does not lose the text shown so far. One row per session is
+/// overwritten at most every 2 s (or per 4 KiB of new text); any settled fact
+/// that follows the reply supersedes it. Token deltas stay live-only: this row
+/// is read only on resume (`partial_reply_recovery_event`).
+pub(crate) fn spawn_partial_reply_snapshotter(
+    session_id: String,
+    conduit: Arc<Conduit>,
+    store: SharedStorage,
+    deleted_session_ids: Arc<Mutex<HashSet<String>>>,
+) {
+    const FLUSH_EVERY: std::time::Duration = std::time::Duration::from_secs(2);
+    const FLUSH_BYTES: usize = 4 * 1024;
+    const MAX_BYTES: usize = 256 * 1024;
+    let mut subscription = conduit.subscribe();
+    drop(conduit);
+    tokio::spawn(async move {
+        let mut text = String::new();
+        let mut anchor_seq = 0i64;
+        let mut unsaved_bytes = 0usize;
+        let mut written = false;
+        let mut last_flush = std::time::Instant::now();
+        let mut tick = tokio::time::interval(std::time::Duration::from_millis(500));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            enum Step {
+                Event(Box<ProtocolEvent>),
+                Tick,
+                Done,
+            }
+            let step = tokio::select! {
+                received = subscription.recv() => match received {
+                    rightkit_agent_engine_core::conduit::ConduitReceive::Event(event) => {
+                        Step::Event(Box::new(event))
+                    }
+                    rightkit_agent_engine_core::conduit::ConduitReceive::Lagged { .. } => Step::Tick,
+                    rightkit_agent_engine_core::conduit::ConduitReceive::Closed => Step::Done,
+                },
+                _ = tick.tick() => Step::Tick,
+            };
+            let mut settled = false;
+            match step {
+                Step::Done => break,
+                Step::Tick => {}
+                Step::Event(event) => match *event {
+                    ProtocolEvent::AssistantDelta {
+                        seq,
+                        text: delta,
+                        is_reasoning: false,
+                        ..
+                    } => {
+                        if text.is_empty() {
+                            anchor_seq = seq;
+                            last_flush = std::time::Instant::now();
+                        }
+                        if text.len() < MAX_BYTES {
+                            text.push_str(&delta);
+                            unsaved_bytes += delta.len();
+                        }
+                    }
+                    // The reply ended, moved on to tools, or the turn did: the
+                    // snapshot is superseded by a settled fact or a fresh start.
+                    ProtocolEvent::AssistantMessageCompleted { .. }
+                    | ProtocolEvent::ToolCallStarted { .. }
+                    | ProtocolEvent::ToolApprovalRequested { .. }
+                    | ProtocolEvent::SessionTurnFinished { .. }
+                    | ProtocolEvent::RunInterrupted { .. }
+                    | ProtocolEvent::RunFailed { .. }
+                    | ProtocolEvent::BudgetExceeded { .. }
+                    | ProtocolEvent::ProviderRetrying { .. } => settled = true,
+                    _ => {}
+                },
+            }
+            if settled {
+                text.clear();
+                unsaved_bytes = 0;
+                // While the daemon is stopping, a snapshot stays: shutdown turns it into an interrupted reply
+                // once the persister has caught up (`append_partial_reply_at_shutdown`).
+                if written
+                    && !crate::api::SHUTDOWN_SETTLING.load(std::sync::atomic::Ordering::SeqCst)
+                {
+                    written = false;
+                    let store = store.clone();
+                    let sid = session_id.clone();
+                    let _ = tokio::task::spawn_blocking(move || {
+                        let _ = store.blocking_lock().clear_partial_reply(&sid);
+                    })
+                    .await;
+                }
+                continue;
+            }
+            if unsaved_bytes > 0
+                && (unsaved_bytes >= FLUSH_BYTES || last_flush.elapsed() >= FLUSH_EVERY)
+            {
+                unsaved_bytes = 0;
+                last_flush = std::time::Instant::now();
+                written = true;
+                let store = store.clone();
+                let sid = session_id.clone();
+                let snapshot = text.clone();
+                let deleted = deleted_session_ids.clone();
+                let _ = tokio::task::spawn_blocking(move || {
+                    if lock_recover(&deleted, "deleted_session_ids").contains(&sid) {
+                        return;
+                    }
+                    let _ = store.blocking_lock().save_partial_reply(
+                        &sid,
+                        anchor_seq,
+                        &snapshot,
+                        &now_iso(),
+                    );
+                })
+                .await;
+            }
+        }
+    });
+}
+
 /// Typed outcome of the latch-cancel watcher for one session.
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LatchCancelOutcome {
     /// Persistence latched: the session interrupt was fired, cancelling every

@@ -1,4 +1,4 @@
-/// Get the RightKit internal task pack used for promotion targeting.
+/// Get the internal task pack used for promotion targeting.
 async fn get_terminal_bench_tasks(
     State(_state): State<DaemonState>,
 ) -> Json<Vec<serde_json::Value>> {
@@ -34,7 +34,7 @@ pub struct TerminalBenchRunRequest {
     pub session_id: String,
 }
 
-/// Run a RightKit internal task-pack task against a named agent and return a benchmark report.
+/// Run an internal task-pack task against a named agent and return a benchmark report.
 /// The handler creates an isolated workspace, invokes the requested agent role,
 /// verifies the resulting files, and records the report in benchmark history.
 async fn run_terminal_bench_handler(
@@ -91,7 +91,11 @@ pub(crate) async fn run_terminal_bench_task(
         &bench_session_id,
         Some(&body.agent),
         &workspace_root.to_string_lossy(),
-        &format!("RightKit task pack {}", body.task_id),
+        &format!(
+            "{} task pack {}",
+            rightkit_agent_config::app_name(),
+            body.task_id
+        ),
         parent.as_deref(),
     );
 

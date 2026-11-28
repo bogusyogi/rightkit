@@ -93,11 +93,12 @@ impl DaemonState {
             pinned: false,
             attachments: Vec::new(),
         });
+        let user_created_at = now_iso();
         let user_seq = live.conduit.next_seq();
         live.conduit.publish(ProtocolEvent::UserMessageSubmitted {
             session_id: id.to_string(),
             seq: user_seq,
-            created_at: now_iso(),
+            created_at: user_created_at.clone(),
             text: text.to_string(),
             nonce: None,
             trust: Some(trust.clone()),
@@ -109,11 +110,12 @@ impl DaemonState {
         let accepted_seq = user_seq;
         let memory_injection =
             retrieve_session_memory(self, id, &live.workspace_root, text, 5, source).await;
-        let reminder = dynamic_user_turn_reminder(
+        let reminder = turn_reminder_for(
+            &user_created_at,
             memory_injection
                 .as_ref()
                 .map(|injection| injection.context.as_str()),
-            &[],
+            crate::api::session_state_note(&live, id),
         );
         let engine_text = decorate_user_payload_with_system_reminder(
             &trust.boundary_wrapped_content(text),
@@ -161,6 +163,12 @@ impl DaemonState {
                     message,
                     phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
                 });
+            crate::api_sessions::messages::publish_turn_finished(
+                &live.conduit,
+                id,
+                &format!("no-provider-{seq}"),
+                "completed",
+            );
             false
         };
         Ok((accepted_seq, delivered))
@@ -197,11 +205,12 @@ impl DaemonState {
             pinned: false,
             attachments: Vec::new(),
         });
+        let user_created_at = now_iso();
         let user_seq = live.conduit.next_seq();
         live.conduit.publish(ProtocolEvent::UserMessageSubmitted {
             session_id: id.to_string(),
             seq: user_seq,
-            created_at: now_iso(),
+            created_at: user_created_at.clone(),
             text: text.to_string(),
             nonce: None,
             trust: Some(trust.clone()),
@@ -211,11 +220,12 @@ impl DaemonState {
         let accepted_seq = user_seq;
         let memory_injection =
             retrieve_session_memory(self, id, &live.workspace_root, text, 5, &source).await;
-        let reminder = dynamic_user_turn_reminder(
+        let reminder = turn_reminder_for(
+            &user_created_at,
             memory_injection
                 .as_ref()
                 .map(|injection| injection.context.as_str()),
-            &[],
+            crate::api::session_state_note(&live, id),
         );
         let engine_text = remote_channel_engine_payload(text, &trust, &reminder);
         if live.msg_tx.is_some() {
@@ -252,6 +262,12 @@ impl DaemonState {
                     message,
                     phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
                 });
+            crate::api_sessions::messages::publish_turn_finished(
+                &live.conduit,
+                id,
+                &format!("no-provider-{seq}"),
+                "completed",
+            );
         }
         Ok(accepted_seq)
     }
@@ -266,11 +282,12 @@ impl DaemonState {
         );
         let memory_injection =
             retrieve_session_memory(self, id, &live.workspace_root, text, 5, "relay").await;
-        let reminder = dynamic_user_turn_reminder(
+        let reminder = turn_reminder_for(
+            &now_iso(),
             memory_injection
                 .as_ref()
                 .map(|injection| injection.context.as_str()),
-            &[],
+            None,
         );
         let content = decorate_user_payload_with_system_reminder(&content, &reminder);
         let trust = trust_envelope(ContentTrust::ToolUntrusted, "relay", &content);
@@ -369,33 +386,55 @@ impl DaemonState {
         let events_storage = storage.clone();
         let events_pool = read_pool.clone();
         let events_id = id.to_string();
-        let (events, lineage_spent_usd) = tokio::task::spawn_blocking(move || {
-            let load_events = |session_id: &str| -> Vec<rightkit_agent_engine_storage::EventRow> {
-                match &events_pool {
-                    Some(pool) => pool
-                        .all_events_paged(
-                            session_id,
-                            rightkit_agent_engine_storage::RESUME_PAGE_ROWS,
-                        )
-                        .unwrap_or_default(),
-                    None => events_storage
-                        .blocking_lock()
-                        .all_events(session_id)
-                        .unwrap_or_default(),
-                }
-            };
-            let events = load_events(&events_id);
-            let mut spent = 0.0f64;
-            for member in &lineage_member_ids {
-                spent += match &events_pool {
-                    Some(pool) => pool.latest_known_cost_usd(member).unwrap_or(0.0),
-                    None => latest_known_session_cost_usd(&load_events(member)),
+        let (events, lineage_spent_usd, events_load_error) =
+            tokio::task::spawn_blocking(move || {
+                let load_events = |session_id: &str| -> Result<
+                    Vec<rightkit_agent_engine_storage::EventRow>,
+                    String,
+                > {
+                    match &events_pool {
+                        Some(pool) => pool
+                            .all_events_paged(
+                                session_id,
+                                rightkit_agent_engine_storage::RESUME_PAGE_ROWS,
+                            )
+                            .map_err(|error| error.to_string()),
+                        None => events_storage
+                            .blocking_lock()
+                            .all_events(session_id)
+                            .map_err(|error| error.to_string()),
+                    }
                 };
-            }
-            (events, spent)
-        })
-        .await
-        .unwrap_or_default();
+                let (events, load_error) = match load_events(&events_id) {
+                    Ok(events) => (events, None),
+                    Err(error) => (Vec::new(), Some(error)),
+                };
+                let mut spent = 0.0f64;
+                for member in &lineage_member_ids {
+                    spent += match &events_pool {
+                        Some(pool) => pool.latest_known_cost_usd(member).unwrap_or(0.0),
+                        None => {
+                            latest_known_session_cost_usd(&load_events(member).unwrap_or_default())
+                        }
+                    };
+                }
+                (events, spent, load_error)
+            })
+            .await
+            // Audit L1: a load task that panicked or was cancelled is an unreadable log, not an empty one.
+            .unwrap_or_else(|error| {
+                (
+                    Vec::new(),
+                    0.0,
+                    Some(format!("the event load task did not finish: {error}")),
+                )
+            });
+        if let Some(error) = events_load_error {
+            // An unreadable log must never become an empty session: the fresh event counter would
+            // collide with the stored rows.
+            tracing::warn!(session_id = %id, error = %error, "resume refused: the stored event log could not be read");
+            return None;
+        }
         let lineage_spent_usd = if row.is_none() {
             lineage_spent_usd + latest_known_session_cost_usd(&events)
         } else {
@@ -414,6 +453,17 @@ impl DaemonState {
         let prior_events = events;
         let events = tokio::task::spawn_blocking(
             move || -> Result<Vec<rightkit_agent_engine_storage::EventRow>, String> {
+                // Audit M4: fold the full payload of oversized events, not their
+                // spill stubs, so replay matches what the live session showed
+                // and a spilled tool result still settles its tool call.
+                let restore = |rows: &mut Vec<rightkit_agent_engine_storage::EventRow>| {
+                    reconcile_storage
+                        .blocking_lock()
+                        .restore_spilled_payloads(&reconcile_session_id, rows)
+                        .map_err(|error| error.to_string())
+                };
+                let mut prior_events = prior_events;
+                restore(&mut prior_events)?;
                 let reconciled = {
                     let mut store = reconcile_storage.blocking_lock();
                     crate::api_tool_invocations::reconcile_interrupted_effects(
@@ -422,47 +472,81 @@ impl DaemonState {
                         &prior_events,
                     )?
                 };
-                let mut events = if reconciled == 0 {
-                    prior_events
-                } else {
-                    match reconcile_pool {
+                // A reply that was still streaming when the process stopped
+                // leaves a snapshot; settle it as an interrupted reply.
+                let reconciled = reconciled
+                    + {
+                        let mut store = reconcile_storage.blocking_lock();
+                        append_interrupted_partial_reply(
+                            &mut store,
+                            &reconcile_session_id,
+                            &prior_events,
+                        )?
+                    };
+                let mut events = prior_events;
+                if reconciled != 0 {
+                    // Audit M3: reconciliation only appends settlement rows after the
+                    // loaded tail, so read those rows instead of the whole log again.
+                    let after = events.last().map(|row| row.seq).unwrap_or(0);
+                    let mut appended = match reconcile_pool {
                         Some(pool) => pool
-                            .all_events_paged(
+                            .events_after_paged(
                                 &reconcile_session_id,
+                                after,
                                 rightkit_agent_engine_storage::RESUME_PAGE_ROWS,
                             )
                             .map_err(|error| error.to_string())?,
                         None => reconcile_storage
                             .blocking_lock()
-                            .all_events(&reconcile_session_id)
+                            .events_after(&reconcile_session_id, after)
                             .map_err(|error| error.to_string())?,
-                    }
-                };
-                // Audit M9: rows that cannot decode are quarantined (raw bytes
-                // retained) rather than skipped, and re-skipped, on every resume.
+                    };
+                    restore(&mut appended)?;
+                    events.extend(appended);
+                }
+                // Audit M1: rows this build cannot decode (possibly written by a
+                // newer build) stay in the live log and are skipped by the fold;
+                // a copy goes to quarantine. The copy is forensic only, so failing
+                // to write it (e.g. a busy database) must not refuse the resume.
                 let undecodable = crate::rehydrate::undecodable_event_seqs(&events);
                 if !undecodable.is_empty() {
-                    let moved = reconcile_storage
-                        .blocking_lock()
-                        .quarantine_undecodable_events(
-                            &reconcile_session_id,
-                            &undecodable,
-                            "undecodable-on-rehydrate",
-                        )
-                        .map_err(|error| error.to_string())?;
-                    tracing::warn!(
-                        session_id = %reconcile_session_id,
-                        quarantined_seqs = ?moved,
-                        "undecodable durable events quarantined during resume"
-                    );
-                    events.retain(|row| !moved.contains(&row.seq));
+                    match reconcile_storage.blocking_lock().quarantine_undecodable_events(
+                        &reconcile_session_id,
+                        &undecodable,
+                        "undecodable-on-rehydrate",
+                    ) {
+                        Ok(recorded) if !recorded.is_empty() => tracing::warn!(
+                            session_id = %reconcile_session_id,
+                            quarantined_seqs = ?recorded,
+                            "undecodable durable events skipped during resume (kept in the log, copied to quarantine)"
+                        ),
+                        // Round-3 #11: every seq already had its quarantine copy.
+                        Ok(_) => {}
+                        Err(error) => tracing::warn!(
+                            session_id = %reconcile_session_id,
+                            seqs = ?undecodable,
+                            error = %error,
+                            "undecodable durable events skipped during resume; the quarantine copy failed"
+                        ),
+                    }
                 }
                 Ok(events)
             },
         )
-        .await
-        .ok()?
-        .ok()?;
+        .await;
+        // Audit L2: a failure after the load is not "session not found"; say why.
+        let events = match events {
+            Ok(Ok(events)) => events,
+            Ok(Err(error)) => {
+                tracing::warn!(session_id = %id, error = %error, "resume refused: interrupted-effect reconciliation failed");
+                return None;
+            }
+            Err(error) => {
+                tracing::warn!(session_id = %id, error = %error, "resume refused: the reconciliation task did not finish");
+                return None;
+            }
+        };
+        let high_water = events.last().map(|row| row.seq).unwrap_or(0);
         let (role, parent, title, ws, mut options) = match &row {
             Some(r) => (
                 r.role.clone(),
@@ -479,21 +563,36 @@ impl DaemonState {
                 SessionRuntimeOptions::default(),
             ),
         };
+        // Sessions rule 35: restore Ask or Plan, never Bypass (a child included).
+        let (resumed_mode, lowered_from) = match &row {
+            Some(r) => resumed_permission_mode(&r.config_json),
+            None => (rightkit_agent_policy::PermissionMode::Ask, None),
+        };
+        options.permission_mode = Some(resumed_mode);
         let workspace_root = ws_override.unwrap_or(&ws);
         if let Some(selection) = options.inference_selection.clone() {
-            let route =
-                crate::inference_runtime::ensure_inference_selection_qualified(self, &selection)
-                    .await
-                    .ok()?;
-            crate::inference_runtime::resume_binding_matches(self, id, &route)
-                .await
-                .ok()?;
+            let route = match crate::inference_runtime::ensure_inference_selection_qualified(
+                self, &selection,
+            )
+            .await
+            {
+                Ok(route) => route,
+                Err(error) => {
+                    tracing::warn!(session_id = %id, error = ?error, "resume refused: stored inference selection no longer qualifies");
+                    return None;
+                }
+            };
+            if let Err(error) =
+                crate::inference_runtime::resume_binding_matches(self, id, &route).await
+            {
+                tracing::warn!(session_id = %id, error = ?error, "resume refused: stored inference binding does not match");
+                return None;
+            }
             options.inference_fingerprint = Some(route.fingerprint.clone());
             options.resolved_inference_route = Some(route);
         }
-        let mut visible_messages = crate::rehydrate::rehydrate_transcript(&events);
-        let mut engine_messages = crate::rehydrate::rehydrate_engine_context(
-            &events,
+        let (mut visible_messages, mut engine_messages) = crate::rehydrate::rehydrate_for_resume(
+            events,
             id,
             Path::new(workspace_root),
             Some(crate::api::api_session_context::daemon_memory_block_provider(self.clone())),
@@ -502,10 +601,22 @@ impl DaemonState {
         // model-facing context does. The seam is exposed here so the
         // interrupted-journal markers (which the engine may need to act on)
         // land on both surfaces when the journal is present.
+        let mut interruption_noted = false;
         if let Some(journal_dir) = self.journal_dir.as_deref() {
             let markers = interrupted_journal_markers(journal_dir, id).await;
+            interruption_noted = !markers.is_empty();
             visible_messages.extend(markers.iter().cloned());
             engine_messages.extend(markers);
+        }
+        // A session whose last turn never finished is stored as `interrupted`
+        // (daemon start stamps it). Tell the model, never retry the turn. A host
+        // that keeps a turn journal has said so above, with the turn's own id.
+        if !interruption_noted {
+            if let Some(r) = row.as_ref().filter(|r| r.status == "interrupted") {
+                let note = interrupted_session_note(id, &r.updated_at);
+                visible_messages.push(note.clone());
+                engine_messages.push(note);
+            }
         }
         let restored_lineage = rightkit_agent_engine_core::LineageBudget::from_usd(
             lineage_ceiling_usd,
@@ -546,19 +657,54 @@ impl DaemonState {
         // construction; the next published event is `seq ==
         // persisted_high_water + 1` so it is the *next* thing the
         // catch-up query would return, not a duplicate).
-        let high_water = events.last().map(|row| row.seq).unwrap_or(0);
         let live = self.create_session_seeded_with_options(
-            id,
-            role.as_deref(),
-            &ws,
-            &title,
-            parent.as_deref(),
-            Some(visible_messages),
-            Some(engine_messages),
-            high_water,
-            compaction_epoch,
+            SessionIdentity {
+                id,
+                role: role.as_deref(),
+                workspace_root: &ws,
+                title: &title,
+                parent_session_id: parent.as_deref(),
+            },
+            SessionSeed {
+                seed: Some(visible_messages),
+                engine_seed: Some(engine_messages),
+                high_water,
+                compaction_epoch,
+            },
             options,
         );
+        if let Some(stored_mode) = lowered_from {
+            let conduit = live.conduit.clone();
+            let seq = conduit.next_seq();
+            let now = rightkit_agent_engine_protocol::time::now_iso();
+            let mut fields = std::collections::HashMap::new();
+            fields.insert(
+                "storedMode".to_string(),
+                stored_mode.wire_name().to_string(),
+            );
+            fields.insert(
+                "resumedMode".to_string(),
+                resumed_mode.wire_name().to_string(),
+            );
+            conduit.publish(
+                rightkit_agent_engine_protocol::ProtocolEvent::OrchestrationObservationRecorded {
+                    session_id: id.to_string(),
+                    seq,
+                    created_at: now.clone(),
+                    observation: rightkit_agent_engine_protocol::OrchestrationObservation {
+                        id: format!("permission-mode-lowered-{seq}"),
+                        kind: "permission_mode_lowered".into(),
+                        subject: id.to_string(),
+                        summary: format!(
+                            "Resumed in Ask mode: this session was in {} mode, which is never restored on resume.",
+                            stored_mode.display_label()
+                        ),
+                        fields,
+                        created_at: now,
+                    },
+                },
+            );
+        }
         // Reload a still-open goal (closed_at IS NULL) so it survives a daemon
         // restart. The goal_state arc here is the SAME one the engine holds
         // (set_goal_state_arc), so repopulating it is visible on the next turn.
@@ -576,11 +722,11 @@ impl DaemonState {
                 Some(goal_state_from_row(goal_row));
         }
         // Preserve the original row (created_at/parent/role/config) and mark it
-        // running — resume must not reset metadata. Also persist the resolved
+        // idle: resumed but no turn is running (sessions D4). Resume must not reset metadata. Also persist the resolved
         // workspace so future restarts don't need an override.
         if let Some(orig) = row {
             let corrected = rightkit_agent_engine_storage::SessionRow {
-                status: "running".to_string(),
+                status: "idle".to_string(),
                 updated_at: now_iso(),
                 workspace_root: ws.clone(),
                 ..orig
@@ -639,37 +785,110 @@ fn latest_known_session_cost_usd(events: &[rightkit_agent_engine_storage::EventR
         .unwrap_or(0.0)
 }
 
-/// Why a turn-input delivery did not happen.
-///
-/// HCTX-002 (sibling): a turn input is distinct user content, not a
-/// coalescible full-state snapshot, so a full queue must be reported, never
-/// silently dropped. Losing one loses the user's turn with no trace.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum EngineTextRefusal {
-    /// The engine's turn queue is saturated.
-    QueueFull,
-    /// The engine is gone; the session cannot accept input.
-    QueueClosed,
+/// Turn a leftover partial-reply snapshot into a durable, marked-interrupted
+/// assistant message, unless a settled fact already followed it (the process
+/// died after the reply finished). Returns how many rows were appended. The
+/// snapshot is cleared either way, so a second resume appends nothing.
+/// Shutdown (STORE-09): the turn was cut off by this process's own stop, so its streaming snapshot is
+/// kept as an interrupted reply now, whatever settled facts the interrupt itself wrote after it. The
+/// next start would have found those facts and dropped the text. Call it only when the turn has ended
+/// and the event persister has caught up, so no other writer holds the next seq.
+pub(crate) fn append_partial_reply_at_shutdown(
+    store: &mut rightkit_agent_engine_storage::Storage,
+    session_id: &str,
+) -> Result<usize, String> {
+    append_interrupted_partial_reply(store, session_id, &[])
 }
 
-impl EngineTextRefusal {
-    pub(super) fn reason(self) -> &'static str {
-        match self {
-            Self::QueueFull => "session turn queue is full",
-            Self::QueueClosed => "session turn queue is closed",
+fn append_interrupted_partial_reply(
+    store: &mut rightkit_agent_engine_storage::Storage,
+    session_id: &str,
+    events: &[rightkit_agent_engine_storage::EventRow],
+) -> Result<usize, String> {
+    // The snapshot is a recovery aid: a database that is busy or cannot be read must not stop the
+    // session from resuming; the snapshot stays for a later resume.
+    let partial = match store.load_partial_reply(session_id) {
+        Ok(Some(partial)) => partial,
+        Ok(None) => return Ok(0),
+        Err(error) => {
+            tracing::warn!(session_id = %session_id, %error, "partial reply snapshot not read on resume");
+            return Ok(0);
         }
+    };
+    let superseded = events.iter().any(|row| {
+        row.seq > partial.anchor_seq
+            && matches!(
+                row.kind.as_str(),
+                "assistantMessageCompleted"
+                    | "toolCallStarted"
+                    | "toolApprovalRequested"
+                    | "toolResultAdded"
+                    | "sessionTurnFinished"
+                    | "runInterrupted"
+                    | "runFailed"
+                    | "budgetExceeded"
+                    | "userMessageSubmitted"
+            )
+    });
+    let text = partial.text.trim_end().to_string();
+    if superseded || text.is_empty() {
+        store
+            .clear_partial_reply(session_id)
+            .map_err(|error| error.to_string())?;
+        return Ok(0);
     }
+    let seq = store
+        .latest_seq(session_id)
+        .map_err(|error| error.to_string())?
+        + 1;
+    let created_at = rightkit_agent_engine_protocol::now_iso();
+    let event = ProtocolEvent::AssistantMessageCompleted {
+        session_id: session_id.to_string(),
+        seq,
+        created_at: created_at.clone(),
+        message: TranscriptMessage::Assistant {
+            id: rightkit_agent_engine_protocol::ids::assistant_message_id(seq),
+            created_at,
+            content: format!(
+                "{text}\n\n[Interrupted: the engine stopped before this reply was finished.]"
+            ),
+            reasoning_content: None,
+            tool_calls: Vec::new(),
+            pinned: false,
+            origin: None,
+        },
+        phase: rightkit_agent_engine_protocol::AssistantMessagePhase::Interim,
+    };
+    let payload = serde_json::to_string(&event).map_err(|error| error.to_string())?;
+    crate::api::append_event_via_storage_authority(
+        store,
+        session_id,
+        seq,
+        "assistantMessageCompleted",
+        &payload,
+    )?;
+    store
+        .clear_partial_reply(session_id)
+        .map_err(|error| error.to_string())?;
+    Ok(1)
 }
 
-pub(super) fn deliver_engine_text(
-    tx: &tokio::sync::mpsc::Sender<String>,
-    text: String,
-) -> Result<(), EngineTextRefusal> {
-    match tx.try_send(text) {
-        Ok(()) => Ok(()),
-        Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => Err(EngineTextRefusal::QueueFull),
-        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-            Err(EngineTextRefusal::QueueClosed)
-        }
-    }
+/// The system reminder appended to a user turn sent at `created_at`: the time, the durable memory
+/// the session's memory authority returned for the turn (when it returned any), the session-state
+/// line, and no lessons. The memory section sits where the state line does, ahead of the lessons.
+fn turn_reminder_for(
+    created_at: &str,
+    memory_context: Option<&str>,
+    state_note: Option<String>,
+) -> String {
+    let memory = memory_context
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|memory| format!("Relevant durable memory from earlier runs:\n{memory}"));
+    let state = match (memory, state_note) {
+        (Some(memory), Some(state)) => Some(format!("{memory}\n\n{state}")),
+        (Some(memory), None) => Some(memory),
+        (None, state) => state,
+    };
+    crate::api::user_turn_reminder_with_state_at(created_at, &[], state.as_deref())
 }

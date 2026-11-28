@@ -1,6 +1,6 @@
 use super::ApiEndpoint;
 
-pub(super) const ENDPOINT_GROUP_03: [ApiEndpoint; 31] = [
+pub(super) const ENDPOINT_GROUP_03: [ApiEndpoint; 32] = [
     ApiEndpoint {
         method: "POST",
         path: "/sessions/{id}/goal/pause",
@@ -20,6 +20,11 @@ pub(super) const ENDPOINT_GROUP_03: [ApiEndpoint; 31] = [
         method: "POST",
         path: "/sessions/{id}/rewind",
         summary: "Rewind the session conversation and/or workspace changes",
+    },
+    ApiEndpoint {
+        method: "POST",
+        path: "/sessions/{id}/redo",
+        summary: "Redo the most recent rewind; 409 once a new turn has run since it",
     },
     ApiEndpoint {
         method: "GET",

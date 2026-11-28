@@ -144,6 +144,85 @@ impl DaemonSessionClient {
             .map_err(|error| format!("decode hooks status: {error}"))
     }
 
+    /// `GET /sessions/{id}/rewind/points`: prior user prompts, oldest first.
+    pub(crate) async fn rewind_points(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<crate::api_sessions::rewind::RewindPoint>, String> {
+        let response = self
+            .send(self.req(
+                DaemonVerb::Get,
+                &Self::session_path(session_id, "/rewind/points"),
+            ))
+            .await
+            .map_err(|error| format!("read rewind points: {error}"))?;
+        if !rightkit_agent_daemon::http_client::is_success(response.status) {
+            return Err(format!("read rewind points: HTTP {}", response.status));
+        }
+        let body: Value = response
+            .json()
+            .map_err(|error| format!("decode rewind points: {error}"))?;
+        parse_rewind_points(&body)
+    }
+
+    /// `POST /sessions/{id}/rewind` to `point`.
+    pub(crate) async fn rewind_to(
+        &self,
+        session_id: &str,
+        point: &crate::api_sessions::rewind::RewindPoint,
+        mode: crate::api_sessions::rewind::RewindMode,
+    ) -> Result<crate::api_sessions::rewind::RewindReport, String> {
+        let mode = match mode {
+            crate::api_sessions::rewind::RewindMode::Conversation => "conversation",
+            crate::api_sessions::rewind::RewindMode::Files => "files",
+            crate::api_sessions::rewind::RewindMode::Both => "both",
+        };
+        let body = json!({
+            "point": {
+                "text": point.text,
+                "nthFromEnd": point.nth_from_end,
+                "createdAt": point.created_at,
+            },
+            "mode": mode,
+        });
+        let response = self
+            .send(self.req_json(
+                DaemonVerb::Post,
+                &Self::session_path(session_id, "/rewind"),
+                &body,
+            ))
+            .await
+            .map_err(|error| format!("rewind session: {error}"))?;
+        if !rightkit_agent_daemon::http_client::is_success(response.status) {
+            return Err(format!("rewind session: HTTP {}", response.status));
+        }
+        let body: Value = response
+            .json()
+            .map_err(|error| format!("decode rewind reply: {error}"))?;
+        Ok(parse_rewind_report(&body))
+    }
+
+    /// `POST /sessions/{id}/redo`. A refusal (409) is its `message`.
+    pub(crate) async fn redo(
+        &self,
+        session_id: &str,
+    ) -> Result<crate::api_sessions::rewind::RewindReport, String> {
+        let response = self
+            .send(self.req_json(
+                DaemonVerb::Post,
+                &Self::session_path(session_id, "/redo"),
+                &json!({}),
+            ))
+            .await
+            .map_err(|error| format!("redo session: {error}"))?;
+        let status = response.status;
+        let body: Value = response.json().unwrap_or(Value::Null);
+        if rightkit_agent_daemon::http_client::is_success(status) {
+            return Ok(parse_rewind_report(&body));
+        }
+        Err(parse_redo_refusal(status, &body))
+    }
+
     fn session_path(session_id: &str, suffix: &str) -> String {
         format!("/sessions/{}{}", url_encode_component(session_id), suffix)
     }
@@ -153,10 +232,25 @@ impl DaemonSessionClient {
             .send(self.req_json(DaemonVerb::Post, "/sessions", &body))
             .await
             .map_err(|error| format!("create daemon session: {error}"))?;
+        let grant_asked = body
+            .get("trustWorkspace")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         if rightkit_agent_daemon::http_client::is_success(response.status) {
+            // Issue 494 item 4: the daemon says when it did not apply the grant.
+            let created: Value = response.json().unwrap_or(Value::Null);
+            if let Some(reason) = created.get("trustWorkspaceDropped").and_then(Value::as_str) {
+                eprintln!("warning: --trust-workspace: {reason}");
+            }
             return Ok(());
         }
         if response.status == 409 {
+            // Issue 494 item 5: the grant applies only when a session is created.
+            if grant_asked {
+                eprintln!(
+                    "warning: --trust-workspace: session {session_id} already exists, so it is resumed as it was created; the trust grant applies only when a session is created"
+                );
+            }
             if !body
                 .get("safeMode")
                 .and_then(Value::as_bool)
@@ -199,33 +293,31 @@ impl DaemonSessionClient {
             .find(|session| session.get("id").and_then(Value::as_str) == Some(session_id)))
     }
 
-    pub(crate) async fn submit_message(
-        &self,
-        session_id: &str,
-        prompt: &str,
-        workspace_root: &str,
-    ) -> Result<i64, String> {
-        self.submit_message_with_attachments(session_id, prompt, workspace_root, None, None)
-            .await
-    }
-
-    pub(crate) async fn submit_message_with_attachments(
+    /// Submit with an idempotency nonce: the same nonce replays the first
+    /// admission and never starts a second turn.
+    pub(crate) async fn submit_message_with_nonce(
         &self,
         session_id: &str,
         prompt: &str,
         workspace_root: &str,
         attachments: Option<Vec<crate::api::Attachment>>,
         sandbox_grant_prompts: Option<bool>,
+        nonce: Option<&str>,
     ) -> Result<i64, String> {
         let response = self
             .send(self.req_json(
                 DaemonVerb::Post,
                 &Self::session_path(session_id, "/messages"),
-                &json!({ "text": prompt, "workspaceRoot": workspace_root, "attachments": attachments, "sandboxGrantPrompts": sandbox_grant_prompts }),
+                &json!({ "text": prompt, "workspaceRoot": workspace_root, "attachments": attachments, "sandboxGrantPrompts": sandbox_grant_prompts, "nonce": nonce }),
             ))
             .await
             .map_err(|error| format!("submit daemon message: {error}"))?;
         if !rightkit_agent_daemon::http_client::is_success(response.status) {
+            if response.status == 413 {
+                return Err("submit daemon message: the message is larger than the daemon accepts (HTTP 413, about 2 MB); \
+                            send less text, or point to a file in the workspace and ask the agent to read it"
+                    .to_string());
+            }
             return Err(format!("submit daemon message: HTTP {}", response.status));
         }
         let response: Value = response
@@ -290,25 +382,43 @@ impl DaemonSessionClient {
         session_id: &str,
         after: i64,
     ) -> Result<Vec<Value>, String> {
-        let response = self
-            .send(self.req(
-                DaemonVerb::Get,
-                &format!(
-                    "{}?after={after}",
-                    Self::session_path(session_id, "/events/history")
-                ),
-            ))
-            .await
-            .map_err(|error| format!("read daemon event history: {error}"))?;
-        if !rightkit_agent_daemon::http_client::is_success(response.status) {
-            return Err(format!(
-                "read daemon event history: HTTP {}",
-                response.status
-            ));
+        // `/events/history` answers at most one page (1000 events by default), so a long tail is read
+        // page by page from the last seq returned.
+        const HISTORY_PAGE: usize = 1000;
+        let mut cursor = after;
+        let mut out: Vec<Value> = Vec::new();
+        loop {
+            let response = self
+                .send(self.req(
+                    DaemonVerb::Get,
+                    &format!(
+                        "{}?after={cursor}",
+                        Self::session_path(session_id, "/events/history")
+                    ),
+                ))
+                .await
+                .map_err(|error| format!("read daemon event history: {error}"))?;
+            if !rightkit_agent_daemon::http_client::is_success(response.status) {
+                return Err(format!(
+                    "read daemon event history: HTTP {}",
+                    response.status
+                ));
+            }
+            let page: Vec<Value> = response
+                .json()
+                .map_err(|error| format!("decode daemon event history: {error}"))?;
+            let next = page
+                .last()
+                .and_then(|event| event.get("seq"))
+                .and_then(Value::as_i64)
+                .unwrap_or(cursor);
+            let full_page = page.len() >= HISTORY_PAGE;
+            out.extend(page);
+            if !full_page || next <= cursor {
+                return Ok(out);
+            }
+            cursor = next;
         }
-        response
-            .json()
-            .map_err(|error| format!("decode daemon event history: {error}"))
     }
 
     /// Open the live SSE stream from `after`. Reuses the client's shared
@@ -497,27 +607,6 @@ impl DaemonSessionClient {
             .map_err(|error| format!("goal {op}: {error}"))
     }
 
-    pub(crate) async fn resolve_approval(
-        &self,
-        session_id: &str,
-        tool_call_id: &str,
-        approved: bool,
-    ) -> Result<(), String> {
-        let response = self
-            .send(self.req_json(
-                DaemonVerb::Post,
-                &Self::session_path(session_id, "/tool-approval"),
-                &json!({ "toolCallId": tool_call_id, "approved": approved }),
-            ))
-            .await
-            .map_err(|error| format!("resolve daemon approval: {error}"))?;
-        if rightkit_agent_daemon::http_client::is_success(response.status) {
-            Ok(())
-        } else {
-            Err(format!("resolve daemon approval: HTTP {}", response.status))
-        }
-    }
-
     async fn post_empty(&self, session_id: &str, suffix: &str, action: &str) -> Result<(), String> {
         let response = self
             .send(self.req(DaemonVerb::Post, &Self::session_path(session_id, suffix)))
@@ -590,10 +679,24 @@ impl DaemonSessionClient {
                 &serde_json::json!({"status": "archived"}),
             ),
             "delete" => self.req(DaemonVerb::Delete, &Self::session_path(session_id, "")),
-            "clone" => self.req_json(
+            "fork" => self.req_json(
                 DaemonVerb::Post,
-                &Self::session_path(session_id, "/clone"),
+                &Self::session_path(session_id, "/fork"),
                 &serde_json::json!({"title": value}),
+            ),
+            // Fork into another folder: `value` is the folder the fork works in.
+            "fork_into" => self.req_json(
+                DaemonVerb::Post,
+                &Self::session_path(session_id, "/fork"),
+                &serde_json::json!({"workspaceRoot": value}),
+            ),
+            // Turn-scoped fork: `value` is N, branch before the Nth-last user turn.
+            "fork_back" => self.req_json(
+                DaemonVerb::Post,
+                &Self::session_path(session_id, "/fork"),
+                &serde_json::json!({
+                    "turnsBack": value.and_then(|n| n.trim().parse::<usize>().ok())
+                }),
             ),
             "export" => self.req(
                 DaemonVerb::Get,
@@ -981,16 +1084,21 @@ fn absolutize_cli_path(path: &str) -> String {
 }
 
 fn daemon_session_create_body(args: &RunArgs, session_id: &str, workspace_root: &str) -> Value {
+    // A headless run tells the session nobody is attached (after the user's own appended text).
+    let append_system_prompt = if args.unattended {
+        Some(match args.append_system_prompt.as_deref() {
+            Some(user) => format!("{user}\n\n{}", crate::main_runtime::UNATTENDED_RUN_NOTE),
+            None => crate::main_runtime::UNATTENDED_RUN_NOTE.to_string(),
+        })
+    } else {
+        args.append_system_prompt.clone()
+    };
     let permission_mode = if args.safe_mode {
         "ask"
     } else if let Some(mode) = args.permission_mode {
-        // An explicit session mode (launch flag, slash command, Shift+Tab)
-        // supersedes the legacy auto-approve / bypass booleans.
+        // An explicit session mode (`--permission-mode`, launch flag, slash
+        // command, Shift+Tab); `--yes` never selects one.
         mode.wire_name()
-    } else if args.bypass_approvals {
-        "bypass"
-    } else if args.auto_approve {
-        "accept-edits"
     } else {
         "ask"
     };
@@ -1020,7 +1128,7 @@ fn daemon_session_create_body(args: &RunArgs, session_id: &str, workspace_root: 
         disallowed_tools.push("mcp_call".to_string());
     }
 
-    json!({
+    let mut body = json!({
         "id": session_id,
         "title": "CLI session",
         "workspaceRoot": workspace_root,
@@ -1032,16 +1140,25 @@ fn daemon_session_create_body(args: &RunArgs, session_id: &str, workspace_root: 
         "maxIterations": args.max_turns,
         "budgetCeilingUsd": args.max_budget_usd,
         "systemPrompt": args.system_prompt,
-        "appendSystemPrompt": args.append_system_prompt,
+        "appendSystemPrompt": append_system_prompt,
+        "outputSchema": output_schema_value(args.output_schema.as_deref()),
         "bare": args.bare,
         "noMcp": args.no_mcp,
         "addDir": args.add_dir.iter().map(|dir| absolutize_cli_path(dir)).collect::<Vec<_>>(),
         "mcpConfig": args.mcp_config.as_deref().map(absolutize_cli_path),
         "toolset": toolset,
+        "ownToolset": args.own_toolset,
         "safeMode": args.safe_mode,
         "permissionMode": permission_mode,
         "mcpChannel": "cli",
-    })
+    });
+    // Per-session grant for this session's workspace only, sent solely when the
+    // user passed `--trust-workspace`. The daemon must honour it at create only
+    // and never persist it (issue 445).
+    if args.trust_workspace {
+        body["trustWorkspace"] = Value::Bool(true);
+    }
+    body
 }
 
 fn daemon_event_seq(event: &Value) -> i64 {
@@ -1060,12 +1177,12 @@ fn daemon_event_kind(event: &Value) -> Option<&str> {
         .or_else(|| event.get("type").and_then(Value::as_str))
 }
 
+// A turn ends on `sessionTurnFinished` (issue 450), never on a completion.
 fn daemon_event_is_terminal(event: &Value) -> bool {
     matches!(
         daemon_event_kind(event),
         Some(
-            "assistantMessageCompleted"
-                | "sessionTurnFinished"
+            "sessionTurnFinished"
                 | "streamResyncRequired"
                 | "overloaded"
                 | "runFailed"
@@ -1097,4 +1214,88 @@ pub(crate) fn permission_rule_pairs(session: &Value, persistent: &Value) -> Vec<
         }
     }
     out
+}
+
+/// The rewind points of a `GET .../rewind/points` body.
+pub(crate) fn parse_rewind_points(
+    body: &Value,
+) -> Result<Vec<crate::api_sessions::rewind::RewindPoint>, String> {
+    let rows = body
+        .as_array()
+        .ok_or_else(|| "decode rewind points: not a list".to_string())?;
+    Ok(rows
+        .iter()
+        .filter_map(|row| {
+            Some(crate::api_sessions::rewind::RewindPoint {
+                text: row.get("text")?.as_str()?.to_string(),
+                nth_from_end: usize::try_from(row.get("nthFromEnd")?.as_u64()?).ok()?,
+                created_at: row
+                    .get("createdAt")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+            })
+        })
+        .collect())
+}
+
+/// The report of a rewind or redo reply.
+pub(crate) fn parse_rewind_report(body: &Value) -> crate::api_sessions::rewind::RewindReport {
+    crate::api_sessions::rewind::RewindReport {
+        text: body
+            .get("text")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        conversation_rewound: body
+            .get("conversationRewound")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        files_restored: body
+            .get("filesRestored")
+            .and_then(Value::as_array)
+            .map(|paths| {
+                paths
+                    .iter()
+                    .filter_map(|path| path.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        file_conflicts: body
+            .get("fileConflicts")
+            .and_then(Value::as_array)
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(|row| {
+                        Some((
+                            row.get("path")?.as_str()?.to_string(),
+                            row.get("reason")?.as_str()?.to_string(),
+                        ))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        background_shells_running: body
+            .get("backgroundShellsRunning")
+            .and_then(Value::as_array)
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(|row| {
+                        Some((
+                            row.get("shellId")?.as_str()?.to_string(),
+                            row.get("command")?.as_str()?.to_string(),
+                        ))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+    }
+}
+
+/// What to show for a refused redo: the 409 body's `message`.
+pub(crate) fn parse_redo_refusal(status: u16, body: &Value) -> String {
+    body.get("message")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("redo session: HTTP {status}"))
 }

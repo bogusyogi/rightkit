@@ -50,10 +50,7 @@ pub struct SessionResidencySnapshot {
 /// Worker lifecycle as persisted by the daemon supervisor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkerLifecycle {
-    Starting,
     Ready,
-    Recovering,
-    Stopping,
     Failed,
 }
 

@@ -49,30 +49,52 @@ fn is_signed_trigger_delivery_route(method: &Method, path: &str) -> bool {
     )
 }
 
+/// The header the daemon sets on a request that carried the owner bearer; routes that need proof
+/// of the owner's identity (`/adapt/proposals/apply`) read it. Never set for a guest or on the
+/// LAN. Named in the host's namespace: `x-{app}-authenticated`.
+pub(crate) fn authenticated_header() -> Option<axum::http::HeaderName> {
+    axum::http::HeaderName::from_bytes(crate::host_identity::header("authenticated").as_bytes())
+        .ok()
+}
+
 /// Auth middleware: every API request must carry the daemon's launch token.
 /// `Authorization: Bearer <token>` is the canonical HTTP carrier.
-/// The only other carrier is the `access_token` query parameter — ONLY on the SSE stream route
+/// The only other carrier is the `access_token` query parameter, ONLY on the SSE stream route
 ///   (`/sessions/{id}/events`), which is opened by `EventSource` and cannot
-///   set headers. Every other route is header-only: a query-param token on
-///   a non-SSE route is rejected with the same 401 shape as a missing token,
+///   set headers, and only for a host that keeps it
+///   (`host_options::query_token_on_sse_route`). Every other route is header-only: a
+///   query-param token on a non-SSE route is rejected with the same 401 shape as a missing token,
 ///   because query strings leak into logs/history/proxies.
 ///
-/// `/health` (the connectivity probe) and CORS preflight are exempt. An empty
-/// configured token disables the gate (used only by tests that call handlers
-/// directly; the real daemon always generates one).
+/// Exactly three things pass without the token: CORS preflight (`OPTIONS`, which carries no
+/// state), `GET /health` (the readiness probe that runs before a client holds a token) and the
+/// two signed trigger delivery paths (the handler then requires the HMAC). `POST /health` and
+/// every other method on `/health` need the token. An empty configured token disables the gate
+/// (used only by tests that call handlers directly; the real daemon always generates one).
+///
+/// A request that carried the owner bearer is stamped with [`authenticated_header`]. Any stamp a
+/// client sent is dropped first, so only this layer can set it. The owner token is refused on the
+/// LAN listener, which serves guest links only (`crate::guest_shares`).
 pub(crate) async fn require_token(
     State(expected): State<String>,
-    req: Request,
+    mut req: Request,
     next: Next,
 ) -> Response {
+    // A client may never carry the daemon's own "authenticated" stamp: drop it from every
+    // request before anything else, then set it again only after the owner bearer check below.
+    let stamp = authenticated_header();
+    if let Some(name) = &stamp {
+        req.headers_mut().remove(name);
+    }
     if expected.is_empty()
         || req.method() == Method::OPTIONS
-        || req.uri().path() == "/health"
+        || is_health_probe(req.method(), req.uri().path())
         || is_signed_trigger_delivery_route(req.method(), req.uri().path())
     {
         return next.run(req).await;
     }
     let path_is_sse = is_sse_route(req.uri().path());
+    let query_token_allowed = path_is_sse && crate::host_options::query_token_on_sse_route();
     // Extract the token into an owned value so the borrows on `req` end before
     // `req` is moved into `next.run`.
     let provided: Option<String> = {
@@ -86,7 +108,7 @@ pub(crate) async fn require_token(
         header("authorization")
             .and_then(|a| a.strip_prefix("Bearer ").map(str::to_owned))
             .or_else(|| {
-                if !path_is_sse {
+                if !query_token_allowed {
                     return None;
                 }
                 req.uri().query().and_then(|q| {
@@ -96,12 +118,45 @@ pub(crate) async fn require_token(
                 })
             })
     };
+    let on_lan = req
+        .extensions()
+        .get::<crate::guest_shares::LanOrigin>()
+        .is_some();
     match provided {
         Some(token) if rightkit_crypto::ct_eq(token.as_bytes(), expected.as_bytes()) => {
+            // The owner token never crosses the network in clear text: the LAN
+            // listener (`serve --lan`) serves guest links only.
+            if on_lan {
+                return (
+                    StatusCode::FORBIDDEN,
+                    "the owner token is refused on the LAN listener; use the loopback address or a guest link",
+                )
+                    .into_response();
+            }
+            if let Some(name) = stamp {
+                req.headers_mut()
+                    .insert(name, axum::http::HeaderValue::from_static("true"));
+            }
             next.run(req).await
         }
-        _ => (StatusCode::UNAUTHORIZED, "unauthorized").into_response(),
+        // Guest links: one session, read and (if granted) approve, nothing else.
+        Some(token) => match crate::guest_shares::resolve(&token) {
+            Some(guest) => {
+                if !crate::guest_shares::guest_allows(req.method(), req.uri().path(), &guest) {
+                    return (StatusCode::FORBIDDEN, "a guest link cannot do this").into_response();
+                }
+                req.extensions_mut().insert(guest);
+                next.run(req).await
+            }
+            None => (StatusCode::UNAUTHORIZED, "unauthorized").into_response(),
+        },
+        None => (StatusCode::UNAUTHORIZED, "unauthorized").into_response(),
     }
+}
+
+/// The one unauthenticated read: `GET /health`.
+fn is_health_probe(method: &Method, path: &str) -> bool {
+    *method == Method::GET && path == "/health"
 }
 
 /// A coarse global token-bucket rate limiter. The daemon is single-user on
@@ -149,4 +204,104 @@ pub(crate) async fn rate_limit(
         b.tokens -= 1.0;
     }
     next.run(req).await
+}
+
+/// A coarse token-bucket rate limiter for the LAN listener only: 200 requests per second with a
+/// burst of 400. It exists to stop a runaway or hostile network client from pinning the daemon.
+/// The owner listener's limiter is the loopback host's.
+#[derive(Clone)]
+pub(crate) struct LanRateLimiter {
+    inner: Arc<Mutex<Bucket>>,
+}
+
+impl LanRateLimiter {
+    pub(crate) fn new() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(Bucket {
+                tokens: BURST,
+                last: std::time::Instant::now(),
+            })),
+        }
+    }
+}
+
+pub(crate) async fn lan_rate_limit(
+    State(rl): State<LanRateLimiter>,
+    req: Request,
+    next: Next,
+) -> Response {
+    {
+        let mut b = lock_recover(&rl.inner, "rl.inner");
+        let now = std::time::Instant::now();
+        let elapsed = now.duration_since(b.last).as_secs_f64();
+        b.last = now;
+        b.tokens = (b.tokens + elapsed * RATE_PER_SEC).min(BURST);
+        if b.tokens < 1.0 {
+            return (StatusCode::TOO_MANY_REQUESTS, "rate limited").into_response();
+        }
+        b.tokens -= 1.0;
+    }
+    next.run(req).await
+}
+
+#[cfg(test)]
+mod owner_stamp_tests {
+    use super::{authenticated_header, require_token};
+    use axum::{body::Body, http::Request, middleware, routing::post, Router};
+    use tower::ServiceExt;
+
+    /// A route that answers the stamp it saw, behind the real auth layer.
+    fn app() -> Router {
+        Router::new()
+            .route(
+                "/stamp",
+                post(|headers: axum::http::HeaderMap| async move {
+                    let name = authenticated_header().expect("header name");
+                    headers
+                        .get(name)
+                        .and_then(|value| value.to_str().ok())
+                        .unwrap_or("none")
+                        .to_string()
+                }),
+            )
+            .layer(middleware::from_fn_with_state(
+                "owner-token".to_string(),
+                require_token,
+            ))
+    }
+
+    async fn call(token: Option<&str>, spoof: bool) -> (u16, String) {
+        let mut request = Request::builder().method("POST").uri("/stamp");
+        if let Some(token) = token {
+            request = request.header("authorization", format!("Bearer {token}"));
+        }
+        if spoof {
+            request = request.header(authenticated_header().expect("header name"), "true");
+        }
+        let response = app()
+            .oneshot(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let status = response.status().as_u16();
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+        (status, String::from_utf8_lossy(&body).to_string())
+    }
+
+    #[tokio::test]
+    async fn only_the_owner_bearer_earns_the_authenticated_stamp() {
+        assert_eq!(call(None, false).await.0, 401);
+        assert_eq!(call(None, true).await.0, 401);
+        assert_eq!(call(Some("wrong"), true).await.0, 401);
+        assert_eq!(
+            call(Some("owner-token"), false).await,
+            (200, "true".to_string())
+        );
+        // A client-supplied stamp is dropped before the check and set again from the real token.
+        assert_eq!(
+            call(Some("owner-token"), true).await,
+            (200, "true".to_string())
+        );
+    }
 }

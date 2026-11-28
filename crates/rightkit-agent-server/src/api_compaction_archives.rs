@@ -25,7 +25,14 @@ pub(crate) struct SqliteCompactionArchiveSink {
     storage: SharedStorage,
     snapshot_feed:
         std::sync::Arc<std::sync::RwLock<rightkit_agent_engine_core::CompactionSnapshotV1>>,
+    /// The session's event persister watermark. The commit validator requires every
+    /// event through the snapshot's high-water to be durable; the persister writes
+    /// asynchronously, so `archive` waits (bounded) for it before validating.
+    persistence_state: Option<rightkit_agent_engine_storage::EventPersistenceState>,
 }
+
+/// Upper bound on waiting for the event persister to catch up before validating.
+const ARCHIVE_DURABILITY_WAIT_MS: u64 = 2_000;
 
 impl SqliteCompactionArchiveSink {
     pub(crate) fn new(storage: SharedStorage) -> Self {
@@ -51,7 +58,16 @@ impl SqliteCompactionArchiveSink {
                     decision_expires_at_unix_ms: 0,
                 },
             )),
+            persistence_state: None,
         }
+    }
+
+    pub(crate) fn with_persistence_state(
+        mut self,
+        persistence_state: rightkit_agent_engine_storage::EventPersistenceState,
+    ) -> Self {
+        self.persistence_state = Some(persistence_state);
+        self
     }
 
     pub(crate) fn with_snapshot_feed(
@@ -70,6 +86,23 @@ impl CompactionArchiveSink for SqliteCompactionArchiveSink {
         input: CompactionArchiveInput,
     ) -> Result<CompactionArchiveReceipt, CompactionArchiveError> {
         input.validate()?;
+        // W6: the validator compares the durable MAX(seq) with the snapshot's
+        // high-water exactly, but the persister writes events asynchronously.
+        // Without this wait a fast summary commits before the last pre-compaction
+        // event (e.g. sessionCompactionStarted) is durable and is refused as a
+        // stale snapshot. Waiting only delays; staleness is still validated below.
+        if let (Some(state), Some(snapshot)) =
+            (self.persistence_state.clone(), input.snapshot.as_ref())
+        {
+            let min_seq = snapshot.transcript_high_water;
+            if let Err(error) = tokio::task::spawn_blocking(move || {
+                wait_for_persisted(&state, min_seq, ARCHIVE_DURABILITY_WAIT_MS)
+            })
+            .await
+            {
+                tracing::warn!(%error, "compaction archive persistence wait failed; validating anyway");
+            }
+        }
         let federation_key = if let Some(decision) = input.federation_decision.as_ref() {
             if input.snapshot.is_none() {
                 return Err(CompactionArchiveError::new(
@@ -377,6 +410,36 @@ pub(crate) fn compaction_archive_routes() -> Router<DaemonState> {
         )
 }
 
+/// The sessions whose archives a session can read: itself, then its single
+/// predecessor chain through `forkedFromSessionId` (sessions rule 24). A fork
+/// keeps one predecessor link to the source's archives and never merges two
+/// parents; a cycle in stored data ends the walk.
+fn archive_lineage(
+    store: &rightkit_agent_engine_storage::Storage,
+    session_id: &str,
+) -> Vec<String> {
+    let mut chain = vec![session_id.to_string()];
+    while let Some(row) = store
+        .get_session(chain.last().expect("non-empty"))
+        .ok()
+        .flatten()
+    {
+        let predecessor = serde_json::from_str::<Value>(&row.config_json)
+            .ok()
+            .and_then(|config| {
+                config
+                    .get("forkedFromSessionId")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            });
+        match predecessor {
+            Some(id) if !id.is_empty() && !chain.contains(&id) => chain.push(id),
+            _ => break,
+        }
+    }
+    chain
+}
+
 async fn list_compaction_archives(
     State(state): State<DaemonState>,
     Path(id): Path<String>,
@@ -384,13 +447,19 @@ async fn list_compaction_archives(
 ) -> Result<Json<Value>, StatusCode> {
     enforce_trusted_source_authority(&headers)?;
     let storage = state.storage.as_ref().ok_or(StatusCode::NOT_FOUND)?;
-    let rows = storage
-        .lock()
-        .await
-        .list_compaction_archives(&id)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let store = storage.lock().await;
+    let lineage = archive_lineage(&store, &id);
+    let mut rows = Vec::new();
+    for session_id in &lineage {
+        rows.extend(
+            store
+                .list_compaction_archives(session_id)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+        );
+    }
     Ok(Json(json!({
         "sessionId": id,
+        "predecessorSessionId": lineage.get(1),
         "archives": rows.into_iter().map(metadata_json).collect::<Vec<_>>(),
     })))
 }
@@ -402,14 +471,19 @@ async fn get_compaction_archive(
 ) -> Result<Json<Value>, StatusCode> {
     enforce_trusted_source_authority(&headers)?;
     let storage = state.storage.as_ref().ok_or(StatusCode::NOT_FOUND)?;
-    let row = storage
-        .lock()
-        .await
-        .get_compaction_archive(&id, &archive_id)
-        .map_err(|error| match error {
-            rightkit_agent_engine_storage::StorageError::NotFound(_) => StatusCode::NOT_FOUND,
-            _ => StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+    let store = storage.lock().await;
+    let mut found = None;
+    for session_id in archive_lineage(&store, &id) {
+        match store.get_compaction_archive(&session_id, &archive_id) {
+            Ok(row) => {
+                found = Some(row);
+                break;
+            }
+            Err(rightkit_agent_engine_storage::StorageError::NotFound(_)) => continue,
+            Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+        }
+    }
+    let row = found.ok_or(StatusCode::NOT_FOUND)?;
     let messages: Vec<rightkit_agent_engine_protocol::TranscriptMessage> =
         serde_json::from_slice(row.transcript_json.as_deref().unwrap_or_default())
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -491,6 +565,7 @@ pub(crate) fn compaction_archive_list_response_schema() -> Value {
         "required": ["sessionId", "archives"],
         "properties": {
             "sessionId": {"type": "string"},
+            "predecessorSessionId": {"type": ["string", "null"]},
             "archives": {
                 "type": "array",
                 "items": {"$ref": "#/components/schemas/CompactionArchiveMetadata"}
@@ -512,4 +587,35 @@ pub(crate) fn compaction_archive_response_schema() -> Value {
             }
         ]
     })
+}
+
+/// Block until the persister has durably written through `min_seq` and no
+/// durable write is in flight, bounded by `deadline_ms`.
+fn wait_for_persisted(
+    persistence_state: &rightkit_agent_engine_storage::EventPersistenceState,
+    min_seq: i64,
+    deadline_ms: u64,
+) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(deadline_ms);
+    let mut snapshot = persistence_state.snapshot();
+    loop {
+        if snapshot.last_persisted_seq >= min_seq
+            && snapshot.last_published_seq >= snapshot.last_persisted_seq
+        {
+            return;
+        }
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            tracing::warn!(
+                min_seq,
+                last_persisted_seq = snapshot.last_persisted_seq,
+                "compaction archive validating before persistence caught up"
+            );
+            return;
+        }
+        snapshot = persistence_state.wait_for_change(
+            snapshot,
+            remaining.min(std::time::Duration::from_millis(250)),
+        );
+    }
 }

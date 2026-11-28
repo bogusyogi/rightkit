@@ -27,33 +27,45 @@ impl DaemonState {
             correlation,
             reason: summary.clone(),
         };
-        let snapshot = {
-            let mut denials = lock_recover(&self.permission_denials, "permission_denials");
-            // A tool result can be replayed by a reconnecting client or reach
-            // this projection after an earlier denial gate recorded it. Keep
-            // one durable API row for each identified call, matching the
-            // engine tracker’s S:B5 correlation invariant.
-            if !row.correlation.is_empty()
-                && denials
+        // A tool result can be replayed by a reconnecting client or reach
+        // this projection after an earlier denial gate recorded it. Keep
+        // one durable API row for each identified call, matching the
+        // engine tracker’s S:B5 correlation invariant.
+        let already_recorded = |rows: &[PermissionDenialRow]| {
+            !row.correlation.is_empty()
+                && rows
                     .iter()
                     .any(|existing| existing.correlation == row.correlation)
-            {
-                return Ok(());
-            }
-            denials.push(row);
-            if denials.len() > 500 {
-                let keep_from = denials.len().saturating_sub(500);
-                denials.drain(0..keep_from);
-            }
-            denials.clone()
         };
-        write_permission_denial_store(&self.permission_denial_store_path, &snapshot)
-    }
-
-    #[allow(dead_code)]
-    pub fn with_plugin_dir(mut self, dir: impl Into<PathBuf>) -> Self {
-        self.plugin_dir = dir.into();
-        self
+        if already_recorded(&lock_recover(
+            &self.permission_denials,
+            "permission_denials",
+        )) {
+            return Ok(());
+        }
+        // Several processes share this file: the row is appended to the list on disk under the
+        // cross-process lock (never this process's list written whole), and the list as written
+        // becomes the held one.
+        match append_permission_denial_row(
+            &self.permission_denial_store_path,
+            &self.permission_denials,
+            row.clone(),
+        ) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                // Not written (file locked too long, corrupt or unwritable): this process still
+                // lists the denial, as it did before the write was shared.
+                let mut denials = lock_recover(&self.permission_denials, "permission_denials");
+                if !already_recorded(&denials) {
+                    denials.push(row);
+                    if denials.len() > 500 {
+                        let keep_from = denials.len().saturating_sub(500);
+                        denials.drain(0..keep_from);
+                    }
+                }
+                Err(error)
+            }
+        }
     }
 
     /// Register discovered provider extensions into live daemon state using
@@ -74,24 +86,6 @@ impl DaemonState {
         )
     }
 
-    #[allow(dead_code)]
-    pub fn with_plugin_marketplace_path(mut self, path: impl Into<PathBuf>) -> Self {
-        self.plugin_marketplace_path = path.into();
-        self
-    }
-
-    #[allow(dead_code)]
-    pub fn with_skills_dir(mut self, dir: impl Into<PathBuf>) -> Self {
-        self.skill_dirs = vec![dir.into()];
-        self
-    }
-
-    #[allow(dead_code)]
-    pub fn with_mcp_user_config_path(mut self, path: impl Into<PathBuf>) -> Self {
-        self.mcp_user_config_path = path.into();
-        self
-    }
-
     /// Attach the trajectory store (persistent), replacing the default.
     pub fn with_trajectories(mut self, t: crate::trajectory::TrajectoryStore) -> Self {
         self.trajectories = t;
@@ -99,6 +93,12 @@ impl DaemonState {
     }
 
     /// Attach the session/event store so deletes can purge persisted rows.
+    /// Record that the database could not be opened, so turns are refused (rule 7).
+    pub fn with_storage_open_failure(mut self, reason: impl Into<String>) -> Self {
+        self.storage_open_failure = Some(reason.into());
+        self
+    }
+
     pub fn with_storage<S>(mut self, storage: S) -> Self
     where
         S: Into<SharedStorage>,
@@ -168,7 +168,6 @@ impl DaemonState {
     /// Override the resolved workflow feature gate. The merged
     /// `HostConfig.features.workflows_enabled` is the canonical source
     /// for this value; tests may flip the gate at will.
-    #[allow(dead_code)]
     pub fn with_workflows_feature(
         mut self,
         feature: rightkit_workflow::control_plane::prelude::FeatureGate,
@@ -181,7 +180,6 @@ impl DaemonState {
     /// once at daemon startup by `main_runtime::serve` after storage is
     /// open; the router mount in [`crate::api_router::build_router`]
     /// consults the feature gate to decide whether to merge the surface.
-    #[allow(dead_code)]
     pub fn with_workflow_api_state(
         mut self,
         state: Arc<crate::api_workflows::WorkflowApiState>,
@@ -254,14 +252,6 @@ impl DaemonState {
         self.context_degraded.is_some()
     }
 
-    pub(crate) fn with_mutation_diagnostics(
-        mut self,
-        diagnostics: Arc<dyn rightkit_agent_engine_core::MutationDiagnostics>,
-    ) -> Self {
-        self.mutation_diagnostics = Some(diagnostics);
-        self
-    }
-
     /// Attach a (possibly persistent) audit log, replacing the default.
     pub fn with_audit(mut self, audit: crate::audit::AuditLog) -> Self {
         self.audit = audit;
@@ -297,17 +287,19 @@ impl DaemonState {
         self
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn configured_provider_route(
         &self,
         config: &rightkit_agent_config::HostConfig,
         provider_id: &str,
         model: &str,
         fallback: &EngineConfig,
-        effort: Option<String>,
-        thinking_budget_tokens: Option<u32>,
-        disable_thinking: bool,
+        overrides: RouteOverrides,
     ) -> Option<crate::provider_client::ProviderRoute> {
+        let RouteOverrides {
+            effort,
+            thinking_budget_tokens,
+            disable_thinking,
+        } = overrides;
         let route = config.provider_routes.get(provider_id).or_else(|| {
             config
                 .provider_routes
@@ -325,23 +317,26 @@ impl DaemonState {
             disable_thinking,
             fallback_models: fallback.fallback_models.clone(),
             approved_private: route.approved_private,
+            api_key_required: route.api_key_required,
+            compat: crate::provider_client::route_compat_of(route),
         })
     }
 
     /// Resolve only the named provider route. Explicit per-call provider
     /// selections must not fall through to another provider whose model name
     /// happens to match.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn configured_provider_route_exact(
         &self,
         config: &rightkit_agent_config::HostConfig,
         provider_id: &str,
         model: &str,
-        _fallback: &EngineConfig,
-        effort: Option<String>,
-        thinking_budget_tokens: Option<u32>,
-        disable_thinking: bool,
+        overrides: RouteOverrides,
     ) -> Option<crate::provider_client::ProviderRoute> {
+        let RouteOverrides {
+            effort,
+            thinking_budget_tokens,
+            disable_thinking,
+        } = overrides;
         let route = config.provider_routes.get(provider_id)?;
         let model_id = rightkit_llm::agent_providers::provider_model_id(provider_id, model.trim());
         let api_key = configured_provider_api_key_without_fallback(provider_id, route);
@@ -355,6 +350,8 @@ impl DaemonState {
             // Explicit provider/model selection cannot inherit another route's fallbacks.
             fallback_models: Vec::new(),
             approved_private: route.approved_private,
+            api_key_required: route.api_key_required,
+            compat: crate::provider_client::route_compat_of(route),
         })
     }
 
@@ -362,28 +359,23 @@ impl DaemonState {
     /// exact id, else the native catalog route. `None` when the provider is
     /// neither configured nor in the catalog, so callers can reject it instead
     /// of silently falling back to the default route.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn explicit_provider_route(
         &self,
         config: &rightkit_agent_config::HostConfig,
         provider_id: &str,
         model: &str,
-        fallback: &EngineConfig,
-        effort: Option<String>,
-        thinking_budget_tokens: Option<u32>,
-        disable_thinking: bool,
+        overrides: RouteOverrides,
     ) -> Option<crate::provider_client::ProviderRoute> {
-        if let Some(route) = self.configured_provider_route_exact(
-            config,
-            provider_id,
-            model,
-            fallback,
-            effort.clone(),
-            thinking_budget_tokens,
-            disable_thinking,
-        ) {
+        if let Some(route) =
+            self.configured_provider_route_exact(config, provider_id, model, overrides.clone())
+        {
             return Some(route);
         }
+        let RouteOverrides {
+            effort,
+            thinking_budget_tokens,
+            disable_thinking,
+        } = overrides;
         rightkit_llm::agent_providers::find_provider(provider_id)?;
         Some(native_provider_fallback_route(
             provider_id,
@@ -413,9 +405,11 @@ impl DaemonState {
                 &descriptor.provider_id,
                 &descriptor.model_id,
                 fallback,
-                effort.clone(),
-                thinking_budget_tokens,
-                disable_thinking,
+                RouteOverrides {
+                    effort: effort.clone(),
+                    thinking_budget_tokens,
+                    disable_thinking,
+                },
             ) {
                 return route;
             }
@@ -436,6 +430,8 @@ impl DaemonState {
                 disable_thinking,
                 fallback_models: fallback.fallback_models.clone(),
                 approved_private: false,
+                api_key_required: false,
+                compat: Default::default(),
             };
         }
         if let Some(route) = self.configured_provider_route(
@@ -443,9 +439,11 @@ impl DaemonState {
             trimmed,
             trimmed,
             fallback,
-            effort.clone(),
-            thinking_budget_tokens,
-            disable_thinking,
+            RouteOverrides {
+                effort: effort.clone(),
+                thinking_budget_tokens,
+                disable_thinking,
+            },
         ) {
             return route;
         }
@@ -463,6 +461,8 @@ impl DaemonState {
                 disable_thinking,
                 fallback_models: fallback.fallback_models.clone(),
                 approved_private: false,
+                api_key_required: false,
+                compat: Default::default(),
             };
         }
 
@@ -475,6 +475,8 @@ impl DaemonState {
             disable_thinking,
             fallback_models: fallback.fallback_models.clone(),
             approved_private: false,
+            api_key_required: false,
+            compat: Default::default(),
         }
     }
 

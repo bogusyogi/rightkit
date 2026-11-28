@@ -1,6 +1,6 @@
 use super::ApiEndpoint;
 
-pub(super) const ENDPOINT_GROUP_02: [ApiEndpoint; 33] = [
+pub(super) const ENDPOINT_GROUP_02: [ApiEndpoint; 37] = [
     ApiEndpoint {
         method: "GET",
         path: "/sessions/{id}/goal",
@@ -68,6 +68,11 @@ pub(super) const ENDPOINT_GROUP_02: [ApiEndpoint; 33] = [
     },
     ApiEndpoint {
         method: "GET",
+        path: "/sessions/{id}/transcript/steps",
+        summary: "Read what each tool step was and how long it took",
+    },
+    ApiEndpoint {
+        method: "GET",
         path: "/sessions/{id}/untrusted-content",
         summary: "Audit untrusted transcript content",
     },
@@ -80,6 +85,11 @@ pub(super) const ENDPOINT_GROUP_02: [ApiEndpoint; 33] = [
         method: "POST",
         path: "/sessions/{id}/messages",
         summary: "Submit user message",
+    },
+    ApiEndpoint {
+        method: "POST",
+        path: "/sessions/import",
+        summary: "Create a dormant session from another tool's chat messages",
     },
     ApiEndpoint {
         method: "POST",
@@ -132,6 +142,11 @@ pub(super) const ENDPOINT_GROUP_02: [ApiEndpoint; 33] = [
         summary: "Resolve pending tool approval",
     },
     ApiEndpoint {
+        method: "GET",
+        path: "/sessions/{id}/pending",
+        summary: "List what a live session is waiting on (approvals, questions, plans)",
+    },
+    ApiEndpoint {
         method: "POST",
         path: "/sessions/{id}/answer-question",
         summary: "Resolve a pending session question",
@@ -150,6 +165,11 @@ pub(super) const ENDPOINT_GROUP_02: [ApiEndpoint; 33] = [
         method: "POST",
         path: "/sessions/{id}/interrupt",
         summary: "Interrupt a running session",
+    },
+    ApiEndpoint {
+        method: "POST",
+        path: "/sessions/{id}/seen",
+        summary: "Record that the person opened this chat",
     },
     ApiEndpoint {
         method: "POST",

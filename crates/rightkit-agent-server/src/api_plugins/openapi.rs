@@ -11,6 +11,19 @@ pub(crate) fn plugin_openapi_components() -> Map<String, Value> {
                     "type": "array",
                     "items": {"$ref": "#/components/schemas/PluginManifest"}
                 },
+                "broken": {
+                    "type": "array",
+                    "description": "Plugin folders whose plugin.json cannot be read, with the path and the error",
+                    "items": {
+                        "type": "object",
+                        "required": ["path", "error"],
+                        "properties": {
+                            "path": {"type": "string"},
+                            "error": {"type": "string"}
+                        },
+                        "additionalProperties": false
+                    }
+                },
                 "extension_execution": {"$ref": "#/components/schemas/ExtensionExecutionTrustCatalog"}
             },
             "additionalProperties": false
@@ -178,11 +191,12 @@ pub(crate) fn plugin_openapi_components() -> Map<String, Value> {
                     "type": "string",
                     "enum": ["trustedSubprocess", "restrictedSubprocess", "metadataOnly"]
                 },
-                "allowNetwork": {"type": "boolean"},
-                "inheritEnv": {"type": "boolean"},
-                "allowEnv": {"type": "array", "items": {"type": "string"}},
-                "denyEnv": {"type": "array", "items": {"type": "string"}},
-                "timeoutMs": {"type": "integer", "minimum": 0}
+                "allowAbsoluteEntry": {"type": "boolean"},
+                "timeoutMs": {"type": "integer", "minimum": 0},
+                "inheritEnv": {"type": "boolean", "description": "false starts the plugin from a minimal environment plus allowedEnv (enforced by the launcher)"},
+                "allowedEnv": {"type": "array", "items": {"type": "string"}},
+                "deniedEnv": {"type": "array", "items": {"type": "string"}},
+                "stripNetworkEnv": {"type": "boolean", "description": "removes proxy, certificate and cloud-credential variables and withholds network from the plugin"}
             }
         }),
     );
@@ -223,6 +237,16 @@ pub(crate) fn plugin_openapi_components() -> Map<String, Value> {
             "properties": {
                 "installed": {"type": "boolean"},
                 "overwritten": {"type": "boolean"},
+                "replaced": {
+                    "description": "What changed between the replaced version and this one; null for a first install.",
+                    "type": ["object", "null"],
+                    "properties": {
+                        "fromVersion": {"type": "string"},
+                        "toVersion": {"type": "string"},
+                        "added": {"$ref": "#/components/schemas/PluginContributionList"},
+                        "removed": {"$ref": "#/components/schemas/PluginContributionList"}
+                    }
+                },
                 "pluginDir": {"type": "string"},
                 "installedPath": {"type": "string"},
                 "marketplacePath": {"type": "string"},
@@ -232,8 +256,32 @@ pub(crate) fn plugin_openapi_components() -> Map<String, Value> {
                 "signedBy": {"type": "string"},
                 "signingPublicKey": {"type": "string"},
                 "signature": {"type": "string"},
+                "signatureStatus": {"type": "string"},
                 "middlewareCount": {"type": "integer"},
                 "plugin": {"$ref": "#/components/schemas/PluginManifest"}
+            },
+            "additionalProperties": false
+        }),
+    );
+    schemas.insert(
+        "PluginContributionList".to_string(),
+        json!({
+            "type": "object",
+            "properties": {
+                "commands": {"type": "array", "items": {"type": "string"}},
+                "tools": {"type": "array", "items": {"type": "string"}}
+            }
+        }),
+    );
+    schemas.insert(
+        "PluginRemovedResponse".to_string(),
+        json!({
+            "type": "object",
+            "required": ["id", "removed"],
+            "properties": {
+                "id": {"type": "string"},
+                "removed": {"type": "boolean"},
+                "middlewareCount": {"type": "integer"}
             },
             "additionalProperties": false
         }),
@@ -385,6 +433,7 @@ pub(crate) fn plugins_openapi_response_schema(method: &str, path: &str) -> Optio
         ("post", "/plugins/{id}/enable") | ("post", "/plugins/{id}/disable") => {
             Some(plugin_schema_ref("PluginEnabledResponse"))
         }
+        ("delete", "/plugins/{id}") => Some(plugin_schema_ref("PluginRemovedResponse")),
         _ => None,
     }
 }

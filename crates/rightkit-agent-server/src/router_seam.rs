@@ -21,7 +21,6 @@
 //! reads `descriptor.model_id`, so it can never reach this seam and is
 //! always-capable by construction (SPEC 5 invariant).
 
-#![allow(clippy::doc_overindented_list_items)]
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -154,14 +153,14 @@ pub enum RoutingSource {
 ///
 /// `TaskSignal` population choices (R1a-L3 SPEC 2 — populated vs defaulted):
 ///  - `turn_type`            → populated (`FreshReasoning` at spawn is the
-///                              safest; the seam runs before any tool work)
+///    safest; the seam runs before any tool work)
 ///  - `tool_call_density`    → populated from caller
 ///  - `failure_streak`       → populated from caller (task graph, if the
-///                              caller wires it; default 0 here)
+///    caller wires it; default 0 here)
 ///  - `remaining_budget_usd` → populated from caller
 ///  - `touches_sensitive`    → derived from prompt text via the builder's
-///                              `from_prompt_text` helper (auth/money/...
-///                              keywords per ADR §D1)
+///    `from_prompt_text` helper (auth/money/...
+///    keywords per ADR §D1)
 ///  - `scoped_file_count`    → derived from prompt text path references
 ///  - `prompt_shape`         → derived from prompt text
 ///  - `current_context_tokens` → populated from caller
@@ -213,6 +212,13 @@ pub fn apply_capability_routing(
         }
     }
 
+    // F9: only models the descriptor's own provider can serve are eligible; a
+    // cross-vendor pick would be sent to the wrong endpoint.
+    let provider = descriptor.provider_id.trim().to_string();
+    // F2: the sensitive-surface floor outranks sibling stability.
+    let sensitive =
+        rightkit_llm::agent_router::prompt_shape::contains_sensitive_keyword(inputs.goal_text);
+
     // SPEC 4: sibling-stability cache hit short-circuits BEFORE we even
     // build a signal. Sibling workers of one conductor run must see the
     // exact same routed model — read from cache if present, write to
@@ -231,11 +237,13 @@ pub fn apply_capability_routing(
         if let Some(role) = inputs.role {
             let task_class = live_for_cache.task_class.clone();
             let key = (run_id.to_string(), cache_scope(role, &task_class));
-            if !stalled {
+            if !stalled && !sensitive {
                 if let Ok(map) = cache.lock() {
                     if let Some(cached) = map.get(&key).filter(|model| {
                         rightkit_llm::agent_providers::model_metadata::capability_of(model)
                             .is_some()
+                            && crate::model_policy::provider_id_for_model_slug(model)
+                                .eq_ignore_ascii_case(&provider)
                     }) {
                         let model_id = cached.clone();
                         descriptor.model_id = model_id.clone();
@@ -296,21 +304,46 @@ pub fn apply_capability_routing(
 
     // Load the named policy preset + the bundled model roster.
     let policy: RoutingPolicy = RoutingPolicy::preset_by_name(&routing_cfg.aggressiveness);
-    let roster = rightkit_llm::agent_providers::model_metadata::table();
-    let budget = BudgetCeiling::default();
-
-    let decision: Option<RouteDecision> =
-        match rightkit_llm::agent_router::route_checked(&signal, roster, &policy, &budget, &pins) {
-            Ok(decision) => decision,
-            Err(error) => {
-                return RoutingOutcome {
-                    model_id: None,
-                    source: RoutingSource::Bypassed,
-                    reason: format!("routing rejected before execution: {error}"),
-                    protocol_event: None,
-                };
-            }
+    let roster: Vec<rightkit_llm::agent_providers::model_metadata::ModelCapability> =
+        rightkit_llm::agent_providers::model_metadata::table()
+            .iter()
+            .filter(|m| {
+                crate::model_policy::provider_id_for_model_slug(&m.slug)
+                    .eq_ignore_ascii_case(&provider)
+            })
+            .cloned()
+            .collect();
+    if provider.is_empty() || roster.is_empty() {
+        return RoutingOutcome {
+            model_id: None,
+            source: RoutingSource::Bypassed,
+            reason: format!(
+                "no catalog model is servable by provider `{provider}`; descriptor unchanged"
+            ),
+            protocol_event: None,
         };
+    }
+    let budget = if budget_remaining.is_finite() && budget_remaining > 0.0 {
+        BudgetCeiling {
+            max_projected_cost_usd: budget_remaining,
+        }
+    } else {
+        BudgetCeiling::default()
+    };
+
+    let decision: Option<RouteDecision> = match rightkit_llm::agent_router::route_checked(
+        &signal, &roster, &policy, &budget, &pins,
+    ) {
+        Ok(decision) => decision,
+        Err(error) => {
+            return RoutingOutcome {
+                model_id: None,
+                source: RoutingSource::Bypassed,
+                reason: format!("routing rejected before execution: {error}"),
+                protocol_event: None,
+            };
+        }
+    };
 
     let Some(decision) = decision else {
         return RoutingOutcome {
@@ -328,7 +361,11 @@ pub fn apply_capability_routing(
     descriptor.model_id = decision.model_id.clone();
 
     // Cache the decision for sibling workers of the same conductor run.
-    if let (Some(run_id), Some(role)) = (inputs.conductor_run_id, inputs.role) {
+    let cache_write = inputs
+        .conductor_run_id
+        .zip(inputs.role)
+        .filter(|_| !sensitive);
+    if let Some((run_id, role)) = cache_write {
         if let Ok(mut map) = cache.lock() {
             if map.len() >= MAX_ROUTING_CACHE_ENTRIES {
                 if let Some(oldest_key) = map.keys().min().cloned() {
@@ -385,7 +422,7 @@ pub fn apply_capability_routing(
         &signal,
         &routing_cfg.aggressiveness,
         &decision,
-        roster,
+        &roster,
         &route_reason,
     );
 

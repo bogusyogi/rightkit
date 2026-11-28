@@ -1,49 +1,4 @@
 impl DaemonState {
-    pub(crate) fn create_scheduled_session_with_toolset_policy(
-        &self,
-        id: &str,
-        workspace_root: &str,
-        title: &str,
-        toolset_id: Option<&str>,
-        active_skills: Vec<String>,
-        execution_backend: Option<String>,
-    ) -> Result<Arc<LiveSession>, StatusCode> {
-        let cleaned_toolset = toolset_id.map(str::trim).filter(|value| !value.is_empty());
-        let execution_backend = {
-            let registry = lock_recover(&self.execution_backends, "execution_backends");
-            validate_execution_backend(&registry, execution_backend.as_deref())?
-        };
-        let mut options = if let Some(toolset_id) = cleaned_toolset {
-            let workspace_config =
-                load_workspace_config_with_env(FsPath::new(workspace_root.trim()));
-            let profile = resolve_toolset_profile_with_config(toolset_id, &workspace_config)?;
-            let (allowed_tools, disallowed_tools) =
-                apply_toolset_profile(Some(&profile), Vec::new(), Vec::new());
-            SessionRuntimeOptions {
-                allowed_tools,
-                disallowed_tools,
-                toolset: Some(profile.id),
-                ..SessionRuntimeOptions::default()
-            }
-        } else {
-            SessionRuntimeOptions::default()
-        };
-
-        if options.toolset.as_deref() != Some(SCHEDULE_ADMIN_TOOLSET)
-            && !options
-                .disallowed_tools
-                .iter()
-                .any(|tool| tool == "schedule_cron")
-        {
-            options.disallowed_tools.push("schedule_cron".to_string());
-        }
-        options.active_skills = active_skills;
-        options.execution_backend = execution_backend;
-        options.mcp_channel = "schedule".to_string();
-
-        Ok(self.create_session_with_options(id, None, workspace_root, title, None, options))
-    }
-
     pub(crate) fn create_recipe_session_with_toolset_policy(
         &self,
         id: &str,
@@ -153,15 +108,19 @@ impl DaemonState {
         options: SessionRuntimeOptions,
     ) -> Arc<LiveSession> {
         self.create_session_seeded_with_options(
-            id,
-            role,
-            workspace_root,
-            title,
-            parent_session_id,
-            None,
-            None,
-            0,
-            0,
+            SessionIdentity {
+                id,
+                role,
+                workspace_root,
+                title,
+                parent_session_id,
+            },
+            SessionSeed {
+                seed: None,
+                engine_seed: None,
+                high_water: 0,
+                compaction_epoch: 0,
+            },
             options,
         )
     }

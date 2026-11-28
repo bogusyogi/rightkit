@@ -1,14 +1,22 @@
-#[allow(clippy::too_many_arguments)]
+/// The run a schedule result belongs to: the session that ran and the status it ended with.
+struct DeliveredRun<'a> {
+    session_id: &'a str,
+    result_status: &'a str,
+}
+
 async fn deliver_webhook_result(
     state: &DaemonState,
     root: &Path,
     entry: &ScheduleEntry,
-    session_id: &str,
-    result_status: &str,
+    run: DeliveredRun<'_>,
     target: &DeliveryTarget,
     source_artifact: Option<&Path>,
     fallback_content: &str,
 ) -> Result<(), String> {
+    let DeliveredRun {
+        session_id,
+        result_status,
+    } = run;
     let Some(url) = target
         .target
         .as_deref()
@@ -43,10 +51,13 @@ async fn deliver_webhook_result(
                 .record_delivery(remote_target, payload, "failed", Some(error.to_string()))
                 .map_err(|e| e.to_string())?;
             record_sql_remote_delivery(state, &record).await;
-            let _ = rightkit_bot_messaging::append_remote_delivery(
+            // The delivery error is what the caller gets; a failed audit append is only logged.
+            if let Err(append_error) = rightkit_bot_messaging::append_remote_delivery(
                 &remote_deliveries_path(root),
                 record,
-            );
+            ) {
+                tracing::warn!(%append_error, "could not append the failed remote delivery record");
+            }
             return Err(error.to_string());
         }
     };

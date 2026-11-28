@@ -1,6 +1,6 @@
 //! CG-A06 — durable project/cwd binding with trust-aware session navigation.
 //!
-//! RightKit sessions are durably bound to a `workspace_root` at creation
+//! Sessions are durably bound to a `workspace_root` at creation
 //! time (see `api_session_bindings.rs::session_workspace_root`,
 //! `main_runtime_daemon_sessions.rs::same_cli_path`, and
 //! `api_session_utils_tasks.rs::same_path`) but that binding logic is
@@ -28,7 +28,6 @@
 //! resolves persisted trust, so unresolvable roots fail closed rather than
 //! inheriting a trust grant through path spelling differences.
 
-use rightkit_agent_engine_protocol::trust::ContentTrust;
 use std::path::{Path, PathBuf};
 
 /// Outcome of checking a candidate path against a bound project root.
@@ -125,39 +124,6 @@ impl ProjectBinding {
             NavigationOutcome::Outside
         }
     }
-
-    /// Whether `candidate` is the exact bound root (not merely inside it).
-    /// Mirrors the strict-equality behavior CLI resume/fork use today via
-    /// `same_cli_path` to filter "sessions in this exact cwd".
-    pub fn is_exact_root(&self, candidate: impl AsRef<str>) -> bool {
-        let candidate_raw = candidate.as_ref();
-        if candidate_raw.trim().is_empty() {
-            return false;
-        }
-        match (
-            &self.canonical_root,
-            canonicalize_best_effort(candidate_raw),
-        ) {
-            (Some(root), Some(candidate)) => {
-                normalize_for_compare(root) == normalize_for_compare(&candidate)
-            }
-            _ => normalize_raw(&self.raw_root) == normalize_raw(candidate_raw),
-        }
-    }
-
-    /// Maps a navigation outcome onto the trust vocabulary content flowing
-    /// from that location should carry. Content originating from inside the
-    /// bound root is workspace-trusted; anything else is deliberately
-    /// downgraded rather than silently trusted, matching RightKit's
-    /// fail-closed posture on unresolved/outside navigation.
-    pub fn trust_for(&self, candidate: impl AsRef<str>) -> ContentTrust {
-        match self.evaluate(candidate) {
-            NavigationOutcome::Inside => ContentTrust::WorkspaceTrusted,
-            NavigationOutcome::Outside | NavigationOutcome::Unresolvable => {
-                ContentTrust::ToolUntrusted
-            }
-        }
-    }
 }
 
 fn canonicalize_best_effort(raw: &str) -> Option<PathBuf> {
@@ -171,13 +137,6 @@ fn canonicalize_best_effort(raw: &str) -> Option<PathBuf> {
 fn normalize_for_compare(path: &Path) -> String {
     path.display()
         .to_string()
-        .replace('\\', "/")
-        .to_ascii_lowercase()
-}
-
-fn normalize_raw(raw: &str) -> String {
-    raw.trim()
-        .trim_end_matches(['\\', '/'])
         .replace('\\', "/")
         .to_ascii_lowercase()
 }

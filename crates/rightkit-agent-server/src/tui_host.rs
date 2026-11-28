@@ -83,8 +83,8 @@ use rightkit_terminal_ui::crossterm::cursor as ct_cursor;
 use rightkit_terminal_ui::crossterm::terminal as ct_terminal;
 use rightkit_terminal_ui::crossterm::{
     event::{
-        self as ct_event, DisableFocusChange, DisableMouseCapture, EnableFocusChange,
-        EnableMouseCapture, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
+        self as ct_event, DisableFocusChange, DisableMouseCapture, KeyCode, KeyEvent, KeyEventKind,
+        KeyModifiers,
     },
     execute,
 };
@@ -194,6 +194,16 @@ pub trait TurnHost: Send + Sync + 'static {
         Vec::new()
     }
 
+    /// Live plugin UI slots (A201-1): the declared status, band and toast slots of enabled plugins.
+    async fn plugin_ui_slots(&self) -> Vec<crate::tui_plugin_slots::SlotSpec> {
+        Vec::new()
+    }
+
+    /// The text one slot's command produced, or None.
+    async fn plugin_slot_output(&self, _slot_id: &str) -> Option<String> {
+        None
+    }
+
     async fn stop_running_work(
         &self,
         _session_id: &str,
@@ -256,10 +266,6 @@ pub trait TurnHost: Send + Sync + 'static {
         _value: Option<&str>,
     ) -> Result<String, String> {
         Err("Session action is unavailable for this host".into())
-    }
-
-    async fn init_workspace(&self) -> Result<String, String> {
-        Err("Workspace initialization is unavailable for this host".into())
     }
 
     async fn worktree_action(&self, _action: &str, _args: &[&str]) -> Result<String, String> {
@@ -342,6 +348,31 @@ pub trait TurnHost: Send + Sync + 'static {
         Err("Plan responses are unavailable for this host".into())
     }
 
+    /// Answer the plan card; `clear_context` with `approved` is "approve and clear context".
+    /// A host without the third choice refuses it rather than approving without clearing.
+    async fn resolve_plan_with_context(
+        &self,
+        plan_id: &str,
+        approved: bool,
+        clear_context: bool,
+    ) -> Result<(), String> {
+        if clear_context {
+            return Err("Clearing the context on approval is unavailable for this host".into());
+        }
+        self.resolve_plan(plan_id, approved).await
+    }
+
+    /// The TUI is quitting with cards still open (cli-and-tui R10): decline
+    /// each approval, question and plan with the reason `detached`, so the
+    /// turn reports `detached`, never "denied by user".
+    async fn decline_open_interactions_as_detached(
+        &self,
+        _approval_ids: Vec<(String, String)>,
+        _question_ids: Vec<String>,
+        _plan_ids: Vec<String>,
+    ) {
+    }
+
     /// Resolve typed input (with or without a leading `/`) to a command's
     /// canonical name, via the one shared registry
     /// (`crate::cli::command_registry::CommandRouter`). `None` means the
@@ -361,12 +392,6 @@ pub trait TurnHost: Send + Sync + 'static {
     /// delegate the command to the daemon slash surface (P1-1), which is an
     /// HTTP round trip.
     async fn execute_command(&self, name: &str, rest: &str) -> bool;
-
-    /// Command-name completions for a typed prefix. Not consumed by this
-    /// render loop today (the composer has no completion popup yet), but
-    /// real and reachable so `CommandSource::completions` is not left
-    /// orphaned by this host either.
-    fn completions(&self, prefix: &str) -> Vec<String>;
 
     /// Give the host a handle to the TUI input reader's exclusive-pause
     /// handshake. When a host surface needs exclusive use of the tty (e.g.
@@ -495,6 +520,12 @@ pub trait TurnHost: Send + Sync + 'static {
     /// families retain their semantic shape through S:I3's reducer instead
     /// of being flattened into assistant text before the TUI sees them.
     async fn poll_timeline_events(&self) -> Vec<DaemonEvent> {
+        Vec::new()
+    }
+
+    /// Sessions whose message text matches `query`, as `(session id, title, snippet)`, best first. The resume
+    /// picker lists them beside its title matches. The default has no store to search.
+    async fn search_session_content(&self, _query: &str) -> Vec<(String, String, String)> {
         Vec::new()
     }
 
@@ -650,6 +681,14 @@ pub trait TurnHost: Send + Sync + 'static {
         None
     }
 
+    /// R41: the next queued startup gate (provider screen, model picker,
+    /// Home), if any. The drive loop asks only while no picker is open, so
+    /// the gates that lose the first slot follow it one by one and none is
+    /// dropped silently. Priority: providers, then model, then Home.
+    fn take_startup_picker(&self) -> Option<PickerRequest> {
+        None
+    }
+
     /// D3 rewind: this session's prior user prompts, oldest first. Default
     /// refuses: a host without a session ledger has nothing to rewind.
     async fn rewind_points(&self) -> Result<Vec<crate::api_sessions::rewind::RewindPoint>, String> {
@@ -657,6 +696,11 @@ pub trait TurnHost: Send + Sync + 'static {
     }
 
     /// D3 rewind: restore conversation and/or files to just before `point`.
+    /// `/redo`: re-apply the most recent `/undo`. A refusal is its message.
+    async fn redo_last_undo(&self) -> Result<crate::api_sessions::rewind::RewindReport, String> {
+        Err("Redo is not available from this host.".to_string())
+    }
+
     async fn rewind_to(
         &self,
         _point: &crate::api_sessions::rewind::RewindPoint,
@@ -717,12 +761,18 @@ pub trait TurnHost: Send + Sync + 'static {
         Err("workspace trust is unavailable for this host".into())
     }
 
-    /// P3: canonical workspace diff text for read-only inspection.
-    async fn workspace_diff(&self) -> Result<String, String> {
+    /// P3: canonical workspace diff text for read-only inspection. With
+    /// `turn_only`, limited to the files the last turn changed.
+    async fn workspace_diff(&self, _turn_only: bool) -> Result<String, String> {
         Err("Workspace diff is unavailable for this host".into())
     }
 
     /// P15: bounded durable session event trace for native inspection.
+    /// Every session row of this workspace (with `forkedFromSessionId`) for `/tree`.
+    async fn session_tree_rows(&self) -> Result<Vec<serde_json::Value>, String> {
+        Err("session tree is not available from this host".to_string())
+    }
+
     async fn session_log(&self, _session_id: &str) -> Result<String, String> {
         Err("Session event trace is unavailable for this host".into())
     }
@@ -750,6 +800,19 @@ pub trait TurnHost: Send + Sync + 'static {
     fn custom_command_prompt(&self, _input: &str) -> Option<String> {
         None
     }
+
+    /// A prompt the user typed that holds `!{cmd}` markers: stage it so the host expands the
+    /// markers inside the turn it starts next (each command goes through the shell permission
+    /// policy, and an `Ask` raises the usual approval card). `false` when there is nothing to expand.
+    fn stage_inline_shell(&self, _text: &str) -> bool {
+        false
+    }
+
+    /// Whether `text` is the prompt `stage_inline_shell` staged. Its echo waits for the expanded
+    /// text the turn records, so the transcript holds one block for it.
+    fn inline_shell_staged(&self, _text: &str) -> bool {
+        false
+    }
 }
 
 /// Which route picker a [`TurnHost::take_picker_request`] asked to open.
@@ -769,10 +832,12 @@ pub enum PickerRequest {
     Agents,
     /// `/resume <id>`: switch straight to that session.
     ResumeSession(String),
+    /// Startup resume of a session whose workspace folder is gone: the three-way card.
+    FolderGone {
+        root: String,
+    },
     /// D14: the launch home screen (projects + recent chats).
     Home,
-    /// D15: the pop-out project/chat sidebar.
-    Sidebar,
     /// D5: the `/config` settings screen.
     Config,
 }
@@ -806,7 +871,7 @@ pub fn subagent_message_notice(agent: &AgentId, result: Result<(), String>) -> S
 /// Execute one `/goal` command against the host's canonical goal API and
 /// return display text for the transcript. Setting a goal leaves the host's
 /// follow-up prompt queued for the normal turn-start path.
-fn clipboard_copy_notice(text: &str) -> String {
+pub(crate) fn clipboard_copy_notice(text: &str) -> String {
     let env = rightkit_terminal_ui::terminal::capability::SystemEnv;
     let strategy = rightkit_terminal_ui::terminal::clipboard_strategy(&env);
     let result = if matches!(
@@ -918,14 +983,12 @@ pub struct CommittedRoute {
 }
 
 /// Real startup/context state a [`TurnHost`] can report through
-/// [`TurnHost::readiness`]. `Configuring` covers provider/model resolution
-/// (onboarding); `StartingContext` covers the InlineHost native connect,
+/// [`TurnHost::readiness`]. `StartingContext` covers the InlineHost native connect,
 /// which can block for minutes on a cold worker; `Failed` names the error
 /// and is recoverable -- submitting again retries rather than repeating a
 /// permanently cached failure.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostReadiness {
-    Configuring,
     StartingContext,
     Ready,
     /// Context (Membrane) is unavailable; turns run with no context
@@ -952,18 +1015,6 @@ pub struct HistoryPageEntry {
 fn next_paging_cursor(page: &[HistoryPageEntry]) -> Option<i64> {
     page.iter().map(|entry| entry.seq).min()
 }
-
-/// Calls that started together: the batch's first start plus
-/// `(call_id, name, args)` per call.
-type ToolCallBatch = (Instant, Vec<(String, String, String)>);
-
-/// In-flight `@` file search; resolves to the query and its matches.
-type FileSearchFuture<'a> = std::pin::Pin<
-    Box<
-        dyn std::future::Future<Output = (String, Vec<rightkit_terminal_ui::composer::FileMatch>)>
-            + 'a,
-    >,
->;
 
 /// P2-5: scrollback paging state for the session whose transcript this view
 /// currently shows — the durable-history cursor (smallest seq still needed),
@@ -1007,21 +1058,9 @@ enum LiveCell {
 /// drops the oldest *settled* entries first so a stuck running call is
 /// never silently evicted while still needed for output routing.
 const LIVE_CELL_MAX: usize = 16;
-
-/// Extract plain unstyled text from a cell — the form transcript system
-/// messages and scrollback inserts take.
-fn cell_plain_text(cell: &dyn Cell) -> String {
-    cell.plain_lines()
-        .iter()
-        .map(|line| {
-            line.spans
-                .iter()
-                .map(|span| span.content.as_ref())
-                .collect::<String>()
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
+/// Settled tool cells kept for Ctrl+O to walk back to, and the most lines kept per cell.
+const TOOL_HISTORY_MAX_CELLS: usize = 64;
+const TOOL_HISTORY_MAX_LINES: usize = 400;
 
 /// Upper bound on a single approval-preview payload (command, file content,
 /// or unified diff) so a hostile or oversized tool argument cannot grow the
@@ -1033,6 +1072,10 @@ fn clip_approval_payload(text: &str) -> String {
         return text.to_string();
     }
     let mut clipped: String = text.chars().take(APPROVAL_PREVIEW_MAX_CHARS).collect();
+    // A cut inside a run of zero-width joiners must not leave the run next to the ellipsis, where
+    // the display filter would take it for part of a script and let it through.
+    let kept = clipped.trim_end_matches(['\u{200C}', '\u{200D}']).len();
+    clipped.truncate(kept);
     clipped.push('…');
     clipped
 }
@@ -1078,6 +1121,69 @@ fn edit_preview_change(
         }
     }
     FileChange::from_replacements(pairs)
+}
+
+/// `apply_patch`'s own format (`*** path` sets the file, `--- ` removes a
+/// line, `+++ ` adds one, bare lines are context) as one unified diff per file,
+/// so the card can colour it like any other diff. Line numbers are not known
+/// from the patch, so hunks are numbered from 1.
+fn apply_patch_preview_changes(
+    patch: &str,
+) -> std::collections::BTreeMap<std::path::PathBuf, rightkit_terminal_ui::render::diff::FileChange>
+{
+    let mut files: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    let mut current: Option<(String, Vec<String>, usize, usize)> = None;
+    let mut flush = |current: &mut Option<(String, Vec<String>, usize, usize)>| {
+        if let Some((name, body, old_n, new_n)) = current.take() {
+            if !body.is_empty() {
+                let entry = files.entry(name).or_default();
+                entry.push_str(&format!(
+                    "@@ -{},{old_n} +{},{new_n} @@\n",
+                    usize::from(old_n > 0),
+                    usize::from(new_n > 0)
+                ));
+                for row in body {
+                    entry.push_str(&row);
+                    entry.push('\n');
+                }
+            }
+        }
+    };
+    for line in patch.lines() {
+        if let Some(name) = line.strip_prefix("*** ") {
+            flush(&mut current);
+            current = Some((name.trim().to_string(), Vec::new(), 0, 0));
+        } else if let Some((_, body, old_n, new_n)) = current.as_mut() {
+            if let Some(rest) = line.strip_prefix("--- ") {
+                body.push(format!("-{rest}"));
+                *old_n += 1;
+            } else if let Some(rest) = line.strip_prefix("+++ ") {
+                body.push(format!("+{rest}"));
+                *new_n += 1;
+            } else if line == "---" {
+                body.push("-".to_string());
+                *old_n += 1;
+            } else if line == "+++" {
+                body.push("+".to_string());
+                *new_n += 1;
+            } else {
+                body.push(format!(" {line}"));
+                *old_n += 1;
+                *new_n += 1;
+            }
+        }
+    }
+    flush(&mut current);
+    files
+        .into_iter()
+        .map(|(name, hunks)| {
+            let diff = format!("--- a/{name}\n+++ b/{name}\n{hunks}");
+            (
+                std::path::PathBuf::from(name),
+                rightkit_terminal_ui::render::diff::FileChange::update(diff),
+            )
+        })
+        .collect()
 }
 
 /// The wire summary for an unknown tool is `name {"k":"v",...}`. Show it as
@@ -1136,7 +1242,7 @@ fn approval_kind_for_call(
         })
     };
     let reason = || arg_str(&["reason", "justification", "description"]);
-    // Exec: `command`/`cmd` is RightKit's shell-tool argument spelling;
+    // Exec: `command`/`cmd` is the shell tool's argument spelling here;
     // argv-style `args`/`argv` arrays are joined for tools that spell the
     // command that way.
     let command = arg_str(&["command", "cmd", "script"]).or_else(|| {
@@ -1229,6 +1335,18 @@ fn approval_kind_for_call(
     // never invents a diff — the shape of the arguments decides.
     let path = arg_str(&["path", "file", "filePath", "file_path", "target"]);
     if let Some(diff) = arg_str(&["patch", "diff", "unified_diff", "unifiedDiff"]) {
+        // `apply_patch` has its own `*** path` / `--- ` / `+++ ` format, which
+        // is not a unified diff: convert it so the card shows a real diff.
+        if call_name == "apply_patch" || diff.starts_with("*** ") {
+            let changes = apply_patch_preview_changes(&clip_approval_payload(&diff));
+            if !changes.is_empty() {
+                return ApprovalKind::Patch {
+                    changes,
+                    cwd: std::path::PathBuf::new(),
+                    reason: reason(),
+                };
+            }
+        }
         if diff.contains("@@") || diff.starts_with("---") {
             let mut changes = std::collections::BTreeMap::new();
             changes.insert(
@@ -1246,15 +1364,46 @@ fn approval_kind_for_call(
     }
     if let (Some(path), Some(content)) = (path, arg_str(&["content", "new_content", "newContent"]))
     {
+        use rightkit_terminal_ui::render::diff::FileChange;
+        // Over an existing file this is a replacement, not an add: show a real
+        // diff when the old text can be read, else say plainly it overwrites.
+        let full = {
+            let candidate = std::path::PathBuf::from(&path);
+            match default_cwd {
+                Some(dir) if candidate.is_relative() => std::path::Path::new(dir).join(candidate),
+                _ => candidate,
+            }
+        };
+        let existing = std::fs::metadata(&full).ok().filter(|meta| meta.is_file());
+        let before = existing
+            .as_ref()
+            .filter(|meta| meta.len() <= 512 * 1024)
+            .and_then(|_| std::fs::read_to_string(&full).ok());
+        let mut note = reason();
+        let change = match (&existing, &before) {
+            (Some(_), Some(before)) if *before != content => {
+                FileChange::replacement(before, &clip_approval_payload(&content))
+            }
+            (Some(_), _) => {
+                let size = match &before {
+                    Some(before) => format!("{} lines", before.lines().count()),
+                    None => "too large or unreadable to diff".to_string(),
+                };
+                let label = format!("overwrites existing file ({size})");
+                note = Some(match note {
+                    Some(reason) => format!("{label} · {reason}"),
+                    None => label,
+                });
+                FileChange::add(clip_approval_payload(&content))
+            }
+            (None, _) => FileChange::add(clip_approval_payload(&content)),
+        };
         let mut changes = std::collections::BTreeMap::new();
-        changes.insert(
-            std::path::PathBuf::from(path),
-            rightkit_terminal_ui::render::diff::FileChange::add(clip_approval_payload(&content)),
-        );
+        changes.insert(std::path::PathBuf::from(path), change);
         return ApprovalKind::Patch {
             changes,
             cwd: std::path::PathBuf::new(),
-            reason: reason(),
+            reason: note,
         };
     }
     generic()
@@ -1324,6 +1473,20 @@ fn approval_subject(kind: &ApprovalKind, call_name: &str, summary: &str) -> Stri
     }
 }
 
+/// Calls that started together, as `(call_id, name, args)`.
+type CallBatch = Vec<(String, String, String)>;
+/// The composer's in-flight `@` file search, boxed for the event loop.
+type FileSearchFuture<'a> = std::pin::Pin<
+    Box<
+        dyn std::future::Future<Output = (String, Vec<rightkit_terminal_ui::composer::FileMatch>)>
+            + 'a,
+    >,
+>;
+/// The resume picker's in-flight content search, boxed for the event loop.
+type ContentSearchFuture<'a> = std::pin::Pin<
+    Box<dyn std::future::Future<Output = (String, Vec<(String, String, String)>)> + 'a>,
+>;
+
 /// S:I3/S:I6 — the typed session state the host owns beside the transcript.
 ///
 /// [`Transcript`] holds `(Speaker, String)` lines: exactly right for
@@ -1356,11 +1519,11 @@ struct SessionState {
     /// drain buffered input before the modal's first draw so keystrokes
     /// typed against the pre-modal screen can never decide the request.
     quarantine_input: bool,
-    approval_input_safe: bool,
-    /// Whether the composer held unsent text after the latest key: reported
-    /// to an approval card so its letter keys stay off while the user may
-    /// still be typing.
+    /// Whether the composer held unsent text after the last input event. An
+    /// approval card that arrives over a draft must not be answered by the
+    /// next letter the user was already typing.
     composer_has_text: bool,
+    approval_input_safe: bool,
     pending_question: Option<PendingQuestion>,
     pending_credential: Option<PendingCredential>,
     pending_elicitation: Option<PendingElicitation>,
@@ -1369,6 +1532,9 @@ struct SessionState {
     pending_trust: Option<String>,
     /// Ctrl+L: the next frame clears the visible screen (session and scrollback history stay).
     clear_screen_requested: bool,
+    /// Ctrl+Z then `fg`: the shell owned the screen while the app was stopped, so the next frame
+    /// repaints it whole (inline: as Ctrl+L; fullscreen: re-enters the alternate screen).
+    resumed_from_suspend: bool,
     /// In-flight typed projections (reasoning, exec/tool cells).
     live_cells: Vec<LiveCell>,
     /// `call_id` → index into `live_cells` for routing tool updates; the
@@ -1410,6 +1576,9 @@ struct SessionState {
     session_action_picker: Option<rightkit_terminal_ui::nav::ListPicker>,
     /// D3: the open Esc-Esc rewind picker, if any.
     rewind: Option<rewind::RewindFlow>,
+    /// `/undo` rewound the session and no turn has run since: `/redo` can
+    /// put it back. Any new turn clears it.
+    redo_available: bool,
     session_action_id: Option<String>,
     session_action_kinds: Vec<&'static str>,
     pending_rename: Option<String>,
@@ -1430,6 +1599,9 @@ struct SessionState {
     readiness: Option<HostReadiness>,
     /// Admission time, including context preparation and provider wait.
     working_started: Option<Instant>,
+    /// A turn that just ended: its last events (usage, rate limit) are still being read from the
+    /// daemon, and they are live, not history, until this passes.
+    live_tail_until: Option<Instant>,
     /// Latest real runtime signal (failure, retry, compaction, verify) for
     /// the working line; cleared when a turn starts or settles.
     working_signal: Option<rightkit_terminal_ui::transcript::timeline::RunSignal>,
@@ -1442,6 +1614,9 @@ struct SessionState {
     reasoning_buf: String,
     /// Tool calls currently running: `(call_id, activity label)`.
     active_tools: Vec<(String, String)>,
+    /// Activity label of a tool call the model is still writing (from its streamed arguments),
+    /// for the working line until the call itself starts.
+    pending_tool_label: Option<String>,
     /// Raw text of the messages queued behind the running turn, oldest
     /// first. Shown above the composer; never in the transcript until sent.
     queued_preview: Vec<String>,
@@ -1450,6 +1625,11 @@ struct SessionState {
     context_fraction: Option<f64>,
     /// Cumulative priced cost for active session; None means unavailable.
     cost_usd: Option<f64>,
+    /// True when `cost_usd` is the provider's own charge, not a price-table estimate.
+    cost_billed: bool,
+    /// Latest non-"allowed" vendor rate-limit state for the footer; cleared
+    /// when the account reports "allowed".
+    rate_limit: Option<RateLimitState>,
     /// Latest prompt size and how much of it the provider served from cache.
     last_prompt: Option<(i64, i64)>,
     /// Human subject per pending approval (`shell · echo hi`), for its
@@ -1457,6 +1637,17 @@ struct SessionState {
     approval_subjects: std::collections::HashMap<String, String>,
     /// Approvals the user answered with "allow for this session".
     session_grants: std::collections::HashSet<String>,
+    /// Approvals the user answered with "always allow" (a rule was installed).
+    always_grants: std::collections::HashSet<String>,
+    /// Tool name and arguments per pending approval, so a denied call with no
+    /// row of its own still gets its one `denied` row.
+    approval_calls: std::collections::HashMap<String, (String, String)>,
+    /// How an approval settled (call id to `allowed once` ...): the outcome is
+    /// a field on the action row, applied whenever the row is built.
+    pending_permissions: std::collections::HashMap<String, String>,
+    /// The viewed agent tree, for the cast tree in the transcript area and the
+    /// `N models` footer block. Refreshed on every draw from the nav tree.
+    cast: Option<AgentNode>,
     /// Calls whose result row already reached the transcript, so a repeated
     /// delivery of the same result (live plus durable) never paints twice.
     settled_tool_calls: std::collections::HashSet<String>,
@@ -1471,14 +1662,40 @@ struct SessionState {
     started_at: Instant,
     /// Calls that started together (one batch) as `(call_id, name, args)`
     /// with the batch's first start; merged into one parallel cell.
-    batch: Option<ToolCallBatch>,
+    batch: Option<(Instant, CallBatch)>,
     /// Full (ctrl+o) lines of the most recently settled reasoning/exec cell.
     expandable: Option<Vec<rightkit_terminal_ui::ratatui::text::Line<'static>>>,
+    /// Full lines of the last settled tool cells (newest last, numbered), so Ctrl+O can walk back to an older call
+    /// after the latest one is shown. Bounded in cells and in lines per cell.
+    tool_history:
+        std::collections::VecDeque<(u64, Vec<rightkit_terminal_ui::ratatui::text::Line<'static>>)>,
+    tool_serial: u64,
+    /// Serial of the cell Ctrl+O showed last; the next press shows the newest cell older than it.
+    expand_cursor: Option<u64>,
+    /// Serial of the tool cell `expandable` holds (None when it holds a reasoning block).
+    expandable_serial: Option<u64>,
     /// Plan/todo list, rebuilt from durable `todo_write` calls (live and
     /// replayed on resume) and from `rehydrate_tasks`; Alt+P shows it.
     todo_overlay: rightkit_terminal_ui::todo_overlay::TodoOverlay,
     /// #136 panes: observability (Alt+O), diff review (Alt+D/]/[/A/R), PR/CI band (Alt+B).
     panes: crate::tui_panes::PaneState,
+    /// `/raw` or its key asked to switch between the full layout and append-only output; the drive loop applies it.
+    raw_toggle: bool,
+    /// `collapse_turns` (Alt+C): expanded tool output of finished turns is folded away.
+    fold_turns: bool,
+    /// Releases a streamed answer line by line, catching up on a big backlog (A219).
+    pacer: rightkit_terminal_ui::transcript::pacer::StreamPacer,
+    /// The folder-gone card came from the launch resume, so Cancel leaves the terminal.
+    quit_on_gone_cancel: bool,
+    /// The `[tui] statusline-command` script and its latest line (B-statusscript).
+    status_script: crate::tui_status_script::StatusScript,
+    plugin_slots: crate::tui_plugin_slots::PluginSlotFeed,
+    /// `read_file` / `view_image` calls on a `.png` path, by call id (B-cximages); a finished one
+    /// moves to `images_to_show`, which the drive loop paints when the terminal speaks Kitty graphics.
+    image_candidates: std::collections::HashMap<String, String>,
+    images_to_show: Vec<String>,
+    /// The screen is to be cleared and the settled chat repainted (fold or unfold).
+    reprint_request: bool,
     /// Whether the running turn has shown any outcome (answer, tool, notice,
     /// failure). A turn that ends without one is reported, never left silent.
     turn_outcome_seen: bool,
@@ -1513,6 +1730,8 @@ struct PendingPlan {
     plan_id: String,
     plan: String,
     decision: Option<bool>,
+    /// With an approval: also clear the earlier conversation from the model's context (`c`).
+    clear_context: bool,
 }
 
 struct PendingCredential {
@@ -1547,17 +1766,23 @@ impl SessionState {
     /// A new turn starts: drop the previous turn's held failure and status
     /// header state.
     fn begin_turn_status(&mut self) {
+        // A new turn voids the undo that `/redo` would re-apply.
+        self.redo_available = false;
         self.turn_outcome_seen = false;
         self.failed_hold = None;
         self.reasoning_heading = None;
         self.reasoning_buf.clear();
         self.active_tools.clear();
+        self.pending_tool_label = None;
         self.running_tools = Default::default();
     }
 
     /// Operation text for the working line when no runtime signal owns it:
     /// reasoning heading, else running tool, else "Thinking".
     fn default_operation(&self) -> String {
+        if let Some(label) = &self.pending_tool_label {
+            return label.clone();
+        }
         if let Some(heading) = &self.reasoning_heading {
             return heading.clone();
         }
@@ -1578,8 +1803,9 @@ impl SessionState {
     fn interaction_text(&self) -> Option<String> {
         if let Some(root) = &self.pending_trust {
             return Some(format!(
-                "Trust this folder? (yes/no)\n{}\nRightKit can read, edit and run commands here once trusted.\ny trust | n stay untrusted (/trust later) | Esc decline",
-                rightkit_terminal_ui::render::display_path_str(root)
+                "Trust this folder? (yes/no)\n{}\n{} can read, edit and run commands here once trusted.\ny trust | n stay untrusted (/trust later) | Esc decline",
+                rightkit_terminal_ui::render::display_path_str(root),
+                rightkit_agent_config::app_name()
             ));
         }
         if let Some(pending) = &self.pending_credential {
@@ -1617,10 +1843,11 @@ impl SessionState {
             });
         }
         if let Some(pending) = &self.pending_plan {
-            let choice = match pending.decision {
-                Some(true) => "approve",
-                Some(false) => "reject",
-                None => "choose y/n",
+            let choice = match (pending.decision, pending.clear_context) {
+                (Some(true), true) => "approve and clear context",
+                (Some(true), false) => "approve",
+                (Some(false), _) => "reject",
+                (None, _) => "choose y/n or c (approve and clear context)",
             };
             return Some(format!(
                 "Plan: {choice} | Enter submits | Esc cancels turn\n{}",
@@ -1700,14 +1927,15 @@ impl SessionState {
             approval_allow_rules: std::collections::HashMap::new(),
             deny_rules: None,
             quarantine_input: false,
-            approval_input_safe: true,
             composer_has_text: false,
+            approval_input_safe: true,
             pending_question: None,
             pending_credential: None,
             pending_elicitation: None,
             pending_plan: None,
             pending_trust: None,
             clear_screen_requested: false,
+            resumed_from_suspend: false,
             live_cells: Vec::new(),
             exec_started: std::collections::HashMap::new(),
             exec_output_seen: std::collections::HashMap::new(),
@@ -1732,6 +1960,7 @@ impl SessionState {
             inspection: None,
             session_action_picker: None,
             rewind: None,
+            redo_available: false,
             session_action_id: None,
             session_action_kinds: Vec::new(),
             pending_rename: None,
@@ -1743,25 +1972,46 @@ impl SessionState {
             active_session: active_session.to_string(),
             readiness: None,
             working_started: None,
+            live_tail_until: None,
             working_signal: None,
             failed_hold: None,
             reasoning_heading: None,
             reasoning_buf: String::new(),
             active_tools: Vec::new(),
+            pending_tool_label: None,
             queued_preview: Vec::new(),
             context_fraction: None,
             cost_usd: None,
+            cost_billed: false,
+            rate_limit: None,
             last_prompt: None,
             approval_subjects: std::collections::HashMap::new(),
             session_grants: std::collections::HashSet::new(),
+            always_grants: std::collections::HashSet::new(),
+            cast: None,
+            approval_calls: std::collections::HashMap::new(),
+            pending_permissions: std::collections::HashMap::new(),
             settled_tool_calls: std::collections::HashSet::new(),
             approval_cwd: None,
             swallow_interrupt_notice: false,
             started_at: Instant::now(),
             batch: None,
             expandable: None,
+            tool_history: std::collections::VecDeque::new(),
+            tool_serial: 0,
+            expand_cursor: None,
+            expandable_serial: None,
             todo_overlay: rightkit_terminal_ui::todo_overlay::TodoOverlay::default(),
             panes: crate::tui_panes::PaneState::default(),
+            raw_toggle: false,
+            fold_turns: false,
+            pacer: rightkit_terminal_ui::transcript::pacer::StreamPacer::default(),
+            quit_on_gone_cancel: false,
+            status_script: crate::tui_status_script::StatusScript::default(),
+            plugin_slots: crate::tui_plugin_slots::PluginSlotFeed::default(),
+            image_candidates: std::collections::HashMap::new(),
+            images_to_show: Vec::new(),
+            reprint_request: false,
             turn_outcome_seen: true,
             width_hint: 100,
             divider_route: None,
@@ -1777,6 +2027,7 @@ impl SessionState {
     /// overlay is rebound to `session` so a request keyed to the session
     /// being left can never be answered from the new one's view.
     fn reset_view(&mut self, session: &str) {
+        self.pacer = Default::default();
         self.active_agent = None;
         self.running_tools = Default::default();
         self.subagents_focused = false;
@@ -1792,6 +2043,9 @@ impl SessionState {
         self.pending_approvals.clear();
         self.approval_subjects.clear();
         self.session_grants.clear();
+        self.always_grants.clear();
+        self.approval_calls.clear();
+        self.pending_permissions.clear();
         self.settled_tool_calls.clear();
         self.swallow_interrupt_notice = false;
         self.approval_overlay = ApprovalOverlay::new(session);
@@ -1802,6 +2056,9 @@ impl SessionState {
         self.live_cells.clear();
         self.batch = None;
         self.expandable = None;
+        self.tool_history.clear();
+        self.expand_cursor = None;
+        self.expandable_serial = None;
         self.divider_route = None;
         self.exec_cell_index.clear();
         self.exec_started.clear();
@@ -1811,10 +2068,14 @@ impl SessionState {
         self.repository_picker = None;
         self.repository_choices.clear();
         self.working_started = None;
+        self.live_tail_until = None;
         self.working_signal = None;
         self.timeline.clear();
         self.identity = IdentityStrip::new();
         self.authoritative_route = false;
+        // The rate-limit state belongs to the chat that reported it (its account); the chat
+        // being opened replays its own.
+        self.rate_limit = None;
     }
 
     /// Push one bounded live cell, evicting the oldest settled entry first
@@ -1877,7 +2138,22 @@ impl SessionState {
                 *slot -= 1;
             }
         }
-        self.expandable = Some(cell.transcript_lines(self.width_hint, &self.theme));
+        let full = cell.transcript_lines(self.width_hint, &self.theme);
+        self.tool_serial += 1;
+        self.expandable_serial = Some(self.tool_serial);
+        let mut kept = full.clone();
+        if kept.len() > TOOL_HISTORY_MAX_LINES {
+            let hidden = kept.len() - TOOL_HISTORY_MAX_LINES;
+            kept.truncate(TOOL_HISTORY_MAX_LINES);
+            kept.push(rightkit_terminal_ui::ratatui::text::Line::from(format!(
+                "… {hidden} more lines hidden"
+            )));
+        }
+        self.tool_history.push_back((self.tool_serial, kept));
+        while self.tool_history.len() > TOOL_HISTORY_MAX_CELLS {
+            self.tool_history.pop_front();
+        }
+        self.expandable = Some(full);
         transcript.push_cell(Box::new(cell), &self.theme);
         true
     }
@@ -1907,6 +2183,7 @@ impl SessionState {
             if !text.trim().is_empty() {
                 let cell = ReasoningCell::new(text, false);
                 self.expandable = Some(cell.transcript_lines(self.width_hint, &self.theme));
+                self.expandable_serial = None;
                 transcript.push_cell(Box::new(cell), &self.theme);
             }
         }
@@ -2054,6 +2331,13 @@ impl SessionState {
                 LiveCell::Exec(exec) => lines.extend(exec.display_lines(width, theme)),
             }
         }
+        // The cast tree: only with sub-agents on another model, or several
+        // running; a single-model session keeps the flat ledger.
+        if let Some(root) = &self.cast {
+            lines.extend(rightkit_terminal_ui::render::cast::cast_tree_lines(
+                root, width, theme,
+            ));
+        }
         lines
     }
 
@@ -2116,18 +2400,27 @@ impl SessionState {
         self.approval_input_safe = false;
     }
 
-    /// S:I3 — fold one typed event into the timeline and push the matching
-    /// presentation into the transcript (settled text) or the live-cell
-    /// rail (still-moving projections), so nothing arrives as a dropped or
-    /// raw-labelled event.
-    /// Seed the plan list from durable task-graph rows (`rehydrate_tasks`) so
-    /// it survives compaction/resume without transcript rows.
-    fn seed_todo_from_tasks(&mut self, tasks: &[rightkit_agent_engine_protocol::TaskNode]) {
-        self.todo_overlay
-            .apply_todo_write(&todo_args_from_tasks(tasks));
+    /// Add assistant text to the open answer, opening one first when the last live message is not
+    /// that. Mirrors `Transcript::append_stream`'s own contract: a delta can only extend an open
+    /// assistant message.
+    fn apply_assistant_text(&mut self, transcript: &mut Transcript, text: &str) {
+        let needs_open = transcript
+            .live_messages()
+            .last()
+            .map(|m| m.speaker != Speaker::Assistant || m.finalized)
+            .unwrap_or(true);
+        if needs_open {
+            transcript.push(Message::assistant_streaming());
+        }
+        transcript.append_stream(text);
     }
 
     fn record(&mut self, transcript: &mut Transcript, event: DaemonEvent) {
+        // Anything but another delta ends the pacing: queued answer text goes first, so order holds.
+        if !matches!(event, DaemonEvent::AssistantDelta { .. }) && self.pacer.pending() {
+            let queued = self.pacer.flush();
+            self.apply_assistant_text(transcript, &queued);
+        }
         if let DaemonEvent::TaskGraph { todos } = &event {
             // Durable plan state: rebuilds the list on resume after compaction.
             let items: Vec<serde_json::Value> = todos
@@ -2138,9 +2431,24 @@ impl SessionState {
                 .apply_todo_write(&serde_json::json!({ "todos": items }));
         }
         if let DaemonEvent::ToolStarted {
-            name, args_preview, ..
+            call_id,
+            name,
+            args_preview,
         } = &event
         {
+            if matches!(name.as_str(), "read_file" | "view_image") {
+                if let Ok(args) = serde_json::from_str::<serde_json::Value>(args_preview) {
+                    let path = ["path", "file_path", "image_path"]
+                        .iter()
+                        .find_map(|key| args.get(key).and_then(serde_json::Value::as_str));
+                    if let Some(path) = path.filter(|p| p.to_ascii_lowercase().ends_with(".png")) {
+                        if self.image_candidates.len() < 32 {
+                            self.image_candidates
+                                .insert(call_id.clone(), path.to_string());
+                        }
+                    }
+                }
+            }
             if name == "todo_write" {
                 if let Ok(args) = serde_json::from_str::<serde_json::Value>(args_preview) {
                     self.todo_overlay.apply_todo_write(&args);
@@ -2149,14 +2457,35 @@ impl SessionState {
         }
         // #136 panes: usage and live tool timings (replayed events carry no
         // live turn, so they never record a timing).
+        // The latest unexpected cache miss and its cause also go on the observability pane.
+        if let DaemonEvent::System { text } = &event {
+            if let Some((reason, tokens)) =
+                rightkit_terminal_ui::observability_pane::parse_cache_miss_notice(text)
+            {
+                self.panes.obs.set_last_cache_miss(reason, tokens);
+            }
+        }
+        if let DaemonEvent::ToolUpdated {
+            call_id, status, ..
+        } = &event
+        {
+            if *status != rightkit_terminal_ui::transcript::timeline::ToolStatus::Running {
+                if let Some(path) = self.image_candidates.remove(call_id) {
+                    self.images_to_show.push(path);
+                }
+            }
+        }
         match &event {
             DaemonEvent::Usage {
                 context_size,
                 context_permille,
                 cache_read,
                 prompt,
+                completion,
                 cost_micros,
                 cost_reported,
+                rate_limit,
+                cache_ttl_ms,
                 ..
             } => {
                 self.panes.on_usage(
@@ -2164,9 +2493,25 @@ impl SessionState {
                     *context_permille,
                     *cache_read,
                     *prompt,
-                    *cost_micros,
-                    *cost_reported,
+                    *completion,
+                    crate::tui_panes::UsageCost {
+                        micros: *cost_micros,
+                        reported: *cost_reported,
+                    },
                 );
+                // Only a live turn's figures count down from now; a replayed event is history.
+                if self.working_started.is_some()
+                    || self
+                        .live_tail_until
+                        .is_some_and(|until| Instant::now() < until)
+                {
+                    if let Some(limit) = rate_limit {
+                        self.panes.obs.set_rate_limit(*limit);
+                    }
+                    if let Some(ms) = cache_ttl_ms {
+                        self.panes.obs.set_cache_ttl_ms(*ms);
+                    }
+                }
                 if self.working_started.is_some() {
                     self.panes
                         .poll_ci(&std::env::current_dir().unwrap_or_default(), false);
@@ -2263,6 +2608,7 @@ impl SessionState {
                 prompt,
                 cost_micros,
                 cost_reported,
+                cost_billed,
                 ..
             } => {
                 // The gauge reads the runtime's own figures; nothing is
@@ -2272,6 +2618,7 @@ impl SessionState {
                 self.last_prompt = (*prompt > 0).then_some((*prompt, *cache_read));
                 if *cost_reported {
                     self.cost_usd = cost_micros.map(|micros| micros as f64 / 1_000_000.0);
+                    self.cost_billed = *cost_billed && cost_micros.is_some();
                 }
             }
             DaemonEvent::ReasoningDelta { token } => {
@@ -2283,6 +2630,13 @@ impl SessionState {
                 }
             }
             DaemonEvent::ReasoningSettled => self.reasoning_buf.clear(),
+            DaemonEvent::ToolArgumentsPartial {
+                name,
+                arguments_json,
+                ..
+            } if self.working_started.is_some() => {
+                self.pending_tool_label = Some(tool_activity_label(name, arguments_json));
+            }
             DaemonEvent::ToolStarted {
                 call_id,
                 name,
@@ -2293,6 +2647,7 @@ impl SessionState {
                 transcript.finalize_last();
                 // A tool phase replaces the reasoning heading as the header.
                 self.reasoning_heading = None;
+                self.pending_tool_label = None;
                 self.active_tools
                     .push((call_id.clone(), tool_activity_label(name, args_preview)));
                 self.running_tools.start(
@@ -2347,18 +2702,14 @@ impl SessionState {
             DaemonEvent::McpElicitationRequested { .. }
             | DaemonEvent::CredentialRequested { .. }
             | DaemonEvent::TaskGraph { .. }
+            | DaemonEvent::ToolArgumentsPartial { .. }
             | DaemonEvent::CredentialResolved { .. } => {}
-            // A call still being generated: this host draws a tool's row from
-            // `ToolStarted`, and no producer here emits the live view.
-            DaemonEvent::ToolArgumentsPartial { .. } => {}
-            // Vendor account rate-limit telemetry: this host keeps no rate-limit
-            // footer state and no producer here emits it.
-            DaemonEvent::RateLimit { .. } => {}
             DaemonEvent::UserMessage { text } => {
                 self.swallow_interrupt_notice = false;
                 // Ctrl+O expands the latest cell of the current turn only; a
                 // cell from an earlier turn would be re-appended out of order.
                 self.expandable = None;
+                self.expand_cursor = None;
                 transcript.push(Message::user(text.clone()));
             }
             // An Esc rejection already printed its own stop notice; the
@@ -2384,21 +2735,43 @@ impl SessionState {
                 self.working_signal = Some(signal.clone());
             }
             DaemonEvent::AssistantDelta { token } => {
-                // Mirror `Transcript::append_stream`'s own contract: a delta
-                // can only extend an open assistant message, so open one
-                // first when the last live message is not that.
-                let needs_open = transcript
-                    .live_messages()
-                    .last()
-                    .map(|m| m.speaker != Speaker::Assistant || m.finalized)
-                    .unwrap_or(true);
-                if needs_open {
-                    transcript.push(Message::assistant_streaming());
+                // Whole lines are paced (one per tick, a big backlog at once); a token with no
+                // newline goes straight through when nothing waits.
+                let ready = self.pacer.push(token, Instant::now());
+                if !ready.is_empty() {
+                    self.apply_assistant_text(transcript, &ready);
                 }
-                transcript.append_stream(token);
             }
             // Folded into the gauge above; usage is never a transcript line.
             DaemonEvent::Usage { .. } => {}
+            // Vendor rate-limit telemetry: footer state plus one notice per
+            // status change. Never working-line, outcome or reasoning state.
+            // An event without a status carries nothing to show.
+            DaemonEvent::RateLimit { status, .. } if status.is_empty() => {}
+            DaemonEvent::RateLimit {
+                status,
+                account,
+                window,
+                resets_at,
+                utilization_permille,
+            } => {
+                let next = (status != "allowed").then(|| RateLimitState {
+                    status: status.clone(),
+                    account: account.clone(),
+                    window: window.clone(),
+                    resets_at: *resets_at,
+                    utilization_permille: *utilization_permille,
+                });
+                let changed = self.rate_limit.as_ref().map(|state| state.status.as_str())
+                    != next.as_ref().map(|state| state.status.as_str());
+                // A replayed row whose window has already reset (resume) is
+                // history: keep it out of the transcript as well as the footer.
+                let stale = resets_at.is_some_and(|at| at <= rate_limit_now());
+                if let (true, false, Some(state)) = (changed, stale, next.as_ref()) {
+                    transcript.push(Message::system(rate_limit_notice(state)));
+                }
+                self.rate_limit = next;
+            }
             DaemonEvent::AssistantSettled => transcript.finalize_last(),
             DaemonEvent::AssistantCompleted { text } => transcript.complete_assistant(text),
             DaemonEvent::ReasoningDelta { token } => match self.live_cells.last_mut() {
@@ -2444,9 +2817,26 @@ impl SessionState {
                     let slot = self.live_cells.len() - 1;
                     self.live_cells[slot] = LiveCell::Exec(ExecCell::parallel(calls));
                     self.exec_cell_index.insert(call_id.clone(), slot);
+                    // The rebuilt block starts from argv-free calls; reapply
+                    // every outcome already known for its members.
+                    let known: Vec<(String, String)> = ids
+                        .iter()
+                        .filter_map(|(id, _, _)| {
+                            self.pending_permissions
+                                .get(id)
+                                .map(|label| (id.clone(), label.clone()))
+                        })
+                        .collect();
+                    if let Some(exec) = self.exec_cell_for(call_id) {
+                        for (id, label) in &known {
+                            exec.set_permission(id, label);
+                        }
+                    }
                     self.batch = Some((at, ids));
                 } else {
-                    let call = ExecCall::tool(call_id.clone(), name.clone(), args_preview.clone());
+                    let mut call =
+                        ExecCall::tool(call_id.clone(), name.clone(), args_preview.clone());
+                    call.permission = self.pending_permissions.get(call_id).cloned();
                     self.batch = Some((
                         Instant::now(),
                         vec![(call_id.clone(), name.clone(), args_preview.clone())],
@@ -2526,8 +2916,9 @@ impl SessionState {
                                     _ => None,
                                 })
                                 .unwrap_or_else(|| ("tool".to_string(), String::new()));
-                            let mut cell =
-                                ExecCell::new(ExecCall::tool(call_id.clone(), name, args));
+                            let mut rebuilt = ExecCall::tool(call_id.clone(), name, args);
+                            rebuilt.permission = self.pending_permissions.get(call_id).cloned();
+                            let mut cell = ExecCell::new(rebuilt);
                             cell.complete_call(call_id, output, duration);
                             self.push_live_cell(LiveCell::Exec(cell), vec![call_id.clone()]);
                         }
@@ -2573,6 +2964,10 @@ impl SessionState {
                     self.approval_cwd.as_deref(),
                 );
                 let subject = approval_subject(&kind, call_name, summary);
+                self.approval_calls.insert(
+                    request_id.clone(),
+                    (call_name.clone(), arguments_json.clone()),
+                );
                 self.enqueue_approval(
                     transcript,
                     request_id.clone(),
@@ -2616,19 +3011,59 @@ impl SessionState {
                     .remove(request_id)
                     .unwrap_or(timeline_summary);
                 let granted_for_session = self.session_grants.remove(request_id);
-                let cell = approval_decision_cell(
-                    &summary,
-                    if *approved && granted_for_session {
-                        DecisionOutcome::ApprovedForSession
-                    } else if *approved {
-                        DecisionOutcome::Approved
-                    } else {
-                        DecisionOutcome::Denied
-                    },
-                    DecisionActor::User,
-                );
+                let granted_always = self.always_grants.remove(request_id);
+                let call_info = self.approval_calls.remove(request_id);
+                // One action, one line: the outcome becomes a dim field on
+                // the tool's own row. Only a request with no call to attach
+                // to (free-text approvals) keeps its own decision row.
                 if !already_recorded {
-                    transcript.push_cell(cell, &self.theme);
+                    let label = match (*approved, granted_always, granted_for_session) {
+                        (false, _, _) => "denied",
+                        (true, true, _) => "always allowed",
+                        (true, false, true) => "allowed for session",
+                        (true, false, false) => "allowed once",
+                    };
+                    if let Some((name, args)) = call_info {
+                        if self.pending_permissions.len() > 512 {
+                            self.pending_permissions.clear();
+                        }
+                        self.pending_permissions
+                            .insert(request_id.clone(), label.to_string());
+                        let attached = self
+                            .exec_cell_for(request_id)
+                            .is_some_and(|exec| exec.set_permission(request_id, label));
+                        // A denied call may never start: give it its one row now.
+                        if !attached && !*approved && !self.settled_tool_calls.contains(request_id)
+                        {
+                            let mut call = ExecCall::tool(request_id.clone(), name, args);
+                            call.permission = Some(label.to_string());
+                            let mut cell = ExecCell::new(call);
+                            cell.complete_call(
+                                request_id,
+                                CommandOutput::new(1, String::new()),
+                                Duration::ZERO,
+                            );
+                            self.push_live_cell(LiveCell::Exec(cell), vec![request_id.clone()]);
+                            if self.settle_exec_cell(transcript, request_id) {
+                                self.settled_tool_calls.insert(request_id.clone());
+                            }
+                        }
+                    } else {
+                        transcript.push_cell(
+                            approval_decision_cell(
+                                &summary,
+                                if *approved && granted_for_session {
+                                    DecisionOutcome::ApprovedForSession
+                                } else if *approved {
+                                    DecisionOutcome::Approved
+                                } else {
+                                    DecisionOutcome::Denied
+                                },
+                                DecisionActor::User,
+                            ),
+                            &self.theme,
+                        );
+                    }
                 }
             }
             DaemonEvent::UserQuestionAsked {
@@ -2679,10 +3114,11 @@ impl SessionState {
                     plan_id: plan_id.clone(),
                     plan: plan.clone(),
                     decision: None,
+                    clear_context: false,
                 });
                 self.quarantine_input = true;
                 self.approval_input_safe = false;
-                transcript.push(Message::system(format!("Plan awaiting approval:\n{plan}\nPress y/n to choose, Enter submit, Esc cancel.")));
+                transcript.push(Message::system(format!("Plan awaiting approval:\n{plan}\nPress y (approve), c (approve and clear context) or n (reject), Enter submit, Esc cancel.")));
             }
             DaemonEvent::PlanResolved { plan_id, .. } => {
                 if self
@@ -2787,23 +3223,6 @@ impl SessionState {
     }
 }
 
-/// Convert durable task-graph rows into `todo_write`-shaped arguments.
-fn todo_args_from_tasks(tasks: &[rightkit_agent_engine_protocol::TaskNode]) -> serde_json::Value {
-    use rightkit_agent_engine_protocol::TaskState;
-    let todos: Vec<serde_json::Value> = tasks
-        .iter()
-        .map(|t| {
-            let status = match t.state {
-                TaskState::Done => "completed",
-                TaskState::InProgress => "in_progress",
-                _ => "pending",
-            };
-            serde_json::json!({"content": t.title, "status": status})
-        })
-        .collect();
-    serde_json::json!({ "todos": todos })
-}
-
 /// S:I7 — read the `--plain` / `--reduced-motion` pair the CLI would pass,
 /// combined with the environment conventions `LayoutMode::resolve` expects.
 ///
@@ -2867,8 +3286,9 @@ impl TerminalGuard {
 
 /// While the live viewport owns the terminal, raw writes to the process's
 /// stderr (a library `eprintln!`, a child's diagnostic) land on the same
-/// screen as the painted frame and corrupt it. The guard points stderr at the
-/// null device for the lifetime of the viewport and puts the original back in
+/// screen as the painted frame and corrupt it. The guard points stderr at
+/// `<state root>/logs/stderr.log` for the lifetime of the viewport (the null
+/// device when that file cannot be opened) and puts the original back in
 /// [`restore_terminal`], so errors printed after the TUI exits (and the panic
 /// message, which prints after the hook restores the terminal) still reach the
 /// user. Compiled out of unit-test binaries, where fd 2 belongs to the harness.
@@ -2882,9 +3302,7 @@ mod stderr_guard {
 
         #[link(name = "kernel32")]
         unsafe extern "system" {
-            // Same signature as the `GetStdHandle` declaration in `onboarding.rs`
-            // (the lint `clashing_extern_declarations` rejects a different one).
-            fn GetStdHandle(which: u32) -> *mut std::ffi::c_void;
+            fn GetStdHandle(which: u32) -> isize;
             fn SetStdHandle(which: u32, handle: isize) -> i32;
         }
 
@@ -2892,11 +3310,15 @@ mod stderr_guard {
             if SAVED.load(Ordering::SeqCst) != 0 {
                 return;
             }
-            let Ok(null) = std::fs::OpenOptions::new().write(true).open("NUL") else {
+            // Raw stderr goes to the log file under the state root (D4); the
+            // null device only when that file cannot be opened.
+            let Some(null) = crate::cli_log::open_stderr_sink()
+                .or_else(|| std::fs::OpenOptions::new().write(true).open("NUL").ok())
+            else {
                 return;
             };
             // SAFETY: plain handle queries/swaps on this process's own std handle.
-            let saved = unsafe { GetStdHandle(STD_ERROR_HANDLE) } as isize;
+            let saved = unsafe { GetStdHandle(STD_ERROR_HANDLE) };
             if saved == 0 || saved == -1 {
                 return;
             }
@@ -2932,7 +3354,12 @@ mod stderr_guard {
                 if saved < 0 {
                     return;
                 }
-                let null = libc::open(c"/dev/null".as_ptr(), libc::O_WRONLY);
+                // Raw stderr goes to the log file under the state root (D4); the
+                // null device only when that file cannot be opened.
+                let null = match crate::cli_log::open_stderr_sink() {
+                    Some(file) => std::os::fd::IntoRawFd::into_raw_fd(file),
+                    None => libc::open(c"/dev/null".as_ptr(), libc::O_WRONLY),
+                };
                 if null < 0 {
                     libc::close(saved);
                     return;
@@ -3025,6 +3452,13 @@ impl<F: FnOnce()> Drop for InputPauseGuard<F> {
     }
 }
 
+/// Put the terminal back under TUI control after the panic hook restored it
+/// for a panic the event loop then survived (a turn task caught by tokio).
+fn rearm_terminal() {
+    let _ = rightkit_terminal_ui::terminal::session::set_modes();
+    stderr_guard::silence();
+}
+
 /// Install a panic hook that restores the terminal before the default hook
 /// prints, so a panicking component leaves a usable shell instead of one
 /// stuck in raw mode with the cursor hidden and a stale scroll region.
@@ -3051,146 +3485,6 @@ fn install_panic_hook(active: Arc<AtomicBool>) {
 /// remote id nobody here can reach".
 const LOCAL_SESSION_ID: &str = "local";
 const LOCAL_AGENT_ID: &str = "local-root";
-
-/// Intentional render class for every built-in production tool name.
-///
-/// TEST FIXTURE ONLY (P1-4): the production registration in `drive()` is
-/// derived live from `{app}-tools default metadata projection` via
-/// `tool_render_class_to_tui`; this compile-time table is never registered on
-/// the production path. It remains as the closed expected-value set the drift
-/// tests below enumerate: one test proves every real production tool has an
-/// intentional row here, another proves every row is still a real tool, and a
-/// third proves drive()'s live-derived registration resolves through
-/// `classify` to exactly these classes.
-const PRODUCTION_RENDER_CLASSES: &[(&str, RenderClass)] = &[
-    // Reads from the workspace or local state.
-    ("read_file", RenderClass::FileRead),
-    // `read_tool_result` deliberately absent: CR-30 removed that schema from
-    // the catalog entirely (externalized results are retrieved through an
-    // ordinary file read), so a mapping here would be a name
-    // the default tool catalog no longer produces -- caught by
-    // `every_mapped_render_class_name_is_a_real_production_tool` below.
-    ("view_image", RenderClass::FileRead),
-    ("list_files", RenderClass::FileRead),
-    ("git_read", RenderClass::FileRead),
-    ("git_diff", RenderClass::FileRead),
-    ("lsp", RenderClass::FileRead),
-    ("get_shell_output", RenderClass::FileRead),
-    // Writes to the workspace.
-    ("write_file", RenderClass::FileWrite),
-    ("edit_file", RenderClass::FileWrite),
-    ("multi_edit", RenderClass::FileWrite),
-    ("undo_edit", RenderClass::FileWrite),
-    ("apply_patch", RenderClass::FileWrite),
-    ("todo_write", RenderClass::FileWrite),
-    ("notebook", RenderClass::FileWrite),
-    ("file_service", RenderClass::FileWrite),
-    ("git_write", RenderClass::FileWrite),
-    // Runs or controls local processes.
-    ("shell", RenderClass::Shell),
-    ("powershell", RenderClass::Shell),
-    ("repl", RenderClass::Shell),
-    ("kill_shell", RenderClass::Shell),
-    ("process", RenderClass::Shell),
-    // Searches content.
-    ("search", RenderClass::Search),
-    ("tool_search", RenderClass::Search),
-    // Talks to the network or remote services.
-    ("web_search", RenderClass::Network),
-    ("cloudflare", RenderClass::Network),
-    ("browser_fetch", RenderClass::Network),
-    ("browser_open", RenderClass::Network),
-    ("browser_read", RenderClass::Network),
-    ("browser_act", RenderClass::Network),
-    ("browser_screenshot", RenderClass::Network),
-    ("browser_console", RenderClass::Network),
-    ("browser_close", RenderClass::Network),
-    ("recursive_fetch", RenderClass::Network),
-    ("github", RenderClass::Network),
-    ("context7", RenderClass::Network),
-    ("mcp_call", RenderClass::Network),
-    ("list_mcp_tools", RenderClass::Network),
-    ("list_mcp_sources", RenderClass::Network),
-    ("list_mcp_resources", RenderClass::Network),
-    ("read_mcp_resource", RenderClass::Network),
-    ("mcp_auth", RenderClass::Network),
-    // Deliberately Generic: no more specific bounded presentation today.
-    ("spawn_subagent", RenderClass::Generic),
-    // Added by b9c2e957 (iOS Dispatch M3-A) without render classes; Generic
-    // matches what `classify` derives for each from the live registry.
-    ("async_inbox", RenderClass::Generic),
-    ("tunnel", RenderClass::Generic),
-    ("sequentialthinking", RenderClass::Generic),
-    ("get_time", RenderClass::Generic),
-    ("ask_user", RenderClass::Generic),
-    ("exit_plan_mode", RenderClass::Generic),
-    ("attach_verdict", RenderClass::Generic),
-    ("finalize_artifact", RenderClass::Generic),
-    ("research_report", RenderClass::Generic),
-    ("sleep", RenderClass::Generic),
-    ("brief", RenderClass::Generic),
-    ("task_create", RenderClass::Generic),
-    ("task_update", RenderClass::Generic),
-    ("task_get", RenderClass::Generic),
-    ("task_list", RenderClass::Generic),
-    ("task_output", RenderClass::Generic),
-    ("task_stop", RenderClass::Generic),
-    ("schedule_cron", RenderClass::Generic),
-    ("config", RenderClass::Generic),
-    ("send_message", RenderClass::Generic),
-    ("invoke_skill", RenderClass::Generic),
-    ("team_create", RenderClass::Generic),
-    ("team_delete", RenderClass::Generic),
-    ("followup_subagent", RenderClass::Generic),
-    ("wait_for_subagents", RenderClass::Generic),
-    ("interrupt_subagent", RenderClass::Generic),
-    ("worktree_enter", RenderClass::Generic),
-    ("worktree_exit", RenderClass::Generic),
-    // Media tools (`media_tools::MEDIA_TOOL_NAMES`).
-    ("ocr", RenderClass::Shell),
-    ("ocr_onnx", RenderClass::Shell),
-    ("transcribe", RenderClass::Shell),
-    ("web_extract", RenderClass::Shell),
-    ("media_fetch", RenderClass::Shell),
-    ("ffmpeg_extract", RenderClass::Shell),
-    // Tools registered after this table was last updated, added to clear the
-    // `every_production_tool_name_has_an_intentional_render_class` drift
-    // guard.
-    //
-    // These rows MIRROR the authority, they do not second-guess it. The
-    // registry's `tool_render_class`
-    // (`engine/crates/tools/src/registry/native_types.rs:54`) declares itself
-    // the single source of truth, and none of the names below appears in any
-    // of its match arms — every one falls through to
-    // `ToolRenderClass::Generic`. `live_registry_derived_registration_resolves
-    // _through_classify` below compares this table against the live registry,
-    // so recording a semantically nicer class here (say `FileWrite` for
-    // `artifact_create`) would fail it: the row would disagree with what
-    // `drive()` actually registers.
-    //
-    // Upgrading them is therefore a registry change, not a TUI change: add the
-    // names to `tool_render_class` first, then move these rows to match. That
-    // file is in the `{app}-tools` crate and sits outside Dispatch A's
-    // file allowlist, so this lane records the gap instead of closing it.
-    // `RenderClass` is presentation-only today regardless — every class
-    // renders the same bordered frame — so no rendering differs either way.
-    ("artifact_create", RenderClass::Generic),
-    ("artifact_update", RenderClass::Generic),
-    ("artifact_delete", RenderClass::Generic),
-    ("artifact_read", RenderClass::Generic),
-    ("artifact_list", RenderClass::Generic),
-    ("flyio", RenderClass::Generic),
-    ("git_clone", RenderClass::Generic),
-    ("git_fetch", RenderClass::Generic),
-    ("git_lfs_fetch", RenderClass::Generic),
-    ("git_lfs_scan", RenderClass::Generic),
-    ("git_merge", RenderClass::Generic),
-    ("git_history_ops", RenderClass::Generic),
-    ("image_generate", RenderClass::Generic),
-    ("dev_tunnel_proxy", RenderClass::Generic),
-    ("wasm_compute", RenderClass::Generic),
-    ("workspace_checkpoint", RenderClass::Generic),
-];
 
 /// Reader-acknowledged exclusive-pause handshake (P1-10).
 ///
@@ -3321,16 +3615,6 @@ impl InputPause {
             *self.lock(),
             PauseState::Requested | PauseState::Acknowledged
         )
-    }
-
-    /// Reader-side checkpoint, called at the TOP of every read cycle — i.e.
-    /// always OUTSIDE crossterm's poll/read. Returns `true` when the reader
-    /// must stay parked: the caller skips straight to its next loop iteration
-    /// without touching the tty. Observing a request here IS the
-    /// acknowledgement, because this runs after the previous poll/read
-    /// completed.
-    fn reader_park(&self) -> bool {
-        self.reader_park_with(|| Ok(()))
     }
 
     fn reader_park_with(&self, discard: impl FnOnce() -> io::Result<()>) -> bool {
@@ -3480,30 +3764,66 @@ fn quarantine_approval_input(
     }
 }
 
-fn spawn_input_thread(pause: Arc<InputPause>) -> mpsc::Receiver<io::Result<ct_event::Event>> {
+/// How long the reader holds an Alt+`]` back to see whether a late OSC 11
+/// reply follows it. Only while a reply is still owed (issue #537).
+const LATE_REPLY_HOLD: Duration = Duration::from_millis(30);
+
+/// `late_reply` is the recogniser [`launch_background_query`] left armed when
+/// the terminal had not answered yet: every event passes through it, so a
+/// reply that arrives after launch is swallowed here and never typed into the
+/// composer. `typed` is what the person typed while the question was open; it
+/// is delivered first.
+fn spawn_input_thread(
+    pause: Arc<InputPause>,
+    mut late_reply: rightkit_terminal_ui::terminal::Osc11ReplyFilter,
+    typed: Vec<ct_event::Event>,
+) -> mpsc::Receiver<io::Result<ct_event::Event>> {
     let (tx, rx) = mpsc::channel(INPUT_QUEUE_CAPACITY);
     let mut pressed_chars = std::collections::HashSet::<char>::new();
     std::thread::Builder::new()
         .name(crate::host_identity::prefixed("tui-input"))
-        .spawn(move || loop {
-            if pause.reader_park_with(discard_protected_input) {
-                pressed_chars.clear();
-                continue;
-            }
-            match ct_event::poll(Duration::from_millis(50)) {
-                Ok(true) => {
-                    let event = ct_event::read()
-                        .map(|event| normalize_alt_code_release(&mut pressed_chars, event));
-                    let stop = event.is_err();
-                    let outcome = send_input_event(&pause, &tx, event);
-                    if matches!(outcome, InputSendOutcome::ReceiverClosed) || stop {
+        .spawn(move || {
+            let mut pass = typed;
+            loop {
+                for event in pass.drain(..) {
+                    let event = normalize_alt_code_release(&mut pressed_chars, event);
+                    if matches!(
+                        send_input_event(&pause, &tx, Ok(event)),
+                        InputSendOutcome::ReceiverClosed
+                    ) {
                         return;
                     }
                 }
-                Ok(false) => continue,
-                Err(e) => {
-                    let _ = send_input_event(&pause, &tx, Err(e));
-                    return;
+                if pause.reader_park_with(discard_protected_input) {
+                    pressed_chars.clear();
+                    // Held keys predate the protected screen like the rest of
+                    // the discarded input.
+                    late_reply.release(&mut pass);
+                    pass.clear();
+                    continue;
+                }
+                let wait = if late_reply.holding() {
+                    LATE_REPLY_HOLD
+                } else {
+                    Duration::from_millis(50)
+                };
+                match ct_event::poll(wait) {
+                    Ok(true) => match ct_event::read() {
+                        Ok(event) => {
+                            if late_reply.feed(event, &mut pass).is_some() {
+                                tracing::debug!("discarded a late OSC 11 background reply");
+                            }
+                        }
+                        Err(e) => {
+                            let _ = send_input_event(&pause, &tx, Err(e));
+                            return;
+                        }
+                    },
+                    Ok(false) => late_reply.release(&mut pass),
+                    Err(e) => {
+                        let _ = send_input_event(&pause, &tx, Err(e));
+                        return;
+                    }
                 }
             }
         })
@@ -3514,6 +3834,42 @@ fn spawn_input_thread(pause: Arc<InputPause>) -> mpsc::Receiver<io::Result<ct_ev
             )
         });
     rx
+}
+
+/// Ask the terminal for its background colour once, at launch (issue #537).
+///
+/// Asked only when the answer can matter and cannot do harm: `[tui] theme`
+/// does not force `dark` or `light`, the terminal was not inherited in raw
+/// mode from a parent that is still reading it (`inherited_raw`, taken before
+/// this process entered raw mode), stdin and stdout are terminals, and the
+/// terminal is not one known to stay silent. Unix only: a Windows console
+/// delivers a reply as separate key records the recogniser does not know.
+/// Must run in raw mode and before `spawn_input_thread`. Bounded by
+/// `BACKGROUND_QUERY_TIMEOUT`; a silent or failing terminal yields no answer.
+fn launch_background_query(
+    theme_setting: &str,
+    inherited_raw: bool,
+) -> rightkit_terminal_ui::terminal::BackgroundQuery {
+    use rightkit_terminal_ui::terminal::{
+        background_query_supported, query_background, BackgroundQuery, Osc11ReplyFilter,
+        BACKGROUND_QUERY_TIMEOUT,
+    };
+    let ask = cfg!(unix)
+        && !matches!(theme_setting, "dark" | "light")
+        && !inherited_raw
+        && terminal_available()
+        && background_query_supported(&SystemEnv);
+    if !ask {
+        return BackgroundQuery::default();
+    }
+    query_background(&mut io::stdout(), BACKGROUND_QUERY_TIMEOUT).unwrap_or_else(|error| {
+        tracing::warn!("background colour query failed, using the fallback theme: {error}");
+        // The question may have gone out before the write failed.
+        BackgroundQuery {
+            late_reply: Osc11ReplyFilter::armed(),
+            ..BackgroundQuery::default()
+        }
+    })
 }
 
 /// Translate every crossterm event the terminal delivers into the library's
@@ -3617,6 +3973,9 @@ pub async fn drive(host: impl TurnHost) -> i32 {
     // let the static table silently overwrite whatever the production
     // registry actually says.
 
+    // Read before raw mode is entered: a terminal that is already raw belongs
+    // to a parent still reading it, and must not be asked questions.
+    let inherited_raw = rightkit_terminal_ui::terminal::stdin_inherited_raw();
     let _guard = match TerminalGuard::engage() {
         Ok(g) => g,
         Err(e) => {
@@ -3625,8 +3984,18 @@ pub async fn drive(host: impl TurnHost) -> i32 {
         }
     };
 
-    let profile = TerminalProfile::from_env(&SystemEnv, None);
+    let mut profile = TerminalProfile::from_env(&SystemEnv, None);
+    // `--plain` means no decoration, so it takes the colour-free path `NO_COLOR` takes.
+    if host.plain_output() {
+        profile.capabilities.color_depth = rightkit_terminal_ui::terminal::ColorDepth::Monochrome;
+    }
     let tui_settings = host.tui_settings();
+    // Issue #537: with no forced theme, ask the terminal which background it
+    // paints, now that it is raw and before anything else reads the keyboard.
+    let background_query = launch_background_query(&tui_settings.theme, inherited_raw);
+    if let Some(background) = background_query.background {
+        profile = profile.with_queried_background(background);
+    }
     let mut theme = Theme::new(
         effective_background(&tui_settings.theme, profile.background),
         profile.capabilities.color_depth,
@@ -3658,13 +4027,20 @@ pub async fn drive(host: impl TurnHost) -> i32 {
         .unwrap_or_else(|| LOCAL_SESSION_ID.into());
     let mut session = SessionState::new(&initial_session);
     session.theme = theme;
-    let fullscreen_enabled = tui_settings.fullscreen;
+    let fullscreen_enabled =
+        tui_settings.fullscreen && !crate::main_runtime::no_alt_screen_requested();
     session.proj.settings = tui_settings;
+    // A `[tui] keymap` entry that is unknown, not a key, doubled or colliding
+    // with an editor key is reported now, never silently shadowed.
+    for problem in session.proj.settings.keymap_problems() {
+        session.notice(&mut transcript, problem);
+    }
     let interjections = InterjectionBuffer::new();
     // S:I7 — resolve the render mode once (CLI flags via the host, the rest
     // from the environment) and hand it to the composer, which owns the
     // per-component consequences of it.
-    let layout = resolve_layout_mode(&host);
+    let mut layout = resolve_layout_mode(&host);
+    let launch_layout = layout;
     composer.set_layout_mode(layout);
     // Seed the composer's geometry inputs (height cap, wrap width) from the
     // real terminal before anything asks it for a desired height — its own
@@ -3717,7 +4093,11 @@ pub async fn drive(host: impl TurnHost) -> i32 {
     let input_pause = InputPause::new();
     host.attach_input_pause(input_pause.clone());
     let _ = EDITOR_INPUT_PAUSE.set(input_pause.clone());
-    let mut input_rx = spawn_input_thread(input_pause.clone());
+    let mut input_rx = spawn_input_thread(
+        input_pause.clone(),
+        background_query.late_reply,
+        background_query.typed,
+    );
     let mut turn: Option<JoinHandle<i32>> = None;
     // Drained interjection directives awaiting a free turn slot. Kept outside
     // `interjections` because they are already framed; they run one at a
@@ -3729,7 +4109,11 @@ pub async fn drive(host: impl TurnHost) -> i32 {
     // second time from the durable event stream as `userMessageSubmitted`;
     // this FIFO suppresses exactly those echoes so the prompt renders once.
     let mut pending_echoes: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+    // The last finished turn's code: it only words the "no response" notice
+    // below and never becomes the process exit (R4).
     let mut exit_code: i32 = 0;
+    // A turn task that panicked is the only turn outcome that fails the process.
+    let mut turn_task_panicked = false;
     let mut should_exit = false;
 
     // P1-5: which agent's transcript is currently viewed (Descend), so the
@@ -3746,8 +4130,29 @@ pub async fn drive(host: impl TurnHost) -> i32 {
     // pages evicted history into terminal scrollback (P2-5).
     let mut maintenance = tokio::time::interval(Duration::from_millis(750));
     maintenance.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // An idle terminal UI slows this beat (750 ms, then 2 s, then 5 s) and goes back to 750 ms on any key, polled
+    // event or running work, so background updates still arrive but an idle session barely wakes.
+    let mut idle_since = Instant::now();
+    let mut maintenance_period = Duration::from_millis(750);
+    // While a turn runs, the live feed is read every 50 ms so streamed text
+    // lands as it arrives, not on the slow maintenance beat. Only the feed
+    // read runs here; the rest of maintenance keeps its own pace.
+    let mut stream_tick = tokio::time::interval(Duration::from_millis(50));
+    stream_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut diff_tick = tokio::time::interval(Duration::from_millis(100));
+    diff_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut shell_tick = tokio::time::interval(Duration::from_millis(100));
     shell_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // `[tui] statusline-command`: refreshed on its own slow tick, even on an idle terminal.
+    let mut status_tick = tokio::time::interval(Duration::from_secs(1));
+    status_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut last_status_line: Option<String> = None;
+    let mut plugin_tick = tokio::time::interval(Duration::from_secs(2));
+    plugin_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut last_plugin_footer: Option<String> = None;
+    // The stream pacer's tick (A219): runs only while answer lines wait.
+    let mut pacer_tick = tokio::time::interval(rightkit_terminal_ui::transcript::pacer::TICK);
+    pacer_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
     // What the renderer last painted — geometry reconciliation state for the
     // whole session, so transitions erase/reclaim exactly the released rows.
@@ -3789,18 +4194,23 @@ pub async fn drive(host: impl TurnHost) -> i32 {
     refresh_completion_catalog(&mut composer, &session, false);
     // No built-in model: a host that starts without one asks for the picker
     // at launch instead of waiting for a keystroke.
-    if let Some(request) = host.take_picker_request() {
+    let first_request = host
+        .take_picker_request()
+        .or_else(|| host.take_startup_picker());
+    if let Some(request) = first_request {
         service_picker_request(
             &host,
             request,
-            &mut composer,
-            &mut nav,
-            &mut session,
-            &mut transcript,
+            TuiView {
+                composer: &mut composer,
+                nav: &mut nav,
+                session: &mut session,
+                transcript: &mut transcript,
+                viewed_agent: &mut viewed_agent,
+                paging: &mut paging,
+            },
             &mut surface,
             false,
-            &mut viewed_agent,
-            &mut paging,
             &requester,
         )
         .await;
@@ -3840,15 +4250,113 @@ pub async fn drive(host: impl TurnHost) -> i32 {
         std::pin::Pin<Box<dyn std::future::Future<Output = Vec<DaemonEvent>> + '_>>,
     > = None;
     let mut file_search: Option<FileSearchFuture<'_>> = None;
+    // The resume picker's content search: a debounced in-process search of message text for a typed filter of three
+    // characters or more, merged into the list by `NavView::set_content_matches`.
+    let mut content_search: Option<ContentSearchFuture<'_>> = None;
+    let mut content_query_seen = (String::new(), Instant::now());
+    let mut content_query_done = String::new();
+    let mut content_tick = tokio::time::interval(Duration::from_millis(150));
+    content_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // `kill` / a closed terminal must leave the loop the normal way so the
+    // guard restores the terminal; without a handler the shell stays in raw
+    // mode with paste and focus reporting on.
+    let terminate = Arc::new(tokio::sync::Notify::new());
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        if let (Ok(mut term), Ok(mut hup)) = (
+            signal(SignalKind::terminate()),
+            signal(SignalKind::hangup()),
+        ) {
+            let terminate = terminate.clone();
+            tokio::spawn(async move {
+                tokio::select! {
+                    _ = term.recv() => {}
+                    _ = hup.recv() => {}
+                }
+                terminate.notify_one();
+            });
+        }
+    }
     while !should_exit {
+        if turn.is_some() {
+            idle_since = Instant::now();
+        }
+        let wanted_period = match idle_since.elapsed() {
+            idle if idle < Duration::from_secs(3) => Duration::from_millis(750),
+            idle if idle < Duration::from_secs(12) => Duration::from_secs(2),
+            _ => Duration::from_secs(5),
+        };
+        if wanted_period != maintenance_period {
+            maintenance_period = wanted_period;
+            maintenance = tokio::time::interval_at(
+                tokio::time::Instant::now() + wanted_period,
+                wanted_period,
+            );
+            maintenance.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        }
         // Lane 4: window title + unfocused completion/approval notification.
-        let _ = notifier.observe(
+        let status_block = if session.approval_overlay.current_request().is_some() {
+            Some(rightkit_terminal_ui::terminal::notify::BlockKind::Permission)
+        } else if session.pending_question.is_some() {
+            Some(rightkit_terminal_ui::terminal::notify::BlockKind::Question)
+        } else if session.pending_credential.is_some() {
+            Some(rightkit_terminal_ui::terminal::notify::BlockKind::Auth)
+        } else {
+            None
+        };
+        let _ = notifier.observe_status(
             &mut io::stdout(),
             turn.is_some(),
-            session.approval_overlay.current_request().is_some(),
+            status_block,
+            exit_code != 0,
         );
+        if !session.images_to_show.is_empty() {
+            let shown = std::mem::take(&mut session.images_to_show);
+            if profile.capabilities.image_protocol
+                == rightkit_terminal_ui::terminal::capability::ImageProtocol::Kitty
+                && surface.mode() == ScreenMode::Inline
+                && !layout.is_linear()
+            {
+                for path in shown {
+                    let root = host.active_directory().map(std::path::PathBuf::from);
+                    show_kitty_image(&mut surface, root.as_deref(), &path);
+                }
+                term.invalidate_viewport();
+                requester.schedule_immediate();
+            }
+        }
+        if std::mem::take(&mut session.raw_toggle) {
+            // `/raw`: the plain layout (flat rows, no animation or boxes), and back to the launch layout. The prompt line
+            // is still drawn in place: an append-only stream with no cursor addressing is not built.
+            layout = if layout.is_linear() {
+                if launch_layout.is_linear() {
+                    LayoutMode::Normal
+                } else {
+                    launch_layout
+                }
+            } else {
+                LayoutMode::Plain
+            };
+            composer.set_layout_mode(layout);
+            session.notice(
+                &mut transcript,
+                if layout.is_linear() {
+                    "Plain layout on: flat rows, no animation. /raw returns to the full layout."
+                } else {
+                    "Full layout."
+                },
+            );
+            flush_history(&mut transcript, &mut surface, &requester);
+            term.invalidate_viewport();
+            requester.schedule_immediate();
+        }
         tokio::select! {
             biased;
+
+            _ = terminate.notified() => {
+                should_exit = true;
+            }
 
             readiness_changed = async {
                 match readiness_rx.as_mut() {
@@ -3869,7 +4377,9 @@ pub async fn drive(host: impl TurnHost) -> i32 {
                                         session.notice(
                                             &mut transcript,
                                             format!(
-                                                "Context is off ({reason}); this chat runs without memory or repository context."
+                                                "! context off \u{b7} {} \u{b7} this chat has no memory or repository map \u{b7} /status",
+                                                // "off: pulse not installed" reads as "context off · off: …"; keep the detail only.
+                                                reason.strip_prefix("off:").map(str::trim).filter(|detail| !detail.is_empty()).unwrap_or(reason.as_str())
                                             ),
                                         );
                                         flush_history(&mut transcript, &mut surface, &requester);
@@ -3918,7 +4428,7 @@ pub async fn drive(host: impl TurnHost) -> i32 {
 
             _ = startup_tick.tick(), if matches!(
                 session.readiness,
-                Some(HostReadiness::Configuring | HostReadiness::StartingContext)
+                Some(HostReadiness::StartingContext)
             ) => {
                 requester.schedule_frame();
             }
@@ -3941,6 +4451,7 @@ pub async fn drive(host: impl TurnHost) -> i32 {
                 match maybe_event {
                     Some(Ok(raw)) => {
                         let input_received_at = Instant::now();
+                        idle_since = input_received_at;
                         if host.input_paused() {
                             // P1-10: events racing the pause window (queued
                             // between the reader's last cycle and its
@@ -3955,19 +4466,11 @@ pub async fn drive(host: impl TurnHost) -> i32 {
                             handle_event(
                                 &host,
                                 &event,
-                                &mut composer,
-                                &mut nav,
-                                &mut session,
-                                &mut transcript,
+                                TuiView { composer: &mut composer, nav: &mut nav, session: &mut session, transcript: &mut transcript, viewed_agent: &mut viewed_agent, paging: &mut paging },
                                 &mut surface,
                                 &interjections,
-                                &mut pending_echoes,
-                                &mut turn,
+                                LoopState { slots: TurnSlots { pending_echoes: &mut pending_echoes, turn: &mut turn }, should_exit: &mut should_exit },
                                 &requester,
-                                &mut exit_code,
-                                &mut should_exit,
-                                &mut viewed_agent,
-                                &mut paging,
                             )
                             .await;
                             session.composer_has_text = !composer.is_empty();
@@ -3999,7 +4502,12 @@ pub async fn drive(host: impl TurnHost) -> i32 {
                 // (e.g. `/model`, `/effort` executed above); consume the
                 // one-shot request and open over the real catalog.
                 if let Some(request) = host.take_picker_request() {
-                    service_picker_request(&host, request, &mut composer, &mut nav, &mut session, &mut transcript, &mut surface, turn.is_some(), &mut viewed_agent, &mut paging, &requester).await;
+                    service_picker_request(&host, request, TuiView { composer: &mut composer, nav: &mut nav, session: &mut session, transcript: &mut transcript, viewed_agent: &mut viewed_agent, paging: &mut paging }, &mut surface, turn.is_some(), &requester).await;
+                }
+                if !picker_open(&session) {
+                    if let Some(request) = host.take_startup_picker() {
+                        service_picker_request(&host, request, TuiView { composer: &mut composer, nav: &mut nav, session: &mut session, transcript: &mut transcript, viewed_agent: &mut viewed_agent, paging: &mut paging }, &mut surface, turn.is_some(), &requester).await;
+                    }
                 }
                 // A new approval request enqueued while handling this event
                 // (rare — requests normally arrive via the polled feed, but
@@ -4026,13 +4534,8 @@ pub async fn drive(host: impl TurnHost) -> i32 {
                     &host,
                     &mut term,
                     &mut surface,
-                    &mut composer,
-                    &mut nav,
-                    &mut transcript,
-                    &theme,
-                    &mut session,
-                    layout,
-                    &requester,
+                    TuiView { composer: &mut composer, nav: &mut nav, session: &mut session, transcript: &mut transcript, viewed_agent: &mut viewed_agent, paging: &mut paging },
+                    RenderContext { theme: &theme, layout, requester: &requester },
                     &mut render_state,
                 );
                 if render_state.welcome_shown {
@@ -4043,12 +4546,20 @@ pub async fn drive(host: impl TurnHost) -> i32 {
                 }
             }
 
-            result = wait_turn(&mut turn), if turn.is_some() => {
+            (result, panicked) = wait_turn(&mut turn), if turn.is_some() => {
                 turn = None;
                 composer.set_streaming(false);
                 session.working_started = None;
+                session.live_tail_until = Some(Instant::now() + Duration::from_secs(10));
                 session.working_signal = None;
                 exit_code = result;
+                turn_task_panicked |= panicked;
+                if panicked {
+                    // The panic hook already left raw mode for this recovered
+                    // panic; the loop keeps running, so take the terminal back.
+                    rearm_terminal();
+                    requester.schedule_immediate();
+                }
                 session.clear_interaction();
 
                 // Drain the events the turn produced between the last
@@ -4085,6 +4596,13 @@ pub async fn drive(host: impl TurnHost) -> i32 {
                 // The turn is over: re-read the agent tree so subagents it spawned (and their
                 // final state) show in the list under the composer.
                 host.refresh_nav(&mut nav, false).await;
+                // A background shell or task the turn left running shows in the panel under the
+                // composer now, not at the next tick (none comes once the panel is empty).
+                {
+                    let running_session = host.current_session().unwrap_or_else(|| session.active_session.clone());
+                    session.subagents.set_running(host.running_work(&running_session).await);
+                    requester.schedule_immediate();
+                }
                 // The turn is over: nothing in it is still moving, so a dangling
                 // call or already-answered card must not keep `/new` disabled.
                 session.timeline.settle_open_entries();
@@ -4108,7 +4626,12 @@ pub async fn drive(host: impl TurnHost) -> i32 {
                 }
                 session.turn_outcome_seen = true;
                 if let Some(request) = host.take_picker_request() {
-                    service_picker_request(&host, request, &mut composer, &mut nav, &mut session, &mut transcript, &mut surface, turn.is_some(), &mut viewed_agent, &mut paging, &requester).await;
+                    service_picker_request(&host, request, TuiView { composer: &mut composer, nav: &mut nav, session: &mut session, transcript: &mut transcript, viewed_agent: &mut viewed_agent, paging: &mut paging }, &mut surface, turn.is_some(), &requester).await;
+                }
+                if !picker_open(&session) {
+                    if let Some(request) = host.take_startup_picker() {
+                        service_picker_request(&host, request, TuiView { composer: &mut composer, nav: &mut nav, session: &mut session, transcript: &mut transcript, viewed_agent: &mut viewed_agent, paging: &mut paging }, &mut surface, turn.is_some(), &requester).await;
+                    }
                 }
 
                 // Each drained entry is a `Directive`, not bare text: the kind
@@ -4142,6 +4665,12 @@ pub async fn drive(host: impl TurnHost) -> i32 {
                         Directive::Steer(framed) | Directive::Reprompt(framed) => {
                             // The raw user text was already echoed at enqueue.
                             pending_echoes.push_back(framed.clone());
+                            if let Some(note) = crate::tui_image_input::attachment_notice(
+                                &framed,
+                                host.active_directory().as_deref().map(std::path::Path::new),
+                            ) {
+                                session.notice(&mut transcript, note);
+                            }
                             composer.set_streaming(true);
                             session.working_started = Some(Instant::now());
                             session.working_signal = None;
@@ -4182,6 +4711,44 @@ pub async fn drive(host: impl TurnHost) -> i32 {
                 requester.schedule_frame();
             }
 
+            (query, hits) = async {
+                match content_search.as_mut() {
+                    Some(search) => search.as_mut().await,
+                    None => std::future::pending().await,
+                }
+            }, if content_search.is_some() => {
+                content_search = None;
+                let rows = hits
+                    .into_iter()
+                    .map(|(id, title, snippet)| {
+                        let title = if title.trim().is_empty() { id.clone() } else { title };
+                        let snippet: String = snippet.chars().filter(|c| !c.is_control()).take(100).collect();
+                        (rightkit_terminal_ui::nav::SessionSummary { id: rightkit_terminal_ui::nav::SessionId(id), name: title }, snippet)
+                    })
+                    .collect();
+                nav.set_content_matches(&query, rows);
+                content_query_done = query;
+                requester.schedule_frame();
+            }
+
+            _ = content_tick.tick(), if nav.sessions_picker_open() => {
+                let typed = nav.session_query().to_string();
+                if typed != content_query_seen.0 {
+                    content_query_seen = (typed.clone(), Instant::now());
+                    content_query_done.clear();
+                } else if content_search.is_none()
+                    && typed.chars().count() >= 3
+                    && typed != content_query_done
+                    && content_query_seen.1.elapsed() >= Duration::from_millis(300)
+                {
+                    let source = &host;
+                    content_search = Some(Box::pin(async move {
+                        let hits = source.search_session_content(&typed).await;
+                        (typed, hits)
+                    }));
+                }
+            }
+
             timeline_events = async {
                 match timeline_poll.as_mut() {
                     Some(poll) => poll.as_mut().await,
@@ -4191,6 +4758,7 @@ pub async fn drive(host: impl TurnHost) -> i32 {
                 timeline_poll = None;
                 refresh_deny_rules(&host, &mut session, &timeline_events).await;
                 if !timeline_events.is_empty() {
+                    idle_since = Instant::now();
                     // Subagent spawn/finish changes the agent tree behind the list under the
                     // composer; re-read it when the batch carries such an event.
                     let roster_changed = timeline_events.iter().any(is_roster_event);
@@ -4203,12 +4771,74 @@ pub async fn drive(host: impl TurnHost) -> i32 {
                         );
                     }
                     flush_history(&mut transcript, &mut surface, &requester);
+                    requester.record_timeline(session.timeline.len(), session.timeline.evicted());
                     if session.take_input_quarantine() {
                         quarantine_approval_input(&input_pause, &mut input_rx, &mut session, &mut transcript);
                     }
                     if roster_changed {
                         host.refresh_nav(&mut nav, turn.is_some()).await;
                     }
+                    requester.schedule_frame();
+                }
+            }
+
+            // The diff pane's `git diff` runs on a thread; collect it here so typing never waits on it.
+            _ = diff_tick.tick(), if session.panes.diff_pending() => {
+                if let Some(action) = session.panes.poll_diff() {
+                    show_pane_action(action, &mut session, &mut transcript, &mut surface, &requester);
+                    requester.schedule_immediate();
+                }
+            }
+
+            _ = stream_tick.tick(), if turn.is_some() && timeline_poll.is_none() => {
+                timeline_poll = Some(Box::pin(host.poll_timeline_events()));
+            }
+
+            _ = pacer_tick.tick(), if session.pacer.pending() => {
+                let ready = session.pacer.tick(Instant::now());
+                if !ready.is_empty() {
+                    session.apply_assistant_text(&mut transcript, &ready);
+                    requester.schedule_frame();
+                }
+            }
+
+            _ = status_tick.tick(), if !session.proj.settings.statusline_command.is_empty() => {
+                let route = host.committed_route();
+                let payload = serde_json::json!({
+                    "model": route.model.unwrap_or_default(),
+                    "cwd": host.active_directory().unwrap_or_default(),
+                    "session_id": session.active_session.clone(),
+                    "context_percent": session.context_fraction.map(|fraction| (fraction * 100.0).round()),
+                    "cost_usd": session.cost_usd,
+                    "permission_mode": host.permission_mode().display_label(),
+                });
+                let cwd = host.active_directory().map(std::path::PathBuf::from).unwrap_or_default();
+                let command = session.proj.settings.statusline_command.clone();
+                session.status_script.refresh(&command, &cwd, &payload);
+                let line = session.status_script.line();
+                if line != last_status_line {
+                    last_status_line = line;
+                    requester.schedule_frame();
+                }
+            }
+
+            _ = plugin_tick.tick() => {
+                let now = Instant::now();
+                if session.plugin_slots.list_due(now) {
+                    let specs = tokio::time::timeout(Duration::from_secs(5), host.plugin_ui_slots()).await.unwrap_or_default();
+                    session.plugin_slots.set_specs(specs, now);
+                }
+                while let Some(slot_id) = session.plugin_slots.next_due(now) {
+                    let out = tokio::time::timeout(Duration::from_secs(5), host.plugin_slot_output(&slot_id)).await.ok().flatten();
+                    session.plugin_slots.apply_output(&slot_id, out.as_deref(), Instant::now());
+                }
+                for toast in session.plugin_slots.take_toasts() {
+                    session.notice(&mut transcript, toast);
+                    requester.schedule_frame();
+                }
+                let footer = session.plugin_slots.footer_part();
+                if footer != last_plugin_footer {
+                    last_plugin_footer = footer;
                     requester.schedule_frame();
                 }
             }
@@ -4223,8 +4853,13 @@ pub async fn drive(host: impl TurnHost) -> i32 {
                 || viewed_agent.is_some()
                 || transcript.evicted_count() > paging.paged_through_evictions
                 || host.external_feed_available() => {
+                requester.record_maintenance_tick();
                 let running_session = host.current_session().unwrap_or_else(|| session.active_session.clone());
-                session.subagents.set_running(host.running_work(&running_session).await);
+                let running = host.running_work(&running_session).await;
+                if !running.is_empty() || !session.subagents.is_empty() || viewed_agent.is_some() {
+                    idle_since = Instant::now();
+                }
+                session.subagents.set_running(running);
                 // S:I3: fold raw active-session daemon events through the
                 // typed reducer. Agent transcript viewing remains a distinct,
                 // display-only projection below; it must not erase tool,
@@ -4233,7 +4868,12 @@ pub async fn drive(host: impl TurnHost) -> i32 {
                     timeline_poll = Some(Box::pin(host.poll_timeline_events()));
                 }
                 if let Some(request) = host.take_picker_request() {
-                    service_picker_request(&host, request, &mut composer, &mut nav, &mut session, &mut transcript, &mut surface, turn.is_some(), &mut viewed_agent, &mut paging, &requester).await;
+                    service_picker_request(&host, request, TuiView { composer: &mut composer, nav: &mut nav, session: &mut session, transcript: &mut transcript, viewed_agent: &mut viewed_agent, paging: &mut paging }, &mut surface, turn.is_some(), &requester).await;
+                }
+                if !picker_open(&session) {
+                    if let Some(request) = host.take_startup_picker() {
+                        service_picker_request(&host, request, TuiView { composer: &mut composer, nav: &mut nav, session: &mut session, transcript: &mut transcript, viewed_agent: &mut viewed_agent, paging: &mut paging }, &mut surface, turn.is_some(), &requester).await;
+                    }
                 }
                 // P1-5: while an agent view is open, poll for NEW events after
                 // the host's per-agent cursor and append them. Reading history
@@ -4258,10 +4898,8 @@ pub async fn drive(host: impl TurnHost) -> i32 {
                     }
                 }
                 // P2-5: evicted content must stay visible in terminal
-                // scrollback while RSS stays bounded. First salvage anything
-                // evicted before it was ever shown, then page older durable
-                // history from the daemon's SQLite ledger through the shared
-                // scrollback helper whenever the transcript reports evictions.
+                // scrollback while RSS stays bounded: salvage anything
+                // evicted before it was ever shown.
                 let (width, _) = surface.screen_size();
                 // Keep resident overflow until inline scrollback is writable;
                 // alternate-screen/modal states must not consume unseen rows.
@@ -4269,38 +4907,13 @@ pub async fn drive(host: impl TurnHost) -> i32 {
                     let salvaged = transcript.drain_eviction_overflow_lines(width);
                     insert_scrollback_lines(&mut surface, &salvaged);
                 }
-                if !paging.exhausted {
-                    if let Some((_, limit)) = transcript.paging_window() {
-                        if transcript.evicted_count() > paging.paged_through_evictions {
-                            let before = paging.cursor.unwrap_or(i64::MAX);
-                            if !surface.can_insert_history() {
-                                continue;
-                            }
-                            match host.fetch_older_history_page(before, limit).await {
-                                Ok(page) if page.is_empty() => {
-                                    paging.exhausted = true;
-                                    paging.paged_through_evictions =
-                                        transcript.evicted_count();
-                                }
-                                Ok(page) => {
-                                    let lines: Vec<HyperlinkLine> =
-                                        page.iter().filter_map(|entry| entry.line.clone().map(Into::into)).collect();
-                                    insert_scrollback_lines(&mut surface, &lines);
-                                    paging.cursor = next_paging_cursor(&page);
-                                    paging.paged_through_evictions =
-                                        transcript.evicted_count();
-                                }
-                                Err(_) => {
-                                    // No feed / unreachable daemon: stop
-                                    // retrying on every tick rather than
-                                    // spinning an HTTP round trip forever.
-                                    paging.exhausted = true;
-                                }
-                            }
-                            requester.schedule_frame();
-                        }
-                    }
-                }
+                // An evicted entry is already in the terminal's scrollback: it was either flushed
+                // there while it was live or salvaged just above. This used to fetch the newest page
+                // of the stored chat as well and append it to the scrollback, which wrote lines the
+                // person had already seen a second time (first of all `[user] <prompt>`, issue 542),
+                // and out of order. Older stored history is read in the Ctrl+T reader, which pages
+                // it in place (A026, below). Note the evictions as handled so the tick can rest.
+                paging.paged_through_evictions = transcript.evicted_count();
                 // A026: the full-screen transcript reader asks for an older
                 // durable page when scrolled to its top; prepend what arrives.
                 if let Some(inspection) = session.inspection.as_mut() {
@@ -4343,14 +4956,41 @@ pub async fn drive(host: impl TurnHost) -> i32 {
         }
     }
     drop(file_search);
+    drop(content_search);
     drop(timeline_poll);
     let _ = notifier.clear_title(&mut io::stdout());
 
+    // R10: quitting closes every open card as `detached` before the turn is
+    // cancelled.
+    {
+        let approvals: Vec<(String, String)> = session
+            .approval_overlay
+            .pending_requests()
+            .map(|request| (request.session_id.clone(), request.request_id.clone()))
+            .collect();
+        let questions: Vec<String> = session
+            .pending_question
+            .iter()
+            .map(|pending| pending.question_id.clone())
+            .collect();
+        let plans: Vec<String> = session
+            .pending_plan
+            .iter()
+            .map(|pending| pending.plan_id.clone())
+            .collect();
+        if !(approvals.is_empty() && questions.is_empty() && plans.is_empty()) {
+            host.decline_open_interactions_as_detached(approvals, questions, plans)
+                .await;
+        }
+    }
     if let Err(error) = cancel_active_turn(&host, &mut turn).await {
         eprintln!("{error}");
         return 1;
     }
-    exit_code
+    // R4: 0 after a normal quit whatever the last turn did; 1 for a panicked
+    // turn task or a failed final cancel (above). Terminal-setup failures
+    // return 1 and launch validation errors 2 before this point.
+    i32::from(turn_task_panicked)
 }
 
 /// Keep a delayed paste burst intact while the input reader still has events
@@ -4367,10 +5007,14 @@ fn flush_paste_burst_if_input_drained(
 }
 
 /// Await the in-flight turn if there is one; otherwise never resolves, so it
-/// is safe as a `select!` branch gated on `turn.is_some()`.
-async fn wait_turn(turn: &mut Option<JoinHandle<i32>>) -> i32 {
+/// is safe as a `select!` branch gated on `turn.is_some()`. Returns the turn's
+/// code and whether its task panicked.
+async fn wait_turn(turn: &mut Option<JoinHandle<i32>>) -> (i32, bool) {
     match turn {
-        Some(handle) => handle.await.unwrap_or(1),
+        Some(handle) => match handle.await {
+            Ok(code) => (code, false),
+            Err(_) => (1, true),
+        },
         None => std::future::pending().await,
     }
 }
@@ -4380,7 +5024,15 @@ async fn cancel_active_turn(
     turn: &mut Option<JoinHandle<i32>>,
 ) -> Result<(), String> {
     if turn.is_some() {
-        host.cancel_turn().await?;
+        // The cancel is requested at once; waiting for the engine to settle must not hold the event loop (typing,
+        // redraw) for the engine's own 10 s bound when a tool or provider ignores the interrupt. A press that
+        // times out leaves the turn running; the next press asks again.
+        tokio::time::timeout(Duration::from_secs(2), host.cancel_turn())
+            .await
+            .map_err(|_| {
+                "Cancel requested; the engine is still stopping the turn. Press Ctrl-C again to keep waiting."
+                    .to_string()
+            })??;
         if let Some(handle) = turn.take() {
             handle.abort();
             let _ = handle.await;
@@ -4436,15 +5088,20 @@ fn inline_viewport_height(
             .max(composer_rows)
             .min(screen_height);
     }
-    // Input frame: a rule above and below the composer plus the footer row,
+    // Input frame: a rule above the composer plus the footer row,
     // the working line, and the live subagent list (D16) when it has agents.
     let chrome = COMPOSER_CHROME_ROWS
         + u16::from(session.working_started.is_some() || session.failed_hold.is_some())
         + session.subagents.rows();
-    // The live tail — typed cells plus transcript — is bounded to a third
-    // of the screen so streaming output can never crowd the composer off
-    // the bottom.
-    let tail_cap = (screen_height / 3).clamp(4, 16);
+    // The live tail — typed cells plus transcript — may use the viewport
+    // height left after the composer and chrome, so a long streamed answer
+    // shows in full; the composer always keeps its own rows.
+    // One row is always left above the viewport: a viewport that fills the whole screen cannot
+    // take the finished answer into scrollback (`Surface::can_insert_history`), and the long answer
+    // that filled it would then be lost from the terminal's history.
+    let tail_cap = screen_height
+        .saturating_sub(composer_rows + chrome + 1)
+        .max(4);
     let cells = session.live_cell_lines(width, theme).len() as u16
         + session.queue_list_lines(width, theme).len() as u16;
     let tail = transcript
@@ -4452,6 +5109,38 @@ fn inline_viewport_height(
         .saturating_add(cells)
         .min(tail_cap);
     composer_rows + chrome + tail
+}
+
+/// The view state the interactive loop's handlers work on together: the composer, the
+/// navigation, the session, the transcript, the agent being viewed and the history paging.
+struct TuiView<'a> {
+    composer: &'a mut Composer,
+    nav: &'a mut NavView,
+    session: &'a mut SessionState,
+    transcript: &'a mut Transcript,
+    viewed_agent: &'a mut Option<AgentId>,
+    paging: &'a mut HistoryPaging,
+}
+
+/// The turn slots a prompt submission touches: the echoes still expected back from the host and
+/// the handle of the turn in flight.
+struct TurnSlots<'a> {
+    pending_echoes: &'a mut std::collections::VecDeque<String>,
+    turn: &'a mut Option<JoinHandle<i32>>,
+}
+
+/// What an event handler may change about the loop itself: the turn slots and the request to
+/// leave the loop.
+struct LoopState<'a> {
+    slots: TurnSlots<'a>,
+    should_exit: &'a mut bool,
+}
+
+/// What a frame is drawn with: the theme, the layout mode and the frame requester.
+struct RenderContext<'a> {
+    theme: &'a Theme,
+    layout: LayoutMode,
+    requester: &'a FrameRequester,
 }
 
 /// What the renderer last put on the screen, so a geometry transition can
@@ -4486,6 +5175,7 @@ struct RenderState {
 /// Rows a width-shrinking reflow adds above the cursor: every row of the
 /// previous frame above the cursor's row that is wider than `new_cols` wraps
 /// onto `ceil(width / new_cols) - 1` more rows.
+#[cfg(windows)] // called only from the #[cfg(windows)] resize path; dead on this target; see clippy sweep
 fn reflow_rows_above(drawn_rows: &[String], cursor_row: usize, new_cols: u16) -> u16 {
     use rightkit_terminal_ui::transcript::wrap::display_width;
     if new_cols == 0 {
@@ -4507,6 +5197,7 @@ fn reflow_rows_above(drawn_rows: &[String], cursor_row: usize, new_cols: u16) ->
 /// gap; the caller slides the history down over it. Zero when nothing above is
 /// blank-separated, when no transcript is above at all (a short session whose
 /// top is empty), or when a row cannot be read.
+#[cfg(windows)] // called only from the #[cfg(windows)] resize path; dead on this target; see clippy sweep
 fn blank_gap_above(top: u16, read_row: impl Fn(u16) -> Option<String>) -> u16 {
     let mut blank_run = 0u16;
     for row in (0..top).rev() {
@@ -4526,6 +5217,7 @@ fn blank_gap_above(top: u16, read_row: impl Fn(u16) -> Option<String>) -> u16 {
 /// top over every row that still shows a piece of the old frame (each old row
 /// cut into `new_cols`-wide segments, which is how a reflow lays it out),
 /// skipping blank rows, stopping at the first row that is something else.
+#[cfg(windows)] // called only from the #[cfg(windows)] resize path; dead on this target; see clippy sweep
 fn stale_top_above(
     estimate: u16,
     old_rows: &[String],
@@ -4680,7 +5372,7 @@ pub fn feed_local_stub(nav: &mut NavView, turn_in_flight: bool, model: &str) {
 
 /// S:I10 — local effect rows for the completion catalog, with their distinct
 /// descriptions & disabled reasons. Shared grammar rows join these below.
-fn command_effect_catalog(busy: bool) -> Vec<CompletionCandidate> {
+fn command_effect_catalog(busy: bool, redo_available: bool) -> Vec<CompletionCandidate> {
     CommandEffect::ALL
         .iter()
         .map(|effect| {
@@ -4689,8 +5381,13 @@ fn command_effect_catalog(busy: bool) -> Vec<CompletionCandidate> {
             match effect {
                 // Refused outright by `apply_command_effect`: the durable
                 // turn ledger is readable from this host, not truncatable.
-                CommandEffect::Rewind => {
-                    candidate.disabled("the session ledger is read-only from this surface")
+                CommandEffect::Rewind if busy => candidate.disabled("a turn is in flight"),
+                // `/undo` needs a quiet session; `/redo` only exists until a
+                // new turn runs.
+                CommandEffect::Undo if busy => candidate.disabled("a turn is in flight"),
+                CommandEffect::Redo if busy => candidate.disabled("a turn is in flight"),
+                CommandEffect::Redo if !redo_available => {
+                    candidate.disabled("nothing to redo: run /undo first")
                 }
                 // A turn in flight owns the session handle; `apply_command_effect`
                 // refuses `New` while one is running.
@@ -4710,7 +5407,7 @@ fn shared_command_catalog(busy: bool) -> Vec<CompletionCandidate> {
         .filter(|entry| CommandEffect::resolve(entry.name.trim_start_matches('/')).is_none())
         .map(|entry| {
             let candidate =
-                CompletionCandidate::new(entry.name.trim_start_matches('/'), entry.summary)
+                CompletionCandidate::new(entry.name.trim_start_matches('/'), entry.summary())
                     .with_aliases(
                         entry
                             .aliases
@@ -4740,7 +5437,7 @@ fn refresh_completion_catalog(
     // when this loop has no handle for it; the handle covers the turn the
     // loop itself spawned.
     let busy = turn_in_flight || session.timeline.has_open_entry();
-    let mut catalog = command_effect_catalog(busy);
+    let mut catalog = command_effect_catalog(busy, session.redo_available);
     catalog.extend(shared_command_catalog(busy));
     // #132: custom slash commands (`.claude/commands`, `.{app}/commands`, user root).
     catalog.extend(
@@ -4811,13 +5508,13 @@ fn effective_background(
 }
 
 /// D5: the notifier for the `[tui] notify` preference. An explicit
-/// `RIGHTKIT_NOTIFY` environment value still wins over the file.
+/// `<PREFIX>_NOTIFY` environment value (the host's own prefix) still wins over the file.
 fn build_notifier(
     setting: &str,
     cwd: &std::path::Path,
 ) -> rightkit_terminal_ui::terminal::notify::TerminalNotifier {
     use rightkit_terminal_ui::terminal::notify::{NotifyMethod, TerminalNotifier};
-    let env_set = std::env::var("RIGHTKIT_NOTIFY")
+    let env_set = std::env::var(rightkit_agent_config::env_name("NOTIFY"))
         .map(|v| !v.trim().is_empty())
         .unwrap_or(false);
     let method = match setting {
@@ -4829,7 +5526,7 @@ fn build_notifier(
     match (env_set, method) {
         (false, Some(method)) => {
             let title_enabled = !matches!(
-                std::env::var("RIGHTKIT_TERMINAL_TITLE")
+                std::env::var(rightkit_agent_config::env_name("TERMINAL_TITLE"))
                     .ok()
                     .map(|v| v.trim().to_ascii_lowercase())
                     .as_deref(),
@@ -4844,6 +5541,17 @@ fn build_notifier(
 /// Footer-sized degradation code: the reason's leading identifier (before any
 /// `:` detail), capped so the route and model stay visible. The full reason
 /// is in the one-time "Context is off (...)" notice.
+/// The footer's degraded-context note. The bare code `off` would read
+/// "context off · off", so it is said once.
+fn context_off_note(reason: &str) -> String {
+    let code = context_off_code(reason);
+    if code.eq_ignore_ascii_case("off") {
+        "\u{26a0} context off".to_string()
+    } else {
+        format!("\u{26a0} context off \u{b7} {code}")
+    }
+}
+
 fn context_off_code(reason: &str) -> String {
     let code = reason.split(':').next().unwrap_or(reason).trim();
     let code = if code.is_empty() { "unavailable" } else { code };
@@ -4874,18 +5582,20 @@ async fn open_project_picker(
 /// Move the view onto whatever session the host now targets (after a project
 /// switch or a new chat): fresh transcript and view state, per-session draft
 /// isolation, nav re-read for the new scope.
-#[allow(clippy::too_many_arguments)]
 async fn rebind_view_to_active(
     host: &impl TurnHost,
-    composer: &mut Composer,
-    nav: &mut NavView,
-    session: &mut SessionState,
-    transcript: &mut Transcript,
+    view: TuiView<'_>,
     interjections: &InterjectionBuffer,
-    viewed_agent: &mut Option<AgentId>,
-    paging: &mut HistoryPaging,
     note: String,
 ) {
+    let TuiView {
+        composer,
+        nav,
+        session,
+        transcript,
+        viewed_agent,
+        paging,
+    } = view;
     let Some(id) = host.current_session() else {
         session.notice(transcript, note);
         return;
@@ -4947,21 +5657,23 @@ async fn try_open_overlay_chord(
 
 /// Drive the open project/sidebar/config overlay with one event. Returns
 /// `true` when the overlay consumed it.
-#[allow(clippy::too_many_arguments)]
 async fn handle_action_picker(
     host: &impl TurnHost,
     event: &TuiEvent,
-    composer: &mut Composer,
-    nav: &mut NavView,
-    session: &mut SessionState,
-    transcript: &mut Transcript,
+    view: TuiView<'_>,
     surface: &mut Surface,
     interjections: &InterjectionBuffer,
     turn_in_flight: bool,
-    viewed_agent: &mut Option<AgentId>,
-    paging: &mut HistoryPaging,
     requester: &FrameRequester,
 ) -> bool {
+    let TuiView {
+        composer,
+        nav,
+        session,
+        transcript,
+        viewed_agent,
+        paging,
+    } = view;
     use crate::tui_projects::{
         expand_path, key_matches, looks_like_path, project_label, same_root, PickAction, PickKind,
     };
@@ -5002,9 +5714,7 @@ async fn handle_action_picker(
             }
         }
     }
-    // A settings row that only displays keeps the screen open.
-    let keep_open = kind == PickKind::Config && matches!(chosen, Some(PickAction::Noop));
-    if !(active.picker.is_done() || chosen.is_some() || typed_path.is_some()) || keep_open {
+    if !(active.picker.is_done() || chosen.is_some() || typed_path.is_some()) {
         session.proj.picker = Some(active);
         requester.schedule_immediate();
         return true;
@@ -5026,13 +5736,15 @@ async fn handle_action_picker(
                     Ok(_) => {
                         rebind_view_to_active(
                             host,
-                            composer,
-                            nav,
-                            session,
-                            transcript,
+                            TuiView {
+                                composer: &mut *composer,
+                                nav: &mut *nav,
+                                session: &mut *session,
+                                transcript: &mut *transcript,
+                                viewed_agent: &mut *viewed_agent,
+                                paging: &mut *paging,
+                            },
                             interjections,
-                            viewed_agent,
-                            paging,
                             format!("Started a new chat in {label}."),
                         )
                         .await;
@@ -5044,13 +5756,15 @@ async fn handle_action_picker(
                     Ok(()) => {
                         rebind_view_to_active(
                             host,
-                            composer,
-                            nav,
-                            session,
-                            transcript,
+                            TuiView {
+                                composer: &mut *composer,
+                                nav: &mut *nav,
+                                session: &mut *session,
+                                transcript: &mut *transcript,
+                                viewed_agent: &mut *viewed_agent,
+                                paging: &mut *paging,
+                            },
                             interjections,
-                            viewed_agent,
-                            paging,
                             format!("Opened project {label} · new chat."),
                         )
                         .await;
@@ -5063,14 +5777,16 @@ async fn handle_action_picker(
             switch_to_session(
                 host,
                 SessionId(id),
-                composer,
-                nav,
-                session,
-                transcript,
+                TuiView {
+                    composer: &mut *composer,
+                    nav: &mut *nav,
+                    session: &mut *session,
+                    transcript: &mut *transcript,
+                    viewed_agent: &mut *viewed_agent,
+                    paging: &mut *paging,
+                },
                 surface,
                 turn_in_flight,
-                viewed_agent,
-                paging,
             )
             .await;
         }
@@ -5100,7 +5816,7 @@ async fn handle_action_picker(
             }
             session.proj.picker = Some(refreshed);
         }
-        Some(PickAction::Noop) | None => {}
+        None => {}
     }
     requester.schedule_immediate();
     true
@@ -5141,12 +5857,28 @@ fn switch_view(composer: &mut Composer, from: &str, to: &str) {
 /// overlay's own option-digit vocabulary. The translated key still passes
 /// through the overlay's arming gate, so a buffered or racing keypress can
 /// never decide a request it was not typed against.
-fn approval_overlay_key(key: &KeyEvent, request: &ApprovalRequest) -> TuiEvent {
-    if key.modifiers.contains(KeyModifiers::CONTROL) {
-        let target = match key.code {
-            KeyCode::Char('y') => Some(ApprovalDecision::Approved),
-            KeyCode::Char('n') => Some(ApprovalDecision::Denied),
-            _ => None,
+fn approval_overlay_key(
+    key: &KeyEvent,
+    request: &ApprovalRequest,
+    settings: &crate::tui_projects::TuiSettings,
+) -> TuiEvent {
+    {
+        use crate::tui_projects::key_matches;
+        // A printable character typed with no Ctrl or Alt is draft text, never a
+        // decision, whatever `[tui.keymap]` says: only a chord or a function key
+        // can approve or deny from the keyboard.
+        let typed_text = matches!(key.code, KeyCode::Char(_))
+            && !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
+        let target = if typed_text {
+            None
+        } else if key_matches(&settings.key_for("approve"), key) {
+            Some(ApprovalDecision::Approved)
+        } else if key_matches(&settings.key_for("deny"), key) {
+            Some(ApprovalDecision::Denied)
+        } else {
+            None
         };
         if let Some(target) = target {
             if let Some(index) = request.options.iter().position(|d| *d == target) {
@@ -5190,22 +5922,55 @@ async fn apply_route_intent(
 /// Service a one-shot picker request raised by a command: route pickers go
 /// to `open_route_picker`; `/resume` opens the session list or switches in
 /// place and replays that session's history.
-// Same shape as the sibling drive-loop handlers (`handle_event`, ...): the
-// UI-surface `&mut` references are passed through, never bundled.
-#[allow(clippy::too_many_arguments)]
+/// True while a picker overlay owns the keyboard (R41: a queued startup gate
+/// waits until none is open).
+fn picker_open(session: &SessionState) -> bool {
+    session.model_picker.is_some()
+        || session.providers_picker.is_some()
+        || session.repository_picker.is_some()
+        || session.proj.picker.is_some()
+}
+
+/// The card for a session whose workspace folder is gone (B-folderrgone): Continue here (keep the
+/// chat, work in the current folder), Fork here (copy the chat into a new session that works in the
+/// current folder), Cancel. It rides the session-action picker, so its keys are that picker's.
+fn open_folder_gone_card(session: &mut SessionState, id: &str, root: &str) {
+    let items = vec![
+        rightkit_terminal_ui::nav::SelectionItem::new("Continue here")
+            .description("keep the chat and work in the current folder"),
+        rightkit_terminal_ui::nav::SelectionItem::new("Fork here")
+            .description("copy the chat into a new session that works in the current folder"),
+        rightkit_terminal_ui::nav::SelectionItem::new("Cancel")
+            .description("do not open this session"),
+    ];
+    let mut params =
+        rightkit_terminal_ui::nav::PickerParams::picker(9503, "Session folder is gone", items);
+    params.subtitle = Some(format!(
+        "{} no longer exists. Choose how to open this session.",
+        rightkit_terminal_ui::render::display_path_str(root)
+    ));
+    params.is_searchable = false;
+    session.session_action_id = Some(id.to_string());
+    session.session_action_kinds = vec!["gone-continue", "gone-fork", "gone-cancel"];
+    session.session_action_picker = Some(rightkit_terminal_ui::nav::ListPicker::new(params));
+}
+
 async fn service_picker_request(
     host: &impl TurnHost,
     request: PickerRequest,
-    composer: &mut Composer,
-    nav: &mut NavView,
-    session: &mut SessionState,
-    transcript: &mut Transcript,
+    view: TuiView<'_>,
     surface: &mut Surface,
     turn_in_flight: bool,
-    viewed_agent: &mut Option<AgentId>,
-    paging: &mut HistoryPaging,
     requester: &FrameRequester,
 ) {
+    let TuiView {
+        composer,
+        nav,
+        session,
+        transcript,
+        viewed_agent,
+        paging,
+    } = view;
     match request {
         PickerRequest::Sessions => {
             host.refresh_nav(nav, turn_in_flight).await;
@@ -5225,24 +5990,31 @@ async fn service_picker_request(
             switch_to_session(
                 host,
                 SessionId(id),
-                composer,
-                nav,
-                session,
-                transcript,
+                TuiView {
+                    composer: &mut *composer,
+                    nav: &mut *nav,
+                    session: &mut *session,
+                    transcript: &mut *transcript,
+                    viewed_agent: &mut *viewed_agent,
+                    paging: &mut *paging,
+                },
                 surface,
                 turn_in_flight,
-                viewed_agent,
-                paging,
             )
             .await;
             requester.schedule_immediate();
         }
-        PickerRequest::Home => {
-            open_project_picker(host, session, crate::tui_projects::PickKind::Home).await;
+        PickerRequest::FolderGone { root } => {
+            let id = host
+                .current_session()
+                .unwrap_or_else(|| session.active_session.clone());
+            surface.enter_modal(ModalKind::SessionPicker);
+            open_folder_gone_card(session, &id, &root);
+            session.quit_on_gone_cancel = true;
             requester.schedule_immediate();
         }
-        PickerRequest::Sidebar => {
-            open_project_picker(host, session, crate::tui_projects::PickKind::Sidebar).await;
+        PickerRequest::Home => {
+            open_project_picker(host, session, crate::tui_projects::PickKind::Home).await;
             requester.schedule_immediate();
         }
         PickerRequest::Config => {
@@ -5349,8 +6121,8 @@ async fn open_route_picker(
         PickerRequest::Sessions
         | PickerRequest::Agents
         | PickerRequest::ResumeSession(_)
+        | PickerRequest::FolderGone { .. }
         | PickerRequest::Home
-        | PickerRequest::Sidebar
         | PickerRequest::Config => {}
         PickerRequest::Repository => {
             let choices = host.repository_catalog();
@@ -5378,21 +6150,21 @@ async fn open_route_picker(
 /// Switch the view and host to another root session and replay its durable
 /// history into the (cleared) transcript. Shared by the session picker and
 /// `/resume`.
-// Same shape as the sibling drive-loop handlers (`handle_event`, ...): the
-// UI-surface `&mut` references are passed through, never bundled.
-#[allow(clippy::too_many_arguments)]
 async fn switch_to_session(
     host: &impl TurnHost,
     id: SessionId,
-    composer: &mut Composer,
-    nav: &mut NavView,
-    session: &mut SessionState,
-    transcript: &mut Transcript,
+    view: TuiView<'_>,
     surface: &mut Surface,
     turn_in_flight: bool,
-    viewed_agent: &mut Option<AgentId>,
-    paging: &mut HistoryPaging,
 ) {
+    let TuiView {
+        composer,
+        nav,
+        session,
+        transcript,
+        viewed_agent,
+        paging,
+    } = view;
     surface.leave_modal();
     if id.0 == LOCAL_SESSION_ID || host.current_session().as_deref() == Some(id.0.as_str()) {
         session.notice(
@@ -5451,25 +6223,30 @@ async fn switch_to_session(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn handle_event(
     host: &impl TurnHost,
     event: &TuiEvent,
-    composer: &mut Composer,
-    nav: &mut NavView,
-    session: &mut SessionState,
-    transcript: &mut Transcript,
+    view: TuiView<'_>,
     surface: &mut Surface,
     interjections: &InterjectionBuffer,
-    pending_echoes: &mut std::collections::VecDeque<String>,
-    turn: &mut Option<JoinHandle<i32>>,
+    state: LoopState<'_>,
     requester: &FrameRequester,
-    exit_code: &mut i32,
-    should_exit: &mut bool,
-    viewed_agent: &mut Option<AgentId>,
-    paging: &mut HistoryPaging,
 ) {
-    let _ = exit_code;
+    let TuiView {
+        composer,
+        nav,
+        session,
+        transcript,
+        viewed_agent,
+        paging,
+    } = view;
+    let LoopState {
+        slots: TurnSlots {
+            pending_echoes,
+            turn,
+        },
+        should_exit,
+    } = state;
     // Whether a turn was already in flight when this event arrived: a turn
     // that starts *during* this event is the moment attribution (S:I6) and
     // the popup's disabled reasons (S:I10) have to be re-evaluated.
@@ -5477,8 +6254,7 @@ async fn handle_event(
 
     if let TuiEvent::Key(key) = event {
         if key.kind != KeyEventKind::Release
-            && key.modifiers.contains(KeyModifiers::CONTROL)
-            && key.code == KeyCode::Char('l')
+            && crate::tui_projects::key_matches(&session.proj.settings.key_for("clear_screen"), key)
         {
             // The frame loop owns the terminal: clear + repaint happen in `render`.
             session.clear_screen_requested = true;
@@ -5487,27 +6263,58 @@ async fn handle_event(
         }
         #[cfg(unix)]
         if key.kind != KeyEventKind::Release
-            && key.modifiers.contains(KeyModifiers::CONTROL)
-            && key.code == KeyCode::Char('z')
+            && crate::tui_projects::key_matches(&session.proj.settings.key_for("suspend"), key)
         {
             suspend_tui();
+            // The differential renderer still believes its last frame is on screen; it is not.
+            session.resumed_from_suspend = true;
             requester.schedule_immediate();
             return;
         }
+        // `effort_up` / `effort_down` (Alt+. / Alt+, by default) step the effort like Alt+E / Alt+Shift+E.
+        let effort_step = if key.kind == KeyEventKind::Press {
+            if crate::tui_projects::key_matches(&session.proj.settings.key_for("effort_up"), key) {
+                Some(rightkit_terminal_ui::nav::CycleDirection::Next)
+            } else if crate::tui_projects::key_matches(
+                &session.proj.settings.key_for("effort_down"),
+                key,
+            ) {
+                Some(rightkit_terminal_ui::nav::CycleDirection::Previous)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         if key.kind != KeyEventKind::Release
-            && key.modifiers.contains(KeyModifiers::ALT)
-            && matches!(key.code, KeyCode::Char('m' | 'M' | 'e' | 'E'))
+            && (effort_step.is_some()
+                || (key.modifiers.contains(KeyModifiers::ALT)
+                    && matches!(key.code, KeyCode::Char('m' | 'M' | 'e' | 'E'))))
         {
             let catalog = host.model_catalog().await;
             let route = host.committed_route();
-            let direction = if key.code == KeyCode::Char('M') || key.code == KeyCode::Char('E') {
-                rightkit_terminal_ui::nav::CycleDirection::Previous
-            } else {
-                rightkit_terminal_ui::nav::CycleDirection::Next
-            };
-            let selected = if matches!(key.code, KeyCode::Char('m' | 'M')) {
+            let direction = effort_step.unwrap_or_else(|| {
+                if key.code == KeyCode::Char('M') || key.code == KeyCode::Char('E') {
+                    rightkit_terminal_ui::nav::CycleDirection::Previous
+                } else {
+                    rightkit_terminal_ui::nav::CycleDirection::Next
+                }
+            });
+            let cycling_model =
+                effort_step.is_none() && matches!(key.code, KeyCode::Char('m' | 'M'));
+            // `--models` narrows what the keys cycle through; the picker still lists everything.
+            let scoped = crate::main_runtime::scoped_cycle_models(&catalog);
+            if cycling_model && scoped.as_ref().is_some_and(Vec::is_empty) {
+                session.notice(
+                    transcript,
+                    "None of the models named by --models is in the catalogue; nothing to cycle.",
+                );
+                requester.schedule_immediate();
+                return;
+            }
+            let selected = if cycling_model {
                 rightkit_terminal_ui::nav::cycle_model_intents(
-                    &catalog,
+                    scoped.as_deref().unwrap_or(&catalog),
                     route.model.as_deref().unwrap_or(""),
                     direction,
                 )
@@ -5527,7 +6334,9 @@ async fn handle_event(
                     .collect()
             };
             let mut error = None;
+            let mut effort_step_applied = false;
             for intent in selected {
+                effort_step_applied = true;
                 let result = match intent {
                     NavIntent::SelectModel(model) => host.select_model(&model).await,
                     NavIntent::SelectEffort(effort) => host.select_effort(&effort).await,
@@ -5540,6 +6349,11 @@ async fn handle_event(
             }
             if let Some(reason) = error {
                 session.notice(transcript, reason);
+            } else if effort_step.is_some() && !effort_step_applied {
+                session.notice(
+                    transcript,
+                    "No effort options are available for this model.",
+                );
             }
             requester.schedule_immediate();
             return;
@@ -6011,6 +6825,31 @@ async fn handle_event(
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 if let Some((line, column)) = selection_point(session, mouse.column, mouse.row) {
+                    if session
+                        .selection_lines
+                        .get(line)
+                        .is_some_and(|text| text.contains("copy · c"))
+                    {
+                        if let (Some(markdown), blocks) = (
+                            transcript
+                                .assistant_markdown_at_line(line, surface.screen_size().0)
+                                .map(str::to_string),
+                            transcript.assistant_code_blocks_at_line(line, surface.screen_size().0),
+                        ) {
+                            if session.proj.settings.always_copy_full_response {
+                                session.notice(transcript, clipboard_copy_notice(&markdown));
+                            } else {
+                                session.copy_picker = Some(CopyPickerState {
+                                    markdown,
+                                    code_blocks: blocks,
+                                    writing_block: false,
+                                });
+                                session.notice(transcript, "Copy picker: f full response · 1–9 copy block · w then number writes block · Esc cancel.");
+                            }
+                        }
+                        requester.schedule_immediate();
+                        return;
+                    }
                     let now = Instant::now();
                     let clicks = session
                         .last_selection_click
@@ -6133,7 +6972,57 @@ async fn handle_event(
                         ));
                         surface.leave_modal();
                     }
-                    "delete-confirm" | "cancel" => {
+                    "gone-continue" | "gone-fork" => {
+                        session.quit_on_gone_cancel = false;
+                        surface.leave_modal();
+                        session.session_action_kinds.clear();
+                        if let Some(id) = session.session_action_id.take() {
+                            let target = if action == "gone-fork" {
+                                match host.session_action("fork", &id, None).await {
+                                    Ok(line) => {
+                                        let forked = parse_forked_session_id(&line);
+                                        if forked.is_none() {
+                                            session.notice(
+                                                transcript,
+                                                "The fork returned no session id.",
+                                            );
+                                        }
+                                        forked
+                                    }
+                                    Err(error) => {
+                                        session.notice(transcript, error);
+                                        None
+                                    }
+                                }
+                            } else {
+                                Some(id)
+                            };
+                            if let Some(target) = target {
+                                switch_to_session(
+                                    host,
+                                    SessionId(target),
+                                    TuiView {
+                                        composer: &mut *composer,
+                                        nav: &mut *nav,
+                                        session: &mut *session,
+                                        transcript: &mut *transcript,
+                                        viewed_agent: &mut *viewed_agent,
+                                        paging: &mut *paging,
+                                    },
+                                    surface,
+                                    turn.is_some(),
+                                )
+                                .await;
+                            }
+                        }
+                    }
+                    "delete-confirm" | "cancel" | "gone-cancel" => {
+                        if action == "gone-cancel" {
+                            surface.leave_modal();
+                            if std::mem::take(&mut session.quit_on_gone_cancel) {
+                                *should_exit = true;
+                            }
+                        }
                         if action == "delete-confirm" {
                             if let Some(id) = session.session_action_id.as_deref() {
                                 match host.session_action("delete", id, None).await {
@@ -6146,7 +7035,7 @@ async fn handle_event(
                         session.session_action_id = None;
                         session.session_action_kinds.clear();
                     }
-                    "archive" | "clone" | "export" => {
+                    "archive" | "fork" | "export" => {
                         if let Some(id) = session.session_action_id.as_deref() {
                             match host.session_action(action, id, None).await {
                                 Ok(line) => session.notice(transcript, line),
@@ -6164,6 +7053,11 @@ async fn handle_event(
             session.session_action_picker = None;
             session.session_action_id = None;
             session.session_action_kinds.clear();
+            if std::mem::take(&mut session.quit_on_gone_cancel) {
+                // Esc on the launch folder-gone card is Cancel.
+                surface.leave_modal();
+                *should_exit = true;
+            }
         }
         if !matches!(outcome, Outcome::Ignored) || closed {
             requester.schedule_immediate();
@@ -6181,13 +7075,13 @@ async fn handle_event(
         {
             if let Some(selected) = nav.selected_session().cloned() {
                 session.session_action_id = Some(selected.id.0.clone());
-                let labels = ["Rename", "Clone", "Export", "Archive", "Delete"];
+                let labels = ["Rename", "Fork", "Export", "Archive", "Delete"];
                 let items = labels
                     .iter()
                     .map(|label| rightkit_terminal_ui::nav::SelectionItem::new(*label))
                     .collect();
                 session.session_action_kinds =
-                    vec!["rename", "clone", "export", "archive", "delete"];
+                    vec!["rename", "fork", "export", "archive", "delete"];
                 session.session_action_picker = Some(rightkit_terminal_ui::nav::ListPicker::new(
                     rightkit_terminal_ui::nav::PickerParams::picker(
                         9501,
@@ -6212,8 +7106,7 @@ async fn handle_event(
             }
             return;
         }
-        if key.code == KeyCode::Char('t')
-            && key.modifiers.contains(KeyModifiers::CONTROL)
+        if crate::tui_projects::key_matches(&session.proj.settings.key_for("transcript"), key)
             && key.kind == KeyEventKind::Press
             && surface.mode() == ScreenMode::Inline
             && session.subagents.is_empty()
@@ -6230,12 +7123,8 @@ async fn handle_event(
             requester.schedule_immediate();
             return;
         }
-        if ((key.modifiers == KeyModifiers::ALT
-            && matches!(
-                key.code,
-                KeyCode::Char('o' | 'b' | 'd' | ']' | '[' | 'a' | 'r')
-            ))
-            || session.panes.confirming_revert())
+        let pane_key = crate::tui_panes::PaneKey::lookup(&session.proj.settings, key);
+        if (pane_key.is_some() || session.panes.confirming_revert())
             && session.pending_plan.is_none()
             && session.pending_question.is_none()
         {
@@ -6243,19 +7132,8 @@ async fn handle_event(
                 .active_directory()
                 .map(std::path::PathBuf::from)
                 .unwrap_or_default();
-            if let Some(action) = session.panes.handle_key(key, &cwd) {
-                match action {
-                    crate::tui_panes::PaneAction::Show(lines) => {
-                        transcript.push_cell(
-                            Box::new(rightkit_terminal_ui::render::cell::PlainCell::new(lines)),
-                            &session.theme,
-                        );
-                        flush_history(transcript, surface, requester);
-                    }
-                    crate::tui_panes::PaneAction::Notice(text) => {
-                        session.notice(transcript, text);
-                    }
-                }
+            if let Some(action) = session.panes.handle_key(key, &cwd, pane_key) {
+                show_pane_action(action, session, transcript, surface, requester);
                 requester.schedule_immediate();
                 return;
             }
@@ -6269,6 +7147,7 @@ async fn handle_event(
             let lines = session.todo_overlay.lines();
             if lines.is_empty() {
                 session.notice(transcript, "No plan yet.");
+                flush_history(transcript, surface, requester);
             } else {
                 transcript.push_cell(
                     Box::new(rightkit_terminal_ui::render::cell::PlainCell::new(lines)),
@@ -6278,22 +7157,67 @@ async fn handle_event(
             }
             return;
         }
-        if key.code == KeyCode::Char('o')
-            && key.modifiers.contains(KeyModifiers::CONTROL)
+        if crate::tui_projects::key_matches(&session.proj.settings.key_for("expand_output"), key)
             && key.kind == KeyEventKind::Press
             && session.pending_plan.is_none()
             && session.pending_question.is_none()
         {
-            match session.expandable.take() {
+            // The latest cell first; each further press walks back to the next older tool cell.
+            let shown = match session.expandable.take() {
                 Some(lines) if !lines.is_empty() => {
-                    transcript.push_cell(
+                    session.expand_cursor =
+                        Some(session.expandable_serial.unwrap_or(session.tool_serial + 1));
+                    Some(lines)
+                }
+                _ => {
+                    let below = session.expand_cursor.unwrap_or(session.tool_serial + 1);
+                    session
+                        .tool_history
+                        .iter()
+                        .rev()
+                        .find(|(serial, _)| *serial < below)
+                        .map(|(serial, lines)| {
+                            session.expand_cursor = Some(*serial);
+                            lines.clone()
+                        })
+                }
+            };
+            match shown {
+                Some(lines) if !lines.is_empty() => {
+                    transcript.push_expansion_cell(
                         Box::new(rightkit_terminal_ui::render::cell::PlainCell::new(lines)),
                         &session.theme,
                     );
                     flush_history(transcript, surface, requester);
                 }
-                _ => session.notice(transcript, "Nothing to expand."),
+                _ => {
+                    session.notice(transcript, "Nothing to expand.");
+                    flush_history(transcript, surface, requester);
+                }
             }
+            requester.schedule_immediate();
+            return;
+        }
+        if crate::tui_projects::key_matches(&session.proj.settings.key_for("collapse_turns"), key)
+            && key.kind == KeyEventKind::Press
+            && session.pending_plan.is_none()
+            && session.pending_question.is_none()
+            && surface.mode() == ScreenMode::Inline
+        {
+            // Fold or unfold: the screen is cleared and the settled chat repainted without (or with) the
+            // tool outputs expanded through Ctrl+O. The chat itself is untouched.
+            session.fold_turns = !session.fold_turns;
+            session.reprint_request = true;
+            session.notice(
+                transcript,
+                if session.fold_turns {
+                    "Tool output of finished turns folded. Alt+C unfolds it."
+                } else {
+                    "Tool output of finished turns unfolded."
+                },
+            );
+            flush_history(transcript, surface, requester);
+            requester.schedule_immediate();
             return;
         }
         if is_ctrl_c(key) && turn.is_some() {
@@ -6303,11 +7227,24 @@ async fn handle_event(
                 return;
             }
             composer.set_streaming(false);
+            composer.note_ctrl_c_turn_cancel();
             session.working_started = None;
             session.working_signal = None;
             session.clear_interaction();
             session.approval_input_safe = true;
-            session.notice(transcript, "Turn cancelled (Ctrl-C).");
+            // Ctrl-C stops; it never starts work. The queued messages stay
+            // queued and visible ("held"), and go out after the next turn
+            // ends, whatever its exit code. A second press reaches the idle
+            // composer (`Composer::handle_ctrl_c`): it keeps the draft and only
+            // arms the quit, so a third press within 500 ms quits. It never
+            // sends the queue.
+            match interjections.len() {
+                0 => session.notice(transcript, "Turn cancelled (Ctrl-C)."),
+                queued => session.notice(
+                    transcript,
+                    format!("Turn cancelled (Ctrl-C). {queued} queued message(s) kept, not sent."),
+                ),
+            }
             flush_history(transcript, surface, requester);
             return;
         }
@@ -6344,33 +7281,67 @@ async fn handle_event(
                     Err(error) => session.notice(transcript, error),
                 }
             } else if key.code == KeyCode::Esc {
-                // Esc on a question declines it: the model is told the user
-                // declined and the turn keeps going (Ctrl-C still cancels).
-                if let Some(question_id) = session
-                    .pending_question
-                    .as_ref()
-                    .map(|pending| pending.question_id.clone())
-                {
-                    let declined = serde_json::json!({ "__declined": true });
-                    match host.answer_question(&question_id, declined).await {
-                        Ok(()) => {
-                            session.record(
-                                transcript,
-                                DaemonEvent::UserQuestionAnswered { question_id },
-                            );
-                            session.notice(transcript, "Question declined.");
-                        }
+                // Esc on a question declines that one question (R40): the
+                // model is told it was declined, answers already given are
+                // kept, the next question is asked and the turn keeps going
+                // (Ctrl-C still cancels). Esc on the retry card, where every
+                // question is already answered, declines the whole call.
+                let mut submit: Option<(String, serde_json::Value)> = None;
+                if let Some(pending) = session.pending_question.as_mut() {
+                    if pending.current < pending.prompts.len() {
+                        pending.answers.insert(
+                            pending.current.to_string(),
+                            serde_json::json!({ "__declined": true }),
+                        );
+                        pending.current += 1;
+                        pending.answer_text.clear();
+                        pending.selected = 0;
+                        pending.toggled.clear();
+                        session.notice(transcript, "Question declined.");
+                    } else {
+                        pending.answers.clear();
+                        pending.answers.insert("__declined".into(), true.into());
+                    }
+                }
+                if let Some(pending) = session.pending_question.as_ref() {
+                    if pending.current >= pending.prompts.len() {
+                        submit = Some((
+                            pending.question_id.clone(),
+                            serde_json::Value::Object(pending.answers.clone()),
+                        ));
+                    }
+                }
+                if let Some((question_id, answers)) = submit {
+                    match host.answer_question(&question_id, answers).await {
+                        Ok(()) => session.record(
+                            transcript,
+                            DaemonEvent::UserQuestionAnswered { question_id },
+                        ),
                         Err(error) => session.notice(transcript, error),
                     }
                 }
             } else if let Some(pending) = session.pending_plan.as_mut() {
                 match key.code {
-                    KeyCode::Char('y' | 'Y') => pending.decision = Some(true),
-                    KeyCode::Char('n' | 'N') => pending.decision = Some(false),
+                    KeyCode::Char('y' | 'Y') => {
+                        pending.decision = Some(true);
+                        pending.clear_context = false;
+                    }
+                    KeyCode::Char('c' | 'C') => {
+                        pending.decision = Some(true);
+                        pending.clear_context = true;
+                    }
+                    KeyCode::Char('n' | 'N') => {
+                        pending.decision = Some(false);
+                        pending.clear_context = false;
+                    }
                     KeyCode::Enter => {
                         if let Some(approved) = pending.decision {
                             let plan_id = pending.plan_id.clone();
-                            match host.resolve_plan(&plan_id, approved).await {
+                            let clear_context = pending.clear_context;
+                            match host
+                                .resolve_plan_with_context(&plan_id, approved, clear_context)
+                                .await
+                            {
                                 Ok(()) => session.record(
                                     transcript,
                                     DaemonEvent::PlanResolved { plan_id, approved },
@@ -6491,8 +7462,8 @@ async fn handle_event(
                     _ => {}
                 }
                 if let Some(answer) = commit {
-                    if let Some(prompt) = &current_prompt {
-                        pending.answers.insert(prompt.header.clone(), answer);
+                    if current_prompt.is_some() {
+                        pending.answers.insert(pending.current.to_string(), answer);
                         pending.current += 1;
                         pending.answer_text.clear();
                         pending.selected = 0;
@@ -6535,7 +7506,7 @@ async fn handle_event(
             let forwarded = session
                 .approval_overlay
                 .current_request()
-                .map(|request| approval_overlay_key(key, request))
+                .map(|request| approval_overlay_key(key, request, &session.proj.settings))
                 .unwrap_or(TuiEvent::Key(*key));
             let outcome = session.approval_overlay.handle(&forwarded);
             let mut rejected_any = false;
@@ -6556,6 +7527,9 @@ async fn handle_event(
                             ApprovalDecision::ApprovedForPrefix => {
                                 let entry = session.approval_allow_rules.remove(&request_id);
                                 let outcome = install_allow_rule(host, entry, &session_id).await;
+                                if outcome.is_ok() {
+                                    session.always_grants.insert(request_id.clone());
+                                }
                                 if let Err(error) = outcome {
                                     session.notice(
                                         transcript,
@@ -6592,6 +7566,7 @@ async fn handle_event(
                             }
                             Err(error) => {
                                 session.session_grants.remove(&request_id);
+                                session.always_grants.remove(&request_id);
                                 session.notice(transcript, error)
                             }
                         }
@@ -6682,11 +7657,13 @@ async fn handle_event(
             if chat_shortcuts
                 && !session.subagents_focused
                 && key.kind == KeyEventKind::Press
-                && (key.modifiers == KeyModifiers::CONTROL
-                    || (key.modifiers == KeyModifiers::NONE
-                        && session.selected_copy_message.is_some()))
+                && (crate::tui_projects::key_matches(
+                    &session.proj.settings.key_for("copy_select"),
+                    key,
+                ) || (key.modifiers == KeyModifiers::NONE
+                    && key.code == KeyCode::Up
+                    && session.selected_copy_message.is_some()))
                 && composer.is_empty()
-                && key.code == KeyCode::Up
             {
                 // CG-A05: plain Up belongs to prompt history. Ctrl+Up enters
                 // assistant-copy selection; plain arrows then navigate it.
@@ -6701,7 +7678,7 @@ async fn handle_event(
                     let selected = session.selected_copy_message.unwrap_or(newest);
                     session.notice(
                         transcript,
-                        format!("Assistant message {} selected · ↑ older · ↓ newer · c copy · Esc clear", selected + 1),
+                        format!("Assistant message {} selected · ↑ older · ↓ newer · c copy · b code blocks · Esc clear", selected + 1),
                     );
                     requester.schedule_immediate();
                     return;
@@ -6725,7 +7702,7 @@ async fn handle_event(
                     session.selected_copy_message = Some(selected);
                     session.notice(
                         transcript,
-                        format!("Assistant message {} selected · ↑ older · ↓ newer · c copy · Esc clear", selected + 1),
+                        format!("Assistant message {} selected · ↑ older · ↓ newer · c copy · b code blocks · Esc clear", selected + 1),
                     );
                 }
                 requester.schedule_immediate();
@@ -6747,11 +7724,13 @@ async fn handle_event(
                 && key.code == KeyCode::Char('c')
                 && key.modifiers == KeyModifiers::NONE
                 && composer.is_empty()
+                // Only with a message selected: a bare `c` in an empty
+                // composer is otherwise the first letter of a new message.
+                && session.selected_copy_message.is_some()
             {
                 if let Some(markdown) = session
                     .selected_copy_message
                     .and_then(|index| transcript.assistant_markdown_at(index))
-                    .or_else(|| transcript.latest_assistant_markdown())
                 {
                     let copied = markdown.to_string();
                     session.notice(transcript, clipboard_copy_notice(&copied));
@@ -6762,9 +7741,53 @@ async fn handle_event(
             if chat_shortcuts
                 && !session.subagents_focused
                 && key.kind == KeyEventKind::Press
+                && key.code == KeyCode::Char('b')
+                && key.modifiers == KeyModifiers::NONE
+                && composer.is_empty()
+                // Like `c`: only with a message selected, so a bare `b` still types.
+                && session.selected_copy_message.is_some()
+            {
+                // The code-block picker had only a mouse entry on a hint row that is no longer drawn.
+                if let Some(markdown) = session
+                    .selected_copy_message
+                    .and_then(|index| transcript.assistant_markdown_at(index))
+                {
+                    let markdown = markdown.to_string();
+                    let blocks = Transcript::code_blocks_of(&markdown);
+                    if blocks.is_empty() {
+                        session.notice(transcript, "No code blocks in this message.");
+                    } else {
+                        let listing = blocks
+                            .iter()
+                            .enumerate()
+                            .take(9)
+                            .map(|(index, (language, _))| {
+                                format!("{} {}", index + 1, language.as_deref().unwrap_or("text"))
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        session.copy_picker = Some(CopyPickerState {
+                            markdown,
+                            code_blocks: blocks,
+                            writing_block: false,
+                        });
+                        session.notice(
+                            transcript,
+                            format!("Code blocks: {listing} · number copies · w then number writes a file · f whole message · Esc cancel"),
+                        );
+                    }
+                    requester.schedule_immediate();
+                    return;
+                }
+            }
+            if chat_shortcuts
+                && !session.subagents_focused
+                && key.kind == KeyEventKind::Press
                 && (key.code == KeyCode::Left
-                    || (key.code == KeyCode::Char('t')
-                        && key.modifiers.contains(KeyModifiers::CONTROL)))
+                    || crate::tui_projects::key_matches(
+                        &session.proj.settings.key_for("transcript"),
+                        key,
+                    ))
                 && composer.is_empty()
                 && !session.subagents.is_empty()
             {
@@ -6886,15 +7909,17 @@ async fn handle_event(
             if handle_action_picker(
                 host,
                 event,
-                composer,
-                nav,
-                session,
-                transcript,
+                TuiView {
+                    composer: &mut *composer,
+                    nav: &mut *nav,
+                    session: &mut *session,
+                    transcript: &mut *transcript,
+                    viewed_agent: &mut *viewed_agent,
+                    paging: &mut *paging,
+                },
                 surface,
                 interjections,
                 turn.is_some(),
-                viewed_agent,
-                paging,
                 requester,
             )
             .await
@@ -6929,13 +7954,15 @@ async fn handle_event(
                     Ok(()) => {
                         rebind_view_to_active(
                             host,
-                            composer,
-                            nav,
-                            session,
-                            transcript,
+                            TuiView {
+                                composer: &mut *composer,
+                                nav: &mut *nav,
+                                session: &mut *session,
+                                transcript: &mut *transcript,
+                                viewed_agent: &mut *viewed_agent,
+                                paging: &mut *paging,
+                            },
                             interjections,
-                            viewed_agent,
-                            paging,
                             format!("Opened project {root} · new chat."),
                         )
                         .await;
@@ -7045,13 +8072,88 @@ async fn handle_event(
         }
     }
 
-    // #227: a Ctrl+V / empty paste with an image on the clipboard attaches it
-    // as an `@path` mention the submit path turns into an image block.
+    // Keymap actions that turn into a composer submission (B-cxkeys, B-cxdials): `?` opens the command
+    // list, Alt+<digit> sends a quick slot, `side` starts a side question, `raw` switches the layout,
+    // and Ctrl+Insert copies the newest (or the selected) assistant message.
+    let mut synthesized_enter: Option<TuiEvent> = None;
+    if let TuiEvent::Key(key) = event {
+        if key.kind == KeyEventKind::Press
+            && session.pending_plan.is_none()
+            && session.pending_question.is_none()
+            && session.pending_credential.is_none()
+            && session.pending_trust.is_none()
+        {
+            if crate::tui_projects::key_matches(&session.proj.settings.key_for("raw"), key) {
+                session.raw_toggle = true;
+                requester.schedule_immediate();
+                return;
+            }
+            if composer.is_empty() && session.selected_copy_message.is_none() {
+                let settings = &session.proj.settings;
+                let slot_text = match (key.modifiers, key.code) {
+                    (KeyModifiers::ALT, KeyCode::Char(digit @ '1'..='9')) => {
+                        settings.quick_slot(digit).map(str::to_string)
+                    }
+                    _ => None,
+                };
+                if let Some(text) = slot_text {
+                    composer.set_text(&text);
+                    synthesized_enter = Some(TuiEvent::Key(KeyEvent::new(
+                        KeyCode::Enter,
+                        KeyModifiers::NONE,
+                    )));
+                } else if crate::tui_projects::key_matches(&settings.key_for("help"), key) {
+                    composer.set_text("/help");
+                    synthesized_enter = Some(TuiEvent::Key(KeyEvent::new(
+                        KeyCode::Enter,
+                        KeyModifiers::NONE,
+                    )));
+                } else if crate::tui_projects::key_matches(&settings.key_for("side"), key) {
+                    composer.set_text("/side ");
+                    requester.schedule_immediate();
+                    return;
+                }
+            }
+            if composer.is_empty()
+                && key.code == KeyCode::Insert
+                && key.modifiers == KeyModifiers::CONTROL
+            {
+                let markdown = session
+                    .selected_copy_message
+                    .and_then(|index| transcript.assistant_markdown_at(index))
+                    .or_else(|| transcript.latest_assistant_markdown())
+                    .map(str::to_string);
+                match markdown {
+                    Some(text) => session.notice(transcript, clipboard_copy_notice(&text)),
+                    None => session.notice(transcript, "No assistant message to copy yet."),
+                }
+                flush_history(transcript, surface, requester);
+                requester.schedule_immediate();
+                return;
+            }
+        }
+    }
+    let enter_event;
+    let event = match synthesized_enter {
+        Some(synthetic) => {
+            enter_event = synthetic;
+            &enter_event
+        }
+        None => event,
+    };
+
+    // #227: a Ctrl+V / empty paste with an image on the clipboard inserts an
+    // `[Image #N]` placeholder; `ComposerIntent::Push` expands it back to the
+    // `@path` mention the submit path turns into an image block.
     let image_paste;
     let event = if crate::tui_image_input::is_image_paste_gesture(event) {
         match crate::tui_image_input::capture_clipboard_image() {
             Some(path) => {
-                image_paste = TuiEvent::Paste(crate::tui_image_input::mention_for(&path));
+                let pasted_in = host.current_session();
+                image_paste = TuiEvent::Paste(crate::tui_image_input::placeholder_for(
+                    &path,
+                    pasted_in.as_deref(),
+                ));
                 &image_paste
             }
             None => event,
@@ -7150,14 +8252,16 @@ async fn handle_event(
                 switch_to_session(
                     host,
                     id,
-                    composer,
-                    nav,
-                    session,
-                    transcript,
+                    TuiView {
+                        composer: &mut *composer,
+                        nav: &mut *nav,
+                        session: &mut *session,
+                        transcript: &mut *transcript,
+                        viewed_agent: &mut *viewed_agent,
+                        paging: &mut *paging,
+                    },
                     surface,
                     turn.is_some(),
-                    viewed_agent,
-                    paging,
                 )
                 .await;
             }
@@ -7241,6 +8345,11 @@ async fn handle_event(
             // `/providers` actions are drained by the picker's own handler
             // above; nav never emits one.
             NavIntent::ProviderAction { .. } => {}
+            // Picker `*`: pin or unpin the row; the list is rebuilt so the star and the order show at once.
+            NavIntent::TogglePinSession(id) => {
+                crate::session_seen::toggle_pin(&id.0);
+                host.refresh_nav(nav, turn.is_some()).await;
+            }
             // Picker `r`: same title prompt the `m` -> Rename action opens.
             NavIntent::RenameSession(id) => {
                 session.pending_rename = Some(id.0);
@@ -7266,15 +8375,6 @@ async fn handle_event(
                     host.refresh_nav(nav, turn.is_some()).await;
                 }
             }
-            // `*` on a session row. This host keeps no pin store (the picker's
-            // `pinned` and `unread` are always false), so the key is told so
-            // instead of silently doing nothing.
-            NavIntent::TogglePinSession(_) => {
-                session.notice(
-                    transcript,
-                    "Pinning sessions is not available in this host.",
-                );
-            }
         }
     }
 
@@ -7282,19 +8382,27 @@ async fn handle_event(
         match intent {
             ComposerIntent::Submit(text) => {
                 let session_before = host.current_session();
+                let text = crate::tui_image_input::expand_image_placeholders(
+                    &text,
+                    session_before.as_deref(),
+                );
                 if handle_submit(
                     host,
                     text,
-                    composer,
-                    nav,
-                    session,
-                    transcript,
+                    TuiView {
+                        composer: &mut *composer,
+                        nav: &mut *nav,
+                        session: &mut *session,
+                        transcript: &mut *transcript,
+                        viewed_agent: &mut *viewed_agent,
+                        paging: &mut *paging,
+                    },
                     surface,
                     interjections,
-                    pending_echoes,
-                    viewed_agent,
-                    paging,
-                    turn,
+                    TurnSlots {
+                        pending_echoes: &mut *pending_echoes,
+                        turn: &mut *turn,
+                    },
                     requester,
                 )
                 .await
@@ -7308,13 +8416,15 @@ async fn handle_event(
                     let _ = id;
                     rebind_view_to_active(
                         host,
-                        composer,
-                        nav,
-                        session,
-                        transcript,
+                        TuiView {
+                            composer: &mut *composer,
+                            nav: &mut *nav,
+                            session: &mut *session,
+                            transcript: &mut *transcript,
+                            viewed_agent: &mut *viewed_agent,
+                            paging: &mut *paging,
+                        },
                         interjections,
-                        viewed_agent,
-                        paging,
                         "Switched to selected workspace.".into(),
                     )
                     .await;
@@ -7328,15 +8438,17 @@ async fn handle_event(
                 apply_command_effect(
                     host,
                     effect,
-                    composer,
-                    nav,
-                    session,
-                    transcript,
+                    TuiView {
+                        composer: &mut *composer,
+                        nav: &mut *nav,
+                        session: &mut *session,
+                        transcript: &mut *transcript,
+                        viewed_agent: &mut *viewed_agent,
+                        paging: &mut *paging,
+                    },
                     interjections,
                     turn,
                     requester,
-                    viewed_agent,
-                    paging,
                 )
                 .await;
             }
@@ -7364,43 +8476,46 @@ async fn handle_event(
                 composer.set_streaming(false);
                 session.working_started = None;
                 session.working_signal = None;
-                // Cancel stops the turn, then every queued message is sent
-                // at once, oldest first, as the next turn.
-                match send_queued(
-                    host,
-                    interjections,
-                    session,
-                    transcript,
-                    pending_echoes,
-                    composer,
-                ) {
-                    Some(handle) => {
-                        session.notice(transcript, "Turn cancelled. Sending the queued messages.");
-                        *turn = Some(handle);
-                    }
-                    None => session.notice(transcript, "Turn cancelled."),
+                // Same rule as Ctrl-C: a cancel stops; it never starts work.
+                // The queued messages stay queued and visible, and go out
+                // after the next turn ends, whatever its exit code.
+                match interjections.len() {
+                    0 => session.notice(transcript, "Turn cancelled."),
+                    queued => session.notice(
+                        transcript,
+                        format!("Turn cancelled. {queued} queued message(s) kept, not sent."),
+                    ),
                 }
                 // The stop is ours: show it once, instead of also printing the
-                // runtime's matching `Turn interrupted` (set last: recording a
-                // user message clears the flag).
+                // runtime's matching `Turn interrupted`.
                 session.swallow_interrupt_notice = true;
             }
             ComposerIntent::Push(text) => {
+                // `[Image #N]` placeholders become the `@path` mentions every
+                // route below (submit, steer, queue) attaches from.
+                let text = crate::tui_image_input::expand_image_placeholders(
+                    &text,
+                    host.current_session().as_deref(),
+                );
                 if turn.is_none() || text.trim_start().starts_with('/') {
                     let session_before = host.current_session();
                     if handle_submit(
                         host,
                         text,
-                        composer,
-                        nav,
-                        session,
-                        transcript,
+                        TuiView {
+                            composer: &mut *composer,
+                            nav: &mut *nav,
+                            session: &mut *session,
+                            transcript: &mut *transcript,
+                            viewed_agent: &mut *viewed_agent,
+                            paging: &mut *paging,
+                        },
                         surface,
                         interjections,
-                        pending_echoes,
-                        viewed_agent,
-                        paging,
-                        turn,
+                        TurnSlots {
+                            pending_echoes: &mut *pending_echoes,
+                            turn: &mut *turn,
+                        },
                         requester,
                     )
                     .await
@@ -7414,13 +8529,15 @@ async fn handle_event(
                         let _ = id;
                         rebind_view_to_active(
                             host,
-                            composer,
-                            nav,
-                            session,
-                            transcript,
+                            TuiView {
+                                composer: &mut *composer,
+                                nav: &mut *nav,
+                                session: &mut *session,
+                                transcript: &mut *transcript,
+                                viewed_agent: &mut *viewed_agent,
+                                paging: &mut *paging,
+                            },
                             interjections,
-                            viewed_agent,
-                            paging,
                             "Switched to selected workspace.".into(),
                         )
                         .await;
@@ -7519,20 +8636,22 @@ async fn handle_event(
 ///   here (`TurnHost::fetch_older_history_page`) but not truncatable, so
 ///   there is nothing honest to do. Says so instead of clearing the view
 ///   and calling that a rewind.
-#[allow(clippy::too_many_arguments)]
 async fn apply_command_effect(
     host: &impl TurnHost,
     effect: CommandEffect,
-    composer: &mut Composer,
-    nav: &mut NavView,
-    session: &mut SessionState,
-    transcript: &mut Transcript,
+    view: TuiView<'_>,
     interjections: &InterjectionBuffer,
     turn: &mut Option<JoinHandle<i32>>,
     requester: &FrameRequester,
-    viewed_agent: &mut Option<AgentId>,
-    paging: &mut HistoryPaging,
 ) {
+    let TuiView {
+        composer,
+        nav,
+        session,
+        transcript,
+        viewed_agent,
+        paging,
+    } = view;
     match effect {
         CommandEffect::New => {
             if turn.is_some() {
@@ -7612,41 +8731,33 @@ async fn apply_command_effect(
             );
         }
         CommandEffect::Rewind => {
-            session.notice(
-                transcript,
-                "Rewind is not available from this surface: the session's durable turn ledger is \
-                 readable here (paging) but not truncatable. Nothing was rewound.",
-            );
-        }
-        CommandEffect::Undo => {
-            // The only reversible ledger reachable from this host is the
-            // composer's edit stack; the session-level one lives behind the
-            // daemon. Undo the one that exists and say which it was.
-            if composer.undo_edit() {
+            if turn.is_some() {
                 session.notice(
                     transcript,
-                    "Undid the last composer edit (the only reversible ledger this host owns; \
-                     session history is unchanged).",
+                    "A turn is running; stop it before rewinding. Nothing was changed.",
                 );
             } else {
+                rewind::open(host, session, transcript, requester).await;
+            }
+        }
+        CommandEffect::Undo => {
+            if turn.is_some() {
                 session.notice(
                     transcript,
-                    "Nothing to undo: the composer's edit ledger is empty.",
+                    "A turn is running; stop it before undoing. Nothing was changed.",
                 );
+            } else {
+                rewind::undo(host, composer, session, transcript).await;
             }
         }
         CommandEffect::Redo => {
-            if composer.redo_edit() {
+            if turn.is_some() {
                 session.notice(
                     transcript,
-                    "Redid the last undone composer edit (the only reversible ledger this host owns; \
-                     session history is unchanged).",
+                    "A turn is running; stop it before redoing. Nothing was changed.",
                 );
             } else {
-                session.notice(
-                    transcript,
-                    "Nothing to redo: no composer edit has been undone since the last one.",
-                );
+                rewind::redo(host, composer, session, transcript).await;
             }
         }
     }
@@ -7710,6 +8821,15 @@ fn spawn_target_turn(
     }
 }
 
+/// Prompt for the `/init` turn, spawned through the TUI so it shows a working
+/// row and Ctrl-C can cancel it.
+fn init_workspace_prompt(root: &str) -> String {
+    format!(
+        "Initialize this workspace for {app}. Inspect the repository, then create or update its project guidance file using the normal FileService tools available to this turn. Keep instructions specific to this repository, preserve existing useful guidance, and report what changed. Workspace: {root}",
+        app = rightkit_agent_config::app_name()
+    )
+}
+
 /// Whether a system line is the bare label of an internal wire event: a
 /// bracketed camelCase identifier (`[selfReviewProposalReceived]`), optionally
 /// followed by clipped payload text. Human notices (`[exit 3]`,
@@ -7726,6 +8846,85 @@ fn is_internal_wire_label(text: &str) -> bool {
         && label.chars().next().is_some_and(|c| c.is_ascii_lowercase())
         && label.chars().all(|c| c.is_ascii_alphanumeric())
         && label.chars().any(|c| c.is_ascii_uppercase())
+}
+
+/// Latest non-"allowed" vendor rate-limit telemetry, kept for the footer.
+#[derive(Debug, Clone)]
+struct RateLimitState {
+    status: String,
+    account: Option<String>,
+    window: Option<String>,
+    resets_at: Option<u64>,
+    utilization_permille: Option<u32>,
+}
+
+/// Current unix seconds for rate-limit staleness checks.
+fn rate_limit_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs())
+}
+
+/// `HH:MM UTC` for a unix-seconds instant. No local-time helper exists in
+/// this host and no time dependency is added, so the clock is UTC.
+fn rate_limit_clock(unix_secs: u64) -> String {
+    let day_secs = unix_secs % 86_400;
+    format!("{:02}:{:02} UTC", day_secs / 3600, day_secs % 3600 / 60)
+}
+
+/// The one-time transcript notice for a rate-limit status change. Names the
+/// account when reported, so a user with several accounts knows which one.
+fn rate_limit_notice(state: &RateLimitState) -> String {
+    let window = state.window.as_deref().unwrap_or("usage");
+    let who = state
+        .account
+        .as_deref()
+        .map(|account| format!(" for {account}"))
+        .unwrap_or_default();
+    if state.status == "rejected" {
+        match state.resets_at {
+            Some(at) => format!(
+                "Rate limit reached{who} ({window} limit); resets {}. Continue on another account to keep working.",
+                rate_limit_clock(at)
+            ),
+            None => format!(
+                "Rate limit reached{who} ({window} limit). Continue on another account to keep working."
+            ),
+        }
+    } else if let Some(permille) = state.utilization_permille {
+        format!(
+            "Rate limit warning{who}: {window} limit {} ({}% used)",
+            state.status,
+            (permille + 5) / 10
+        )
+    } else {
+        format!("Rate limit warning{who}: {window} limit {}", state.status)
+    }
+}
+
+/// Footer warning for the current rate-limit state. A state whose reset
+/// time has passed is stale (durable events replay on resume) and shows
+/// nothing.
+fn rate_limit_footer(state: Option<&RateLimitState>, now_secs: u64) -> Option<String> {
+    let state = state?;
+    if state.resets_at.is_some_and(|at| at <= now_secs) {
+        return None;
+    }
+    let window = state.window.as_deref().unwrap_or("usage");
+    match state.status.as_str() {
+        "rejected" => Some(match state.resets_at {
+            Some(at) => format!(
+                "⚠ rate limit reached ({window}), resets {}",
+                rate_limit_clock(at)
+            ),
+            None => format!("⚠ rate limit reached ({window})"),
+        }),
+        "allowed_warning" => Some(match state.utilization_permille {
+            Some(permille) => format!("⚠ rate limit: {window} {}% used", (permille + 5) / 10),
+            None => format!("⚠ rate limit: {window} near limit"),
+        }),
+        _ => None,
+    }
 }
 
 /// The real exit code of a failed shell result. The runtime puts the
@@ -7846,8 +9045,8 @@ fn export_file_name(session_id: &str, format: &str) -> String {
         short
     };
     format!(
-        "{app}-session-{short}.{format}",
-        app = crate::host_identity::app()
+        "{}-{short}.{format}",
+        crate::host_identity::prefixed("session")
     )
 }
 
@@ -7864,10 +9063,12 @@ fn write_session_export(
     Ok(path)
 }
 
-/// Pull the new id out of the host's "Cloned session <id>" confirmation.
-fn parse_cloned_session_id(output: &str) -> Option<String> {
+/// Pull the new id out of the host's "Forked session <id>" confirmation (a host
+/// that still words it "Cloned session <id>" is read the same way).
+fn parse_forked_session_id(output: &str) -> Option<String> {
     output
-        .strip_prefix("Cloned session ")
+        .strip_prefix("Forked session ")
+        .or_else(|| output.strip_prefix("Cloned session "))
         .map(|id| id.trim().to_string())
         .filter(|id| !id.is_empty())
 }
@@ -7887,22 +9088,24 @@ fn parse_delete_args(rest: &str) -> (Option<String>, bool) {
     (id, confirmed)
 }
 
-/// `/copy`, `/rename`, `/clone`, `/export`, `/archive`, `/delete` (STATUS P-5).
-#[allow(clippy::too_many_arguments)]
+/// `/copy`, `/rename`, `/fork`, `/export`, `/archive`, `/delete` (STATUS P-5).
 async fn run_session_command(
     host: &impl TurnHost,
     name: &str,
     rest: &str,
-    composer: &mut Composer,
-    nav: &mut NavView,
-    session: &mut SessionState,
-    transcript: &mut Transcript,
+    view: TuiView<'_>,
     surface: &mut Surface,
     interjections: &InterjectionBuffer,
-    viewed_agent: &mut Option<AgentId>,
-    paging: &mut HistoryPaging,
     turn: &Option<JoinHandle<i32>>,
 ) {
+    let TuiView {
+        composer,
+        nav,
+        session,
+        transcript,
+        viewed_agent,
+        paging,
+    } = view;
     let current = host
         .current_session()
         .unwrap_or_else(|| session.active_session.clone());
@@ -7963,26 +9166,48 @@ async fn run_session_command(
                 Err(error) => session.notice(transcript, error),
             }
         }
-        "/clone" => {
-            let source = if rest.is_empty() {
-                current
-            } else {
-                rest.to_string()
+        "/tree" => match host.session_tree_rows().await {
+            Ok(rows) => session.notice(transcript, render_session_tree(&rows, &current)),
+            Err(error) => session.notice(transcript, error),
+        },
+        "/fork" | "/clone" => {
+            // `/clone` is `/fork` of this chat with no argument: it never takes a session id or `back`.
+            let rest = if name == "/clone" { "" } else { rest };
+            // `/fork back N`: branch this chat from just before its Nth-last message.
+            let back =
+                rest.strip_prefix("back")
+                    .map(str::trim)
+                    .map(|n| if n.is_empty() { "1" } else { n });
+            if let Some(n) = back {
+                if n.parse::<usize>().map_or(true, |n| n == 0) {
+                    session.notice(
+                        transcript,
+                        "Usage: /fork back N (N >= 1: fork before your Nth-last message)",
+                    );
+                    return;
+                }
+            }
+            let (action, source, value) = match back {
+                Some(n) => ("fork_back", current.clone(), Some(n)),
+                None if rest.is_empty() => ("fork", current, None),
+                None => ("fork", rest.to_string(), None),
             };
-            match host.session_action("clone", &source, None).await {
-                Ok(output) => match parse_cloned_session_id(&output) {
+            match host.session_action(action, &source, value).await {
+                Ok(output) => match parse_forked_session_id(&output) {
                     Some(id) if turn.is_none() => {
                         switch_to_session(
                             host,
                             SessionId(id),
-                            composer,
-                            nav,
-                            session,
-                            transcript,
+                            TuiView {
+                                composer: &mut *composer,
+                                nav: &mut *nav,
+                                session: &mut *session,
+                                transcript: &mut *transcript,
+                                viewed_agent: &mut *viewed_agent,
+                                paging: &mut *paging,
+                            },
                             surface,
                             false,
-                            viewed_agent,
-                            paging,
                         )
                         .await;
                     }
@@ -8050,22 +9275,48 @@ async fn run_session_command(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+/// `/word` (letters, digits, `-`, `_`, `:`): a slash-command spelling, as
+/// opposed to a prompt that starts with a path such as `/tmp/out.log`.
+fn is_command_shaped(head: &str) -> bool {
+    head.strip_prefix('/').is_some_and(|name| {
+        !name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':'))
+    })
+}
+
+/// The turn directives `handle_submit` interprets itself (exact `/cancel`,
+/// `/stop`, `/abort`; `/reprompt` or `/replace` with a payload).
+fn is_turn_directive(lower_head: &str, rest: &str) -> bool {
+    match lower_head {
+        "/cancel" | "/stop" | "/abort" => rest.is_empty(),
+        "/reprompt" | "/replace" => !rest.is_empty(),
+        _ => false,
+    }
+}
+
 async fn handle_submit(
     host: &impl TurnHost,
     text: String,
-    composer: &mut Composer,
-    nav: &mut NavView,
-    session: &mut SessionState,
-    transcript: &mut Transcript,
+    view: TuiView<'_>,
     surface: &mut Surface,
     interjections: &InterjectionBuffer,
-    pending_echoes: &mut std::collections::VecDeque<String>,
-    viewed_agent: &mut Option<AgentId>,
-    paging: &mut HistoryPaging,
-    turn: &mut Option<JoinHandle<i32>>,
+    slots: TurnSlots<'_>,
     requester: &FrameRequester,
 ) -> bool {
+    let TuiView {
+        composer,
+        nav,
+        session,
+        transcript,
+        viewed_agent,
+        paging,
+    } = view;
+    let TurnSlots {
+        pending_echoes,
+        turn,
+    } = slots;
     // #140: while an agent view is open (picker Enter), a plain message goes
     // to that running subagent through the live followup/steer channel.
     if let Some(agent) = viewed_agent.clone() {
@@ -8110,13 +9361,18 @@ async fn handle_submit(
         return false;
     }
     // `!cmd` / `!!cmd`: user-initiated shell command, not a prompt.
-    if let Some(shell) = rightkit_terminal_ui::user_shell::parse(&text) {
+    // `!{cmd}` opens an inline shell marker inside a prompt, not a `!cmd` of its own.
+    if let Some(shell) = rightkit_terminal_ui::user_shell::parse(&text)
+        .filter(|_| !text.trim_start().starts_with("!{"))
+    {
         run_user_shell(host, shell, session, transcript, surface, requester).await;
         composer.set_shell_running(rightkit_terminal_ui::user_shell::is_active());
         return false;
     }
     // #132: a custom command submits its expanded prompt instead.
-    let text = host.custom_command_prompt(&text).unwrap_or(text);
+    let custom = host.custom_command_prompt(&text);
+    let expanded_custom = custom.is_some();
+    let text = custom.unwrap_or(text);
     let mid_turn = turn.is_some();
     let command_text = text.trim_start();
     let head = command_text.split_whitespace().next().unwrap_or("");
@@ -8153,30 +9409,143 @@ async fn handle_submit(
                             Ok(line) => session.notice(transcript, line),
                             Err(reason) => session.notice(transcript, reason),
                         }
-                        let followup = host.take_followup_prompt();
-                        requester.schedule_frame();
-                        if let Some(prompt) = followup.filter(|_| !mid_turn) {
-                            return Box::pin(handle_submit(
-                                host,
-                                prompt,
-                                composer,
-                                nav,
-                                session,
-                                transcript,
-                                surface,
-                                interjections,
-                                pending_echoes,
-                                viewed_agent,
-                                paging,
-                                turn,
-                                requester,
-                            ))
-                            .await;
+                        // The follow-up is model input, never a command line: it must
+                        // not re-enter `handle_submit`, where `/quit` or `!cmd` would act.
+                        if let Some(prompt) = host.take_followup_prompt() {
+                            if mid_turn {
+                                interjections.push(prompt, InterjectKind::Steer);
+                                session.notice(
+                                    transcript,
+                                    "Goal set; its first prompt is queued and goes out after the running turn ends.",
+                                );
+                            } else {
+                                start_prompt_turn(
+                                    host,
+                                    TuiView {
+                                        composer: &mut *composer,
+                                        nav: &mut *nav,
+                                        session: &mut *session,
+                                        transcript: &mut *transcript,
+                                        viewed_agent: &mut *viewed_agent,
+                                        paging: &mut *paging,
+                                    },
+                                    surface,
+                                    TurnSlots {
+                                        pending_echoes: &mut *pending_echoes,
+                                        turn: &mut *turn,
+                                    },
+                                    requester,
+                                    prompt,
+                                )
+                                .await;
+                            }
                         }
+                        requester.schedule_frame();
+                        return false;
+                    }
+                    if name == "/changes"
+                        && (rest.trim() == "send" || rest.trim_start().starts_with("comment "))
+                    {
+                        let words = rest.trim_start().strip_prefix("comment ");
+                        match words {
+                            Some(words) => {
+                                let (line, text) =
+                                    words.trim_start().split_once(' ').unwrap_or((words, ""));
+                                let action = match line.parse::<usize>() {
+                                    Ok(n) => session.panes.add_comment(n, text),
+                                    Err(_) => crate::tui_panes::PaneAction::Notice(
+                                        "usage: /changes comment <line> <text>".into(),
+                                    ),
+                                };
+                                show_pane_action(action, session, transcript, surface, requester);
+                            }
+                            None => match session.panes.take_feedback_prompt() {
+                                None => session.notice(transcript, "No review comments to send."),
+                                // Like a goal's first prompt: queued behind a running turn, else started now.
+                                Some(prompt) if mid_turn => {
+                                    interjections.push(prompt, InterjectKind::Steer);
+                                    session.notice(transcript, "Review comments queued; they go out after the running turn ends.");
+                                }
+                                Some(prompt) => {
+                                    start_prompt_turn(
+                                        host,
+                                        TuiView {
+                                            composer: &mut *composer,
+                                            nav: &mut *nav,
+                                            session: &mut *session,
+                                            transcript: &mut *transcript,
+                                            viewed_agent: &mut *viewed_agent,
+                                            paging: &mut *paging,
+                                        },
+                                        surface,
+                                        TurnSlots {
+                                            pending_echoes: &mut *pending_echoes,
+                                            turn: &mut *turn,
+                                        },
+                                        requester,
+                                        prompt,
+                                    )
+                                    .await;
+                                }
+                            },
+                        }
+                        requester.schedule_frame();
+                        return false;
+                    }
+                    if name == "/raw" {
+                        session.raw_toggle = true;
+                        requester.schedule_immediate();
+                        return false;
+                    }
+                    if matches!(name.as_str(), "/observability" | "/ci" | "/changes") {
+                        // Same handlers as the Alt chords, for terminals that never send Alt.
+                        use crate::tui_panes::PaneKey;
+                        let pane = match (name.as_str(), rest.trim()) {
+                            ("/observability", "") => Some(PaneKey::Observability),
+                            ("/ci", "") => Some(PaneKey::CiBand),
+                            ("/changes", "") => Some(PaneKey::DiffOpen),
+                            ("/changes", "next") => Some(PaneKey::HunkNext),
+                            ("/changes", "prev") => Some(PaneKey::HunkPrev),
+                            ("/changes", "accept") => Some(PaneKey::HunkAccept),
+                            ("/changes", "revert") => Some(PaneKey::HunkRevert),
+                            _ => None,
+                        };
+                        match pane {
+                            None => session.notice(
+                                transcript,
+                                if name == "/changes" {
+                                    "usage: /changes [next|prev|accept|revert|comment <line> <text>|send]"
+                                } else {
+                                    "usage: /observability, /ci"
+                                },
+                            ),
+                            Some(pane) => {
+                                let cwd = host
+                                    .active_directory()
+                                    .map(std::path::PathBuf::from)
+                                    .unwrap_or_default();
+                                match session.panes.run(pane, &cwd) {
+                                    Some(action) => {
+                                        show_pane_action(action, session, transcript, surface, requester)
+                                    }
+                                    None => session.notice(transcript, "Run /changes first to load the changes."),
+                                }
+                            }
+                        }
+                        requester.schedule_immediate();
                         return false;
                     }
                     if name == "/diff" {
-                        match host.workspace_diff().await {
+                        let turn_only = match rest.trim() {
+                            "" => false,
+                            "turn" => true,
+                            _ => {
+                                session.notice(transcript, "usage: /diff [turn]");
+                                requester.schedule_immediate();
+                                return false;
+                            }
+                        };
+                        match host.workspace_diff(turn_only).await {
                             Ok(diff) => {
                                 session.inspection =
                                     Some(crate::tui_inspection::InspectionState::diff(&diff));
@@ -8233,13 +9602,36 @@ async fn handle_submit(
                         return false;
                     }
                     if name == "/init" {
-                        let result = if rest.trim().is_empty() {
-                            host.init_workspace().await
+                        if !rest.trim().is_empty() {
+                            session.notice(transcript, "usage: /init");
+                        } else if session.active_agent.is_some() {
+                            // spawn_target_turn would route the prompt to the child agent.
+                            session.notice(
+                                transcript,
+                                "Return to the main session before running /init.",
+                            );
+                        } else if let Some(root) = host.active_directory() {
+                            start_prompt_turn(
+                                host,
+                                TuiView {
+                                    composer: &mut *composer,
+                                    nav: &mut *nav,
+                                    session: &mut *session,
+                                    transcript: &mut *transcript,
+                                    viewed_agent: &mut *viewed_agent,
+                                    paging: &mut *paging,
+                                },
+                                surface,
+                                TurnSlots {
+                                    pending_echoes: &mut *pending_echoes,
+                                    turn: &mut *turn,
+                                },
+                                requester,
+                                init_workspace_prompt(&root),
+                            )
+                            .await;
                         } else {
-                            Err("usage: /init".to_string())
-                        };
-                        match result {
-                            Ok(output) | Err(output) => session.notice(transcript, output),
+                            session.notice(transcript, "Select a workspace before running /init");
                         }
                         requester.schedule_frame();
                         return false;
@@ -8249,13 +9641,15 @@ async fn handle_submit(
                             Ok(()) => {
                                 rebind_view_to_active(
                                     host,
-                                    composer,
-                                    nav,
-                                    session,
-                                    transcript,
+                                    TuiView {
+                                        composer: &mut *composer,
+                                        nav: &mut *nav,
+                                        session: &mut *session,
+                                        transcript: &mut *transcript,
+                                        viewed_agent: &mut *viewed_agent,
+                                        paging: &mut *paging,
+                                    },
                                     interjections,
-                                    viewed_agent,
-                                    paging,
                                     format!("Switched workspace to {}", rest.trim()),
                                 )
                                 .await;
@@ -8319,13 +9713,15 @@ async fn handle_submit(
                                     Ok(()) => {
                                         rebind_view_to_active(
                                             host,
-                                            composer,
-                                            nav,
-                                            session,
-                                            transcript,
+                                            TuiView {
+                                                composer: &mut *composer,
+                                                nav: &mut *nav,
+                                                session: &mut *session,
+                                                transcript: &mut *transcript,
+                                                viewed_agent: &mut *viewed_agent,
+                                                paging: &mut *paging,
+                                            },
                                             interjections,
-                                            viewed_agent,
-                                            paging,
                                             format!("Switched workspace to worktree {path}"),
                                         )
                                         .await;
@@ -8342,7 +9738,9 @@ async fn handle_submit(
                         name.as_str(),
                         "/copy"
                             | "/rename"
+                            | "/fork"
                             | "/clone"
+                            | "/tree"
                             | "/export"
                             | "export"
                             | "/archive"
@@ -8352,14 +9750,16 @@ async fn handle_submit(
                             host,
                             &name,
                             &rest,
-                            composer,
-                            nav,
-                            session,
-                            transcript,
+                            TuiView {
+                                composer: &mut *composer,
+                                nav: &mut *nav,
+                                session: &mut *session,
+                                transcript: &mut *transcript,
+                                viewed_agent: &mut *viewed_agent,
+                                paging: &mut *paging,
+                            },
                             surface,
                             interjections,
-                            viewed_agent,
-                            paging,
                             turn,
                         )
                         .await;
@@ -8367,7 +9767,7 @@ async fn handle_submit(
                         return false;
                     }
                     let should_stop = host.execute_command(&name, &rest).await;
-                    if name == "/theme" || name == "/vim" {
+                    if name == "/theme" || name == "/vim" || name == "/statusline" {
                         session.proj.settings_dirty = true;
                     }
                     if should_stop {
@@ -8382,6 +9782,21 @@ async fn handle_submit(
                 }
                 Err(reason) => session.notice(transcript, reason),
             }
+            requester.schedule_frame();
+            return false;
+        }
+        // L1: a command-shaped head (`/word`, not a path like `/tmp/x`) that
+        // no registry, custom command or turn directive knows is a typo:
+        // say so instead of spending a turn on it or steering it into the
+        // running one.
+        if !expanded_custom
+            && is_command_shaped(head)
+            && !is_turn_directive(&head.to_ascii_lowercase(), &rest)
+        {
+            session.notice(
+                transcript,
+                format!("Unknown command: {head}. Type /help for the list of commands."),
+            );
             requester.schedule_frame();
             return false;
         }
@@ -8418,11 +9833,13 @@ async fn handle_submit(
                 // A stop discards everything queued around it: after "stop",
                 // nothing else in the FIFO is a request the user still wants
                 // carried out. The stop itself never enters the buffer.
-                interjections.clear();
+                // Clear only once the cancel succeeded: a failed cancel leaves
+                // the turn running and the queue intact.
                 if let Err(error) = cancel_active_turn(host, turn).await {
                     session.notice(transcript, error);
                     return false;
                 }
+                interjections.clear();
                 composer.set_streaming(false);
                 session.working_started = None;
                 session.working_signal = None;
@@ -8434,11 +9851,13 @@ async fn handle_submit(
                 // re-prompt envelope (note + <user_query> + unfinished-work
                 // reminder) with UTF-8-boundary truncation already applied by
                 // `frame_reprompt`.
-                interjections.clear();
+                // Clear only once the cancel succeeded: a failed cancel leaves
+                // the turn running and the queue intact.
                 if let Err(error) = cancel_active_turn(host, turn).await {
                     session.notice(transcript, error);
                     return false;
                 }
+                interjections.clear();
                 composer.set_streaming(true);
                 session.working_started = Some(Instant::now());
                 session.working_signal = None;
@@ -8458,6 +9877,53 @@ async fn handle_submit(
         return false;
     }
 
+    // A prompt the user typed may carry `!{cmd}` markers; the turn expands them (a custom
+    // command's markers were expanded already, and its output is never scanned again).
+    if !expanded_custom && session.active_agent.is_none() {
+        host.stage_inline_shell(&text);
+    }
+    start_prompt_turn(
+        host,
+        TuiView {
+            composer: &mut *composer,
+            nav: &mut *nav,
+            session: &mut *session,
+            transcript: &mut *transcript,
+            viewed_agent: &mut *viewed_agent,
+            paging: &mut *paging,
+        },
+        surface,
+        TurnSlots {
+            pending_echoes: &mut *pending_echoes,
+            turn: &mut *turn,
+        },
+        requester,
+        text,
+    )
+    .await;
+    false
+}
+
+/// Echo `text` as the session's next prompt and spawn its turn (on the viewed
+/// agent when one is active). Callers guarantee no turn is in flight.
+async fn start_prompt_turn(
+    host: &impl TurnHost,
+    view: TuiView<'_>,
+    surface: &mut Surface,
+    slots: TurnSlots<'_>,
+    requester: &FrameRequester,
+    text: String,
+) {
+    let TuiView {
+        composer,
+        session,
+        transcript,
+        ..
+    } = view;
+    let TurnSlots {
+        pending_echoes,
+        turn,
+    } = slots;
     // A turn that ended through Ctrl-C/cancel_active_turn never ran the
     // `wait_turn` branch's tail drain, so its already-queued canonical
     // events (final deltas, tool results, the interrupted notice) can still
@@ -8471,11 +9937,21 @@ async fn handle_submit(
     flush_history(transcript, surface, requester);
 
     // S:I3 — the submitted prompt is the session's next typed event.
-    record_local_submission(session, transcript, pending_echoes, &text);
+    let echo_deferred = host.inline_shell_staged(&text);
+    if !echo_deferred {
+        record_local_submission(session, transcript, pending_echoes, &text);
+    }
+    // The turn uploads any image file the prompt names; say so.
+    if let Some(note) = crate::tui_image_input::attachment_notice(
+        &text,
+        host.active_directory().as_deref().map(std::path::Path::new),
+    ) {
+        session.notice(transcript, note);
+    }
     // `!cmd` output queued since the last prompt rides in front of it; the
     // durable echo then carries the framed text, so suppress that instead.
     let prompt = rightkit_terminal_ui::user_shell::frame_with_pending_context(&text);
-    if prompt != text {
+    if prompt != text && !echo_deferred {
         if let Some(echo) = pending_echoes.back_mut() {
             *echo = prompt.clone();
         }
@@ -8492,7 +9968,6 @@ async fn handle_submit(
             None
         }
     };
-    false
 }
 
 /// Process-wide handle to the TUI input reader's pause, set once by `drive`.
@@ -8791,6 +10266,26 @@ fn plan_immediate_interrupt(
     }
 }
 
+/// Put a pane's answer in the transcript: its lines as a cell, or a one-line notice.
+fn show_pane_action(
+    action: crate::tui_panes::PaneAction,
+    session: &mut SessionState,
+    transcript: &mut Transcript,
+    surface: &mut Surface,
+    requester: &FrameRequester,
+) {
+    match action {
+        crate::tui_panes::PaneAction::Show(lines) => {
+            transcript.push_cell(
+                Box::new(rightkit_terminal_ui::render::cell::PlainCell::new(lines)),
+                &session.theme,
+            );
+            flush_history(transcript, surface, requester);
+        }
+        crate::tui_panes::PaneAction::Notice(text) => session.notice(transcript, text),
+    }
+}
+
 fn flush_history(transcript: &mut Transcript, surface: &mut Surface, requester: &FrameRequester) {
     if !surface.can_insert_history() {
         requester.schedule_frame();
@@ -8812,6 +10307,50 @@ fn flush_history(transcript: &mut Transcript, surface: &mut Surface, requester: 
 /// P2-5 eviction salvage, and P2-5 durable-history paging. `&mut` because a
 /// slide-down insertion moves the viewport's top and records the released
 /// band for the next frame's erase pass.
+/// Paint a `.png` a tool read as a Kitty-graphics picture in the scrollback (B-cximages): blank
+/// rows are inserted above the live area and the picture is placed over them, so it scrolls with the
+/// chat. Anything that is not a small valid PNG inside the workspace is skipped silently.
+fn show_kitty_image(surface: &mut Surface, root: Option<&std::path::Path>, path: &str) {
+    use rightkit_terminal_ui::terminal::kitty_image::{
+        cell_box, display_png, png_size, MAX_PNG_BYTES,
+    };
+    let path = std::path::Path::new(path);
+    let full = match (path.is_absolute(), root) {
+        (true, _) => path.to_path_buf(),
+        (false, Some(root)) => root.join(path),
+        (false, None) => return,
+    };
+    let Ok(meta) = std::fs::metadata(&full) else {
+        return;
+    };
+    if !meta.is_file() || meta.len() as usize > MAX_PNG_BYTES {
+        return;
+    }
+    let Ok(bytes) = std::fs::read(&full) else {
+        return;
+    };
+    let Some(size) = png_size(&bytes) else { return };
+    let (screen_cols, _) = surface.screen_size();
+    let (cols, rows) = cell_box(size, (screen_cols / 2).max(1));
+    let Some(sequence) = display_png(&bytes, cols, rows) else {
+        return;
+    };
+    if !surface.can_insert_history() {
+        return;
+    }
+    let blanks: Vec<HyperlinkLine> = (0..rows)
+        .map(|_| HyperlinkLine::from(rightkit_terminal_ui::ratatui::text::Line::from("")))
+        .collect();
+    insert_scrollback_lines(surface, &blanks);
+    let top = surface.viewport().top.saturating_sub(rows);
+    let mut out = io::stdout();
+    // Save the cursor, go to the first reserved row, draw (the picture does not move the cursor), restore.
+    let _ = out.write_all(format!("\x1b7\x1b[{};1H", top + 1).as_bytes());
+    let _ = out.write_all(&sequence);
+    let _ = out.write_all(b"\x1b8");
+    let _ = out.flush();
+}
+
 fn insert_scrollback_lines(surface: &mut Surface, lines: &[HyperlinkLine]) {
     if lines.is_empty() || !surface.can_insert_history() {
         return;
@@ -8824,8 +10363,10 @@ fn insert_scrollback_lines(surface: &mut Surface, lines: &[HyperlinkLine]) {
     let _ = surface.insert_history(&mut out, lines, HistoryLineWrapPolicy::PreWrap, cursor);
 }
 
-/// Rules above/below input plus the one persistent footer row.
-const COMPOSER_CHROME_ROWS: u16 = 3;
+/// One rule above the input plus the one persistent footer row. The footer
+/// sits directly under the composer: dim text separates them, so a second
+/// rule only cost a row.
+const COMPOSER_CHROME_ROWS: u16 = 2;
 
 /// Row geometry of the input frame inside the inline viewport.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -8842,7 +10383,7 @@ struct ChromeLayout {
 
 /// Pack the input frame from the bottom up so the footer is always the last
 /// row of `area`; the transcript tail takes whatever is left above. Rows
-/// degrade (footer, rule, rule, working) when `area` is too short.
+/// degrade (footer, rule, working) when `area` is too short.
 fn chrome_layout(
     area: Rect,
     composer_rows: u16,
@@ -8862,7 +10403,8 @@ fn chrome_layout(
         }
     };
     let footer = take(1, area.y);
-    let rule_bottom = take(1, area.y);
+    // No rule between the composer and the footer (design revision 3).
+    let rule_bottom = take(0, area.y);
     let subagents = take(subagent_rows, area.y);
     let composer = take(composer_rows, area.y);
     let rule_top = take(1, area.y);
@@ -8886,13 +10428,6 @@ fn chrome_layout(
     }
 }
 
-fn agent_count(node: &AgentNode) -> usize {
-    node.children
-        .iter()
-        .map(|child| 1 + agent_count(child))
-        .sum()
-}
-
 /// A dim full-width horizontal rule framing the composer (Claude Code's
 /// input box).
 fn composer_rule(width: u16, theme: &Theme) -> rightkit_terminal_ui::ratatui::text::Line<'static> {
@@ -8903,43 +10438,6 @@ fn composer_rule(width: u16, theme: &Theme) -> rightkit_terminal_ui::ratatui::te
             Style::default().fg(theme.color(rightkit_terminal_ui::component::Role::Dim)),
         ),
     )
-}
-
-/// One dim line for a reasoning block: its bold `**headings**` joined with
-/// ` · `, else its first sentence. The full working notes are the model's, not
-/// the transcript's; the summary says what it was thinking about.
-#[allow(dead_code)]
-fn reasoning_summary(text: &str) -> String {
-    let mut headings: Vec<String> = Vec::new();
-    let mut rest = text;
-    while let Some(start) = rest.find("**") {
-        let after = &rest[start + 2..];
-        let Some(end) = after.find("**") else { break };
-        let heading = after[..end].trim();
-        if !heading.is_empty() && !heading.contains('\n') {
-            headings.push(heading.chars().take(80).collect());
-        }
-        rest = &after[end + 2..];
-        if headings.len() == 3 {
-            break;
-        }
-    }
-    let summary = if headings.is_empty() {
-        text.lines()
-            .map(str::trim)
-            .find(|line| !line.is_empty())
-            .unwrap_or("")
-            .to_string()
-    } else {
-        headings.join(" \u{b7} ")
-    };
-    if summary.chars().count() > 160 {
-        let mut cut: String = summary.chars().take(159).collect();
-        cut.push('…');
-        cut
-    } else {
-        summary
-    }
 }
 
 /// First complete bold `**heading**` in a reasoning summary (Codex status
@@ -9027,7 +10525,18 @@ fn footer_model(host: &impl TurnHost, session: &SessionState) -> String {
 fn footer_right(host: &impl TurnHost, session: &SessionState) -> String {
     let settings = host.tui_settings();
     let show_model = settings.shows("model");
-    let label = footer_model(host, session);
+    let mut label = footer_model(host, session);
+    // More than one model in use: `N models` stands in for the model name.
+    if let Some(root) = &session.cast {
+        let models = rightkit_terminal_ui::render::cast::distinct_models(root);
+        if models > 1 && !label.is_empty() {
+            let effort = label.split_once(" \u{b7} ").map(|(_, e)| e.to_string());
+            label = match effort {
+                Some(e) => format!("{models} models \u{b7} {e}"),
+                None => format!("{models} models"),
+            };
+        }
+    }
     let mut parts = Vec::new();
     if show_model && !label.is_empty() {
         parts.push(label);
@@ -9044,12 +10553,21 @@ fn footer_right(host: &impl TurnHost, session: &SessionState) -> String {
         }
     }
     if settings.shows("cost") {
-        parts.push(
-            session
-                .cost_usd
-                .map(|cost| format!("${cost:.4}"))
-                .unwrap_or_else(|| "cost unavailable".to_string()),
-        );
+        // Nothing to report before the first priced request: say nothing
+        // rather than "cost unavailable" on every idle frame.
+        if let Some(cost) = session.cost_usd {
+            let figure = if cost >= 1.0 {
+                format!("${cost:.2}")
+            } else {
+                format!("${cost:.4}")
+            };
+            // A figure the provider charged is marked apart from a price-table estimate.
+            parts.push(if session.cost_billed {
+                format!("{figure} billed")
+            } else {
+                figure
+            });
+        }
     }
     if settings.shows("cache") {
         if let Some(part) = cache_footer_part(session.last_prompt) {
@@ -9064,6 +10582,16 @@ fn footer_right(host: &impl TurnHost, session: &SessionState) -> String {
     }
     if let Some(chip) = session.panes.footer_chip() {
         parts.push(chip);
+    }
+    if settings.shows("script") && !settings.statusline_command.is_empty() {
+        if let Some(line) = session.status_script.line() {
+            parts.push(line);
+        }
+    }
+    if settings.shows("plugin") {
+        if let Some(part) = session.plugin_slots.footer_part() {
+            parts.push(part);
+        }
     }
     parts.join(" \u{b7} ")
 }
@@ -9138,30 +10666,62 @@ fn left_truncate(text: &str, max: usize) -> String {
     format!("…{}", tail.into_iter().collect::<String>())
 }
 
+/// `~/src/app` for a path under the user's home directory: the home prefix is
+/// noise that pushes the part that identifies the project off the row.
+fn home_relative(path: &str) -> String {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_default();
+    let home = home.trim_end_matches(['/', '\\']);
+    if home.is_empty() {
+        return path.to_string();
+    }
+    match path.strip_prefix(home) {
+        Some("") => "~".to_string(),
+        Some(rest) if rest.starts_with(['/', '\\']) => format!("~{rest}"),
+        _ => path.to_string(),
+    }
+}
+
 /// Static marker for startup progress in the footer.
 const STARTUP_GLYPH: &str = "•";
 /// Seconds a startup phase must run before the footer shows a clock for it.
 const STARTUP_CLOCK_AFTER_SECS: u64 = 5;
 
+/// What the footer row shows: the directory, branch, model and permission mode, the host's
+/// startup state, the agent breadcrumb, a warning and the goal chip.
+struct FooterContent<'a> {
+    cwd: &'a str,
+    branch: Option<&'a str>,
+    model: &'a str,
+    mode: rightkit_agent_policy::PermissionMode,
+    readiness: Option<&'a HostReadiness>,
+    crumb: Option<&'a str>,
+    warning: Option<&'a str>,
+    goal: Option<&'a str>,
+}
+
 /// The one persistent footer row: `<cwd> · <branch> · <Mode>` on the left,
 /// `<model> · <effort>` on the right. The cwd truncates from the left at
 /// narrow widths. Startup progress, a vendor warning, or the agent
 /// breadcrumb appends after the mode; `shortcuts` (F1) swaps in the key list.
-#[allow(clippy::too_many_arguments)]
 fn footer_line(
     width: u16,
-    cwd: &str,
-    branch: Option<&str>,
-    model: &str,
-    mode: rightkit_agent_policy::PermissionMode,
-    readiness: Option<&HostReadiness>,
-    crumb: Option<&str>,
-    warning: Option<&str>,
-    goal: Option<&str>,
+    content: FooterContent<'_>,
     shortcuts: bool,
     startup_secs: u64,
     theme: &Theme,
 ) -> rightkit_terminal_ui::ratatui::text::Line<'static> {
+    let FooterContent {
+        cwd,
+        branch,
+        model,
+        mode,
+        readiness,
+        crumb,
+        warning,
+        goal,
+    } = content;
     use rightkit_agent_policy::PermissionMode;
     use rightkit_terminal_ui::component::Role;
     use rightkit_terminal_ui::ratatui::style::{Modifier, Style};
@@ -9182,16 +10742,12 @@ fn footer_line(
     };
     let mut extra = match (warning.or(crumb), readiness) {
         (Some(text), _) => Some((text.to_string(), Role::Dim)),
-        (None, Some(HostReadiness::Configuring)) => {
-            Some((progress("Resolving provider…"), Role::Dim))
-        }
         (None, Some(HostReadiness::StartingContext)) => {
             Some((progress("Starting context…"), Role::Dim))
         }
-        (None, Some(HostReadiness::Degraded { reason })) => Some((
-            format!("⚠ context off · {}", context_off_code(reason)),
-            Role::Attention,
-        )),
+        (None, Some(HostReadiness::Degraded { reason })) => {
+            Some((context_off_note(reason), Role::Attention))
+        }
         (None, Some(HostReadiness::Failed { .. })) => Some((
             "✗ Context unavailable · submit to retry".to_string(),
             Role::Attention,
@@ -9208,6 +10764,33 @@ fn footer_line(
             .fg(theme.color(Role::Failure))
             .add_modifier(Modifier::BOLD),
     };
+    // The directory outranks the figures: when the row is tight, drop the
+    // right block's trailing parts (cache, cost, context, effort) one at a
+    // time until the last two folders of the path fit. The model never drops.
+    let model = {
+        let shown = home_relative(&rightkit_terminal_ui::render::sanitize(cwd));
+        let tail: String = {
+            let parts: Vec<&str> = shown.split(['/', '\\']).filter(|p| !p.is_empty()).collect();
+            match parts.len() {
+                0..=2 => shown.clone(),
+                n => format!("\u{2026}/{}/{}", parts[n - 2], parts[n - 1]),
+            }
+        };
+        let left_floor = 1
+            + display_width(&tail)
+            + branch.map(|b| display_width(b) + 3).unwrap_or(0)
+            + 3
+            + display_width(permission_mode_footer_label(mode))
+            + 2;
+        let mut parts: Vec<&str> = model.split(" \u{b7} ").collect();
+        while parts.len() > 1
+            && left_floor + display_width(&parts.join(" \u{b7} ")) + 1 > usize::from(width)
+        {
+            parts.pop();
+        }
+        parts.join(" \u{b7} ")
+    };
+    let model = model.as_str();
     let (model_name, effort) = match model.split_once(" · ") {
         Some((m, e)) => (m.to_string(), Some(e.to_string())),
         None => (model.to_string(), None),
@@ -9224,7 +10807,7 @@ fn footer_line(
     let mut left: Vec<Span<'static>>;
     if shortcuts {
         left = vec![Span::styled(
-            " Enter queue/send · Tab push · Shift+Tab mode · Esc cancel · ctrl+x unqueue · /help"
+            " Enter queue/send · Tab push · Shift+Tab mode · Esc cancel · ctrl+↑ c copy answer · ctrl+x unqueue · /help"
                 .to_string(),
             dim,
         )];
@@ -9305,8 +10888,12 @@ fn footer_line(
             + display_width(&extra_text)
             + right_width
             + 1;
-        let cwd_budget = usize::from(width).saturating_sub(fixed).max(4);
-        let cwd = left_truncate(&rightkit_terminal_ui::render::sanitize(cwd), cwd_budget);
+        // Two columns always separate the left block from the right one.
+        let cwd_budget = usize::from(width).saturating_sub(fixed + 2).max(4);
+        let cwd = left_truncate(
+            &home_relative(&rightkit_terminal_ui::render::sanitize(cwd)),
+            cwd_budget,
+        );
         left = vec![
             Span::raw(" "),
             Span::styled(format!("{cwd}{branch_text} · "), dim),
@@ -9340,25 +10927,6 @@ fn footer_line(
         spans.push(Span::raw(" ".repeat(gap)));
         spans.extend(right);
     }
-    rightkit_terminal_ui::render::cell::clipped_line(Line::from(spans), width)
-}
-
-/// Pi footer's cwd projection, clipped through the absorbed Codex helper.
-#[allow(dead_code)]
-fn directory_footer_line(
-    width: u16,
-    directory: Option<&str>,
-    theme: &Theme,
-) -> rightkit_terminal_ui::ratatui::text::Line<'static> {
-    use rightkit_terminal_ui::ratatui::style::Style;
-    use rightkit_terminal_ui::ratatui::text::{Line, Span};
-    let directory = directory.unwrap_or("no directory selected");
-    let directory = rightkit_terminal_ui::render::display_path_str(directory);
-    let directory = rightkit_terminal_ui::render::sanitize(&directory);
-    let spans = vec![Span::styled(
-        format!("  {directory}"),
-        Style::default().fg(theme.color(rightkit_terminal_ui::component::Role::Text)),
-    )];
     rightkit_terminal_ui::render::cell::clipped_line(Line::from(spans), width)
 }
 
@@ -9414,20 +10982,26 @@ fn welcome_lines(
         .collect()
 }
 
-#[allow(clippy::too_many_arguments)]
 fn render(
     host: &impl TurnHost,
     term: &mut Terminal<CrosstermBackend<io::Stdout>>,
     surface: &mut Surface,
-    composer: &mut Composer,
-    nav: &mut NavView,
-    transcript: &mut Transcript,
-    theme: &Theme,
-    session: &mut SessionState,
-    layout: LayoutMode,
-    requester: &FrameRequester,
+    view: TuiView<'_>,
+    ctx: RenderContext<'_>,
     state: &mut RenderState,
 ) {
+    let TuiView {
+        composer,
+        nav,
+        session,
+        transcript,
+        ..
+    } = view;
+    let RenderContext {
+        theme,
+        layout,
+        requester,
+    } = ctx;
     // S:I6 — the strip is a projection of the typed timeline plus the
     // host's committed/pending route state, refreshed once per frame so
     // attribution can never lag the authority it reads. Effort and pending
@@ -9466,6 +11040,15 @@ fn render(
     let screen = surface.screen_size();
     let mode = surface.mode();
 
+    if std::mem::take(&mut session.resumed_from_suspend) {
+        match mode {
+            ScreenMode::Inline => session.clear_screen_requested = true,
+            // `suspend_tui` left the alternate screen: forget the mode so the transition below
+            // enters it again, then repaints the viewport whole.
+            ScreenMode::Alternate => state.mode = None,
+        }
+    }
+
     if std::mem::take(&mut session.clear_screen_requested) && mode == ScreenMode::Inline {
         // Ctrl+L: wipe the visible screen, then repaint the live footprint whole.
         // The session, its history and its scrollback are untouched.
@@ -9474,6 +11057,17 @@ fn render(
             return;
         }
         term.invalidate_viewport();
+    }
+
+    if std::mem::take(&mut session.reprint_request) && mode == ScreenMode::Inline {
+        // Fold / unfold: wipe the visible screen and repaint the settled chat in its new shape.
+        if let Err(error) = term.clear_visible_screen() {
+            note_render_fault(state, session, transcript, format!("clear screen: {error}"));
+            return;
+        }
+        term.invalidate_viewport();
+        let (lines, _folded) = transcript.reprint_lines(screen.0, session.fold_turns);
+        insert_scrollback_lines(surface, &lines);
     }
 
     // Persisted fullscreen must enter its terminal modes on the first frame too.
@@ -9505,6 +11099,15 @@ fn render(
     if mode == ScreenMode::Inline {
         if state.welcome_shown && !layout.is_linear() {
             surface.anchor_to_bottom();
+        }
+        // The cast tree's rows count toward the viewport height, so the roster
+        // must be taken before the height is computed. Taking it only while
+        // drawing sized the frame without the tree, and an idle session never
+        // drew another frame to show it.
+        if !layout.is_linear() {
+            if let Some(root) = nav.viewed_agent() {
+                session.cast = Some(root.clone());
+            }
         }
         let want = inline_viewport_height(composer, session, transcript, theme, screen.0, screen.1);
         // Unconditional: a no-change call is cheap, and the launch anchor's
@@ -9700,6 +11303,7 @@ fn render(
                     let subagent_rows = if !layout.is_linear() {
                         if let Some(root) = nav.viewed_agent() {
                             session.subagents.set_tree(root);
+                            session.cast = Some(root.clone());
                         }
                         session.subagents.rows()
                     } else {
@@ -9832,6 +11436,14 @@ fn render(
                                     }
                                     _ => model_line.split(" · ").next().unwrap_or("").to_string(),
                                 };
+                                // A sub-agent acting: name its role and model.
+                                let actor = session
+                                    .cast
+                                    .as_ref()
+                                    .and_then(rightkit_terminal_ui::render::cast::acting_child)
+                                    .map_or(actor, |child| {
+                                        format!("{} {}", child.name, child.model)
+                                    });
                                 let waiting = session.approval_overlay.current_request().is_some();
                                 let running = session.working_started.is_some();
                                 let held = if running {
@@ -10004,17 +11616,26 @@ fn render(
                         let goal_chip = settings.shows("goal").then(|| host.goal_chip()).flatten();
                         footer_line(
                             area.width,
-                            &cwd,
-                            branch.as_deref(),
-                            &footer_right(host, session),
-                            host.permission_mode(),
-                            session.readiness.as_ref(),
-                            crumb.as_deref(),
-                            host.context_degraded_reason()
-                                .map(|reason| format!("⚠ context off · {}", context_off_code(&reason)))
-                                .or_else(|| host.permission_warning().map(str::to_string))
-                                .as_deref(),
-                            goal_chip.as_deref(),
+                            FooterContent {
+                                cwd: &cwd,
+                                branch: branch.as_deref(),
+                                model: &footer_right(host, session),
+                                mode: host.permission_mode(),
+                                readiness: session.readiness.as_ref(),
+                                crumb: crumb.as_deref(),
+                                warning: host
+                                    .context_degraded_reason()
+                                    .map(|reason| context_off_note(&reason))
+                                    .or_else(|| {
+                                        let now = std::time::SystemTime::now()
+                                            .duration_since(std::time::UNIX_EPOCH)
+                                            .map_or(0, |elapsed| elapsed.as_secs());
+                                        rate_limit_footer(session.rate_limit.as_ref(), now)
+                                    })
+                                    .or_else(|| host.permission_warning().map(str::to_string))
+                                    .as_deref(),
+                                goal: goal_chip.as_deref(),
+                            },
                             composer.shortcut_overlay_visible(),
                             session.started_at.elapsed().as_secs(),
                             theme,
@@ -10052,4 +11673,66 @@ fn render(
         requester.schedule_frame();
     }
     requester.record_frame(started.elapsed(), Duration::from_millis(16));
+}
+
+/// The fork tree around `current`: from its oldest ancestor, every fork beneath it
+/// (`forkedFromSessionId`), the current chat marked `●`. Sessions outside that lineage
+/// are not shown.
+pub(crate) fn render_session_tree(rows: &[serde_json::Value], current: &str) -> String {
+    use std::collections::{BTreeMap, HashMap};
+    let field = |row: &serde_json::Value, key: &str| {
+        row.get(key)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    let by_id: HashMap<String, &serde_json::Value> =
+        rows.iter().map(|row| (field(row, "id"), row)).collect();
+    let mut children: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for row in rows {
+        let parent = field(row, "forkedFromSessionId");
+        if !parent.is_empty() {
+            children.entry(parent).or_default().push(field(row, "id"));
+        }
+    }
+    let mut root = current.to_string();
+    let mut guard = 0;
+    while let Some(parent) = by_id
+        .get(&root)
+        .map(|row| field(row, "forkedFromSessionId"))
+        .filter(|parent| !parent.is_empty() && by_id.contains_key(parent))
+    {
+        root = parent;
+        guard += 1;
+        if guard > 64 {
+            break;
+        }
+    }
+    if !children.contains_key(&root) && root == current {
+        return format!("No forks: this chat ({current}) has no fork lineage. /fork or /fork back N creates one.");
+    }
+    let mut out = String::from("Fork tree (● this chat):");
+    fn walk(
+        id: &str,
+        depth: usize,
+        current: &str,
+        by_id: &HashMap<String, &serde_json::Value>,
+        children: &BTreeMap<String, Vec<String>>,
+        out: &mut String,
+    ) {
+        let title = by_id
+            .get(id)
+            .and_then(|row| row.get("title"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let mark = if id == current { "●" } else { "○" };
+        out.push_str(&format!("\n{}{mark} {title} ({id})", "  ".repeat(depth)));
+        if depth < 32 {
+            for child in children.get(id).into_iter().flatten() {
+                walk(child, depth + 1, current, by_id, children, out);
+            }
+        }
+    }
+    walk(&root, 0, current, &by_id, &children, &mut out);
+    out
 }

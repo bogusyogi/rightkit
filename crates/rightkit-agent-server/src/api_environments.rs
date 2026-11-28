@@ -35,7 +35,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use tokio::io::AsyncReadExt;
 
-use crate::api::{lock_recover, parse_workspace_trust_label, workspace_trust_key, DaemonState};
+use crate::api::{lock_recover, parse_workspace_trust_label, DaemonState};
 use crate::api_permissions::enforce_trusted_source_authority;
 
 pub fn environments_routes() -> Router<DaemonState> {
@@ -302,6 +302,19 @@ fn setup_scripts_path(workspace_root: &str) -> std::path::PathBuf {
 
 fn setup_run_dir(workspace_root: &str) -> std::path::PathBuf {
     environments_dir(workspace_root).join("runs")
+}
+
+/// A run id comes from the URL and becomes a file name: refuse anything but a plain id.
+fn run_id_is_plain(run_id: &str) -> bool {
+    run_id.len() <= 200
+        && run_id
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphanumeric())
+        && !run_id.contains("..")
+        && run_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
 }
 
 fn setup_run_log_path(workspace_root: &str, run_id: &str) -> std::path::PathBuf {
@@ -764,6 +777,9 @@ async fn cancel_setup_script_handler(
     Json(req): Json<CancelRerunSetupScriptRequest>,
 ) -> Result<Json<Value>, StatusCode> {
     enforce_trusted_source_authority(&headers).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    if !run_id_is_plain(&params.run_id) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
     let _ = state;
     if !enforce_workspace_root(&req.workspace_root) {
         return Err(StatusCode::BAD_REQUEST);
@@ -807,6 +823,9 @@ async fn get_setup_script_logs_handler(
     Path(params): Path<RunSetupScriptPathParams>,
     Query(query): Query<EnvironmentWorkspaceQuery>,
 ) -> Result<Json<SetupScriptLogsResponse>, StatusCode> {
+    if !run_id_is_plain(&params.run_id) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
     let _ = state;
     let workspace_root = query
         .workspace_root
@@ -829,6 +848,9 @@ async fn rerun_setup_script_handler(
     Json(req): Json<RunSetupScriptRequest>,
 ) -> Result<Json<SetupScriptRun>, StatusCode> {
     enforce_trusted_source_authority(&headers).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    if !run_id_is_plain(&params.run_id) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
     let _ = state;
     if !enforce_workspace_root(&req.workspace_root) {
         return Err(StatusCode::BAD_REQUEST);
@@ -1145,13 +1167,22 @@ pub(crate) async fn run_managed_process_with_timeout(
     use rightkit_sandbox::execution::{CommandLaunchSpec, ProcessLaunchContext};
     let adapter = crate::main_runtime::governed_child_process_launcher()
         .map_err(|error| format!("managed process launch policy unavailable: {error}"))?;
+    // A linked git worktree keeps its git admin dir in the source repository's
+    // `.git/worktrees`; confining git to the worktree alone makes it fail with
+    // "not a git repository", so the sandbox root is the source repository
+    // (which contains the worktree) while the process still runs in the worktree.
+    let sandbox_root = rightkit_agent_coding_tools::repository_root::linked_worktree_source(
+        std::path::Path::new(workspace_root),
+    )
+    .map(|source| source.to_string_lossy().into_owned())
+    .unwrap_or_else(|| workspace_root.to_string());
     let mut child = adapter
         .spawn(CommandLaunchSpec {
             program: program.to_string(),
             argv: args.iter().map(|arg| (*arg).to_string()).collect(),
             cwd: workspace_root.to_string(),
             context: ProcessLaunchContext {
-                workspace_root: workspace_root.to_string(),
+                workspace_root: sandbox_root,
                 sandbox_profile: Some("workspace".to_string()),
                 sandbox_required: true,
                 network_required: false,
@@ -1223,12 +1254,13 @@ fn state_workspace_trust(state: &DaemonState, workspace_root: &str) -> Environme
             rightkit_agent_policy::WorkspaceTrust::Untrusted => EnvironmentTrustLevel::Untrusted,
         };
     }
-    let key = workspace_trust_key(workspace_root);
-    let trust = lock_recover(&state.workspace_trust_store, "state.workspace_trust_store")
-        .projects
-        .get(&key)
-        .and_then(|record| parse_workspace_trust_label(&record.trust))
-        .unwrap_or(rightkit_agent_policy::WorkspaceTrust::Untrusted);
+    // Rule 60: the nearest recorded ancestor decides.
+    let trust = {
+        let store = lock_recover(&state.workspace_trust_store, "state.workspace_trust_store");
+        rightkit_agent_config::nearest_trust_record(workspace_root, |key| store.projects.get(key))
+            .and_then(|record| parse_workspace_trust_label(&record.trust))
+    }
+    .unwrap_or(rightkit_agent_policy::WorkspaceTrust::Untrusted);
     match trust {
         rightkit_agent_policy::WorkspaceTrust::Trusted => EnvironmentTrustLevel::Trusted,
         rightkit_agent_policy::WorkspaceTrust::Sandboxed => EnvironmentTrustLevel::Sandboxed,

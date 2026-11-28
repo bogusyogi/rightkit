@@ -57,6 +57,12 @@ pub enum InputAdmissionError {
     /// Input was supplied but, after normalization, contained nothing but
     /// whitespace.
     BlankAfterTrim,
+    /// `--pipe` stdin was larger than [`MAX_PIPED_STDIN_BYTES`]; nothing was
+    /// admitted (the input is never silently truncated).
+    StdinTooLarge { limit_bytes: u64 },
+    /// `--pipe` stdin could not be read (for example it is a directory). The run must not go on
+    /// as if nothing had been piped.
+    StdinUnreadable { reason: String },
 }
 
 impl std::fmt::Display for InputAdmissionError {
@@ -64,11 +70,19 @@ impl std::fmt::Display for InputAdmissionError {
         match self {
             InputAdmissionError::NoInput => write!(
                 f,
-                "no prompt supplied: pass a positional prompt argument or pipe text on stdin"
+                "no prompt supplied: pass a positional prompt argument, or pipe text on stdin together with `--pipe`"
             ),
             InputAdmissionError::BlankAfterTrim => {
                 write!(f, "prompt was blank after trimming whitespace")
             }
+            InputAdmissionError::StdinUnreadable { reason } => {
+                write!(f, "could not read piped stdin: {reason}")
+            }
+            InputAdmissionError::StdinTooLarge { limit_bytes } => write!(
+                f,
+                "piped stdin is larger than the {} MiB limit for `--pipe`; pass a file path in the prompt instead",
+                limit_bytes / (1024 * 1024)
+            ),
         }
     }
 }
@@ -111,7 +125,7 @@ pub enum InputSource {
 ///
 /// Rules (in order):
 /// 1. Encoding: stdin bytes are read as UTF-8 lossily upstream by the
-///    caller ([`read_stdin_to_string`]); this function only ever sees
+///    caller ([`read_stdin_bounded`]); this function only ever sees
 ///    already-decoded `String`s, so it performs no byte-level work — its
 ///    job is trimming, combination, and blank rejection.
 /// 2. Trimming: both the positional prompt and stdin text are trimmed of
@@ -179,16 +193,71 @@ pub fn combine_positional_and_stdin(positional: &str, stdin: &str) -> String {
     format!("{positional}\n\n--- piped stdin ---\n{stdin}")
 }
 
-/// Reads all of `reader` to a `String`, decoding as UTF-8 lossily so a
-/// stray invalid byte sequence on stdin degrades to `U+FFFD` replacement
-/// characters instead of aborting the whole run before admission even runs.
-/// Returns `None` on an I/O error (treated the same as "no stdin" by
-/// callers, matching today's implicit best-effort behavior).
-pub fn read_stdin_to_string<R: Read>(mut reader: R) -> Option<String> {
+/// Most bytes `--pipe` reads from stdin. Far above any model's context; the cap only stops an
+/// endless or huge stream (`yes | {app} run --pipe`) from exhausting memory.
+pub const MAX_PIPED_STDIN_BYTES: u64 = 32 * 1024 * 1024;
+
+/// Reads at most `limit` bytes of `reader` to a `String`, decoding as UTF-8 lossily so a stray
+/// invalid byte sequence on stdin degrades to `U+FFFD` replacement characters instead of
+/// aborting the run. More than `limit` bytes is [`InputAdmissionError::StdinTooLarge`], never a
+/// truncated prompt. A closed stdin (no handle at all) is `Ok(None)`, "no stdin"; any other read
+/// error is [`InputAdmissionError::StdinUnreadable`].
+pub fn read_stdin_bounded<R: Read>(
+    reader: R,
+    limit: u64,
+) -> Result<Option<String>, InputAdmissionError> {
     let mut bytes = Vec::new();
-    reader.read_to_end(&mut bytes).ok()?;
-    if bytes.is_empty() {
-        return None;
+    if let Err(error) = reader.take(limit.saturating_add(1)).read_to_end(&mut bytes) {
+        // EBADF: the caller closed fd 0 outright, which is the same as no stdin.
+        if error.kind() == std::io::ErrorKind::BrokenPipe || error.raw_os_error() == Some(9) {
+            return Ok(None);
+        }
+        return Err(InputAdmissionError::StdinUnreadable {
+            reason: error.to_string(),
+        });
     }
-    Some(String::from_utf8_lossy(&bytes).into_owned())
+    if bytes.len() as u64 > limit {
+        return Err(InputAdmissionError::StdinTooLarge { limit_bytes: limit });
+    }
+    if bytes.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(String::from_utf8_lossy(&bytes).into_owned()))
+}
+
+#[cfg(test)]
+mod piped_stdin_limit_tests {
+    use super::*;
+
+    #[test]
+    fn stdin_over_the_limit_is_refused_not_truncated() {
+        let data = [b'x'; 11];
+        assert_eq!(
+            read_stdin_bounded(&data[..], 10),
+            Err(InputAdmissionError::StdinTooLarge { limit_bytes: 10 })
+        );
+        assert_eq!(
+            read_stdin_bounded(&data[..10], 10),
+            Ok(Some("x".repeat(10)))
+        );
+        assert_eq!(read_stdin_bounded(&b""[..], 10), Ok(None));
+        // A read error is an error, not "no stdin".
+        struct Broken;
+        impl Read for Broken {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("boom"))
+            }
+        }
+        assert!(matches!(
+            read_stdin_bounded(Broken, 10),
+            Err(InputAdmissionError::StdinUnreadable { .. })
+        ));
+        // An endless reader stops at the limit.
+        assert!(read_stdin_bounded(std::io::repeat(b'y'), 1024).is_err());
+        assert!(InputAdmissionError::StdinTooLarge {
+            limit_bytes: MAX_PIPED_STDIN_BYTES
+        }
+        .to_string()
+        .contains("32 MiB"));
+    }
 }

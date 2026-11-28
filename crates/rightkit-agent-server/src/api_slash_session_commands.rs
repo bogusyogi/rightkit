@@ -129,15 +129,17 @@ Estimated cost: ${cost_usd:.6}",
     }
 }
 
-async fn session_events_for_usage(
+pub(crate) async fn session_events_for_usage(
     state: &DaemonState,
     session_id: &str,
 ) -> Result<Vec<ProtocolEvent>, String> {
     if let Some(live) = state.get_session(session_id) {
         return Ok(live.conduit.events_after(0));
     }
+    // A storage fault is its own error; only an empty, successful read means
+    // the session does not exist.
     let Some(storage) = state.storage.clone() else {
-        return Err(format!("Session not found: {session_id}"));
+        return Err("Session storage is unavailable".to_string());
     };
     let session_id = session_id.to_string();
     let lookup_session_id = session_id.clone();
@@ -145,11 +147,10 @@ async fn session_events_for_usage(
         let store = storage.blocking_lock();
         store
             .events_after(&lookup_session_id, 0)
-            .ok()
-            .unwrap_or_default()
+            .map_err(|error| format!("Failed to read session events: {error}"))
     })
     .await
-    .unwrap_or_default();
+    .map_err(|error| format!("Failed to read session events: {error}"))??;
     if rows.is_empty() {
         return Err(format!("Session not found: {session_id}"));
     }
@@ -205,17 +206,19 @@ pub(crate) async fn command_model(
         };
     }
 
+    let cache_warning = crate::api::model_switch_cache_warning(state, session_id, &requested_model);
     match update_session_model(state, session_id, &requested_model).await {
         Ok(applied_live) => CommandResult {
             success: true,
             output: format!(
-                "**Session model updated:** {session_id}\nModel: `{}`\nApplies to: {}",
+                "**Session model updated:** {session_id}\nModel: `{}`\nApplies to: {}{}",
                 requested_model,
                 if applied_live {
                     "live session"
                 } else {
                     "next resume"
-                }
+                },
+                cache_warning.map_or_else(String::new, |warning| format!("\n**Warning:** {warning}"))
             ),
             action: CommandAction::None,
         },

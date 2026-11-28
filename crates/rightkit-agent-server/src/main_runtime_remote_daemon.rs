@@ -10,7 +10,7 @@ async fn cli_remote_smoke(
                 "verdict": "block",
                 "detail": format!("No running daemon found. Start one with `{app} serve` or the desktop app.", app = crate::host_identity::app()),
             }));
-            return 1;
+            return host_unreachable_exit(true);
         }
     };
 
@@ -155,7 +155,10 @@ fn telegram_live_smoke_next_steps(
     if allowed_user_count == 0 {
         return vec![
             crate::host_identity::interned(format!("Run `{app} remote validate` to verify Telegram accepts the saved BotFather token.", app = crate::host_identity::app())),
-            "Message the bot once from the Telegram account that should control RightKit.",
+            crate::host_identity::interned(format!(
+                "Message the bot once from the Telegram account that should control {}.",
+                rightkit_agent_config::app_name()
+            )),
             crate::host_identity::interned(format!("Run `{app} remote users`, then save the discovered user id with `{app} remote setup --allowed-user <id>`.", app = crate::host_identity::app())),
             crate::host_identity::interned(format!("Restart `{app} serve` or the desktop app, then rerun `{app} remote smoke --timeout-seconds 120`.", app = crate::host_identity::app())),
         ];
@@ -179,11 +182,7 @@ async fn daemon_remote_json(label: &str, path: &str) -> i32 {
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!(
-                "No running daemon found. Start one with `{app} serve`.",
-                app = crate::host_identity::app()
-            );
-            return 1;
+            return host_unreachable_exit(false);
         }
     };
 

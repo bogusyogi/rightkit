@@ -1,17 +1,17 @@
 use crate::api::{self, build_router, now_iso, DaemonState, SharedStorage};
 use crate::cli::{
-    AppCommand, Cli, CliRuntimeCommand, Command, CompletionShell, ContextMode, DiagnosticsCommand,
-    ExecutionCommand, HooksCommand, InsightsCommand, LaunchCli, LearningCommand, LocalModelCommand,
-    McpCommand, OutputFormat, PermissionCommand, PluginCommand, ProviderCommand, RecipeCommand,
-    RemoteCommand, ScheduleCommand, SessionCommand, SkillCommand, SpecCommand, ToolsetCommand,
+    AppCommand, Cli, Command, CompletionShell, DebugCommand, DiagnosticsCommand, ExecpolicyCommand,
+    ExecutionCommand, FeaturesCommand, HooksCommand, ImportSource, LaunchCli, LearningCommand,
+    LocalModelCommand, McpCommand, OutputFormat, PermissionCommand, PluginCommand, ProviderCommand,
+    RecipeCommand, RemoteCommand, ScheduleCommand, SessionCommand, SkillCommand, SpecCommand,
+    ToolsetCommand,
 };
-use crate::provider_client::{self};
 use crate::startup::generate_token;
 use crate::{
     api_recipes, api_specs, api_toolsets, audit, doctor, evo_db, journal, learning, mcp_server,
     observation, scheduler, telegram_task, trajectory,
 };
-use clap::{CommandFactory, Parser};
+use clap::Parser;
 use rightkit_agent_orchestration::coding::registry::AgentRegistry;
 use rightkit_agent_recipes::{
     build_recipe_deeplink, recipe_checksum, render_recipe, stable_recipe_id,
@@ -25,6 +25,7 @@ use std::sync::Arc;
 include!("main_runtime_interactive_session.rs");
 include!("main_runtime_entry.rs");
 include!("main_runtime_cli_management.rs");
+include!("main_runtime_cli_extras.rs");
 include!("main_runtime_mcp_catalog.rs");
 include!("main_runtime_cli_controls.rs");
 include!("main_runtime_diagnostics.rs");
@@ -39,6 +40,7 @@ mod headless_input {
     include!("main_runtime_input.rs");
 }
 include!("main_runtime_run_input_format.rs");
+include!("main_runtime_cli_tools.rs");
 include!("main_runtime_run_types.rs");
 include!("main_runtime_run_exit_code.rs");
 include!("main_runtime_daemon_session_client.rs");

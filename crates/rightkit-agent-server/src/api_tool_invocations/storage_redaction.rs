@@ -65,8 +65,7 @@ fn storage_row_from_builder(
         tool_name: builder.tool_name,
         schema_version: builder.schema_version,
         args_hash: builder.args_hash,
-        args_redacted_json: serde_json::to_string(&builder.args_redacted_json)
-            .unwrap_or_else(|_| "null".to_string()),
+        args_redacted_json: redact_stored_json(&builder.args_redacted_json),
         lifecycle_state: lifecycle_state.to_string(),
         policy_verdict_id: builder.policy_verdict_id,
         approval_id: builder.approval_id,
@@ -94,9 +93,17 @@ fn storage_event_row(
         seq,
         kind: kind.to_string(),
         created_at: created_at.to_string(),
-        payload_redacted_json: serde_json::to_string(&payload_redacted_json)
-            .unwrap_or_else(|_| "null".to_string()),
+        payload_redacted_json: redact_stored_json(&payload_redacted_json),
     }
+}
+
+/// Serialises a value for storage with every string run through the shared secret scanner, so a
+/// token copied into a command string, an error text or a result summary never reaches the
+/// database or an export (rule 32, D10). Keys named like secrets are redacted separately by
+/// `redact_json`.
+fn redact_stored_json(value: &Value) -> String {
+    let raw = serde_json::to_string(value).unwrap_or_else(|_| "null".to_string());
+    rightkit_agent_engine_protocol::secret_scan::redact_json_payload(&raw).into_owned()
 }
 
 fn record_from_storage_row(
@@ -137,7 +144,8 @@ fn event_from_storage_row(
 }
 
 fn tool_schema_versions(state: &DaemonState) -> HashMap<String, String> {
-    let registry = ToolRegistry::build_default_with_plugins(state.plugin_dir.clone());
+    let mut registry = ToolRegistry::build_default_with_plugins(state.plugin_dir.clone());
+    crate::host_options::apply_tool_registry_controls(&mut registry);
     registry
         .all()
         .iter()
@@ -224,6 +232,12 @@ fn error_class(summary: &str) -> String {
         "guardrail_denied"
     } else if lower.contains("denied by user") {
         "user_denied"
+    } else if lower.starts_with("approval unattended") {
+        "approval_unattended"
+    } else if lower.starts_with("approval detached") {
+        "approval_detached"
+    } else if lower.starts_with("approval cancelled") {
+        "approval_cancelled"
     } else if lower.contains("unknown tool") {
         "unknown_tool"
     } else {

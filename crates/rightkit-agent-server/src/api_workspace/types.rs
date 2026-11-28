@@ -67,8 +67,8 @@ pub(crate) enum PolicyError {
 impl PolicyError {
     pub fn status(&self) -> StatusCode {
         match self {
-            PolicyError::BadRequest(reason) => StatusCode::BAD_REQUEST,
-            PolicyError::Forbidden(reason) => StatusCode::FORBIDDEN,
+            PolicyError::BadRequest(_reason) => StatusCode::BAD_REQUEST,
+            PolicyError::Forbidden(_reason) => StatusCode::FORBIDDEN,
             PolicyError::NotFound => StatusCode::NOT_FOUND,
         }
     }

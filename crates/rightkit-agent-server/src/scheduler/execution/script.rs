@@ -38,10 +38,7 @@ async fn fire_script_only_schedule(
         }
     };
 
-    let timeout_duration = entry
-        .max_runtime_seconds
-        .filter(|v| *v > 0)
-        .map(Duration::from_secs);
+    let timeout_duration = Some(script_only_timeout(entry));
 
     let _backend = backend;
     let spawned_ms = current_epoch_millis();
@@ -126,6 +123,19 @@ async fn fire_script_only_schedule(
         status: status.to_string(),
         message: format!("script output artifact: {}", artifact_path.display()),
     }
+}
+
+/// Runtime cap for a scriptOnly run that sets no `maxRuntimeSeconds`. Matches the agent-mode
+/// default so a command that never exits cannot hold a scheduler slot forever.
+pub(crate) const DEFAULT_SCRIPT_ONLY_MAX_RUNTIME_SECONDS: u64 = 300;
+
+fn script_only_timeout(entry: &ScheduleEntry) -> Duration {
+    Duration::from_secs(
+        entry
+            .max_runtime_seconds
+            .filter(|v| *v > 0)
+            .unwrap_or(DEFAULT_SCRIPT_ONLY_MAX_RUNTIME_SECONDS),
+    )
 }
 
 #[derive(Clone, Debug)]

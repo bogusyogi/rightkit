@@ -17,7 +17,7 @@ use crate::api::lock_recover;
 /// every install that predates it. Best-effort throughout — a directory on
 /// a filesystem without POSIX modes must not stop the daemon booting.
 pub(crate) fn harden_data_dir(dir: &std::path::Path) {
-    /// RightKit-owned entries directly inside the data directory. Foreign
+    /// Host-owned entries directly inside the data directory. Foreign
     /// siblings are deliberately left untouched.
     let db = crate::host_identity::app();
     let db_file = format!("{db}.db");
@@ -45,7 +45,6 @@ async fn serve(
     db: Option<String>,
     model: Option<String>,
     provider: Option<String>,
-    context_mode: ContextMode,
     resident: bool,
 ) {
     // Windows: every descendant (membrane worker, PTY hosts, shells) dies with
@@ -62,7 +61,9 @@ async fn serve(
     }
 
     let token = generate_token();
-    let db_path = db.unwrap_or_else(default_db_path);
+    // SC-2: no state root means no daemon; refuse before storage opens or anything is written.
+    let _ = rightkit_agent_config::state_root_required();
+    let db_path = db.unwrap_or_else(default_db_path_required);
     // A daemon on the default per-user DB is the machine's primary daemon and
     // owns the shared `~/.{app}` surfaces (daemon.port, journals). A
     // daemon started with an explicit `--db` elsewhere (QA, dev snapshots) is
@@ -72,7 +73,7 @@ async fn serve(
     // primary's interrupted sessions against the wrong database.
     let primary_daemon = crate::daemon::ownership::same_db_path(
         std::path::Path::new(&db_path),
-        std::path::Path::new(&default_db_path()),
+        std::path::Path::new(&default_db_path_required()),
     );
 
     // CG-C01 install-layout recovery: an interrupted staged activation is a rightkit-fs
@@ -103,20 +104,24 @@ async fn serve(
     // remain independent so QA/dev snapshots do not contend with the
     // installed daemon's singleton.
     //
-    // RIGHTKIT_SERVE_FORCE only skips the live-daemon health guard and the
-    // stale-owner takeover below; it never skips the exclusive lock itself. It is a test seam:
-    // a release build ignores it entirely.
-    let serve_force = false;
+    // A second `serve` never skips the live-daemon health guard, the stale-owner takeover or the
+    // exclusive lock: there is no force switch.
     let ownership_lock = if primary_daemon {
         let lock_path = crate::daemon::ownership::default_lockfile_path()
             .unwrap_or_else(|| std::path::PathBuf::from("daemon.lock"));
         let acquisition = match crate::daemon::ownership::OwnershipLock::acquire(&lock_path) {
             Ok(Some(lock)) => Ok(Some(lock)),
             Ok(None)
-                if !serve_force
-                    && crate::daemon::ownership::default_discovery_path()
-                        .is_some_and(|path| path.is_file()) =>
+                if crate::daemon::ownership::default_discovery_path()
+                    .is_some_and(|path| path.is_file()) =>
             {
+                // R1/D25: a healthy incumbent on this database is never signalled or killed by a
+                // second `serve`. The takeover below is for a stale owner only, so the health
+                // guard runs first and refuses without touching the first daemon.
+                if let Err(message) = run_startup_guard(&db_path).await {
+                    eprintln!("[serve] {message}");
+                    crate::cli_log::exit_after_tee(1);
+                }
                 crate::daemon::takeover::acquire_or_take_over(
                     &lock_path,
                     crate::daemon::takeover::TAKEOVER_GRACE,
@@ -132,17 +137,18 @@ async fn serve(
             }
             Ok(None) => {
                 eprintln!(
-                    "[serve] another RightKit daemon owns {}; refusing second instance",
+                    "[serve] another {} daemon owns {}; refusing second instance",
+                    rightkit_agent_config::app_name(),
                     lock_path.display()
                 );
-                std::process::exit(1);
+                crate::cli_log::exit_after_tee(1);
             }
             Err(error) => {
                 eprintln!(
                     "[serve] cannot acquire daemon ownership lock {}: {error}",
                     lock_path.display()
                 );
-                std::process::exit(1);
+                crate::cli_log::exit_after_tee(1);
             }
         }
     } else {
@@ -153,11 +159,9 @@ async fn serve(
     // Single-daemon-per-DB guard (U-F): refuse to start a second daemon on the
     // same database unless explicitly overridden. A different db path (tests
     // use distinct temp DBs) always proceeds.
-    if !serve_force {
-        if let Err(message) = run_startup_guard(&db_path).await {
-            eprintln!("{message}");
-            std::process::exit(1);
-        }
+    if let Err(message) = run_startup_guard(&db_path).await {
+        eprintln!("{message}");
+        crate::cli_log::exit_after_tee(1);
     }
 
     // Keep an exclusive DB-lifetime claim until the server future returns.
@@ -172,7 +176,7 @@ async fn serve(
         Ok(lock) => lock,
         Err(error) => {
             eprintln!("[serve] database daemon lock unavailable: {error}");
-            std::process::exit(1);
+            crate::cli_log::exit_after_tee(1);
         }
     };
 
@@ -190,7 +194,7 @@ async fn serve(
     // sessions against the wrong database (see `primary_daemon` above).
     if primary_daemon {
         if let Some(journal) = crate::daemon::recovery::default_journal_path() {
-            let adopted = crate::daemon::recovery::recover_orphans(&journal, std::process::id());
+            let adopted = crate::daemon::recovery::recover_orphans(&journal);
             if !adopted.is_empty() {
                 eprintln!(
                     "[serve] recovered {} orphaned worker(s) from a previous run",
@@ -209,6 +213,7 @@ async fn serve(
     // below; the journal write/clear itself happens inside
     // `rightkit_agent_engine_storage::migrations::migrate`, which `Storage::open` already
     // calls, so this wrapper adds reporting, not a second migration path.
+    let mut storage_open_failure: Option<String> = None;
     let storage: Option<SharedStorage> =
         match crate::daemon::migrate::open_with_migration_report(&db_path) {
             Ok((s, migration_report)) => {
@@ -229,7 +234,7 @@ async fn serve(
                     Ok(_) => {}
                     Err(error) => {
                         eprintln!("[serve] cannot reconcile orphaned dispatch fences: {error}");
-                        std::process::exit(1);
+                        crate::cli_log::exit_after_tee(1);
                     }
                 }
                 if let Some(journal) = &migration_report.resumed_from_crash {
@@ -249,7 +254,11 @@ async fn serve(
                 Some(SharedStorage::new(s))
             }
             Err(e) => {
-                eprintln!("[serve] storage unavailable ({e}), events won't be persisted");
+                // Rule 7: the failure is user-visible. The daemon stays up so the app can show
+                // "History is not being saved" and `/health` reports `storageAvailable: false`,
+                // but it refuses to start a turn rather than run without persistence.
+                eprintln!("[serve] storage unavailable ({e}); turns are refused until it opens");
+                storage_open_failure = Some(e.to_string());
                 None
             }
         };
@@ -276,14 +285,16 @@ async fn serve(
         let _ = crate::api_adapt::install_adapt_application_host(host);
     }
 
-    // Bind first so we know the actual port (when port == 0).
+    // Bind first so we know the actual port (when port == 0). Loopback only: the daemon never
+    // listens on a network address.
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
         .await
         .unwrap_or_else(|error| {
-            panic!(
-                "failed to bind serve port: {}",
-                file_descriptor_error(&error, &raise_nofile_soft_limit())
-            )
+            #[cfg(unix)]
+            let detail = file_descriptor_error(&error, &raise_nofile_soft_limit());
+            #[cfg(not(unix))]
+            let detail = file_descriptor_error(&error);
+            panic!("failed to bind serve port: {detail}")
         });
     let actual_port = listener.local_addr().expect("local_addr").port();
 
@@ -293,7 +304,7 @@ async fn serve(
         &token,
         &RecordLabels {
             database_path: db_path.to_string(),
-            protocol_version: 1,
+            protocol_version: rightkit_agent_engine_api_platform::health::PROTOCOL_VERSION,
             schema_id: crate::host_identity::schema("daemon.v1"),
             runtime: "rust".to_string(),
             generation: 1,
@@ -321,7 +332,7 @@ async fn serve(
         // config never sees, lands here too.
         let route_count = config.provider_routes.len();
         let reason = if route_count == 0 {
-            format!("no provider API key and no local provider route are configured (checked ~/{home}/config.toml). Add a key in Settings, or register a local OpenAI-compatible route, then restart RightKit.", home = crate::host_identity::home_dir())
+            format!("no provider API key and no local provider route are configured (checked ~/{home}/config.toml). Add a key in Settings, or register a local OpenAI-compatible route, then restart {app}.", home = crate::host_identity::home_dir(), app = rightkit_agent_config::app_name())
         } else {
             let names = config
                 .provider_routes
@@ -330,11 +341,12 @@ async fn serve(
                 .collect::<Vec<_>>()
                 .join(", ");
             format!(
-                "{route_count} provider route(s) are configured ({names}) but none resolved for the requested model{}. Check that the route's model matches the session model and that its baseUrl is reachable, then restart RightKit.",
+                "{route_count} provider route(s) are configured ({names}) but none resolved for the requested model{}. Check that the route's model matches the session model and that its baseUrl is reachable, then restart {app}.",
                 model
                     .as_deref()
                     .map(|m| format!(" '{m}'"))
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
+                app = rightkit_agent_config::app_name()
             )
         };
         eprintln!("[serve] engine unavailable — {reason}");
@@ -440,7 +452,7 @@ async fn serve(
     };
 
     let token_for_telegram = token.clone();
-    let mut state = DaemonState::new(token).with_context_mode(context_mode);
+    let mut state = DaemonState::new(token);
     if let Some(reason) = serve_context_degraded {
         state = state.with_context_degraded(reason);
     }
@@ -522,6 +534,9 @@ async fn serve(
     if let Some(store) = &storage {
         state = state.with_storage(store.clone());
     }
+    if let Some(reason) = storage_open_failure {
+        state = state.with_storage_open_failure(reason);
+    }
 
     // Resolve the workflow feature gate from the merged config and attach a
     // per-router [`WorkflowApiState`] when the gate is on and storage is
@@ -574,6 +589,7 @@ async fn serve(
         s.per_agent_call_max_usd = budget_cfg.per_agent_call_max_usd;
         s.max_retries_per_role = budget_cfg.max_retries_per_role;
         s.max_wall_clock_minutes = budget_cfg.max_wall_clock_minutes;
+        s.turn_max_wall_clock_minutes = config.turn.max_wall_clock_minutes.unwrap_or(0);
         s.max_iterations = budget_cfg.max_iterations;
         s.max_workers = budget_cfg.max_workers;
         // `serve --resident` is how installed-service launches (SCM, launchd,
@@ -650,64 +666,14 @@ async fn serve(
             if let Some(store) = &storage {
                 let s = store.lock().await;
                 // Recorded before the rows are read, so it is a lower bound on
-                // every write that can race this scan. See the CAS call below.
+                // every write that can race this scan (see the conditional write in
+                // `session_startup_recovery`).
                 let scan_started = now_iso();
-                if let Ok(sessions) = s.list_sessions() {
-                    let now = now_iso();
-                    for sess in sessions {
-                        let terminal = matches!(
-                            sess.status.as_str(),
-                            "dormant" | "done" | "deleted" | "archived" | "idle" | ""
-                        );
-                        if !terminal {
-                            // ra-008: this scan can run concurrently with a
-                            // freshly-accepted turn that persists "running"
-                            // on this exact row (HTTP readiness is published
-                            // while this background walk is still going).
-                            // The naive `update_session_status(..,
-                            // "interrupted", ..)` used to fire unconditionally
-                            // from the stale `sessions` snapshot taken above,
-                            // silently overwriting that live "running" write
-                            // with a stale "interrupted" one.
-                            //
-                            // Write only if the row is still exactly what this
-                            // scan observed (same status AND same updated_at),
-                            // i.e. nothing has touched it since
-                            // `list_sessions()` ran above. Any concurrent
-                            // writer (a new turn, another recovery path)
-                            // changes at least `updated_at`, so this is an
-                            // optimistic-concurrency guard without needing a
-                            // boot-generation column on the row.
-                            //
-                            // The comparison lives in the UPDATE's own WHERE
-                            // clause rather than in a preceding `get_session`:
-                            // reading and then writing is two statements, and a
-                            // concurrent turn committing between them would
-                            // still lose its "running" to this stale
-                            // "interrupted". One conditional statement leaves
-                            // no such window.
-                            //
-                            // Equality alone is still not enough, because
-                            // `now_iso()` resolves to whole seconds: a live
-                            // turn re-persisting the *same* status inside the
-                            // same second yields a row identical to the
-                            // snapshot, and equality would match. Every such
-                            // write happens at or after `scan_started`, and
-                            // every genuinely stale row predates it, so passing
-                            // that bound separates them. A row written in the
-                            // same second the scan began is skipped rather than
-                            // clobbered; it is re-examined on the next start.
-                            let _ = s.update_session_status_if_unchanged(
-                                &sess.id,
-                                "interrupted",
-                                &now,
-                                &sess.status,
-                                &sess.updated_at,
-                                Some(&scan_started),
-                            );
-                        }
-                    }
-                }
+                crate::session_startup_recovery::mark_unsettled_sessions_interrupted(
+                    &s,
+                    &scan_started,
+                    &now_iso(),
+                );
             }
             if let Some(jdir) = journal_dir_for_startup.as_deref() {
                 journal::detect_interrupted_journals(jdir).await;
@@ -744,16 +710,23 @@ async fn serve(
     let idle_state = state.clone();
     // RA-003: the sweep itself now runs for real (see
     // `api_clients::run_daemon_idle_eviction_sweep`) instead of only reaping
-    // expired client leases. `idle_eviction_policy_from_env` defaults to
-    // `Off` — an operator opts in via `RIGHTKIT_IDLE_EVICTION_MINUTES` —
-    // so wiring the caller does not change behavior for anyone who hasn't
-    // set that variable.
+    // expired client leases. Off by default: `<PREFIX>_IDLE_EVICTION_MINUTES`
+    // opts in. Idle = no turn, no SSE subscriber, no attached client.
+    // Not on by default until an evicted session resumes on its next turn
+    // (issue 476; the 2026-11-07 session audit found the 30-minute default
+    // broke resume for every `serve`).
     let idle_eviction_policy = crate::api_clients::idle_eviction_policy_from_env();
     let _idle_eviction_loop = crate::daemon::idle_eviction::IdleEvictionLoop::start(
         std::time::Duration::from_secs(60),
         move || {
             rightkit_agent_telemetry::record_wakeup();
             let _ = crate::api_clients::reap_expired_clients(&idle_state);
+            if !matches!(
+                idle_eviction_policy,
+                crate::daemon::residency::IdleEvictionMinutes::Off
+            ) {
+                crate::daemon::idle_eviction::claim_idle_root_sessions(&idle_state);
+            }
             let report = crate::api_clients::run_daemon_idle_eviction_sweep(
                 &idle_state,
                 idle_eviction_policy,
@@ -915,6 +888,9 @@ async fn serve(
 
     let telegram_runtime_status = state.telegram_status.runtime.clone();
     let shutdown_rx = state.shutdown_tx.subscribe();
+    let live_sessions = state.sessions.clone();
+    let shutdown_storage = state.storage.clone();
+    let shutdown_runtime_middleware = state.runtime_middleware.clone();
 
     // OPS-003: periodic resource sampler feeding /runtime/resource-metrics.
     crate::api_runtime::spawn_resource_sampler(state.clone());
@@ -1004,6 +980,9 @@ async fn serve(
             shutdown_rx,
             primary_daemon,
             ownership_lock.clone(),
+            live_sessions,
+            shutdown_storage,
+            shutdown_runtime_middleware,
         ))
         .await
         .expect("server error");
@@ -1024,7 +1003,74 @@ async fn serve(
 
 /// Cap on the post-shutdown drain. Long enough for a real request to finish,
 /// short enough that a never-ending stream cannot strand the process.
-const SHUTDOWN_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+pub(crate) const SHUTDOWN_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// The longest a daemon that accepted a stop may take to exit by itself: its ordered shutdown
+/// steps (forced at `DEFAULT_SHUTDOWN_EXIT_GRACE`), then the drain (forced at
+/// `SHUTDOWN_DRAIN_TIMEOUT`), plus slack. A caller that escalates to signals sooner cuts short a
+/// shutdown that is still inside its own contract (issue 504).
+pub(crate) fn shutdown_exit_bound() -> std::time::Duration {
+    crate::daemon::shutdown::DEFAULT_SHUTDOWN_EXIT_GRACE
+        + SHUTDOWN_DRAIN_TIMEOUT
+        + std::time::Duration::from_secs(2)
+}
+
+/// DL-011 ordered shutdown phases: runtime, then (primary daemon only) API and persistence, then
+/// (Windows) the sandbox ACL leases. Each phase has `SHUTDOWN_PHASE_DEADLINE`; the whole shutdown
+/// is forced at `DEFAULT_SHUTDOWN_EXIT_GRACE`.
+fn shutdown_phases(primary_daemon: bool) -> rightkit_daemon::OrderedShutdown {
+    use crate::daemon::shutdown::{DEFAULT_SHUTDOWN_EXIT_GRACE, SHUTDOWN_PHASE_DEADLINE};
+    // Phase 1 — runtime. Nothing to tear down here: axum's graceful shutdown closes the listener
+    // and drains in-flight requests once the shutdown future returns. The phase
+    // exists so the ordering is explicit and observable in the log.
+    let mut shutdown =
+        rightkit_daemon::OrderedShutdown::new().phase("runtime", SHUTDOWN_PHASE_DEADLINE, || {
+            eprintln!("[serve] shutdown step 'runtime': drain requested, listener closing");
+            Ok(())
+        });
+    if primary_daemon {
+        let journal_path = crate::daemon::recovery::default_journal_path();
+        // Phase 2 — API: stop advertising the port now rather than after the drain. A client
+        // that discovered this daemon during the drain would be routed to a socket that is
+        // already refusing connections.
+        shutdown = shutdown
+            .phase("api", SHUTDOWN_PHASE_DEADLINE, || {
+                remove_daemon_port_file();
+                Ok(())
+            })
+            // Phase 3 — persistence: a clean exit leaves no stale worker records for the next
+            // start's DL-013 recovery sweep to consider.
+            .phase("persistence", SHUTDOWN_PHASE_DEADLINE, move || {
+                if let Some(path) = journal_path {
+                    crate::daemon::recovery::clear_journal(&path);
+                }
+                Ok(())
+            });
+        // Owner lock remains held through server drain & DB-lock release: `_ownership_lock`
+        // keeps its guard alive until the shutdown future returns.
+    }
+    // #296: revoke the pinned interpreter read-root ACL leases at shutdown request, not only
+    // after the drain: the drain watchdog's forced exit skips the post-drain call. Grants still
+    // used by a running command are revoked when its last launch ends.
+    #[cfg(windows)]
+    {
+        shutdown = shutdown.phase("sandbox", SHUTDOWN_PHASE_DEADLINE, || {
+            rightkit_agent_coding_tools::sandbox::release_pinned_read_roots();
+            Ok(())
+        });
+    }
+    shutdown
+        .watchdog(DEFAULT_SHUTDOWN_EXIT_GRACE, 1)
+        .on_watchdog(|code| {
+            // Hard deadline is the forced-kill backstop. Keep the owner lease held until process
+            // termination so a wedged daemon cannot leave descendants behind a released lock.
+            eprintln!(
+                "[serve] shutdown steps exceeded {}s; forcing process termination (owner lease held)",
+                DEFAULT_SHUTDOWN_EXIT_GRACE.as_secs()
+            );
+            crate::cli_log::exit_after_tee(code);
+        })
+}
 
 /// Per-session cache of the last observed pre-compaction canonical range,
 /// keyed by `(session_id, compaction_seq)`. Owned by the hourly retention
@@ -1057,37 +1103,6 @@ fn run_event_retention_pass(
     // Until restoration is authenticated & durably appended to canonical
     // storage, every retention mode keeps all event rows.
     pending.clear();
-}
-
-/// CR-16: prefer a projection record persisted at live-compaction time over
-/// an operationally derived one. Records are stored as ordinary append-only
-/// event rows (kind `compactionProjection`, i.e.
-/// `rightkit_agent_engine_core::compaction_archive::PROJECTION_EVENT_KIND`, payload =
-/// the record's JSON) appended strictly AFTER their session's compaction marker, so scanning for them never
-/// touches the pre-compaction range under protection. A record qualifies
-/// when its source range covers the pre-compaction range about to be
-/// considered for deletion; the latest qualifying record wins. When none
-/// exists (sinks that do not persist projections, sessions compacted before
-/// the record existed), the caller falls back to deriving the projection
-/// from a fresh canonical fetch.
-fn load_persisted_projection(
-    store: &rightkit_agent_engine_storage::Storage,
-    session_id: &str,
-    compaction_seq: u32,
-) -> Option<rightkit_agent_engine_core::compaction_archive::CompactionProjectionRecord> {
-    use rightkit_agent_engine_core::compaction_archive::{
-        CompactionProjectionRecord, PROJECTION_EVENT_KIND,
-    };
-    let rows = store.all_events(session_id).ok()?;
-    let to_seq = compaction_seq.saturating_sub(1);
-    rows.into_iter()
-        .filter(|row| row.kind == PROJECTION_EVENT_KIND)
-        .filter_map(|row| CompactionProjectionRecord::decode_json(&row.payload_json).ok())
-        .rfind(|record| {
-            record.session_id == session_id
-                && record.source_seq_start == 0
-                && record.source_seq_end >= to_seq
-        })
 }
 
 include!("main_runtime_server_client_presence.rs");
@@ -1132,7 +1147,7 @@ fn normalized_agent_override_provider_id(provider_id: String) -> String {
 fn write_daemon_port_file(info: &LoopbackRecord) {
     let Some(dir) = rightkit_agent_config::state_root() else {
         eprintln!("[daemon.port] cannot resolve private daemon home");
-        std::process::exit(1);
+        crate::cli_log::exit_after_tee(1);
     };
     // ensure_secure_dir creates + hardens. Sweep afterward so the
     // existing siblings (config.toml, workspace-trust.json,
@@ -1146,20 +1161,137 @@ fn write_daemon_port_file(info: &LoopbackRecord) {
             "[daemon.port] failed to ensure secure dir {}: {e}",
             dir.display()
         );
-        std::process::exit(1);
+        crate::cli_log::exit_after_tee(1);
     }
     harden_data_dir(&dir);
     let path = dir.join("daemon.port");
     // The owner writes the record atomically and owner-only (temp file, fsync, rename).
     if let Err(e) = info.publish(&path) {
         eprintln!("[daemon.port] failed to write private port file: {e}");
-        std::process::exit(1);
+        crate::cli_log::exit_after_tee(1);
     }
     let _ = DAEMON_RECORD.set(info.clone());
 }
 
 /// The record this process published, so shutdown removes only a `daemon.port` that still holds it.
 static DAEMON_RECORD: std::sync::OnceLock<LoopbackRecord> = std::sync::OnceLock::new();
+
+/// Issue 448: kill every running background shell, then wait up to 3 s for them
+/// to leave `Running`. Locks are released before killing and before awaiting.
+async fn stop_background_shells(
+    sessions: &std::sync::Mutex<
+        std::collections::HashMap<String, std::sync::Arc<crate::api::LiveSession>>,
+    >,
+) {
+    use rightkit_agent_coding_tools::background_shell::BgStatus;
+    let mut running = Vec::new();
+    {
+        let sessions = lock_recover(sessions, "state.sessions");
+        for live in sessions.values() {
+            let shells = lock_recover(&live.background_shells, "live.background_shells");
+            running.extend(
+                shells
+                    .values()
+                    .filter(|shell| matches!(shell.status(), BgStatus::Running))
+                    .cloned(),
+            );
+        }
+    }
+    if running.is_empty() {
+        return;
+    }
+    eprintln!(
+        "[serve] stopping {} running background shell(s)",
+        running.len()
+    );
+    for shell in &running {
+        shell.kill();
+    }
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
+    while tokio::time::Instant::now() < deadline
+        && running
+            .iter()
+            .any(|shell| matches!(shell.status(), BgStatus::Running))
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
+
+/// Shutdown: interrupt every turn still running, wait for the event persister queues to catch up
+/// with what the turns published (so the partial reply is stored), then stamp what was running
+/// `interrupted`, exactly as the next start would. Each wait is bounded.
+async fn settle_live_turns(
+    sessions: &std::sync::Mutex<
+        std::collections::HashMap<String, std::sync::Arc<crate::api::LiveSession>>,
+    >,
+    storage: Option<&SharedStorage>,
+) {
+    let live: Vec<std::sync::Arc<crate::api::LiveSession>> =
+        lock_recover(sessions, "state.sessions")
+            .values()
+            .cloned()
+            .collect();
+    let running: Vec<_> = live
+        .iter()
+        .filter(|session| session.live_turn_handle.is_active())
+        .collect();
+    if running.is_empty() {
+        return;
+    }
+    eprintln!("[serve] interrupting {} running turn(s)", running.len());
+    crate::api::SHUTDOWN_SETTLING.store(true, std::sync::atomic::Ordering::SeqCst);
+    for session in &running {
+        if let Some(tx) = &session.interrupt_tx {
+            let _ = tx.send(true);
+        }
+        // Waits on the operator unwind only when their senders are dropped (as the interrupt
+        // route does).
+        lock_recover(&session.pending_questions, "session.pending_questions").clear();
+        lock_recover(
+            &session.pending_elicitations,
+            "session.pending_elicitations",
+        )
+        .clear();
+        lock_recover(&session.pending_plans, "session.pending_plans").clear();
+        lock_recover(&session.pending_approvals, "session.pending_approvals").clear();
+    }
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(2500);
+    while tokio::time::Instant::now() < deadline
+        && running
+            .iter()
+            .any(|session| session.live_turn_handle.is_active())
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(2500);
+    while tokio::time::Instant::now() < deadline
+        && live.iter().any(|session| {
+            let snapshot = session.persistence_state.snapshot();
+            snapshot.last_error.is_none()
+                && snapshot.last_persisted_seq < snapshot.last_published_seq
+        })
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    if let Some(store) = storage {
+        // The turn was cut off by this shutdown, so say so even if the engine's own unwind
+        // already wrote a settled status; the daemon is going away and nothing races this write.
+        let mut store = store.lock().await;
+        for session in &running {
+            // The reply that was streaming is kept as an interrupted reply (the next start would
+            // drop it, as the interrupt itself wrote settled facts after it).
+            if let Err(error) =
+                crate::api::append_partial_reply_at_shutdown(&mut store, &session.id)
+            {
+                eprintln!(
+                    "[serve] could not store the partial reply of {}: {error}",
+                    session.id
+                );
+            }
+            let _ = store.update_session_status(&session.id, "interrupted", &now_iso());
+        }
+    }
+}
 
 /// Resolve when the process is asked to stop — Ctrl-C, SIGTERM on Unix, or the
 /// client-presence reaper deciding the last client has detached — so the
@@ -1169,6 +1301,15 @@ async fn shutdown_signal(
     primary_daemon: bool,
     _ownership_lock: std::sync::Arc<
         std::sync::Mutex<Option<crate::daemon::ownership::OwnershipLock>>,
+    >,
+    live_sessions: std::sync::Arc<
+        std::sync::Mutex<
+            std::collections::HashMap<String, std::sync::Arc<crate::api::LiveSession>>,
+        >,
+    >,
+    storage: Option<SharedStorage>,
+    runtime_middleware: std::sync::Arc<
+        std::sync::Mutex<rightkit_agent_engine_runtime_middleware::RuntimeMiddlewareRegistry>,
     >,
 ) {
     let ctrl_c = async {
@@ -1184,7 +1325,27 @@ async fn shutdown_signal(
             Err(_) => std::future::pending::<()>().await,
         }
     };
-    #[cfg(not(unix))]
+    // Windows has no SIGTERM; its stop requests are console events. Without these the
+    // graceful cleanup (port file, #296 read-root ACL release) never ran on console
+    // close, logoff, system shutdown or Ctrl-Break.
+    #[cfg(windows)]
+    let terminate = async {
+        use tokio::signal::windows;
+        let (mut close, mut shutdown, mut logoff, mut ctrl_break) = (
+            windows::ctrl_close().ok(),
+            windows::ctrl_shutdown().ok(),
+            windows::ctrl_logoff().ok(),
+            windows::ctrl_break().ok(),
+        );
+        tokio::select! {
+            Some(_) = async { close.as_mut()?.recv().await } => {}
+            Some(_) = async { shutdown.as_mut()?.recv().await } => {}
+            Some(_) = async { logoff.as_mut()?.recv().await } => {}
+            Some(_) = async { ctrl_break.as_mut()?.recv().await } => {}
+            else => std::future::pending::<()>().await,
+        }
+    };
+    #[cfg(not(any(unix, windows)))]
     let terminate = std::future::pending::<()>();
 
     let client_presence = async {
@@ -1203,78 +1364,56 @@ async fn shutdown_signal(
     }
     eprintln!("[serve] shutdown signal received, draining in-flight requests");
 
+    // A throttled (held-back) runtime-middleware record is lost if the daemon exits first.
+    lock_recover(&runtime_middleware, "state.runtime_middleware").flush();
+
     // DL-011 — ordered, single-flight shutdown.
     //
     // Runs HERE, at the moment shutdown is requested, not after the drain
     // completes: the drain watchdog armed below may force-exit the process,
     // and steps queued after the drain would then never run at all.
     //
-    // The coordinator is a process-lifetime static so its single-flight
-    // guarantee actually holds — a second signal racing an in-flight shutdown
-    // observes the first run's report instead of re-running the steps.
-    static COORDINATOR: std::sync::OnceLock<crate::daemon::shutdown::ShutdownCoordinator> =
+    // The coordinator (RightKit's `OrderedShutdown`) is a process-lifetime static so its
+    // single-flight guarantee actually holds: a second signal racing an in-flight shutdown waits
+    // for the first run and gets its report instead of re-running the phases. Each phase runs on
+    // its own thread under its own deadline, so a hung phase is given up on and later phases
+    // (the journal clear, the ACL release) still run; the watchdog ends the process at the grace.
+    static COORDINATOR: std::sync::OnceLock<rightkit_daemon::OrderedShutdown> =
         std::sync::OnceLock::new();
 
-    let journal_path = crate::daemon::recovery::default_journal_path();
-    let mut steps: Vec<crate::daemon::shutdown::ShutdownStep> = Vec::new();
-
-    // Step 1 — runtime. Nothing to tear down here: axum's
-    // `with_graceful_shutdown` owns closing the listener and draining
-    // in-flight requests once this future returns. The step exists so the
-    // ordering is explicit and the phase is observable in the log.
-    steps.push(crate::daemon::shutdown::ShutdownStep {
-        name: "runtime",
-        run: Box::new(|| {
-            eprintln!("[serve] shutdown step 'runtime': drain requested, listener closing");
-            Ok(())
-        }),
-    });
-
-    if primary_daemon {
-        // Step 2 — API: stop advertising the port now rather than after the
-        // drain. A client that discovered this daemon during the drain would
-        // be routed to a socket that is already refusing connections.
-        steps.push(crate::daemon::shutdown::ShutdownStep {
-            name: "api",
-            run: Box::new(|| {
-                remove_daemon_port_file();
-                Ok(())
-            }),
-        });
-        // Step 3 — persistence: a clean exit leaves no stale worker records
-        // for the next start's DL-013 recovery sweep to consider.
-        steps.push(crate::daemon::shutdown::ShutdownStep {
-            name: "persistence",
-            run: Box::new(move || {
-                if let Some(path) = journal_path {
-                    crate::daemon::recovery::clear_journal(&path);
-                }
-                Ok(())
-            }),
-        });
-        // Owner lock remains held through server drain & DB-lock release.
-        // `_ownership_lock` keeps its guard alive until this shutdown future
-        // returns; `serve` retains its own reference through final cleanup.
-    }
+    // Issue 448: user background work dies with the daemon. Shutdown phases are
+    // synchronous, so this async wait runs just before them (bounded by its own
+    // 3 s deadline, ahead of the coordinator's watchdog).
+    stop_background_shells(&live_sessions).await;
+    settle_live_turns(&live_sessions, storage.as_ref()).await;
 
     let report = COORDINATOR
-        .get_or_init(crate::daemon::shutdown::ShutdownCoordinator::new)
-        .run_once(
-            steps,
-            crate::daemon::shutdown::DEFAULT_SHUTDOWN_EXIT_GRACE,
-            || {
-                // Hard deadline is forced-kill backstop. Keep owner lease held
-                // until process termination so a wedged daemon cannot leave
-                // descendants running behind a released lock.
-                eprintln!(
-                    "[serve] shutdown steps exceeded {}s; forcing process termination (owner lease held)",
-                    crate::daemon::shutdown::DEFAULT_SHUTDOWN_EXIT_GRACE.as_secs()
-                );
-                std::process::exit(1);
-            },
-        );
-    for (name, error) in &report.failures {
-        eprintln!("[serve] shutdown step '{name}' failed: {error}");
+        .get_or_init(|| shutdown_phases(primary_daemon))
+        .run();
+    for phase in &report.phases {
+        // Name a slow phase in the daemon log, so a shutdown that outlives its caller's wait
+        // says where the time went (issue 504: an idle daemon took over 12 s once).
+        if phase.elapsed >= crate::daemon::shutdown::SLOW_SHUTDOWN_STEP {
+            eprintln!(
+                "[serve] shutdown step '{}' took {} ms",
+                phase.name,
+                phase.elapsed.as_millis()
+            );
+        }
+        match &phase.outcome {
+            rightkit_daemon::PhaseOutcome::Completed => {}
+            rightkit_daemon::PhaseOutcome::Failed(error) => {
+                eprintln!("[serve] shutdown step '{}' failed: {error}", phase.name)
+            }
+            rightkit_daemon::PhaseOutcome::TimedOut => eprintln!(
+                "[serve] shutdown step '{}' timed out after {} ms",
+                phase.name,
+                phase.elapsed.as_millis()
+            ),
+            rightkit_daemon::PhaseOutcome::Panicked => {
+                eprintln!("[serve] shutdown step '{}' panicked", phase.name)
+            }
+        }
     }
 
     // Arm the drain watchdog HERE — once shutdown is actually requested.
@@ -1291,7 +1430,15 @@ async fn shutdown_signal(
     // every time, whether or not anyone asked it to stop. That shipped for one
     // build and killed the engine ten seconds into every launch.
     tokio::spawn(async move {
-        tokio::time::sleep(SHUTDOWN_DRAIN_TIMEOUT).await;
+        // Say so early when the drain is not immediate: an idle daemon drains in well under a
+        // second, so a drain still running after 3 s is waiting on an open connection (issue 504).
+        let early = std::time::Duration::from_secs(3);
+        tokio::time::sleep(early).await;
+        eprintln!(
+            "[serve] still draining {}s after shutdown was requested (waiting for open connections to close)",
+            early.as_secs()
+        );
+        tokio::time::sleep(SHUTDOWN_DRAIN_TIMEOUT - early).await;
         eprintln!(
             "[serve] drain exceeded {}s (long-lived streams still open); forcing process termination (owner lease held)",
             SHUTDOWN_DRAIN_TIMEOUT.as_secs()
@@ -1301,6 +1448,6 @@ async fn shutdown_signal(
         if primary_daemon {
             remove_daemon_port_file();
         }
-        std::process::exit(1);
+        crate::cli_log::exit_after_tee(1);
     });
 }

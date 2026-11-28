@@ -34,7 +34,24 @@ fn insert_runtime_learning_openapi_components(schemas: &mut Map<String, Value>) 
                 "ok": {"type": "boolean"},
                 "id": {"type": "string"},
                 "status": {"type": "string"},
-                "instinctWritten": {"type": "boolean"}
+                "instinctWritten": {"type": "boolean"},
+                "note": {"type": ["string", "null"]}
+            },
+            "additionalProperties": false
+        }),
+    );
+    schemas.insert(
+        "RuntimeInstinctsResponse".to_string(),
+        json!({
+            "type": "object",
+            "required": ["instincts", "activeCount", "includedInPrompt", "truncated", "capBytes"],
+            "properties": {
+                "instincts": {"type": "array", "items": {"type": "object"}},
+                "activeCount": {"type": "integer"},
+                "includedInPrompt": {"type": "integer"},
+                "truncated": {"type": "boolean"},
+                "capBytes": {"type": "integer"},
+                "notice": {"type": ["string", "null"]}
             },
             "additionalProperties": false
         }),

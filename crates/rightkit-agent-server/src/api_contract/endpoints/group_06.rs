@@ -1,6 +1,6 @@
 use super::ApiEndpoint;
 
-pub(super) const ENDPOINT_GROUP_06: [ApiEndpoint; 36] = [
+pub(super) const ENDPOINT_GROUP_06: [ApiEndpoint; 37] = [
     ApiEndpoint {
         method: "GET",
         path: "/tasks",
@@ -25,6 +25,11 @@ pub(super) const ENDPOINT_GROUP_06: [ApiEndpoint; 36] = [
         method: "POST",
         path: "/runtime/learning/{id}/approve",
         summary: "Approve a runtime learning proposal",
+    },
+    ApiEndpoint {
+        method: "GET",
+        path: "/runtime/instincts",
+        summary: "List approved instincts and whether the prompt size cap cuts any off",
     },
     ApiEndpoint {
         method: "POST",

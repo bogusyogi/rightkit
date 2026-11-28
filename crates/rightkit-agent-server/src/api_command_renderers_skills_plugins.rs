@@ -2,27 +2,41 @@ pub(crate) fn command_skills(state: &DaemonState) -> CommandResult {
     command_ok(render_skills_command(&state.skill_dirs))
 }
 
-pub(crate) fn command_plugins(state: &crate::api::DaemonState, args: &[String]) -> CommandResult {
-    if args
-        .first()
-        .is_some_and(|arg| arg.eq_ignore_ascii_case("marketplace"))
-    {
-        return command_plugin_marketplace(state, &args[1..]);
+pub(crate) async fn command_plugins(
+    state: &crate::api::DaemonState,
+    args: &[String],
+    session_id: Option<&str>,
+) -> CommandResult {
+    if args.first().map(String::as_str) == Some("ui") {
+        return command_plugin_ui(state, args.get(1).map(String::as_str), session_id).await;
     }
-
     let manifests = plugin_manifests_with_roots(&state.plugin_dir);
     let total = manifests.len();
     let enabled = manifests.iter().filter(|(m, _)| m.enabled).count();
     let mut rows: Vec<_> = manifests
         .into_iter()
         .map(|(m, _)| {
-            format!(
+            let mut row = format!(
                 "- {} [{}] tools:{} commands:{}",
                 m.id,
                 if m.enabled { "enabled" } else { "disabled" },
                 m.provides_tools.len(),
                 m.provides_commands.len()
-            )
+            );
+            // Slots an enabled plugin declares; `/plugins ui <id>` shows one.
+            for slot in m.active_ui_contributions() {
+                row.push_str(&format!(
+                    "\n    ui {} {}{}",
+                    slot.slot.as_str(),
+                    slot.id,
+                    if slot.title.trim().is_empty() {
+                        String::new()
+                    } else {
+                        format!(": {}", slot.title.trim())
+                    }
+                ));
+            }
+            row
         })
         .collect();
     rows.sort();
@@ -37,6 +51,80 @@ pub(crate) fn command_plugins(state: &crate::api::DaemonState, args: &[String]) 
         output.push_str(&rows.join("\n"));
     }
     command_ok(output)
+}
+
+/// `/plugins ui [slot-id]`: the TUI surface of the `uiSlots` a plugin declares. Bare lists the
+/// slots of every enabled plugin; an id shows that slot's title and, when it names a command,
+/// the text the command produces (run like any plugin command, in the session's workspace).
+async fn command_plugin_ui(
+    state: &crate::api::DaemonState,
+    slot_id: Option<&str>,
+    session_id: Option<&str>,
+) -> CommandResult {
+    let manifests = plugin_manifests_with_roots(&state.plugin_dir);
+    let mut slots: Vec<(String, rightkit_agent_plugins::PluginUiContribution)> = Vec::new();
+    for (manifest, _) in &manifests {
+        for slot in manifest.active_ui_contributions() {
+            slots.push((manifest.id.clone(), slot.clone()));
+        }
+    }
+    let Some(slot_id) = slot_id else {
+        if slots.is_empty() {
+            return command_ok(
+                "No plugin declares a UI slot (an enabled plugin lists them in `uiSlots`)."
+                    .to_string(),
+            );
+        }
+        let lines: Vec<String> = slots
+            .iter()
+            .map(|(plugin, slot)| {
+                format!(
+                    "- {} {} ({plugin}): {}",
+                    slot.slot.as_str(),
+                    slot.id,
+                    slot.title
+                )
+            })
+            .collect();
+        return command_ok(format!("**Plugin UI slots:**\n{}", lines.join("\n")));
+    };
+    let Some((plugin, slot)) = slots.iter().find(|(_, slot)| slot.id == slot_id) else {
+        return CommandResult {
+            success: false,
+            output: format!("No UI slot `{slot_id}` from an enabled plugin."),
+            action: CommandAction::None,
+        };
+    };
+    let Some(command) = slot.command.as_deref() else {
+        return command_ok(format!("{plugin} {}: {}", slot.id, slot.title));
+    };
+    // A slot refresh may only read: a plugin manifest must not run a built-in command that
+    // changes state (`/browser-consent grant`, `/permissions <mode>`, ...) by naming it here.
+    if let Some(entry) = rightkit_agent_skills::commands::resolve_query(
+        command.split_whitespace().next().unwrap_or(""),
+    ) {
+        if entry.effect != rightkit_agent_skills::commands::CommandEffect::Read {
+            return CommandResult {
+                success: false,
+                output: format!(
+                    "Plugin UI slot `{}` names `/{command}`, which changes state; slot commands may only read.",
+                    slot.id
+                ),
+                action: CommandAction::None,
+            };
+        }
+    }
+    // The refresh command is an ordinary plugin command, so the shared executor runs it.
+    let result = Box::pin(crate::api_commands::execute_command_on_state(
+        state,
+        &format!("/{command}"),
+        session_id,
+    ))
+    .await;
+    CommandResult {
+        output: format!("{} ({plugin}):\n{}", slot.title, result.output),
+        ..result
+    }
 }
 
 pub(crate) async fn command_benchmarks(state: &crate::api::DaemonState) -> CommandResult {
@@ -98,14 +186,19 @@ pub(crate) async fn command_terminal_bench(
                     let rate = value["successRate"].as_f64().unwrap_or(0.0);
                     let status = if passed { "passed" } else { "failed" };
                     command_ok(format!(
-                        "**RightKit task pack {task}:** {status}\nRole: {role}\nSuccess rate: {rate:.2}\nRecorded in `/benchmarks`."
+                        "**{app} task pack {task}:** {status}\nRole: {role}\nSuccess rate: {rate:.2}\nRecorded in `/benchmarks`.",
+                        app = rightkit_agent_config::app_name()
                     ))
                 }
-                Err(axum::http::StatusCode::NOT_FOUND) => {
-                    command_err("Unknown RightKit task-pack id.")
-                }
+                Err(axum::http::StatusCode::NOT_FOUND) => command_err(format!(
+                    "Unknown {} task-pack id.",
+                    rightkit_agent_config::app_name()
+                )),
                 Err(axum::http::StatusCode::BAD_REQUEST) => command_err("Unknown agent role."),
-                Err(_) => command_err("RightKit task-pack run failed."),
+                Err(_) => command_err(format!(
+                    "{} task-pack run failed.",
+                    rightkit_agent_config::app_name()
+                )),
             }
         }
         _ => command_err(
@@ -117,7 +210,8 @@ pub(crate) async fn command_terminal_bench(
 fn command_terminal_bench_tasks() -> CommandResult {
     let tasks = rightkit_agent_orchestration::coding::TbenchCatalog::all_tasks();
     let mut output = format!(
-        "**RightKit Internal Tasks:** {} available\nSuite: {}",
+        "**{} Internal Tasks:** {} available\nSuite: {}",
+        rightkit_agent_config::app_name(),
         tasks.len(),
         rightkit_agent_orchestration::coding::TbenchCatalog::suite_id()
     );
@@ -135,61 +229,6 @@ fn command_terminal_bench_tasks() -> CommandResult {
                 })
                 .collect::<Vec<_>>()
                 .join("\n"),
-        );
-    }
-    command_ok(output)
-}
-
-fn command_plugin_marketplace(state: &crate::api::DaemonState, args: &[String]) -> CommandResult {
-    let catalog = match load_plugin_marketplace(&state.plugin_marketplace_path) {
-        Ok(catalog) => catalog,
-        Err(e) => return command_err(format!("Failed to read plugin marketplace: {e}")),
-    };
-    let query = args.join(" ").trim().to_lowercase();
-    let mut entries = catalog
-        .plugins
-        .iter()
-        .filter(|entry| {
-            if query.is_empty() {
-                return true;
-            }
-            entry.manifest.id.to_lowercase().contains(&query)
-                || entry.manifest.name.to_lowercase().contains(&query)
-                || entry.manifest.description.to_lowercase().contains(&query)
-        })
-        .collect::<Vec<_>>();
-    entries.sort_by(|a, b| {
-        b.rating
-            .partial_cmp(&a.rating)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| b.downloads.cmp(&a.downloads))
-            .then_with(|| a.manifest.id.cmp(&b.manifest.id))
-    });
-    let mut output = format!(
-        "**Plugin marketplace:** {} match(es)\nCatalog: {}",
-        entries.len(),
-        state.plugin_marketplace_path.display()
-    );
-    if entries.is_empty() {
-        output.push_str("\nNo marketplace plugins found.");
-    } else {
-        for entry in entries {
-            output.push_str(&format!(
-                "\n- {} v{} rating:{:.1} downloads:{} sha256:{} signer:{}",
-                entry.manifest.id,
-                entry.manifest.version,
-                entry.rating,
-                entry.downloads,
-                entry.checksum_sha256,
-                if entry.signed_by.is_empty() {
-                    "unknown"
-                } else {
-                    entry.signed_by.as_str()
-                }
-            ));
-        }
-        output.push_str(
-            "\nSync via POST /plugins/marketplace/sync with trustAccepted and expectedSha256.\nInstall via POST /plugins/marketplace/{id}/install with trustAccepted and expectedSha256.",
         );
     }
     command_ok(output)

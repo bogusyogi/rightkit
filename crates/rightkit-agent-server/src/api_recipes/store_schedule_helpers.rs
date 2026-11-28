@@ -24,7 +24,7 @@ fn resolve_recipe(
 /// write) is set aside as `<name>.damaged-<time>` first, so the empty store the caller starts with is never saved over
 /// the only copy of the recipes.
 pub(crate) fn load_recipe_store(path: &FsPath) -> RecipeStore {
-    crate::store_write::load_or_set_aside::<RecipeStoreSnapshot>(path)
+    crate::store_write::load_shared_store::<RecipeStoreSnapshot>(path)
         .map(RecipeStore::from_snapshot)
         .unwrap_or_default()
 }
@@ -36,8 +36,9 @@ pub(crate) fn write_recipe_store(
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let raw = serde_json::to_string_pretty(snapshot).map_err(|e| e.to_string())?;
-    crate::store_write::write_store_file(path, raw.as_bytes()).map_err(|e| e.to_string())
+    // Several processes share the file: only what this process changed is applied to what is
+    // on disk, under the cross-process lock (`write_shared_store`).
+    crate::store_write::write_shared_store(path, "recipes", snapshot)
 }
 
 pub(crate) fn persist_recipe_store_snapshot(

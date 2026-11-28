@@ -99,6 +99,23 @@ impl OwnershipLock {
     }
 }
 
+impl OwnershipLock {
+    /// Take the lock shared, for an in-process host (issue 510): any number of in-process hosts
+    /// hold it together, and a `serve` daemon, which takes it exclusively through
+    /// [`OwnershipLock::acquire`], excludes them all and is excluded by any of them. A shared
+    /// holder writes no owner record. `Ok(None)` means a process holds it exclusively.
+    pub fn acquire_shared(path: &Path) -> io::Result<Option<Self>> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        match FileLock::acquire_shared(path, &rightkit_fs::LockOptions::default()) {
+            Ok(lock) => Ok(Some(Self { lock })),
+            Err(FsError::Locked { .. } | FsError::LockTimeout { .. }) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+}
+
 /// Advisory pid recorded by the lock holder (`<lock>.owner`); `None` if absent,
 /// unreadable, or not a positive pid.
 pub(crate) fn read_lockfile_pid(path: &Path) -> Option<u32> {

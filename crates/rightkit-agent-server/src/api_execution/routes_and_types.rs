@@ -86,6 +86,13 @@ struct ExecutionWorkspaceQuery {
 #[serde(rename_all = "camelCase")]
 struct ExecutionProcessQuery {
     workspace_root: Option<String>,
+    /// Only this session's processes (and its sub-agents' with `includeChildren`).
+    #[serde(default, alias = "session_id")]
+    session_id: Option<String>,
+    #[serde(default, alias = "include_children")]
+    include_children: Option<bool>,
+    #[serde(default, alias = "running_only")]
+    running_only: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -189,6 +196,17 @@ struct ExecutionWorkspaceRecord {
     updated_at: String,
 }
 
+/// The session that started a background process (the one that owns it).
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct ExecutionProcessStartedBy {
+    session_id: String,
+    role: Option<String>,
+    parent_session_id: Option<String>,
+    /// "Main" for a chat's own session, else the sub-agent's role.
+    label: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ExecutionProcessRow {
@@ -206,13 +224,29 @@ struct ExecutionProcessRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     pty_size: Option<rightkit_sandbox::execution::PtySize>,
     persistence: String,
-    attachment: String,
-    lease_epoch: u64,
-    next_input_sequence: u64,
-    last_acked_input_sequence: u64,
+    /// `null` for the instant an input flush holds the process lease (nothing was read).
+    attachment: Option<String>,
+    lease_epoch: Option<u64>,
+    next_input_sequence: Option<u64>,
+    last_acked_input_sequence: Option<u64>,
     status: String,
     status_label: String,
     last_output_line: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    started_by: Option<ExecutionProcessStartedBy>,
+    /// RFC 3339 start time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    started_at: Option<String>,
+    /// Seconds run so far, or in total once it has ended.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    running_seconds: Option<u64>,
+    /// RFC 3339 time of the last output; null when it has printed nothing.
+    last_output_at: Option<String>,
+    /// Seconds since the last output (since start when none), frozen at the end.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    quiet_seconds: Option<u64>,
+    /// Last non-empty output line, plain text, at most 200 characters.
+    last_line: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     started_at_ns: Option<u128>,
     live: bool,

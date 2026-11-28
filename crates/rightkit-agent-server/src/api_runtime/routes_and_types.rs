@@ -82,9 +82,11 @@ pub fn runtime_routes() -> Router<DaemonState> {
             "/runtime/learning/{id}/reject",
             post(reject_learning_proposal),
         )
+        .route("/runtime/instincts", get(get_instincts))
         .route("/runtime/metrics", get(get_metrics))
         .route("/runtime/resource-metrics", get(get_resource_metrics))
         .route("/runtime/process-topology", get(get_process_topology))
+        .route("/runtime/admission-trace", get(get_admission_trace))
         .route(
             "/qualification/matrix/run",
             post(post_qualification_matrix_run),

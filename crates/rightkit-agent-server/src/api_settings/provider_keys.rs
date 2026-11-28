@@ -1,25 +1,10 @@
 fn provider_key_status_for(provider: &str) -> Result<ProviderKeyStatus, String> {
     validate_provider(provider)?;
     let path = provider_key_path(provider)?;
-    let env_configured = provider_env_var(provider)
-        .and_then(|name| std::env::var(name).ok())
-        .map(|value| !value.trim().is_empty())
-        .unwrap_or(false);
-
-    // Report the source the loader will ACTUALLY use. This checked env first,
-    // matching the old loader, so a stale exported variable made Settings show
-    // "Saved securely · env" for a provider whose real stored key was never
-    // consulted — and Remove appeared to do nothing because it cleared the
-    // store the label was not describing. Stored keys now win in both places;
-    // env is reported only when nothing is stored.
-    let backend = rightkit_llm::agent_providers::OsKeyStore;
-    let stored = rightkit_llm::agent_providers::status_source(&backend, provider);
-    let source = match stored {
-        rightkit_llm::agent_providers::KeySource::Missing if env_configured => {
-            rightkit_llm::agent_providers::KeySource::Env
-        }
-        other => other,
-    };
+    // Where this host keeps keys (providers R4): the OS credential store, or on a host with none
+    // the environment and `<state root>/.env`; the status is exactly what the loader will use.
+    let backend = rightkit_llm::agent_providers::HostKeyStore::current();
+    let source = rightkit_llm::agent_providers::status_source(&backend, provider);
     let configured = !matches!(source, rightkit_llm::agent_providers::KeySource::Missing);
 
     Ok(ProviderKeyStatus {
@@ -37,20 +22,22 @@ fn provider_key_path(provider: &str) -> Result<PathBuf, String> {
     Ok(root.join(format!("{provider}.key")))
 }
 
-fn provider_env_var(provider: &str) -> Option<&'static str> {
-    match provider {
-        "openai" => Some("OPENAI_API_KEY"),
-        "commandcode" => Some("COMMAND_CODE_API_KEY"),
-        "openrouter" => Some("OPENROUTER_API_KEY"),
-        "opencode" | "opencode-go" => Some("OPENCODE_API_KEY"),
-        "minimax" => Some("MINIMAX_API_KEY"),
-        "tinyfish" => Some("TINYFISH_API_KEY"),
-        _ => None,
-    }
+/// Providers whose key Settings can store.
+fn is_known_provider(provider: &str) -> bool {
+    matches!(
+        provider,
+        "openai"
+            | "commandcode"
+            | "openrouter"
+            | "opencode"
+            | "opencode-go"
+            | "minimax"
+            | "tinyfish"
+    )
 }
 
 fn validate_provider(provider: &str) -> Result<(), String> {
-    if provider_env_var(provider).is_some() {
+    if is_known_provider(provider) {
         Ok(())
     } else {
         Err(format!("unknown provider: {provider}"))
@@ -71,7 +58,7 @@ enum ResolvedProviderCredential {
     /// user-facing guidance from [`rightkit_llm::agent_providers::KeySource`].
     Unreadable { remedy: Option<&'static str> },
     /// A usable credential plus the non-secret source label the status view
-    /// already reports (`keychain` | `env`).
+    /// already reports (`keychain`).
     Present {
         secret: String,
         source: &'static str,
@@ -83,8 +70,7 @@ enum ResolvedProviderCredential {
 /// `&rightkit_llm::agent_providers::OsKeyStore`.
 ///
 /// Layering mirrors the status view and the runtime loader: a stored key wins
-/// (keychain), and the provider's environment variable is consulted only when nothing is
-/// stored. `status_source` is deliberately used instead of
+/// (keychain); nothing else is consulted. `status_source` is deliberately used instead of
 /// `read_key` because probing is read-only and must not record a keychain failure.
 fn resolve_provider_credential_with<B: rightkit_llm::agent_providers::KeyStoreBackend>(
     backend: &B,
@@ -93,14 +79,16 @@ fn resolve_provider_credential_with<B: rightkit_llm::agent_providers::KeyStoreBa
     validate_provider(provider)?;
     let status = rightkit_llm::agent_providers::status_source(backend, provider);
     let resolved = match status {
-        rightkit_llm::agent_providers::KeySource::Keychain => {
+        rightkit_llm::agent_providers::KeySource::Keychain
+        | rightkit_llm::agent_providers::KeySource::Environment
+        | rightkit_llm::agent_providers::KeySource::DotEnv => {
             match backend.get(
                 rightkit_llm::agent_providers::key_migration::service(),
                 provider,
             ) {
                 Ok(value) if !value.trim().is_empty() => ResolvedProviderCredential::Present {
                     secret: value.trim().to_string(),
-                    source: "keychain",
+                    source: status.as_str(),
                 },
                 // Status said keychain but the value vanished or emptied
                 // between the two reads; report it as unreadable rather than
@@ -115,15 +103,10 @@ fn resolve_provider_credential_with<B: rightkit_llm::agent_providers::KeyStoreBa
                 remedy: status.remedy(),
             }
         }
-        // Missing (or the env variant status_source never returns): stored
-        // sources came up empty, so fall back to the environment variable.
-        _ => match provider_env_var(provider).and_then(|name| std::env::var(name).ok()) {
-            Some(value) if !value.trim().is_empty() => ResolvedProviderCredential::Present {
-                secret: value.trim().to_string(),
-                source: "env",
-            },
-            _ => ResolvedProviderCredential::Missing,
-        },
+        // Nothing stored: the account is not connected. No environment variable is consulted.
+        // `Env` is a variant of the shared crate that the host key store never reports.
+        rightkit_llm::agent_providers::KeySource::Env
+        | rightkit_llm::agent_providers::KeySource::Missing => ResolvedProviderCredential::Missing,
     };
     Ok(resolved)
 }

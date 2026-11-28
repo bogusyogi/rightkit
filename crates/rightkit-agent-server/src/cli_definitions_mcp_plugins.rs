@@ -32,7 +32,7 @@ pub enum McpCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Print RightKit's stdio MCP server status and tool counts.
+    /// Print {APP_NAME}'s stdio MCP server status and tool counts.
     Status,
     /// Print one MCP server from the configured list.
     Get {
@@ -47,6 +47,21 @@ pub enum McpCommand {
     AddJson {
         /// JSON file matching the daemon's save-MCP-server request body.
         path: String,
+    },
+    /// Import the MCP servers of a `{"mcpServers": {...}}` file (the shape of a `.mcp.json`) into
+    /// this config. A server without a `type` is stdio when it names a `command`, HTTP when it
+    /// names a `url`. A server of the same name is replaced, as `add-json` does. A dry run
+    /// without `--yes`.
+    Import {
+        /// The file to read.
+        path: String,
+        /// Config scope to write.
+        #[arg(long, default_value = "user")]
+        scope: String,
+        /// Workspace root when --scope workspace is used. A workspace stdio server stays
+        /// unapproved (not launched) until `mcp approve NAME`.
+        #[arg(long)]
+        workspace_root: Option<String>,
     },
     /// Remove an MCP server from user or workspace config.
     Remove {
@@ -95,6 +110,20 @@ pub enum McpCommand {
         #[arg(long)]
         workspace_root: Option<String>,
     },
+    /// List the workspace stdio MCP servers waiting for your approval.
+    Approvals {
+        /// Workspace root whose `.mcp.json` declares the servers.
+        #[arg(long)]
+        workspace_root: String,
+    },
+    /// Approve a workspace stdio MCP server, bound to exactly its command, args and env.
+    Approve {
+        /// MCP server name.
+        name: String,
+        /// Workspace root whose `.mcp.json` declares the server.
+        #[arg(long)]
+        workspace_root: String,
+    },
     /// List curated installable MCP servers from the built-in catalog.
     Catalog {
         /// Accepted for parity; catalog already emits JSON.
@@ -126,9 +155,14 @@ pub enum PluginCommand {
     Marketplace,
     /// Reload plugins from disk.
     Reload,
-    /// Install a local plugin directory.
+    /// Install a plugin from a local directory, a git repository or npm.
     Install {
-        /// Local plugin source directory.
+        /// Local plugin directory, or a git source: `git:<url>`,
+        /// `github:owner/repo`, `git@host:path`, or an https/ssh URL ending
+        /// in `.git`; append `#ref` for a branch or tag, or `#<sha>` (7 to 40 hex
+        /// digits) to pin a commit: the repository is cloned in full, that commit
+        /// checked out and verified, or nothing is installed. `npm:<spec>` packs
+        /// an npm package (scripts never run).
         source_path: String,
         /// Replace an existing plugin with the same id.
         #[arg(long)]
@@ -161,6 +195,12 @@ pub enum PluginCommand {
         /// Allow file:// catalog URLs.
         #[arg(long)]
         allow_file_urls: bool,
+    },
+    /// Remove an installed plugin: its folder, its enabled record, and with them its commands
+    /// and tools. A dry run without `--yes`.
+    Remove {
+        /// Plugin id.
+        id: String,
     },
     /// Enable an installed plugin.
     Enable {
@@ -210,7 +250,7 @@ pub enum PermissionCommand {
 pub enum ProviderCommand {
     /// Read provider key configuration status.
     Status {
-        /// Provider id: openrouter.
+        /// Provider id: one of anthropic, openai, openrouter, opencode, opencode-go, commandcode, minimax, tinyfish, google, mistral, claude-code, antigravity.
         #[arg(value_parser = parse_provider_key_provider)]
         provider: String,
     },
@@ -226,13 +266,22 @@ pub enum ProviderCommand {
     },
     /// Store an API key for a gateway provider.
     Connect {
-        /// Provider id: openrouter.
+        /// Provider id: one of anthropic, openai, openrouter, opencode, opencode-go, commandcode, minimax, tinyfish, google, mistral, claude-code, antigravity.
+        #[arg(value_parser = parse_provider_key_provider)]
+        provider: String,
+    },
+    /// Write an API key to `<state root>/.env` on a host with no OS
+    /// credential store (a container, a headless server). The key is read from
+    /// stdin, never from an argument.
+    #[command(name = "set-key")]
+    SetKey {
+        /// Provider id: one of anthropic, openai, openrouter, opencode, opencode-go, commandcode, minimax, tinyfish, google, mistral, claude-code, antigravity.
         #[arg(value_parser = parse_provider_key_provider)]
         provider: String,
     },
     /// Test the credential currently selected by runtime resolution.
     Test {
-        /// Provider id: openrouter.
+        /// Provider id: one of anthropic, openai, openrouter, opencode, opencode-go, commandcode, minimax, tinyfish, google, mistral, claude-code, antigravity.
         #[arg(value_parser = parse_provider_key_provider)]
         provider: String,
     },
@@ -243,19 +292,19 @@ pub enum ProviderCommand {
     /// failed rotation leaves the previous key in place rather than clearing
     /// it.
     Rotate {
-        /// Provider id: openrouter.
+        /// Provider id: one of anthropic, openai, openrouter, opencode, opencode-go, commandcode, minimax, tinyfish, google, mistral, claude-code, antigravity.
         #[arg(value_parser = parse_provider_key_provider)]
         provider: String,
     },
     /// Remove the stored API key for a gateway provider.
     Disconnect {
-        /// Provider id: openrouter.
+        /// Provider id: one of anthropic, openai, openrouter, opencode, opencode-go, commandcode, minimax, tinyfish, google, mistral, claude-code, antigravity.
         #[arg(value_parser = parse_provider_key_provider)]
         provider: String,
     },
     /// List models available through the inference catalog.
     Models {
-        /// Provider id: openrouter. Accepted for parity; the catalog is not
+        /// Provider id: one of anthropic, openai, openrouter, opencode, opencode-go, commandcode, minimax, tinyfish, google, mistral, claude-code, antigravity. Accepted for parity; the catalog is not
         /// currently filterable by provider key.
         #[arg(value_parser = parse_provider_key_provider)]
         provider: String,
@@ -263,7 +312,7 @@ pub enum ProviderCommand {
     /// Toggle a model's visibility for a gateway provider.
     #[command(name = "set-visibility")]
     SetVisibility {
-        /// Provider id: openrouter.
+        /// Provider id: one of anthropic, openai, openrouter, opencode, opencode-go, commandcode, minimax, tinyfish, google, mistral, claude-code, antigravity.
         #[arg(value_parser = parse_provider_key_provider)]
         provider: String,
         /// Model slug.
@@ -274,13 +323,31 @@ pub enum ProviderCommand {
     },
 }
 
+/// Every provider id the credential resolver and the `/providers` screen know
+/// (`host_credentials::provider_env_names`, `provider_setup::SCREEN_PROVIDERS`).
+const PROVIDER_IDS: &[&str] = &[
+    "anthropic",
+    "openai",
+    "openrouter",
+    "opencode",
+    "opencode-go",
+    "commandcode",
+    "minimax",
+    "tinyfish",
+    "google",
+    "mistral",
+    "claude-code",
+    "antigravity",
+];
+
 fn parse_provider_key_provider(value: &str) -> Result<String, String> {
-    match value {
-        "commandcode" | "opencode" | "opencode-go" | "openrouter" | "minimax" | "openai"
-        | "google" | "mistral" | "claude-code" | "antigravity" => Ok(value.to_string()),
-        _ => Err(format!(
-            "unknown provider `{value}`; expected a registered provider"
-        )),
+    if PROVIDER_IDS.contains(&value) {
+        Ok(value.to_string())
+    } else {
+        Err(format!(
+            "unknown provider `{value}`; expected one of {}",
+            PROVIDER_IDS.join(", ")
+        ))
     }
 }
 
@@ -296,20 +363,23 @@ pub enum LocalModelCommand {
 pub enum HooksCommand {
     /// Print redacted hook configuration status from the running daemon.
     Status,
-    /// List registered hooks (event, kind, source env var, id, revoked state).
+    /// List registered hooks (event, kind, source, id, revoked state).
     List,
     /// Dry-run matching hooks against a synthetic event. Does NOT mutate state.
     Test {
-        /// Hook event to dry-run: PreToolUse | PostToolUse | UserPromptSubmit |
-        /// Notification | SubagentStop | Stop.
+        /// Hook event to dry-run (any event `{app} hooks list` names): PreToolUse | PostToolUse |
+        /// UserPromptSubmit | Notification | SubagentStop | Stop.
         event: String,
-        /// Optional substring filter on the env var name (e.g. "PRE").
+        /// Optional filter: a tool name tested against each hook's own matcher (e.g. "shell"), or a
+        /// substring of an environment-variable hook's name (e.g. "PRE").
         #[arg(long)]
         matcher: Option<String>,
     },
-    /// Revoke a hook id (env var name) for this daemon session/restore it.
+    /// Revoke a hook id (`<Event>#<n>`, or an environment-variable hook's name) for this daemon
+    /// session/restore it.
     Revoke {
-        /// Hook id (env var name, e.g. `RIGHTKIT_HOOK_PRE_TOOL_USE`).
+        /// Hook id as `{app} hooks list` prints it (e.g. `PreToolUse#0`, or an
+        /// environment-variable hook such as `{ENV_PREFIX}_HOOK_PRE_TOOL_USE`).
         id: String,
         /// Restore a previously-revoked hook instead of revoking it.
         #[arg(long)]

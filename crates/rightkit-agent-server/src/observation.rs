@@ -102,7 +102,7 @@ impl HostRetentionCallbackV1 {
 }
 
 impl ProviderTurnRetentionV1 {
-    /// Convert an already validated host callback into RightKit telemetry.
+    /// Convert an already validated host callback into host telemetry.
     /// Identity values are copied verbatim; no representation is selected or
     /// reconstructed here.
     pub fn from_host_callback(

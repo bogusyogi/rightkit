@@ -1,6 +1,34 @@
 async fn cli_skill(command: SkillCommand) -> i32 {
     match command {
-        SkillCommand::List { json: _json } => daemon_get_pretty_json("/skills", "skills").await,
+        SkillCommand::List {
+            json: _json,
+            workspace: true,
+        } => match workspace_root_for_skill_command() {
+            Ok(root) => {
+                daemon_get_pretty_json(
+                    &format!(
+                        "/workspace/skills?workspaceRoot={}",
+                        url_encode_component(&root)
+                    ),
+                    "workspace skills",
+                )
+                .await
+            }
+            Err(message) => {
+                eprintln!("{message}");
+                1
+            }
+        },
+        SkillCommand::List {
+            json: _json,
+            workspace: false,
+        } => daemon_get_pretty_json("/skills", "skills").await,
+        SkillCommand::Activate {
+            slug,
+            workspace: true,
+            ..
+        } => workspace_skill_action("activate", &slug).await,
+        SkillCommand::Deactivate { slug } => workspace_skill_action("deactivate", &slug).await,
         SkillCommand::Proposals => {
             daemon_get_pretty_json("/skills/proposals", "skill proposals").await
         }
@@ -136,6 +164,7 @@ async fn cli_skill(command: SkillCommand) -> i32 {
             slug,
             reason,
             operator_override,
+            workspace: false,
         } => skill_lifecycle_action(&slug, "activate", reason, operator_override).await,
         SkillCommand::Retire { slug, reason } => {
             skill_lifecycle_action(&slug, "retire", reason, false).await
@@ -306,4 +335,28 @@ async fn cli_skill(command: SkillCommand) -> i32 {
                 .await
         }
     }
+}
+
+/// The current directory, as the workspace a `--workspace` skill command acts on.
+fn workspace_root_for_skill_command() -> Result<String, String> {
+    std::env::current_dir()
+        .map(|path| path.display().to_string())
+        .map_err(|error| format!("cannot read the current directory: {error}"))
+}
+
+/// Activate or deactivate one project skill of the current workspace through the daemon (mcp R13).
+async fn workspace_skill_action(action: &str, slug: &str) -> i32 {
+    let root = match workspace_root_for_skill_command() {
+        Ok(root) => root,
+        Err(message) => {
+            eprintln!("{message}");
+            return 1;
+        }
+    };
+    daemon_post_pretty_json(
+        &format!("/workspace/skills/{action}"),
+        serde_json::json!({ "workspaceRoot": root, "slug": slug }),
+        "workspace skill",
+    )
+    .await
 }

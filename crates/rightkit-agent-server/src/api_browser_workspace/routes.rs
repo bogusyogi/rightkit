@@ -18,13 +18,13 @@ use super::annotations::{annotation_handler, annotation_send_handler, list_annot
 use super::policy::workspace_ssrf_check;
 use super::services::{BrowserSession, BrowserWorkspaceServices, BrowserWorkspaceState};
 use super::types::{
-    capability_denied_response as types_capability_denied_response,
+    action_error, capability_denied_response as types_capability_denied_response,
     host_policy_approval_required_response, host_policy_blocked_response, internal_error,
-    missing_field, named_shared_profile_unsupported_response, now_millis, paused_response,
-    png_dimensions, workspace_error, BrowserActionActor, BrowserActionEntry, CapabilityVerdict,
-    CloseRequest, ConsoleRequest, HostPolicyDecision, HostPolicyRequest, NavigateRequest,
-    OpenWorkspaceRequest, ProfileConsentRequest, ReloadRequest, ScreenshotEnvelope,
-    ScreenshotRequest, ViewportInfo, ViewportRequest, ZoomRequest, WORKSPACE_USER_OWNER,
+    missing_field, now_millis, paused_response, png_dimensions, workspace_error,
+    BrowserActionActor, BrowserActionEntry, CapabilityVerdict, CloseRequest, ConsoleRequest,
+    HostPolicyDecision, HostPolicyRequest, NavigateRequest, OpenWorkspaceRequest, ReloadRequest,
+    ScreenshotEnvelope, ScreenshotRequest, ViewportInfo, ViewportRequest, ZoomRequest,
+    WORKSPACE_USER_OWNER,
 };
 
 /// Re-exported so `annotations.rs` can reuse the exact same error body
@@ -147,10 +147,11 @@ pub fn browser_workspace_routes<S: BrowserWorkspaceServices>(
             "/sessions/{id}/browser/workspace/host-policy",
             get(host_policy_get_handler).post(host_policy_set_handler),
         )
-        // profile consent — ephemeral default, named shared opt-in
+        // the profile each browser session actually runs on (ephemeral, or imported
+        // under a user consent receipt; consent itself is granted by the host)
         .route(
             "/sessions/{id}/browser/workspace/profile",
-            get(profile_get_handler).post(profile_consent_handler),
+            get(profile_get_handler),
         )
         .with_state(RoutesState { services, state })
 }
@@ -168,8 +169,6 @@ async fn get_workspace_handler<S: BrowserWorkspaceServices>(
         return Err(capability_denied_response(&verdict));
     }
     let paused = state.services.is_paused(&session_id);
-    let profile_kind = state.services.profile_kind(&session_id);
-    let profile_label = state.services.profile_label(&session_id);
     let action_log_len = state.services.action_log_len(&session_id);
     let viewport = state.services.viewport(&session_id);
     let zoom = state.services.zoom(&session_id);
@@ -203,11 +202,6 @@ async fn get_workspace_handler<S: BrowserWorkspaceServices>(
 
     Ok(Json(json!({
         "paused": paused,
-        "profileKind": match profile_kind {
-            super::types::BrowserProfileKind::Ephemeral => "ephemeral",
-            super::types::BrowserProfileKind::NamedShared => "named_shared",
-        },
-        "profileLabel": profile_label,
         "viewport": viewport,
         "actionLogLen": action_log_len,
         "sessions": summaries,
@@ -243,10 +237,6 @@ async fn open_session_handler<S: BrowserWorkspaceServices>(
                 Some(HostPolicyDecision::Allow) | None => {}
             }
         }
-    }
-
-    if req.name.is_some() {
-        return Err(named_shared_profile_unsupported_response());
     }
 
     let browser_session_id = state
@@ -287,7 +277,7 @@ async fn close_session_handler<S: BrowserWorkspaceServices>(
         .services
         .close_browser_session(&session_id, &browser_session_id)
         .await
-        .map_err(|e| internal_error(&e))?;
+        .map_err(|e| action_error(&e))?;
     state.services.push_action(
         &session_id,
         BrowserActionEntry {
@@ -340,7 +330,7 @@ async fn navigate_handler<S: BrowserWorkspaceServices>(
         .services
         .navigate_browser_session_with_observation(&session_id, &browser_session_id, &req.url)
         .await
-        .map_err(|e| internal_error(&e))?;
+        .map_err(|e| action_error(&e))?;
     state.services.push_action(
         &session_id,
         BrowserActionEntry {
@@ -374,7 +364,7 @@ async fn reload_handler<S: BrowserWorkspaceServices>(
         .services
         .reload_browser_session_with_observation(&session_id, &browser_session_id)
         .await
-        .map_err(|error| internal_error(&error))?;
+        .map_err(|error| action_error(&error))?;
     state.services.push_action(
         &session_id,
         BrowserActionEntry {
@@ -425,7 +415,7 @@ async fn navigate_history_handler<S: BrowserWorkspaceServices>(
         .services
         .navigate_browser_history_with_observation(&session_id, &browser_session_id, forward)
         .await
-        .map_err(|error| internal_error(&error))?;
+        .map_err(|error| action_error(&error))?;
     let kind = if forward { "forward" } else { "back" };
     state.services.push_action(
         &session_id,
@@ -468,14 +458,14 @@ async fn viewport_handler<S: BrowserWorkspaceServices>(
     if req.width == 0 || req.height == 0 {
         return Err(workspace_error(
             StatusCode::BAD_REQUEST,
-            "ssrf_refused",
+            "invalid_request",
             "Viewport width/height must be positive.".into(),
         ));
     }
     if req.device_scale_factor <= 0.0 {
         return Err(workspace_error(
             StatusCode::BAD_REQUEST,
-            "ssrf_refused",
+            "invalid_request",
             "deviceScaleFactor must be > 0.".into(),
         ));
     }
@@ -517,7 +507,7 @@ async fn zoom_handler<S: BrowserWorkspaceServices>(
     if !(0.25..=5.0).contains(&req.zoom) {
         return Err(workspace_error(
             StatusCode::BAD_REQUEST,
-            "ssrf_refused",
+            "invalid_request",
             "zoom must be between 0.25 and 5.0.".into(),
         ));
     }
@@ -555,12 +545,12 @@ async fn screenshot_handler<S: BrowserWorkspaceServices>(
         .services
         .screenshot_browser_session(&session_id, &browser_session_id)
         .await
-        .map_err(|error| internal_error(&error))?;
+        .map_err(|error| action_error(&error))?;
     let url = state
         .services
         .browser_session_url(&session_id, &browser_session_id)
         .await
-        .map_err(|error| internal_error(&error))?;
+        .map_err(|error| action_error(&error))?;
     let (width, height) = png_dimensions(&bytes).unwrap_or((0, 0));
     let encoded = rightkit_crypto::base64_encode(&bytes);
     let wrapped = wrap_untrusted_web_text("browser_workspace.screenshot", &encoded);
@@ -618,7 +608,7 @@ async fn console_response<S: BrowserWorkspaceServices>(
         .services
         .console_lines(session_id, &browser_session_id)
         .await
-        .map_err(|error| internal_error(&error))?;
+        .map_err(|error| action_error(&error))?;
     let trimmed: Vec<_> = lines
         .iter()
         .rev()
@@ -688,7 +678,7 @@ async fn errors_response<S: BrowserWorkspaceServices>(
         .services
         .console_lines(session_id, &browser_session_id)
         .await
-        .map_err(|error| internal_error(&error))?;
+        .map_err(|error| action_error(&error))?;
     let errors: Vec<_> = lines
         .iter()
         .filter(|l| l.level == "error" || l.level == "exception")
@@ -765,7 +755,7 @@ async fn pause_handler<S: BrowserWorkspaceServices>(
     State(state): State<RoutesState<S>>,
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let verdict = state.services.capability_gate(&session_id);
+    let verdict = state.services.stop_control_gate(&session_id);
     if !verdict.allowed {
         return Err(capability_denied_response(&verdict));
     }
@@ -786,7 +776,7 @@ async fn resume_handler<S: BrowserWorkspaceServices>(
     State(state): State<RoutesState<S>>,
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let verdict = state.services.capability_gate(&session_id);
+    let verdict = state.services.stop_control_gate(&session_id);
     if !verdict.allowed {
         return Err(capability_denied_response(&verdict));
     }
@@ -807,7 +797,7 @@ async fn take_control_handler<S: BrowserWorkspaceServices>(
     State(state): State<RoutesState<S>>,
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let verdict = state.services.capability_gate(&session_id);
+    let verdict = state.services.stop_control_gate(&session_id);
     if !verdict.allowed {
         return Err(capability_denied_response(&verdict));
     }
@@ -870,7 +860,7 @@ async fn release_control_handler<S: BrowserWorkspaceServices>(
     State(state): State<RoutesState<S>>,
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let verdict = state.services.capability_gate(&session_id);
+    let verdict = state.services.stop_control_gate(&session_id);
     if !verdict.allowed {
         return Err(capability_denied_response(&verdict));
     }
@@ -925,7 +915,7 @@ async fn host_policy_get_handler<S: BrowserWorkspaceServices>(
     State(state): State<RoutesState<S>>,
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let verdict = state.services.capability_gate(&session_id);
+    let verdict = state.services.stop_control_gate(&session_id);
     if !verdict.allowed {
         return Err(capability_denied_response(&verdict));
     }
@@ -949,7 +939,7 @@ async fn host_policy_set_handler<S: BrowserWorkspaceServices>(
     Path(session_id): Path<String>,
     Json(req): Json<HostPolicyRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let verdict = state.services.capability_gate(&session_id);
+    let verdict = state.services.stop_control_gate(&session_id);
     if !verdict.allowed {
         return Err(capability_denied_response(&verdict));
     }
@@ -960,14 +950,14 @@ async fn host_policy_set_handler<S: BrowserWorkspaceServices>(
     if host.contains('/') || host.contains(' ') {
         return Err(workspace_error(
             StatusCode::BAD_REQUEST,
-            "ssrf_refused",
+            "invalid_request",
             "host must be a bare hostname.".into(),
         ));
     }
     if req.trusted_private_network == Some(true) && req.decision != HostPolicyDecision::Allow {
         return Err(workspace_error(
             StatusCode::BAD_REQUEST,
-            "ssrf_refused",
+            "invalid_request",
             "A private-network domain exception requires an allow decision.".into(),
         ));
     }
@@ -986,7 +976,7 @@ async fn host_policy_set_handler<S: BrowserWorkspaceServices>(
     navigation_trust.validate().map_err(|error| {
         workspace_error(
             StatusCode::BAD_REQUEST,
-            "ssrf_refused",
+            "invalid_request",
             format!("Invalid trusted navigation exception: {error}"),
         )
     })?;
@@ -1041,44 +1031,15 @@ async fn profile_get_handler<S: BrowserWorkspaceServices>(
     if !verdict.allowed {
         return Err(capability_denied_response(&verdict));
     }
-    Ok(Json(json!({
-        "kind": state.services.profile_kind(&session_id),
-        "label": state.services.profile_label(&session_id),
-    })))
-}
-
-async fn profile_consent_handler<S: BrowserWorkspaceServices>(
-    State(state): State<RoutesState<S>>,
-    Path(session_id): Path<String>,
-    Json(req): Json<ProfileConsentRequest>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let verdict = state.services.capability_gate(&session_id);
-    if !verdict.allowed {
-        return Err(capability_denied_response(&verdict));
-    }
-    match req.kind {
-        super::types::BrowserProfileKind::NamedShared => {
-            if req.label.as_deref().map(str::trim).unwrap_or("").is_empty() {
-                return Err(missing_field("label"));
-            }
-            return Err(named_shared_profile_unsupported_response());
-        }
-        super::types::BrowserProfileKind::Ephemeral => {}
-    }
-    state
+    let store = state
         .services
-        .set_profile(&session_id, req.kind, req.label.clone());
-    state.services.push_action(
-        &session_id,
-        BrowserActionEntry {
-            at_ms: now_millis(),
-            actor: BrowserActionActor::Human,
-            kind: "profile".into(),
-            detail: format!("{:?}", req.kind),
-        },
-    );
-    Ok(Json(json!({
-        "kind": req.kind,
-        "label": req.label,
-    })))
+        .browser_store(&session_id)
+        .ok_or_else(|| super::types::session_not_found(&session_id))?;
+    let profiles: Vec<Value> = store
+        .lock()
+        .await
+        .values()
+        .map(|browser| json!({"sessionId": browser.id, "profile": browser.profile()}))
+        .collect();
+    Ok(Json(json!({ "profiles": profiles })))
 }

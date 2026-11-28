@@ -159,9 +159,7 @@ async fn cached_direct_catalog(
 }
 
 fn direct_uuid() -> String {
-    let now = format!("{}:{}", now_iso(), std::process::id());
-    let digest = rightkit_crypto::sha256(now.as_bytes());
-    format!("{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-4{:01x}{:02x}-8{:01x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}", digest[0],digest[1],digest[2],digest[3],digest[4],digest[5],digest[6]&0x0f,digest[7],digest[8]&0x0f,digest[9],digest[10],digest[11],digest[12],digest[13],digest[14],digest[15])
+    rightkit_agent_engine_protocol::uuid_v7()
 }
 
 fn direct_row_from_save(
@@ -492,6 +490,45 @@ async fn get_inference_catalog(State(state): State<DaemonState>) -> Json<Value> 
             }));
         }
     }
+    // Routes in `config.toml` (`[provider-routes.<id>]`), the way the CLI and
+    // servers configure models. A session runs on one through `providerId` +
+    // `model` (the route path), so the desktop sets those instead of an
+    // inference selection; the group carries authority "config" to say so.
+    let config = crate::main_runtime::load_current_merged_config();
+    let mut route_ids: Vec<&String> = config.provider_routes.keys().collect();
+    route_ids.sort();
+    for id in route_ids {
+        let route = &config.provider_routes[id];
+        let has_key = crate::main_runtime::route_api_key(id, route).is_some();
+        let ready = has_key || !route.api_key_required;
+        let name = if route.display_name.trim().is_empty() {
+            id.clone()
+        } else {
+            route.display_name.clone()
+        };
+        groups.push(json!({
+            "authority":"config",
+            "connectionId":id,
+            "name":name,
+            "protocol":"openai_compatible",
+            "state": if ready { "ready" } else { "needs_secret" },
+            "models":[{
+                "id":route.model,
+                "object":"model",
+                "created":null,
+                "ownedBy":id,
+                "root":null,
+                "parent":null,
+                "permission":null,
+                "capabilities":[],
+                "contextLength":null,
+                "maxInputTokens":null,
+                "maxOutputTokens":null,
+                "selectable":ready,
+                "unavailableReason": if ready { Value::Null } else { json!("the route's API key is not set") },
+            }],
+        }));
+    }
     Json(json!({"groups":groups}))
 }
 async fn get_inference_load(
@@ -500,7 +537,7 @@ async fn get_inference_load(
     Json(state.inference_scheduler.snapshot().await)
 }
 
-async fn reload_settings(
+pub(crate) async fn reload_settings(
     State(state): State<DaemonState>,
     Query(q): Query<WorkspaceQuery>,
     headers: HeaderMap,
@@ -693,6 +730,7 @@ fn settings_response(state: &DaemonState, q: &WorkspaceQuery) -> serde_json::Val
             "maxEscalationDepth": persisted_config.orchestration.budget.max_escalation_depth,
             "maxRetriesPerRole": store.max_retries_per_role,
             "maxWallClockMinutes": store.max_wall_clock_minutes,
+            "turnMaxWallClockMinutes": store.turn_max_wall_clock_minutes,
             "maxIterations": store.max_iterations,
             "maxWorkers": store.max_workers,
         },
@@ -735,11 +773,51 @@ fn settings_response(state: &DaemonState, q: &WorkspaceQuery) -> serde_json::Val
     })
 }
 
+/// Rejects a present budget/turn value of the wrong type or range before anything is mutated:
+/// integer keys must be JSON integers in `0..=u32::MAX`, USD keys numbers `>= 0`. `null` or an
+/// absent key is left alone.
+fn validate_budget_patch(patch: &serde_json::Value) -> Result<(), StatusCode> {
+    const USD: [&str; 6] = [
+        "perTaskMaxUsd",
+        "perGoalMaxUsd",
+        "perSessionMaxUsd",
+        "perAgentCallMaxUsd",
+        "globalMonthlyMaxUsd",
+        "warningAt",
+    ];
+    const INT: [&str; 7] = [
+        "maxRetriesPerRole",
+        "maxWallClockMinutes",
+        "turnMaxWallClockMinutes",
+        "maxIterations",
+        "maxWorkers",
+        "maxJuryCallsPerRun",
+        "maxEscalationDepth",
+    ];
+    let present = |k: &&str| patch.get(*k).filter(|v| !v.is_null());
+    let usd_ok = USD
+        .iter()
+        .all(|k| present(k).is_none_or(|v| v.as_f64().is_some_and(|n| n >= 0.0)));
+    let int_ok = INT
+        .iter()
+        .all(|k| present(k).is_none_or(|v| v.as_u64().is_some_and(|n| u32::try_from(n).is_ok())));
+    if usd_ok && int_ok {
+        Ok(())
+    } else {
+        Err(StatusCode::BAD_REQUEST)
+    }
+}
+
 /// Applies only the budget fields present in `patch` onto the freshly loaded config, so a save
 /// that names one field cannot overwrite the others with a stale in-memory copy.
 fn apply_budget_patch(patch: &serde_json::Value, budget: &mut rightkit_agent_config::BudgetConfig) {
     let f = |k: &str| patch.get(k).and_then(|v| v.as_f64());
-    let u = |k: &str| patch.get(k).and_then(|v| v.as_u64()).map(|v| v as u32);
+    let u = |k: &str| {
+        patch
+            .get(k)
+            .and_then(|v| v.as_u64())
+            .and_then(|v| u32::try_from(v).ok())
+    };
     if let Some(v) = f("perTaskMaxUsd") {
         budget.per_task_max_usd = v;
     }
@@ -778,12 +856,27 @@ fn apply_budget_patch(patch: &serde_json::Value, budget: &mut rightkit_agent_con
     }
 }
 
+/// The root-turn wall clock lives under `[turn]`, not `[orchestration.budget]`
+/// (sessions rule 32). Zero clears the key: no cap.
+fn apply_turn_patch(patch: &serde_json::Value, turn: &mut rightkit_agent_config::TurnConfig) {
+    if let Some(v) = patch
+        .get("turnMaxWallClockMinutes")
+        .and_then(|v| v.as_u64())
+        .and_then(|v| u32::try_from(v).ok())
+    {
+        turn.max_wall_clock_minutes = (v > 0).then_some(v);
+    }
+}
+
 async fn save_settings(
     State(state): State<DaemonState>,
     headers: HeaderMap,
     Json(body): Json<SaveSettings>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     enforce_trusted_source_authority(&headers)?;
+    if let Some(b) = &body.budget {
+        validate_budget_patch(b)?;
+    }
     let new_boss_model = body.primary_orchestrator_model_id.clone();
 
     // Update in-memory store (lock held briefly, released before any I/O).
@@ -795,7 +888,11 @@ async fn save_settings(
         }
         if let Some(b) = &body.budget {
             let f = |k: &str| b.get(k).and_then(|v| v.as_f64());
-            let u = |k: &str| b.get(k).and_then(|v| v.as_u64()).map(|v| v as u32);
+            let u = |k: &str| {
+                b.get(k)
+                    .and_then(|v| v.as_u64())
+                    .and_then(|v| u32::try_from(v).ok())
+            };
             if let Some(v) = f("perTaskMaxUsd") {
                 store.per_task_max_usd = v;
             }
@@ -813,6 +910,9 @@ async fn save_settings(
             }
             if let Some(v) = u("maxWallClockMinutes") {
                 store.max_wall_clock_minutes = v;
+            }
+            if let Some(v) = u("turnMaxWallClockMinutes") {
+                store.turn_max_wall_clock_minutes = v;
             }
             if let Some(v) = u("maxIterations") {
                 store.max_iterations = v;
@@ -904,6 +1004,7 @@ async fn save_settings(
                     }
                     if let Some(b) = &body.budget {
                         apply_budget_patch(b, &mut cfg.orchestration.budget);
+                        apply_turn_patch(b, &mut cfg.turn);
                     }
                 })
                 .map(|_| ())
@@ -953,17 +1054,18 @@ async fn delete_provider_key(
     enforce_trusted_source_authority(&headers).map_err(plain)?;
     validate_provider(&provider).map_err(|_| plain(StatusCode::BAD_REQUEST))?;
 
-    let backend = rightkit_llm::agent_providers::OsKeyStore;
-    rightkit_llm::agent_providers::remove_key(&backend, &provider).map_err(|reason| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({
-                "error": "provider key was not removed",
-                "reason": reason,
-                "provider": provider,
-            })),
-        )
-    })?;
+    rightkit_llm::agent_providers::host_credentials::remove_provider_key(&provider).map_err(
+        |reason| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "error": "provider key was not removed",
+                    "reason": reason,
+                    "provider": provider,
+                })),
+            )
+        },
+    )?;
 
     provider_key_status_for(&provider)
         .map(Json)
@@ -983,22 +1085,24 @@ async fn save_provider_key(
         return Err(plain(StatusCode::BAD_REQUEST));
     }
 
-    let backend = rightkit_llm::agent_providers::OsKeyStore;
-    // write_key already explains itself. Discarding that reason with
+    // The host's own store (OS credential store, or `<state root>/.env` on a host with none)
+    // already explains itself. Discarding that reason with
     // `map_err(|_| INTERNAL_SERVER_ERROR)` produced a bodyless 500, so a user
     // whose OS keychain refused the write — the common case once a rebuilt or
     // re-signed binary no longer matches the existing item's ACL — saw a key
     // that simply never persisted, with nothing anywhere saying why.
-    rightkit_llm::agent_providers::write_key(&backend, &provider, key).map_err(|reason| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({
-                "error": "provider key was not stored",
-                "reason": reason,
-                "provider": provider,
-            })),
-        )
-    })?;
+    rightkit_llm::agent_providers::host_credentials::store_provider_key(&provider, key).map_err(
+        |reason| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "error": "provider key was not stored",
+                    "reason": reason,
+                    "provider": provider,
+                })),
+            )
+        },
+    )?;
 
     provider_key_status_for(&provider)
         .map(Json)
@@ -1023,15 +1127,18 @@ async fn test_provider_key(
     let plain = |code: StatusCode| (code, Json(json!({"error": code.to_string()})));
     enforce_trusted_source_authority(&headers).map_err(plain)?;
     validate_provider(&provider).map_err(|_| plain(StatusCode::BAD_REQUEST))?;
-    test_provider_key_payload_with(&rightkit_llm::agent_providers::OsKeyStore, &provider)
-        .await
-        .map(Json)
-        .map_err(|(status, message)| (status, Json(json!({"error": message}))))
+    test_provider_key_payload_with(
+        &rightkit_llm::agent_providers::HostKeyStore::current(),
+        &provider,
+    )
+    .await
+    .map(Json)
+    .map_err(|(status, message)| (status, Json(json!({"error": message}))))
 }
 
 /// Backend-injectable payload builder so tests exercise the missing/unreadable
 /// states without touching a real OS credential store or the network.
-/// Production passes `&rightkit_llm::agent_providers::OsKeyStore`.
+/// Production passes `&rightkit_llm::agent_providers::HostKeyStore::current()`.
 async fn test_provider_key_payload_with<B: rightkit_llm::agent_providers::KeyStoreBackend>(
     backend: &B,
     provider: &str,

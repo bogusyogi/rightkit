@@ -62,7 +62,7 @@ fn openapi_document() -> Value {
     json!({
         "openapi": "3.1.0",
         "info": {
-            "title": "RightKit Daemon API",
+            "title": format!("{} Daemon API", rightkit_agent_config::app_name()),
             "version": "1",
             "description": "Generated from the daemon endpoint manifest. Response schemas are intentionally generic until schema-level contracts are promoted."
         },

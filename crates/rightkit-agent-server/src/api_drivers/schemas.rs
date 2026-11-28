@@ -15,7 +15,7 @@ pub(crate) fn issue_capability_lease_request_schema() -> Value {
         "type": "object",
         "required": ["driverKind", "binaryVersion", "schemaHash"],
         "properties": {
-            "driverKind": {"type": "string", "enum": ["codex", "claude"]},
+            "driverKind": {"type": "string", "enum": ["claude"]},
             "binaryVersion": {"type": "string", "minLength": 1},
             "schemaHash": {"type": "string", "minLength": 1},
             "tools": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
@@ -33,7 +33,7 @@ pub(crate) fn driver_discovery_response_schema() -> Value {
         "type": "object",
         "required": ["driverKind", "installed", "authRequired", "lifecycle", "diagnostic", "capabilities", "version"],
         "properties": {
-            "driverKind": {"type": "string", "enum": ["codex", "claude"]},
+            "driverKind": {"type": "string", "enum": ["claude"]},
             "installed": {"type": "boolean"},
             "authRequired": {"type": "boolean"},
             "lifecycle": lifecycle,
@@ -192,7 +192,7 @@ pub(crate) fn driver_status_response_schema() -> Value {
         "type": "object", "required": ["sessionId", "driverKind", "authRequired", "lifecycle", "drivers"],
         "properties": {
             "sessionId": {"type": "string"},
-            "driverKind": {"type": "string", "enum": ["native", "codex", "claude"]},
+            "driverKind": {"type": "string", "enum": ["native", "claude"]},
             "authRequired": {"type": "boolean"},
             "lifecycle": {"type": "string", "enum": ["native", "ready", "authentication_required", "not_resumed"]},
             "auth": {
@@ -250,7 +250,7 @@ pub(crate) fn driver_binding_status_schema() -> Value {
         "required": ["bindingId", "driverKind", "lifecycle", "authRequired", "diagnostic", "failureReason", "capabilities", "version", "vendorSessionId", "vendorTurnId", "running"],
         "properties": {
             "bindingId": {"type": "string"},
-            "driverKind": {"type": "string", "enum": ["codex", "claude"]},
+            "driverKind": {"type": "string", "enum": ["claude"]},
             "lifecycle": {"type": "string", "enum": ["leased", "starting", "ready", "running", "waiting_for_approval", "interrupted", "completed", "recovery_required", "failed", "stopped"]},
             "authRequired": {"type": "boolean"},
             "diagnostic": {"type": ["string", "null"]},

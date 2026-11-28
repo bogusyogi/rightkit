@@ -29,17 +29,6 @@ pub struct ViewportInfo {
     pub device_scale_factor: f64,
 }
 
-/// Whether the session uses the throwaway ephemeral profile (default — safe,
-/// isolated, deleted on session drop) or a named shared profile the operator
-/// has explicitly consented to share. Named profiles are an opt-in escape
-/// hatch and must not silently weaken the ephemeral default.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum BrowserProfileKind {
-    Ephemeral,
-    NamedShared,
-}
-
 /// Per-host decision applied AFTER the SSRF guard. Additive — the SSRF guard
 /// remains the gatekeeper for private-network and metadata targets; the host
 /// policy governs ordinary targets the guard accepts.
@@ -94,6 +83,20 @@ pub struct BrowserAnnotation {
 pub struct CapabilityVerdict {
     pub allowed: bool,
     pub reason: String,
+    /// Why a request was not allowed, so the pane can tell a refusal from a request for
+    /// approval from a session that does not exist (contract R19).
+    pub kind: CapabilityKind,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CapabilityKind {
+    Allowed,
+    /// The permission mode or workspace trust refuses the Browser capability.
+    Denied,
+    /// The mode would ask the user first; the pane cannot prompt.
+    NeedsApproval,
+    /// No such session.
+    SessionMissing,
 }
 
 /// Per-session annotation the standalone fragment owns itself. Agent 4 does
@@ -128,8 +131,6 @@ pub struct ConsoleLineView {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct OpenWorkspaceRequest {
     pub(crate) url: String,
-    #[serde(default)]
-    pub(crate) name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -162,14 +163,6 @@ pub(crate) struct HostPolicyRequest {
     pub(crate) trusted_private_network: Option<bool>,
     #[serde(default)]
     pub(crate) trusted_cidrs: Option<Vec<String>>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ProfileConsentRequest {
-    pub(crate) kind: BrowserProfileKind,
-    #[serde(default)]
-    pub(crate) label: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -249,15 +242,6 @@ pub(crate) fn paused_response() -> (StatusCode, Json<Value>) {
     )
 }
 
-pub(crate) fn named_shared_profile_unsupported_response() -> (StatusCode, Json<Value>) {
-    workspace_error(
-        StatusCode::NOT_IMPLEMENTED,
-        "named_shared_profile_unsupported",
-        "Named shared browser profiles are not implemented; this session remains ephemeral."
-            .to_string(),
-    )
-}
-
 pub(crate) fn host_policy_blocked_response(host: &str) -> (StatusCode, Json<Value>) {
     workspace_error(
         StatusCode::FORBIDDEN,
@@ -277,7 +261,7 @@ pub(crate) fn host_policy_approval_required_response(host: &str) -> (StatusCode,
 pub(crate) fn missing_field(name: &str) -> (StatusCode, Json<Value>) {
     workspace_error(
         StatusCode::BAD_REQUEST,
-        "ssrf_refused",
+        "invalid_request",
         format!("Missing required field: {name}."),
     )
 }
@@ -285,17 +269,49 @@ pub(crate) fn missing_field(name: &str) -> (StatusCode, Json<Value>) {
 pub(crate) fn internal_error(msg: &str) -> (StatusCode, Json<Value>) {
     workspace_error(
         StatusCode::INTERNAL_SERVER_ERROR,
-        "ssrf_refused",
+        "browser_action_failed",
         format!("Browser action failed: {msg}"),
     )
 }
 
+/// Prefix of the service-layer error for an unknown browser session id.
+pub(crate) const BROWSER_SESSION_NOT_FOUND: &str = "browser session not found: ";
+
+/// Prefix of the service-layer error for an engine session that vanished
+/// between the capability gate and the browser-store lookup.
+pub(crate) const ENGINE_SESSION_NOT_FOUND: &str = "session not found: ";
+
+/// Map a service-layer error string to 404 when the browser or engine session
+/// id is unknown, otherwise to the generic 500 `browser_action_failed`.
+pub(crate) fn action_error(msg: &str) -> (StatusCode, Json<Value>) {
+    if msg.starts_with(BROWSER_SESSION_NOT_FOUND) || msg.starts_with(ENGINE_SESSION_NOT_FOUND) {
+        workspace_error(StatusCode::NOT_FOUND, "session_not_found", msg.to_string())
+    } else {
+        internal_error(msg)
+    }
+}
+
 pub(crate) fn capability_denied_response(verdict: &CapabilityVerdict) -> (StatusCode, Json<Value>) {
-    workspace_error(
-        StatusCode::FORBIDDEN,
-        "capability_denied",
-        format!("Permission denied: {}", verdict.reason),
-    )
+    match verdict.kind {
+        CapabilityKind::SessionMissing => workspace_error(
+            StatusCode::NOT_FOUND,
+            "session_not_found",
+            format!("Session not found: {}", verdict.reason),
+        ),
+        CapabilityKind::NeedsApproval => workspace_error(
+            StatusCode::FORBIDDEN,
+            "capability_requires_approval",
+            format!(
+                "Browser access needs the user's approval in this permission mode: {}",
+                verdict.reason
+            ),
+        ),
+        CapabilityKind::Denied | CapabilityKind::Allowed => workspace_error(
+            StatusCode::FORBIDDEN,
+            "capability_denied",
+            format!("Permission denied: {}", verdict.reason),
+        ),
+    }
 }
 
 pub(crate) fn session_not_found(id: &str) -> (StatusCode, Json<Value>) {

@@ -1,7 +1,7 @@
 // KRN run-session composition.
 //
 // `run_session` is the single CLI/TUI semantic execution path. Host selection
-// happens below presentation: InlineHost runs the existing RightKit runtime
+// happens below presentation: InlineHost runs the existing runtime
 // in-process, while ServiceHost adapts the existing daemon transport to the
 // same session/event contract.
 
@@ -12,6 +12,7 @@ fn input_event_kind(event: &RunInputEvent) -> &'static str {
         RunInputEvent::UserMessage { .. } => "user_message",
         RunInputEvent::ToolResult { .. } => "tool_result",
         RunInputEvent::Control { .. } => "control",
+        RunInputEvent::ApprovalResponse { .. } => "approval_response",
     }
 }
 
@@ -26,11 +27,7 @@ mod hosted_run_session {
     /// same prompt normalization, output projection, semantic event handling,
     /// resync, terminal disposition, and exit-code logic here.
     pub(super) async fn run_hosted(args: super::RunArgs, control: Arc<RunCancellation>) -> i32 {
-        let context_mode = args.context_mode;
-        run_hosted_with(args, control, || {
-            super::SessionExecutionHost::select(context_mode)
-        })
-        .await
+        run_hosted_with(args, control, super::SessionExecutionHost::select_for_call).await
     }
 
     async fn run_hosted_with<F, Fut>(
@@ -120,12 +117,15 @@ mod hosted_run_session {
                             },
                         ))) => {
                             control.settled();
-                            return 130;
+                            return interrupted_exit(output_mode);
                         }
                         Some(Ok((line, event))) => {
-                            eprintln!(
-                                "stream-json input line {line}: {:?} refused before initial user_message",
-                                input_event_kind(&event)
+                            // Headless R11: stderr carries only the error object and NDJSON
+                            // events in machine mode, so a refused line is logged, not printed.
+                            tracing::warn!(
+                                line,
+                                kind = ?input_event_kind(&event),
+                                "stream-json input line refused before initial user_message"
                             );
                         }
                         Some(Err(error)) => {
@@ -146,7 +146,10 @@ mod hosted_run_session {
             }
         };
         if prompt.trim().is_empty() {
-            let message = format!("non-interactive `{app} run` requires a non-empty prompt; use --pipe or --input-format stream-json for stdin input", app = crate::host_identity::app());
+            let message = format!(
+                "non-interactive `{app} run` requires a non-empty prompt; use --pipe or --input-format stream-json for stdin input",
+                app = crate::host_identity::app()
+            );
             return run_error_exit(output_mode, RunExitCode::Usage, &message);
         }
         let attachments = match headless_input::read_cli_image_attachments(&args.image) {
@@ -166,6 +169,39 @@ mod hosted_run_session {
         ) {
             return run_error_exit(output_mode, RunExitCode::ProviderAuthFailure, &message);
         }
+        // A headless run with no resolvable provider would otherwise get the
+        // engine's canned "no model provider is active" reply and exit 0, so
+        // a script would read it as success. Resolve the route the same way
+        // the engine does and fail typed before anything starts. (The TUI,
+        // `Silent`, shows that reply to a person and keeps going.)
+        if !matches!(output_mode, RunOutputMode::Silent) && vendor_route_for_args(&args).is_none() {
+            let env_vars: std::collections::HashMap<String, String> = std::env::vars().collect();
+            let config = crate::main_runtime::load_merged_config_for_workspace(
+                std::path::Path::new(&workspace_root),
+                &env_vars,
+            );
+            if crate::main_runtime::resolve_engine_config(
+                &config,
+                args.model.as_deref(),
+                args.provider.as_deref(),
+            )
+            .is_none()
+            {
+                let routes = config.provider_routes.keys().cloned().collect::<Vec<_>>();
+                let message = if routes.is_empty() {
+                    format!(
+                        "no model provider is configured: add a provider key (`{app} onboard` or Settings > Providers) or a provider route in config.toml",
+                        app = crate::host_identity::app()
+                    )
+                } else {
+                    format!(
+                        "no model provider resolved for this run: configured routes are {}; pick one with `--model <route>::<model>` or set it as the default",
+                        routes.join(", ")
+                    )
+                };
+                return run_error_exit(output_mode, RunExitCode::ProviderAuthFailure, &message);
+            }
+        }
         // Vendor-CLI routes (`claude-code/*`, `antigravity/*`) run through
         // the vendor's installed CLI rather than a session-execution host.
         if let Some((vendor_kind, vendor_model)) = vendor_route_for_args(&args) {
@@ -183,15 +219,28 @@ mod hosted_run_session {
             .await;
         }
         if control.requested.is_cancelled() {
-            return 130;
+            return interrupted_exit(output_mode);
         }
+        // Nothing ran when no host could be had: exit 3 `unreachable`.
         let host = match select_host().await {
             Ok(host) => host,
             Err(error) => {
-                return run_error_exit(output_mode, RunExitCode::Usage, &error);
+                return run_error_exit(output_mode, RunExitCode::Unreachable, &error);
             }
         };
 
+        // A headless resume of a stored session whose workspace folder is gone would continue in
+        // whatever folder the caller happens to be in; say so and name the way out instead. The
+        // terminal (Silent) draws its own three-way choice.
+        if !matches!(output_mode, RunOutputMode::Silent)
+            && !RUN_FORKED_SESSION.load(std::sync::atomic::Ordering::Relaxed)
+        {
+            if let Ok(Some(row)) = host.session_snapshot(&session_id).await {
+                if let Some(message) = missing_session_workspace_message(&row, &workspace_root) {
+                    return run_error_exit(output_mode, RunExitCode::Usage, &message);
+                }
+            }
+        }
         if let Err(error) = host
             .ensure_session(&args, &session_id, &workspace_root)
             .await
@@ -199,7 +248,7 @@ mod hosted_run_session {
             return run_error_exit(output_mode, RunExitCode::Generic, &error);
         }
         if control.requested.is_cancelled() {
-            return 130;
+            return interrupted_exit(output_mode);
         }
         // Do not race cancellation against POST: the request may already have
         // admitted a turn before its response reaches this presentation.
@@ -208,12 +257,13 @@ mod hosted_run_session {
             .admission_started
             .store(true, std::sync::atomic::Ordering::Release);
         let mut after = match host
-            .submit_message_with_attachments(
+            .submit_message_with_nonce(
                 &session_id,
                 &prompt,
                 &workspace_root,
                 attachments,
                 Some(matches!(output_mode, RunOutputMode::Silent)),
+                RUN_REQUEST_ID.get().map(String::as_str),
             )
             .await
         {
@@ -224,7 +274,10 @@ mod hosted_run_session {
         };
 
         let mut first_error = None;
-        let mut output_state = RunOutputState::default();
+        let mut output_state = RunOutputState {
+            schema_retries_left: SCHEMA_RETRIES.load(std::sync::atomic::Ordering::Relaxed),
+            ..Default::default()
+        };
         if let Some(reason) = host.context_degraded_reason() {
             // D18: typed degraded signal, never a silent shadow store.
             if matches!(output_mode, RunOutputMode::StreamJson) {
@@ -243,9 +296,19 @@ mod hosted_run_session {
         }
         let mut reconnects = 0_u8;
         let host_label = host.label();
+        // A TUI presents cards to a person (tools rule 1): its stream is a human
+        // subscriber. A headless run's stream is not, so its cards are denied
+        // as `unattended`, unless `--approval-callback` makes its client the one who answers.
+        let human = matches!(output_mode, RunOutputMode::Silent) || args.approval_callback;
         let mut interrupt_sent = false;
+        // R15: the moment the interrupt was sent; the settle wait is bounded.
+        let mut interrupt_at: Option<tokio::time::Instant> = None;
         let mut unattended_interaction_error: Option<String> = None;
         let mut unattended_interaction_exit_code: Option<RunExitCode> = None;
+        let mut denied_unattended = false;
+        // `--approval-callback`: approvals the run raised that its client has not answered yet.
+        let mut open_approvals: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
         let mut pending_input_messages = std::collections::VecDeque::new();
         // Highest durable-fact seq already presented. Live delivery and the
         // durable history catch-up can both carry the same durable event;
@@ -255,22 +318,89 @@ mod hosted_run_session {
         let is_live_projection = |event: &serde_json::Value| {
             matches!(
                 daemon_event_kind(event),
-                Some("assistantDelta" | "toolOutputDelta" | "streamResyncRequired")
+                Some(
+                    "assistantDelta"
+                        | "toolOutputDelta"
+                        | "toolArgumentsPartial"
+                        | "streamResyncRequired"
+                )
             )
         };
 
-        let mut stream = match host.open_event_stream(&session_id, after).await {
+        let mut stream = match host.open_event_stream(&session_id, after, human).await {
             Ok(stream) => stream,
             Err(error) => {
                 return run_error_exit(output_mode, RunExitCode::Generic, &error);
             }
         };
 
+        // `--schema-retries`: an answer that broke the schema is sent back as a new turn instead of
+        // ending the run. `$next` is the loop's own `continue`.
+        macro_rules! retry_schema_answer {
+            ($next:expr) => {
+                if let Some(text) = output_state.schema_retry_prompt.take() {
+                    match host
+                        .submit_message(&session_id, &text, &workspace_root)
+                        .await
+                    {
+                        Ok(sequence) => {
+                            after = sequence;
+                            last_durable_seq = sequence;
+                            stream = match host.open_event_stream(&session_id, after, human).await {
+                                Ok(stream) => stream,
+                                Err(error) => {
+                                    return run_error_exit(
+                                        output_mode,
+                                        RunExitCode::Generic,
+                                        &error,
+                                    )
+                                }
+                            };
+                            first_error = None;
+                            let retries_left = output_state.schema_retries_left;
+                            output_state = RunOutputState::default();
+                            output_state.schema_retries_left = retries_left;
+                            reconnects = 0;
+                            interrupt_sent = false;
+                            $next
+                        }
+                        Err(error) => {
+                            return run_error_exit(output_mode, RunExitCode::Generic, &error)
+                        }
+                    }
+                }
+            };
+        }
+
         'run: loop {
+            // A terminal (`human`) has its own bounded wait in `cancel_and_wait` and keeps the turn while the engine is
+            // still stopping; ending the turn's task here would let a queued message start before the old turn settled.
+            let settle_deadline = interrupt_settle_deadline(
+                interrupt_sent,
+                &mut interrupt_at,
+                tokio::time::Instant::now(),
+            )
+            .filter(|_| !matches!(output_mode, RunOutputMode::Silent));
             let next = tokio::select! {
+                _ = async {
+                    match settle_deadline {
+                        Some(deadline) => tokio::time::sleep_until(deadline).await,
+                        None => std::future::pending::<()>().await,
+                    }
+                }, if settle_deadline.is_some() => {
+                    // R15: the interrupt did not settle inside the wait: the turn
+                    // may still be running, so the outcome is unknown (exit 3).
+                    return run_error_exit(
+                        output_mode,
+                        RunExitCode::Unknown,
+                        "Turn cancellation is still awaiting engine settlement.",
+                    );
+                }
                 _ = control.requested.cancelled(), if !interrupt_sent => {
+                    // R15: an interrupt that did not settle (the host's ten second
+                    // wait) leaves the outcome unknown: exit 3, never a guess.
                     if let Err(error) = host.interrupt(&session_id).await {
-                        return run_error_exit(output_mode, RunExitCode::Generic, &error);
+                        return run_error_exit(output_mode, RunExitCode::Unknown, &error);
                     }
                     interrupt_sent = true;
                     tracing::info!(session_id = %session_id, host = host_label, "turn_interrupt_requested");
@@ -298,6 +428,34 @@ mod hosted_run_session {
                                 pending_input_messages.push_back(text);
                             }
                         }
+                        Some(Ok((
+                            line,
+                            RunInputEvent::ApprovalResponse {
+                                tool_call_id,
+                                approved,
+                                remember,
+                                reason,
+                            },
+                        ))) => {
+                            if args.approval_callback && open_approvals.remove(&tool_call_id) {
+                                // A resolve error means the engine already answered: ignore it.
+                                let _ = host
+                                    .resolve_approval_body(
+                                        &session_id,
+                                        approval_response_body(
+                                            &tool_call_id,
+                                            approved,
+                                            remember.as_deref(),
+                                            reason.as_deref(),
+                                        ),
+                                    )
+                                    .await;
+                            } else {
+                                eprintln!(
+                                    "stream-json input line {line}: approval_response for no open approval ignored"
+                                );
+                            }
+                        }
                         Some(Ok((line, event))) => {
                             eprintln!(
                                 "stream-json input line {line}: {:?} refused after initial turn admission",
@@ -310,8 +468,28 @@ mod hosted_run_session {
                             unattended_interaction_error = Some(message);
                             control.requested.cancel();
                             input_stream = None;
+                            // The client's input is gone: nobody can answer an open approval.
+                            for call_id in open_approvals.drain() {
+                                let _ = host
+                                    .resolve_approval_body(
+                                        &session_id,
+                                        detached_denial_body(&call_id),
+                                    )
+                                    .await;
+                            }
                         }
-                        None => input_stream = None,
+                        None => {
+                            input_stream = None;
+                            // Input ended: deny every open approval so the turn never waits.
+                            for call_id in open_approvals.drain() {
+                                let _ = host
+                                    .resolve_approval_body(
+                                        &session_id,
+                                        detached_denial_body(&call_id),
+                                    )
+                                    .await;
+                            }
+                        }
                     }
                     continue;
                 }
@@ -343,29 +521,54 @@ mod hosted_run_session {
                         &mut output_state,
                         &mut first_error,
                     );
-                    let interaction_kind = daemon_event_kind(&event);
-                    let approval_requested = interaction_kind == Some("toolApprovalRequested");
-                    if !matches!(output_mode, RunOutputMode::Silent)
-                        && (approval_requested
-                            || matches!(
-                                interaction_kind,
-                                Some("userQuestionAsked" | "planPresented")
-                            ))
-                    {
-                        let kind = interaction_kind.unwrap_or("interactive request");
-                        unattended_interaction_error = Some(if approval_requested {
-                            format!("headless run cannot approve {kind}; use interactive TUI or provide an explicit non-interactive permission mode")
-                        } else {
-                            format!("headless run cannot answer {kind}; use interactive TUI or provide a non-interactive workflow")
-                        });
-                        if approval_requested {
-                            unattended_interaction_exit_code = Some(RunExitCode::ToolDenied);
-                        }
-                        if !interrupt_sent {
-                            if let Err(error) = host.interrupt(&session_id).await {
-                                return run_error_exit(output_mode, RunExitCode::Generic, &error);
+                    if let Some(message) = persistence_failed_message(&event) {
+                        return run_error_exit(output_mode, RunExitCode::Unknown, &message);
+                    }
+                    if args.approval_callback {
+                        match daemon_event_kind(&event) {
+                            Some("toolApprovalRequested") => {
+                                if let Some(call_id) = approval_call_id(&event) {
+                                    open_approvals.insert(call_id);
+                                }
                             }
-                            interrupt_sent = true;
+                            Some("toolApprovalResolved") => {
+                                if let Some(call_id) = approval_call_id(&event) {
+                                    open_approvals.remove(&call_id);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    if !matches!(output_mode, RunOutputMode::Silent) {
+                        match apply_unattended_policy(
+                            &host,
+                            &session_id,
+                            &event,
+                            !args.approval_callback,
+                        )
+                        .await
+                        {
+                            UnattendedInteraction::ApprovalDenied => denied_unattended = true,
+                            UnattendedInteraction::PlanEndsRun => {
+                                unattended_interaction_error = Some(
+                                    "headless run cannot approve a plan; the plan is the result and nothing in it was executed"
+                                        .to_string(),
+                                );
+                                unattended_interaction_exit_code =
+                                    Some(RunExitCode::InteractionRequired);
+                                if !interrupt_sent {
+                                    if let Err(error) = host.interrupt(&session_id).await {
+                                        return run_error_exit(
+                                            output_mode,
+                                            RunExitCode::Generic,
+                                            &error,
+                                        );
+                                    }
+                                    interrupt_sent = true;
+                                }
+                            }
+                            UnattendedInteraction::QuestionDeclined
+                            | UnattendedInteraction::Continue => {}
                         }
                     }
                     if !daemon_event_is_terminal(&event) {
@@ -375,6 +578,7 @@ mod hosted_run_session {
                         if let Err(error) = host.wait_for_quiescence(&session_id).await {
                             return run_error_exit(output_mode, RunExitCode::Generic, &error);
                         }
+                        retry_schema_answer!(continue);
                         if let Some(path) = args.output_last_message.as_deref() {
                             if let Err(error) = write_last_message(path, &output_state) {
                                 return run_error_exit(output_mode, RunExitCode::Generic, &error);
@@ -415,7 +619,7 @@ mod hosted_run_session {
                                             after = sequence;
                                             last_durable_seq = sequence;
                                             stream = match host
-                                                .open_event_stream(&session_id, after)
+                                                .open_event_stream(&session_id, after, human)
                                                 .await
                                             {
                                                 Ok(stream) => stream,
@@ -456,7 +660,7 @@ mod hosted_run_session {
                                             .unwrap_or_default()
                                     );
                                     control.settled();
-                                    return 130;
+                                    return interrupted_exit(output_mode);
                                 }
                                 Some(Ok((line, event))) => {
                                     eprintln!(
@@ -472,7 +676,7 @@ mod hosted_run_session {
                                         &error.to_string(),
                                     )
                                 }
-                                None => input_stream = None,
+                                None => drop(input_stream.take()),
                             }
                         }
                         if args.ephemeral {
@@ -492,18 +696,25 @@ mod hosted_run_session {
                                     &message,
                                 );
                             }
-                            return 130;
+                            return interrupted_exit(output_mode);
                         }
-                        return final_run_exit_code(
-                            output_state.output_error.is_none(),
-                            exit_on_error,
-                            first_error,
-                            output_state
-                                .output_error
-                                .or_else(|| daemon_event_run_exit_code(&event)),
-                            RunExitCode::Generic,
-                        )
-                        .as_i32();
+                        let final_code = unattended_exit_code(
+                            final_run_exit_code(
+                                output_state.output_error.is_none(),
+                                exit_on_error,
+                                first_error,
+                                output_state
+                                    .output_error
+                                    .or_else(|| daemon_event_run_exit_code(&event)),
+                                RunExitCode::Generic,
+                            ),
+                            denied_unattended,
+                        );
+                        return exit_code_with_failure_object(
+                            output_mode,
+                            &output_state,
+                            final_code,
+                        );
                     }
 
                     match host.events_after(&session_id, after).await {
@@ -530,35 +741,62 @@ mod hosted_run_session {
                                     &mut output_state,
                                     &mut first_error,
                                 );
-                                let interaction_kind = daemon_event_kind(&hist_event);
-                                let approval_requested =
-                                    interaction_kind == Some("toolApprovalRequested");
-                                if !matches!(output_mode, RunOutputMode::Silent)
-                                    && (approval_requested
-                                        || matches!(
-                                            interaction_kind,
-                                            Some("userQuestionAsked" | "planPresented")
-                                        ))
-                                {
-                                    let kind = interaction_kind.unwrap_or("interactive request");
-                                    unattended_interaction_error = Some(if approval_requested {
-                                        format!("headless run cannot approve {kind}; use interactive TUI or provide an explicit non-interactive permission mode")
-                                    } else {
-                                        format!("headless run cannot answer {kind}; use interactive TUI or provide a non-interactive workflow")
-                                    });
-                                    if approval_requested {
-                                        unattended_interaction_exit_code =
-                                            Some(RunExitCode::ToolDenied);
-                                    }
-                                    if !interrupt_sent {
-                                        if let Err(error) = host.interrupt(&session_id).await {
-                                            return run_error_exit(
-                                                output_mode,
-                                                RunExitCode::Generic,
-                                                &error,
-                                            );
+                                if let Some(message) = persistence_failed_message(&hist_event) {
+                                    return run_error_exit(
+                                        output_mode,
+                                        RunExitCode::Unknown,
+                                        &message,
+                                    );
+                                }
+                                if args.approval_callback {
+                                    match daemon_event_kind(&hist_event) {
+                                        Some("toolApprovalRequested") => {
+                                            if let Some(call_id) = approval_call_id(&hist_event) {
+                                                open_approvals.insert(call_id);
+                                            }
                                         }
-                                        interrupt_sent = true;
+                                        Some("toolApprovalResolved") => {
+                                            if let Some(call_id) = approval_call_id(&hist_event) {
+                                                open_approvals.remove(&call_id);
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                                if !matches!(output_mode, RunOutputMode::Silent) {
+                                    match apply_unattended_policy(
+                                        &host,
+                                        &session_id,
+                                        &hist_event,
+                                        !args.approval_callback,
+                                    )
+                                    .await
+                                    {
+                                        UnattendedInteraction::ApprovalDenied => {
+                                            denied_unattended = true
+                                        }
+                                        UnattendedInteraction::PlanEndsRun => {
+                                            unattended_interaction_error = Some(
+                                                "headless run cannot approve a plan; the plan is the result and nothing in it was executed"
+                                                    .to_string(),
+                                            );
+                                            unattended_interaction_exit_code =
+                                                Some(RunExitCode::InteractionRequired);
+                                            if !interrupt_sent {
+                                                if let Err(error) =
+                                                    host.interrupt(&session_id).await
+                                                {
+                                                    return run_error_exit(
+                                                        output_mode,
+                                                        RunExitCode::Generic,
+                                                        &error,
+                                                    );
+                                                }
+                                                interrupt_sent = true;
+                                            }
+                                        }
+                                        UnattendedInteraction::QuestionDeclined
+                                        | UnattendedInteraction::Continue => {}
                                     }
                                 }
                                 if daemon_event_is_terminal(&hist_event) && !hist_is_resync {
@@ -570,6 +808,7 @@ mod hosted_run_session {
                                             &error,
                                         );
                                     }
+                                    retry_schema_answer!(continue 'run);
                                     if let Some(path) = args.output_last_message.as_deref() {
                                         if let Err(error) = write_last_message(path, &output_state)
                                         {
@@ -623,7 +862,11 @@ mod hosted_run_session {
                                                         after = sequence;
                                                         last_durable_seq = sequence;
                                                         stream = match host
-                                                            .open_event_stream(&session_id, after)
+                                                            .open_event_stream(
+                                                                &session_id,
+                                                                after,
+                                                                human,
+                                                            )
                                                             .await
                                                         {
                                                             Ok(stream) => stream,
@@ -664,7 +907,7 @@ mod hosted_run_session {
                                                         .unwrap_or_default()
                                                 );
                                                 control.settled();
-                                                return 130;
+                                                return interrupted_exit(output_mode);
                                             }
                                             Some(Ok((line, event))) => {
                                                 eprintln!(
@@ -680,7 +923,7 @@ mod hosted_run_session {
                                                     &error.to_string(),
                                                 );
                                             }
-                                            None => input_stream = None,
+                                            None => drop(input_stream.take()),
                                         }
                                     }
                                     if args.ephemeral {
@@ -699,22 +942,30 @@ mod hosted_run_session {
                                         if let Some(message) = unattended_interaction_error.take() {
                                             return run_error_exit(
                                                 output_mode,
-                                                RunExitCode::Generic,
+                                                unattended_interaction_exit_code
+                                                    .unwrap_or(RunExitCode::Generic),
                                                 &message,
                                             );
                                         }
-                                        return 130;
+                                        return interrupted_exit(output_mode);
                                     }
-                                    return final_run_exit_code(
-                                        output_state.output_error.is_none(),
-                                        exit_on_error,
-                                        first_error,
-                                        output_state
-                                            .output_error
-                                            .or_else(|| daemon_event_run_exit_code(&hist_event)),
-                                        RunExitCode::Generic,
-                                    )
-                                    .as_i32();
+                                    let final_code = unattended_exit_code(
+                                        final_run_exit_code(
+                                            output_state.output_error.is_none(),
+                                            exit_on_error,
+                                            first_error,
+                                            output_state.output_error.or_else(|| {
+                                                daemon_event_run_exit_code(&hist_event)
+                                            }),
+                                            RunExitCode::Generic,
+                                        ),
+                                        denied_unattended,
+                                    );
+                                    return exit_code_with_failure_object(
+                                        output_mode,
+                                        &output_state,
+                                        final_code,
+                                    );
                                 }
                             }
                         }
@@ -722,7 +973,7 @@ mod hosted_run_session {
                             return run_error_exit(output_mode, RunExitCode::Generic, &error);
                         }
                     }
-                    match host.open_event_stream(&session_id, after).await {
+                    match host.open_event_stream(&session_id, after, human).await {
                         Ok(new_stream) => stream = new_stream,
                         Err(error) => {
                             return run_error_exit(output_mode, RunExitCode::Generic, &error);
@@ -736,7 +987,7 @@ mod hosted_run_session {
                             "[{host_label}] reconnect {reconnects}/2 after event stream closed"
                         );
                     }
-                    match host.open_event_stream(&session_id, after).await {
+                    match host.open_event_stream(&session_id, after, human).await {
                         Ok(new_stream) => stream = new_stream,
                         Err(error) => {
                             return run_error_exit(output_mode, RunExitCode::Generic, &error);
@@ -754,7 +1005,7 @@ mod hosted_run_session {
                             "[{host_label}] reconnect {reconnects}/2 after event read failure: {error}"
                         );
                     }
-                    match host.open_event_stream(&session_id, after).await {
+                    match host.open_event_stream(&session_id, after, human).await {
                         Ok(new_stream) => stream = new_stream,
                         Err(error) => {
                             return run_error_exit(output_mode, RunExitCode::Generic, &error);
@@ -770,7 +1021,7 @@ mod hosted_run_session {
 
     /// Reject run flags the selected vendor CLI has no equivalent for.
     ///
-    /// Claude Code (https://code.claude.com/docs/en/cli-reference) has `--max-turns`,
+    /// Claude Code (<https://code.claude.com/docs/en/cli-reference>) has `--max-turns`,
     /// `--max-budget-usd`, `--system-prompt[-file]`, `--append-system-prompt[-file]`,
     /// `--mcp-config` and `--add-dir`; these are forwarded by
     /// `rightkit_agents::driver_host::ClaudeRunFlags`. Antigravity (`agy --help`) only has
@@ -836,6 +1087,25 @@ mod hosted_run_session {
 // implementation; these are visibility imports, not duplicate logic.
 use hosted_run_session::{run_error_exit, select_run_output_mode, RunOutputMode};
 
+/// A `persistenceFailed` event ends the run (headless-cli.md section 2.5): the session's storage
+/// latched, the engine stopped the turn and nothing durable follows, so no `sessionTurnFinished`
+/// will ever arrive. What the turn did before the failure (a tool may have run) is not recorded,
+/// so the outcome is exit 3 `unknown`, not retryable: check the workspace before running again.
+fn persistence_failed_message(event: &serde_json::Value) -> Option<String> {
+    if daemon_event_kind(event) != Some("persistenceFailed") {
+        return None;
+    }
+    let reason = event
+        .get("reason")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|reason| !reason.is_empty())
+        .unwrap_or("the event store refused a write");
+    Some(format!(
+        "the session could not be saved ({reason}); the turn was stopped and what it did before the failure is not recorded, so check the workspace before running it again"
+    ))
+}
+
 /// Shared CLI/TUI execution entry. Host selection is deliberately beneath
 /// presentation so both surfaces acquire InlineHost by default.
 async fn run_session(args: RunArgs) -> i32 {
@@ -867,30 +1137,40 @@ async fn run_session_controlled(mut args: RunArgs, control: Arc<RunCancellation>
             );
         }
     }
-    if !service_host_explicitly_selected() {
-        let profile =
-            match rightkit_agent_coding_tools::process_resource_authority::local_resource_profile_from_env() {
-                Ok(profile) => profile,
-                Err(error) => {
-                    return run_error_exit(
-                        select_run_output_mode(&args, None),
-                        RunExitCode::Usage,
-                        &error,
-                    );
-                }
-            };
-        if let Err(existing) =
-            rightkit_agent_coding_tools::process_resource_authority::install_process_resource_profile(profile)
-        {
-            let message = format!(
-                "InlineHost requested resource profile {profile:?}, but this process is already bound to {existing:?}"
-            );
-            return run_error_exit(
-                select_run_output_mode(&args, None),
-                RunExitCode::Usage,
-                &message,
-            );
-        }
+    // The route is chosen at host selection (R13); an in-process run needs
+    // the local resource profile, and a daemon-routed run is not hurt by it.
+    let profile =
+        match rightkit_agent_coding_tools::process_resource_authority::local_resource_profile_from_env() {
+            Ok(profile) => profile,
+            Err(error) => {
+                return run_error_exit(
+                    select_run_output_mode(&args, None),
+                    RunExitCode::Usage,
+                    &error,
+                );
+            }
+        };
+    if let Err(existing) =
+        rightkit_agent_coding_tools::process_resource_authority::install_process_resource_profile(
+            profile,
+        )
+    {
+        let message = format!(
+            "InlineHost requested resource profile {profile:?}, but this process is already bound to {existing:?}"
+        );
+        return run_error_exit(
+            select_run_output_mode(&args, None),
+            RunExitCode::Usage,
+            &message,
+        );
     }
-    hosted_run_session::run_hosted(args, control).await
+
+    let code = hosted_run_session::run_hosted(args, control).await;
+    // A `SessionEnd` hook runs fire-and-forget at the end of the turn; the process exits right
+    // after this, and every child dies with it (issue 448), so wait for those hooks (bounded).
+    // The host can report the turn finished a moment before the engine records the session end,
+    // so first wait (briefly) for that record, then for the hook tasks it started.
+    rightkit_hooks::agent_hooks::wait_session_ends(std::time::Duration::from_secs(3)).await;
+    rightkit_hooks::agent_hooks::wait_pending(std::time::Duration::from_secs(10)).await;
+    code
 }

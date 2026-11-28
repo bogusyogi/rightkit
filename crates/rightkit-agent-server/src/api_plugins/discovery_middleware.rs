@@ -1,8 +1,8 @@
 // Daemon-state adapter for portable plugin discovery.
 
 pub(crate) use rightkit_agent_engine_api_integrations::discovery::{
-    discover_plugins, local_plugin_middleware_definitions, plugin_manifests_with_roots,
-    provider_extension_documents,
+    discover_plugin_report, discover_plugins, local_plugin_middleware_definitions,
+    plugin_manifests_with_roots, provider_extension_documents,
 };
 
 pub(crate) fn sync_runtime_middleware_from_plugins(state: &DaemonState) -> usize {
@@ -16,8 +16,11 @@ pub(crate) fn sync_runtime_middleware_from_plugins(state: &DaemonState) -> usize
     count
 }
 
+/// A plugin id is one folder name: letters, digits, `-`, `_` and inner dots, never starting with
+/// a dot, so `.` and `..` cannot name a folder outside the plugin directory.
 fn validate_plugin_id(id: &str) -> bool {
     !id.trim().is_empty()
+        && !id.starts_with('.')
         && id
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' || ch == '.')

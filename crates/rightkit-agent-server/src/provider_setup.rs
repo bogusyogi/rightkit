@@ -234,22 +234,25 @@ pub fn apply_vendor_facts(
 
 // ── API keys ─────────────────────────────────────────────────────────────
 
-/// Whether a key is available for this provider (keychain, legacy file, or
-/// the provider's env var). Presence only.
+/// Whether a key is available for this provider where this host keeps keys: the OS credential
+/// store, or on a host with no store the environment and `<state root>/.env` (providers R4).
+/// Presence only.
 pub fn key_is_set(provider_id: &str) -> bool {
     rightkit_llm::agent_providers::load_api_key(provider_id).is_some()
 }
 
+/// Save a key where this host keeps keys (providers R4, R10): the OS credential store when the
+/// probe found one (a write it cannot verify stores nothing), otherwise `<state root>/.env`,
+/// owner-only.
 pub fn store_key(provider_id: &str, key: &str) -> Result<(), String> {
-    super::onboarding::store_credential(
-        &rightkit_llm::agent_providers::OsKeyStore,
-        provider_id,
-        key.trim(),
-    )
+    if key.trim().is_empty() {
+        return Err("credential empty".into());
+    }
+    rightkit_llm::agent_providers::host_credentials::store_provider_key(provider_id, key.trim())
 }
 
 pub fn remove_key(provider_id: &str) -> Result<(), String> {
-    super::onboarding::remove_credential(&rightkit_llm::agent_providers::OsKeyStore, provider_id)
+    rightkit_llm::agent_providers::host_credentials::remove_provider_key(provider_id)
 }
 
 // ── Test connection ──────────────────────────────────────────────────────

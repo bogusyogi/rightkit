@@ -1,6 +1,6 @@
 use super::ApiEndpoint;
 
-pub(super) const ENDPOINT_GROUP_05: [ApiEndpoint; 39] = [
+pub(super) const ENDPOINT_GROUP_05: [ApiEndpoint; 40] = [
     ApiEndpoint {
         method: "GET",
         path: "/schedules/{id}/runs",
@@ -83,6 +83,11 @@ pub(super) const ENDPOINT_GROUP_05: [ApiEndpoint; 39] = [
     },
     ApiEndpoint {
         method: "POST",
+        path: "/local-models/discover",
+        summary: "Probe candidate (or the usual) local-server addresses and report which answer",
+    },
+    ApiEndpoint {
+        method: "POST",
         path: "/local-models/chat-smoke",
         summary: "Smoke-test OpenAI-compatible local chat completions",
     },
@@ -99,8 +104,7 @@ pub(super) const ENDPOINT_GROUP_05: [ApiEndpoint; 39] = [
     ApiEndpoint {
         method: "GET",
         path: "/hooks/list",
-        summary:
-            "List registered hooks with env-var id, event, kind, configured, and revoked markers",
+        summary: "List registered hooks with id, event, kind, configured, and revoked markers",
     },
     ApiEndpoint {
         method: "POST",
@@ -110,7 +114,7 @@ pub(super) const ENDPOINT_GROUP_05: [ApiEndpoint; 39] = [
     ApiEndpoint {
         method: "POST",
         path: "/hooks/revoke",
-        summary: "Revoke or restore a hook id (env var name) for the current daemon session",
+        summary: "Revoke or restore a hook id (event#index) for the current daemon session",
     },
     ApiEndpoint {
         method: "GET",

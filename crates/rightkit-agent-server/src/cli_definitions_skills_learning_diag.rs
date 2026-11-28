@@ -1,10 +1,14 @@
 #[derive(Subcommand, Debug, PartialEq)]
 pub enum SkillCommand {
-    /// List installed skills from the running daemon.
+    /// List installed skills from the running daemon, or with `--workspace` this workspace's
+    /// project skill candidates (`.agents/skills`, `.claude/skills`) and whether each is activated.
     List {
         /// Accepted for parity; list already emits JSON.
         #[arg(long)]
         json: bool,
+        /// List the current workspace's project skill candidates instead.
+        #[arg(long)]
+        workspace: bool,
     },
     /// List durable skill proposals, versions, benchmark verdicts, and governance audit entries.
     Proposals,
@@ -69,7 +73,7 @@ pub enum SkillCommand {
         #[arg(long = "verdict-file")]
         verdict_file: Option<String>,
     },
-    /// Run a real RightKit benchmark and record its report as a proposal verdict.
+    /// Run a real {APP_NAME} benchmark and record its report as a proposal verdict.
     RunBenchmarkProposal {
         /// Proposal id to benchmark.
         proposal_id: String,
@@ -79,7 +83,7 @@ pub enum SkillCommand {
         /// Session id to use or create as benchmark context.
         #[arg(long = "session")]
         session_id: String,
-        /// Agent role for role benchmarks, or fallback agent for the RightKit task pack.
+        /// Agent role for role benchmarks, or fallback agent for the {APP_NAME} task pack.
         #[arg(long)]
         role: Option<String>,
         /// Model override for role benchmarks.
@@ -91,10 +95,10 @@ pub enum SkillCommand {
         /// Repeat count for role benchmarks.
         #[arg(long)]
         repeats: Option<u32>,
-        /// RightKit task-pack id (legacy command name retained for compatibility).
+        /// {APP_NAME} task-pack id (legacy command name retained for compatibility).
         #[arg(long = "task")]
         task_id: Option<String>,
-        /// Agent role for the RightKit task pack.
+        /// Agent role for the {APP_NAME} task pack.
         #[arg(long)]
         agent: Option<String>,
         /// Benchmark id stored in the proposal verdict.
@@ -128,6 +132,15 @@ pub enum SkillCommand {
         /// Explicitly override the benchmark gate.
         #[arg(long)]
         operator_override: bool,
+        /// Activate a project skill of the current (trusted) workspace instead: it then reaches
+        /// the prompt and `invoke_skill` like an installed skill, until its file changes.
+        #[arg(long)]
+        workspace: bool,
+    },
+    /// Deactivate a project skill of the current workspace.
+    Deactivate {
+        /// Skill slug.
+        slug: String,
     },
     /// Retire an installed managed skill.
     Retire {
@@ -242,7 +255,16 @@ pub enum LearningCommand {
     Approve {
         /// Learning proposal id.
         proposal_id: String,
+        /// The instruction to store, replacing the proposal's own text. A proposal the analyzer
+        /// wrote from a failed session has no instruction of its own and needs one.
+        #[arg(long)]
+        rule: Option<String>,
     },
+    /// List learning proposals with their status.
+    List,
+    /// List the approved instructions (instincts) injected into session prompts, and whether
+    /// the size cap cuts any off.
+    Instincts,
     /// Reject a learning proposal through the governed runtime route.
     Reject {
         /// Learning proposal id.
@@ -281,7 +303,7 @@ pub enum DiagnosticsCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Ask the running daemon to build a redacted support bundle (RightKit ZIP).
+    /// Ask the running daemon to build a redacted support bundle ({APP_NAME} ZIP).
     Bundle {
         /// Output path for the support bundle ZIP.
         #[arg(long)]

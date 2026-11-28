@@ -12,11 +12,7 @@ fn same_cli_path(left: &str, right: &str) -> bool {
 
 async fn daemon_session(command: SessionCommand) -> i32 {
     match command {
-        SessionCommand::List {
-            status,
-            tag,
-            json: _json,
-        } => daemon_session_list(status, tag).await,
+        SessionCommand::List { status, tag, json } => daemon_session_list(status, tag, json).await,
         SessionCommand::Search { query, limit } => daemon_session_search(&query, limit).await,
         SessionCommand::Delete { session_id } => daemon_session_delete(&session_id).await,
         SessionCommand::Archive { session_id } => {
@@ -36,7 +32,19 @@ async fn daemon_session(command: SessionCommand) -> i32 {
     }
 }
 
-async fn daemon_session_list(status: Option<String>, tag: Option<String>) -> i32 {
+/// `--json` output of a session list: the rows under one `schema_version`
+/// object, so every `--json` result is one tagged value (headless R12, D12).
+fn sessions_json_envelope(listed: &str) -> String {
+    let rows: serde_json::Value =
+        serde_json::from_str(listed).unwrap_or_else(|_| serde_json::json!([]));
+    serde_json::json!({
+        "schema_version": crate::host_identity::schema("cli.sessions.v1"),
+        "sessions": rows,
+    })
+    .to_string()
+}
+
+async fn daemon_session_list(status: Option<String>, tag: Option<String>, json: bool) -> i32 {
     // DL-014: `{app} ps`/`{app} sessions` reach the daemon through
     // the shared `LifecycleAuthority` (`Start { Background }`) rather than
     // calling the autostart coordinator directly; see
@@ -52,11 +60,7 @@ async fn daemon_session_list(status: Option<String>, tag: Option<String>) -> i32
     let (base_url, token) = match resolved {
         Ok(Some(p)) => p,
         Ok(None) => {
-            eprintln!(
-                "No running daemon found. Start one with `{app} serve`.",
-                app = crate::host_identity::app()
-            );
-            return 1;
+            return host_unreachable_exit(json);
         }
         Err(_) => {
             eprintln!("Timed out after 60s waiting for the daemon to become ready.");
@@ -96,7 +100,11 @@ async fn daemon_session_list(status: Option<String>, tag: Option<String>) -> i32
     };
     match listed {
         Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status) => {
-            println!("{}", resp.text());
+            if json {
+                println!("{}", sessions_json_envelope(&resp.text()));
+            } else {
+                println!("{}", resp.text());
+            }
             0
         }
         Ok(resp) => {
@@ -114,11 +122,7 @@ async fn daemon_session_search(query: &str, limit: usize) -> i32 {
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!(
-                "No running daemon found. Start one with `{app} serve`.",
-                app = crate::host_identity::app()
-            );
-            return 1;
+            return host_unreachable_exit(false);
         }
     };
     let query = query.trim();
@@ -152,11 +156,7 @@ async fn daemon_session_delete(session_id: &str) -> i32 {
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!(
-                "No running daemon found. Start one with `{app} serve`.",
-                app = crate::host_identity::app()
-            );
-            return 1;
+            return host_unreachable_exit(false);
         }
     };
 
@@ -192,11 +192,7 @@ async fn daemon_session_set_status(session_id: &str, status: &str) -> i32 {
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!(
-                "No running daemon found. Start one with `{app} serve`.",
-                app = crate::host_identity::app()
-            );
-            return 1;
+            return host_unreachable_exit(false);
         }
     };
 
@@ -239,11 +235,7 @@ async fn daemon_session_set(
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!(
-                "No running daemon found. Start one with `{app} serve`.",
-                app = crate::host_identity::app()
-            );
-            return 1;
+            return host_unreachable_exit(false);
         }
     };
 

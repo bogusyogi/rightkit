@@ -6,7 +6,7 @@ use axum::{
     Router,
 };
 use rightkit_agent_engine_protocol::TranscriptMessage;
-use rightkit_agent_host_traits::skill_host::{CommandAction, CommandResult};
+use rightkit_agent_skills::{CommandAction, CommandResult};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
@@ -120,17 +120,21 @@ pub(crate) async fn command_handoff(
             "handoff refused: quiescence outcome {quiescence:?}"
         ));
     }
+    let mut handoff_line: Option<String> = None;
     if let Some(storage) = &state.storage {
+        recover_orphaned_handoff(state, session_id).await;
         let storage = storage.clone();
         let id = session_id.to_string();
-        let epoch = std::time::SystemTime::now()
+        let clock_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
             .unwrap_or(1);
         let live_for_drain = live_session.clone();
-        let _ = tokio::task::spawn_blocking(move || {
+        let outcome = tokio::task::spawn_blocking(move || {
             let store = storage.blocking_lock();
             let now = now_iso();
+            let prior = store.handoff_state(&id).ok().flatten();
+            let epoch = clock_ms.max(prior.as_ref().map_or(0, |row| row.controller_epoch + 1));
             let callbacks = DaemonHandoffCallbacks {
                 live: live_for_drain.as_deref(),
                 store: &store,
@@ -140,15 +144,40 @@ pub(crate) async fn command_handoff(
                 &*store,
                 crate::daemon::handoff_saga::global_intake_fence(),
                 &callbacks,
-                &id,
-                "native",
-                "claude",
-                epoch,
+                crate::daemon::handoff_saga::HandoffAttempt {
+                    session_id: &id,
+                    source_target: "native",
+                    destination_target: "claude",
+                    epoch,
+                },
                 rightkit_agent_engine_storage::QuiescenceOutcome::ReadyToHandoff,
                 &now,
             )
         })
         .await;
+        match outcome {
+            Err(_) => return command_err("handoff failed: the saga task did not finish"),
+            Ok(crate::daemon::handoff_saga::SagaOutcome::Refused(refusal)) => {
+                use crate::daemon::handoff_saga::SagaRefusal;
+                let text = match refusal {
+                    SagaRefusal::PreflightFailed(msg) => format!("preflight failed: {msg}"),
+                    SagaRefusal::DrainFailed(msg) => format!("drain failed: {msg}"),
+                    SagaRefusal::StopFailed(msg) => format!("stop failed: {msg}"),
+                    SagaRefusal::StorageError(msg) => format!("storage error: {msg}"),
+                    other => format!("{other:?}"),
+                };
+                return command_err(format!("handoff refused: {text}"));
+            }
+            Ok(crate::daemon::handoff_saga::SagaOutcome::Published(handle)) => {
+                handoff_line = Some(format!(
+                    "**Controller handoff:** epoch {}, {} -> {}, {}",
+                    handle.controller_epoch,
+                    handle.source_target,
+                    handle.destination_target,
+                    handle.phase
+                ));
+            }
+        }
     }
 
     let session = match session_handoff_metadata(state, session_id).await {
@@ -161,9 +190,56 @@ pub(crate) async fn command_handoff(
     let payload =
         redact_handoff_payload_for_display(session_handoff_payload(state, session_id, session));
     let raw = serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string());
-    command_ok(format!(
-        "**Session handoff:** {session_id}\n\n```json\n{raw}\n```"
-    ))
+    let body = format!("**Session handoff:** {session_id}\n\n```json\n{raw}\n```");
+    match handoff_line {
+        Some(line) => command_ok(format!("{line}\n\n{body}")),
+        None => command_ok(body),
+    }
+}
+
+/// PL-008 restart recovery: drive an orphaned non-terminal handoff row (left
+/// by a daemon that died mid-saga) to a terminal phase. No-op when a live
+/// saga holds the intake fence, when there is no storage, or when the row is
+/// absent or already terminal.
+pub(crate) async fn recover_orphaned_handoff(state: &DaemonState, session_id: &str) {
+    if state.handoff_intake_is_fenced(session_id) {
+        return;
+    }
+    let Some(storage) = &state.storage else {
+        return;
+    };
+    let storage = storage.clone();
+    let id = session_id.to_string();
+    let live = state.get_session(session_id);
+    let _ = tokio::task::spawn_blocking(move || {
+        let store = storage.blocking_lock();
+        let Some(row) = store.handoff_state(&id).ok().flatten() else {
+            return;
+        };
+        if !matches!(
+            row.phase.as_str(),
+            "quiescing" | "source_quiesced" | "resumed"
+        ) {
+            return;
+        }
+        let callbacks = DaemonHandoffCallbacks {
+            live: live.as_deref(),
+            store: &store,
+            epoch: row.controller_epoch,
+        };
+        if let crate::daemon::handoff_saga::SagaOutcome::Refused(refusal) =
+            crate::daemon::handoff_saga::resume_in_progress(
+                &*store,
+                crate::daemon::handoff_saga::global_intake_fence(),
+                &callbacks,
+                &id,
+                &now_iso(),
+            )
+        {
+            tracing::warn!(session_id = %id, ?refusal, "orphaned handoff recovery refused");
+        }
+    })
+    .await;
 }
 
 /// PL-008 saga callbacks bound to the live daemon: preflight validates the
@@ -187,6 +263,29 @@ impl<'a> crate::daemon::handoff_saga::HandoffCallbacks for DaemonHandoffCallback
             return Err(
                 "handoff requires distinct non-empty source/destination targets".to_string(),
             );
+        }
+        for name in [source, destination] {
+            if name != "native" && name != "claude" {
+                return Err(format!(
+                    "unknown handoff target '{name}': expected native or claude"
+                ));
+            }
+        }
+        if source == "claude" || destination == "claude" {
+            use rightkit_agents::driver_host::vendor_cli::{detect, VendorCli};
+            let status = detect(VendorCli::ClaudeCode);
+            if !status.installed {
+                return Err(format!(
+                    "Claude Code is not installed: {}",
+                    VendorCli::ClaudeCode.install_hint()
+                ));
+            }
+            if status.signed_in == Some(false) {
+                return Err(format!(
+                    "Claude Code is not signed in: {}",
+                    VendorCli::ClaudeCode.login_hint()
+                ));
+            }
         }
         Ok(())
     }
@@ -281,7 +380,11 @@ async fn session_handoff_metadata(
 ) -> Result<serde_json::Value, StatusCode> {
     if let Some(live) = state.get_session(id) {
         let mut row = live_session_metadata(&live);
-        row["status"] = serde_json::json!("running");
+        row["status"] = if row["turnActive"].as_bool() == Some(true) {
+            serde_json::json!("running")
+        } else {
+            serde_json::json!("idle")
+        };
         return Ok(row);
     }
 
@@ -388,7 +491,7 @@ fn session_handoff_payload_after(
     // ownership is being transferred.
     let controller_in_flight = state.handoff_intake_is_fenced(id);
     let base_url = daemon_base_url(state);
-    let encoded_id = percent_encode_url_component(id);
+    let encoded_id = rightkit_http::percent_encode_component(id);
     let session_path = format!("/sessions/{encoded_id}");
     let after = after.max(0);
     let high_water_mark = session
@@ -451,19 +554,6 @@ fn session_handoff_payload_after(
             notes
         },
     }
-}
-
-fn percent_encode_url_component(input: &str) -> String {
-    let mut out = String::new();
-    for byte in input.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
-                out.push(byte as char)
-            }
-            _ => out.push_str(&format!("%{byte:02X}")),
-        }
-    }
-    out
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

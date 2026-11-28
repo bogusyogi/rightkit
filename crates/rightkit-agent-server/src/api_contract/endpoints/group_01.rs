@@ -104,12 +104,12 @@ pub(super) const ENDPOINT_GROUP_01: [ApiEndpoint; 35] = [
     ApiEndpoint {
         method: "GET",
         path: "/teams",
-        summary: "List configured agent teams",
+        summary: "List configured team presets",
     },
     ApiEndpoint {
         method: "DELETE",
         path: "/teams/{name}",
-        summary: "Delete a configured agent team",
+        summary: "Delete a configured team preset",
     },
     ApiEndpoint {
         method: "GET",

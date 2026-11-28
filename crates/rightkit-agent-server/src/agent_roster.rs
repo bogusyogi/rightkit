@@ -28,7 +28,13 @@ fn now_ms() -> u128 {
 }
 
 impl AgentRoster {
-    pub fn ensure(&mut self, sub_session_id: &str, role: &str, model: &str) {
+    pub fn ensure(
+        &mut self,
+        sub_session_id: &str,
+        role: &str,
+        model: &str,
+        provider: Option<&str>,
+    ) {
         if !self.rows.contains_key(sub_session_id) {
             self.order.push(sub_session_id.to_string());
             self.started_ms.insert(sub_session_id.to_string(), now_ms());
@@ -45,7 +51,7 @@ impl AgentRoster {
                     tool_uses: 0,
                     elapsed_ms: 0,
                     last_tools: vec![],
-                    provider: None,
+                    provider: provider.map(str::to_string).filter(|p| !p.is_empty()),
                     cost_usd: None,
                 },
             );
@@ -60,8 +66,20 @@ impl AgentRoster {
     }
 
     /// `UsageUpdated` carries cumulative totals, so set absolute (don't add).
-    pub fn record_usage(&mut self, id: &str, tokens_in: u64, tokens_out: u64, cache_read: u64) {
+    ///
+    /// `cost_usd` is the child's own cumulative cost as its `UsageUpdated`
+    /// event reports it (the same event that feeds the session row's
+    /// `costUsd`): `Some` only when that cost came from curated pricing.
+    pub fn record_usage(
+        &mut self,
+        id: &str,
+        tokens_in: u64,
+        tokens_out: u64,
+        cache_read: u64,
+        cost_usd: Option<f64>,
+    ) {
         if let Some(r) = self.rows.get_mut(id) {
+            r.cost_usd = cost_usd;
             r.tokens_in = tokens_in;
             r.tokens_out = tokens_out;
             r.cache_read = cache_read;

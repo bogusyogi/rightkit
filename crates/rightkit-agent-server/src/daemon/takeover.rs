@@ -95,6 +95,18 @@ pub fn acquire_or_take_over(
     if pid == std::process::id() {
         return Ok(None);
     }
+    // Audit 2026-11-05 daemon H1: `daemon.lock` is also held by an inline `{app} run` and by a
+    // `serve` that has not yet published its discovery record. Only a holder that is the live
+    // process the published `daemon.port` names is a daemon this takeover may stop; any other
+    // holder is refused untouched. This check and the executable-identity check below both
+    // have to pass.
+    if !holder_is_published_daemon(path, pid) {
+        eprintln!(
+            "lock holder pid {pid} is not the daemon named in daemon.port (a `{app} run` or a daemon still starting); declining takeover",
+            app = crate::host_identity::app()
+        );
+        return Ok(None);
+    }
 
     // Pin all predecessor identity before signaling anything. Any unresolved
     // component is ambiguous ownership & must refuse takeover.
@@ -155,6 +167,23 @@ pub fn acquire_or_take_over(
     // concurrent newer spawn won it. Decline rather than double-run.
     eprintln!("lock is still held after killing pid {pid}; exiting");
     Ok(None)
+}
+
+/// Whether `pid`, the current lock holder, is the live process recorded in the discovery file
+/// next to `lock_path`. A missing, unparsable or legacy (no birth time) record, a record naming
+/// another pid, or a recorded pid whose start time no longer matches all answer `false`.
+fn holder_is_published_daemon(lock_path: &Path, pid: u32) -> bool {
+    let Some(discovery_path) = lock_path.parent().map(|parent| parent.join("daemon.port")) else {
+        return false;
+    };
+    std::fs::read_to_string(discovery_path)
+        .ok()
+        .is_some_and(|content| record_names_live_holder(&content, pid))
+}
+
+fn record_names_live_holder(record_text: &str, pid: u32) -> bool {
+    rightkit_daemon::loopback::LoopbackRecord::parse(record_text)
+        .is_some_and(|record| record.pid == pid && record.process_matches())
 }
 
 fn request_cooperative_shutdown(lock_path: &Path, pid: u32) -> bool {
@@ -223,5 +252,56 @@ fn poll_acquire(path: &Path, budget: Duration) -> std::io::Result<Option<Ownersh
             return Ok(None);
         }
         thread::sleep(TAKEOVER_POLL);
+    }
+}
+
+#[cfg(test)]
+mod published_holder_tests {
+    use super::{holder_is_published_daemon, record_names_live_holder};
+    use rightkit_daemon::loopback::{LoopbackRecord, RecordLabels};
+
+    fn own_record() -> LoopbackRecord {
+        LoopbackRecord::for_this_process(4242, "token", &RecordLabels::default())
+    }
+
+    #[test]
+    fn record_for_the_live_holder_permits_takeover() {
+        let record = own_record();
+        assert!(record_names_live_holder(
+            &record.to_line(),
+            std::process::id()
+        ));
+    }
+
+    #[test]
+    fn holder_not_named_by_record_is_refused() {
+        // A stale record names a dead daemon while a an inline run (another pid) holds the lock.
+        let record = own_record();
+        assert!(!record_names_live_holder(
+            &record.to_line(),
+            std::process::id().wrapping_add(1)
+        ));
+    }
+
+    #[test]
+    fn legacy_or_malformed_record_is_refused() {
+        let mut record = own_record();
+        record.boot_epoch_ms = 0;
+        assert!(!record_names_live_holder(
+            &record.to_line(),
+            std::process::id()
+        ));
+        assert!(!record_names_live_holder("not json", std::process::id()));
+        assert!(!record_names_live_holder("", std::process::id()));
+    }
+
+    #[test]
+    fn missing_discovery_file_is_refused() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let dir = temp.path();
+        let lock = dir.join("daemon.lock");
+        assert!(!holder_is_published_daemon(&lock, std::process::id()));
+        std::fs::write(dir.join("daemon.port"), own_record().to_line()).expect("record");
+        assert!(holder_is_published_daemon(&lock, std::process::id()));
     }
 }

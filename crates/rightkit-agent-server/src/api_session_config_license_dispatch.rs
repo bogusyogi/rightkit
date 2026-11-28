@@ -1,10 +1,14 @@
 use super::*;
 
-/// The fixed Pro feature set a daemon starts with.
+/// The fixed Pro feature set a daemon starts with. It is consulted only when licence enforcement
+/// is on (`DaemonState::license_enforced`, off today: B15, nothing is enforced); the set equals the
+/// names the licence server issues for the app's Pro product (licensing rule 6).
 ///
 /// Release builds start with none: Pro comes only from the daemon's own verification of the stored
 /// licence record (`crate::license::LicenseGate`, attached at boot). No environment variable, flag
-/// or request can grant a feature.
+/// or request can grant a feature. A `test-mode` build (QA and the e2e rigs) and unit tests are the
+/// Pro product so Pro-gated routes are reachable without a signed licence; that set is compiled in,
+/// not read from anywhere, and release builds cannot enable the feature.
 pub(crate) fn initial_license_features() -> HashSet<String> {
     HashSet::new()
 }
@@ -46,7 +50,7 @@ where
     } else {
         DispatchDecision::direct(
             1.0,
-            "Automatic dispatch routing requires the `routing` Pro feature; running direct.",
+            "Automatic dispatch routing is off (`orchestration.conductor-routing`, or the `routing` Pro feature is missing); running direct.",
             JudgeSource::Heuristic,
         )
     };

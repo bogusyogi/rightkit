@@ -31,7 +31,13 @@ pub(crate) async fn issue_capability_lease(
     {
         return Err(StatusCode::BAD_REQUEST);
     }
-    let profile = launchable_cli_profile(&state, provider_id.clone()).await?;
+    let profile = launchable_cli_profile_for_session(
+        &state,
+        provider_id.clone(),
+        &session_id,
+        &live.workspace_root,
+    )
+    .await?;
     let adapter = state
         .cli_registry
         .adapter(&provider_id)
@@ -200,7 +206,7 @@ pub(crate) async fn issue_capability_lease(
         "mcp": {
             "command": crate::host_identity::app(),
             "args": ["mcp-server", "--session-id", session_id],
-            "secretEnvironment": DRIVER_MCP_SECRET_ENVIRONMENT,
+            "secretEnvironment": driver_mcp_secret_environment(),
         }
     })))
 }
@@ -214,7 +220,8 @@ pub(crate) async fn list_capabilities(
     if !runtime_contains_binding(&state, &lease.binding_id).await {
         return Err(StatusCode::GONE);
     }
-    let registry = ToolRegistry::build_default();
+    let mut registry = ToolRegistry::build_default();
+    crate::host_options::apply_tool_registry_controls(&mut registry);
     let schemas = tools
         .iter()
         .filter_map(|name| capability_schema(&registry, name))
@@ -280,7 +287,7 @@ pub(crate) async fn call_capability(
                     return Ok(Json(result));
                 }
                 return Ok(Json(json!({
-                    "content": [{"type": "text", "text": "duplicate driver tool call has no committed result; RightKit refused to re-run the side effect"}],
+                    "content": [{"type": "text", "text": format!("duplicate driver tool call has no committed result; {} refused to re-run the side effect", crate::host_identity::app())}],
                     "isError": true,
                     "_meta": {"duplicate": true, "callId": call_id, "priorStatus": existing.status},
                 })));
@@ -401,6 +408,41 @@ pub(crate) async fn memory_recall(
         .and_then(Value::as_u64)
         .unwrap_or(5)
         .clamp(1, 10) as usize;
+    if crate::host_options::memory_recall_unverified_items() {
+        // An explicit driver recall, not an injection: ask the memory service for the exact
+        // bounded result set and return it verbatim. The host keeps no provenance of its own,
+        // so every item is labelled unverified.
+        let context = rightkit_memory_client::api_memright::current_memory_call_context();
+        let workspace_scope =
+            rightkit_memory_client::backend::path_to_scope(live.workspace_root.trim());
+        let scopes = state
+            .memory_backend
+            .scopes(&context)
+            .await
+            .unwrap_or_default();
+        let scope_chain = rightkit_memory_client::backend::scope_chain(&workspace_scope, &scopes);
+        let items = match state
+            .memory_backend
+            .recall_scored(&context, query, limit, &scope_chain)
+            .await
+        {
+            Ok(items) => items,
+            Err(error) => return Ok(ToolResult::error(format!("memory recall failed: {error}"))),
+        };
+        return Ok(ToolResult::ok(
+            json!({
+                "source": "membrane",
+                "items": items.into_iter().map(|(entry, score)| json!({
+                    "id": entry.id,
+                    "scope": entry.scope_id,
+                    "score": score,
+                    "content": entry.content,
+                    "verified": false,
+                })).collect::<Vec<_>>(),
+            })
+            .to_string(),
+        ));
+    }
     let injection = crate::api::retrieve_session_memory(
         state,
         session_id,
@@ -603,8 +645,14 @@ pub(crate) async fn authorize_lease(
     if parts.next().is_some() || secret.len() < 64 {
         return Err(StatusCode::UNAUTHORIZED);
     }
-    let live = state.get_session(session_id).ok_or(StatusCode::NOT_FOUND)?;
-    let workspace = canonical_workspace(&live.workspace_root)?;
+    // This gateway sits outside the bearer gate: an unknown session (or one whose workspace
+    // is gone) must answer exactly like a bad lease, or the status code tells an
+    // unauthenticated caller which session ids are live.
+    let live = state
+        .get_session(session_id)
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let workspace =
+        canonical_workspace(&live.workspace_root).map_err(|_| StatusCode::UNAUTHORIZED)?;
     let storage = state
         .storage
         .as_ref()
@@ -685,7 +733,8 @@ pub(crate) fn effective_ceiling_for(
     disallowed_tools: &[String],
     requested: &[String],
 ) -> Result<Vec<String>, StatusCode> {
-    let registry = ToolRegistry::build_default();
+    let mut registry = ToolRegistry::build_default();
+    crate::host_options::apply_tool_registry_controls(&mut registry);
     let known = |name: &str| registry.get(name).is_some() || SPECIAL_TOOLS.contains(&name);
     let mut tools = if requested.is_empty() {
         if safe_mode {
@@ -749,25 +798,29 @@ pub(crate) fn capability_schema(registry: &ToolRegistry, name: &str) -> Option<V
     match name {
         "memory_recall" => Some(json!({
             "name": name,
-            "description": "Recall session-scoped MemRight context with RightKit provenance.",
+            "description": if crate::host_options::memory_recall_unverified_items() {
+                "Recall durable memory from Membrane for this workspace. Every item is unverified: Membrane stores no memory provenance yet.".to_string()
+            } else {
+                format!("Recall session-scoped MemRight context with {} provenance.", crate::host_identity::app())
+            },
             "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 10}}, "required": ["query"]},
             "annotations": capability_annotations(true),
         })),
         "delegate_task" => Some(json!({
             "name": name,
-            "description": "Delegate one bounded task to a RightKit-managed model/agent.",
+            "description": format!("Delegate one bounded task to a {}-managed model/agent.", crate::host_identity::app()),
             "inputSchema": delegate_task_schema(false),
             "annotations": capability_annotations(false),
         })),
         "delegate_parallel" => Some(json!({
             "name": name,
-            "description": "Delegate 1-4 independent tasks through RightKit in parallel.",
+            "description": format!("Delegate 1-4 independent tasks through {} in parallel.", crate::host_identity::app()),
             "inputSchema": {"type": "object", "properties": {"tasks": {"type": "array", "minItems": 1, "maxItems": 4, "items": delegate_task_schema(true)}}, "required": ["tasks"]},
             "annotations": capability_annotations(false),
         })),
         "verify" => Some(json!({
             "name": name,
-            "description": "Run a verification command through RightKit's governed shell and emit typed verification evidence.",
+            "description": format!("Run a verification command through {}'s governed shell and emit typed verification evidence.", crate::host_identity::app()),
             "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}, "timeout_ms": {"type": "integer", "minimum": 1, "maximum": 300000}}, "required": ["command"], "additionalProperties": false},
             "annotations": capability_annotations(false),
         })),

@@ -36,11 +36,24 @@ async fn list_mcp_handler(
     State(state): State<DaemonState>,
     Query(query): Query<McpManagementQuery>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let user = read_mcp_config_file(&state.mcp_user_config_path)
+    // One malformed entry must not hide the good ones: list those that parse and name the rest.
+    let mut invalid_entries: Vec<serde_json::Value> = Vec::new();
+    let (user, skipped) = read_mcp_config_file_lenient(&state.mcp_user_config_path)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    for message in skipped {
+        invalid_entries.push(serde_json::json!({ "scope": "user", "message": message }));
+    }
     let workspace_path = workspace_mcp_config_path(&query.workspace_root);
     let workspace = match &workspace_path {
-        Some(path) => read_mcp_config_file(path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+        Some(path) => {
+            let (file, skipped) = read_mcp_config_file_lenient(path)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            for message in skipped {
+                invalid_entries
+                    .push(serde_json::json!({ "scope": "workspace", "message": message }));
+            }
+            file
+        }
         None => rightkit_mcp::agent_mcp::McpConfigFile::default(),
     };
 
@@ -76,6 +89,7 @@ async fn list_mcp_handler(
         "workspaceConfigPath": workspace_path,
         "trustPresets": mcp_trust_presets_json(),
         "servers": servers,
+        "invalidEntries": invalid_entries,
     })))
 }
 
@@ -177,6 +191,14 @@ async fn delete_mcp_server_handler(
     file.mcp_trust.remove(&name);
     file.mcp_channel_permissions.remove(&name);
     write_mcp_config_file(&path, &file).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if let Some(store) =
+        rightkit_agent_config::definition_pins::pin_store_path("mcp-tool-definitions.json")
+    {
+        let _ = rightkit_agent_config::definition_pins::clear_scope(
+            &store,
+            &format!("mcp:{}", name.to_ascii_lowercase()),
+        );
+    }
     publish_mcp_lifecycle(&state, &name, if removed { "removed" } else { "unchanged" }).await;
 
     Ok(Json(serde_json::json!({
@@ -204,6 +226,24 @@ async fn publish_mcp_lifecycle(state: &DaemonState, server: &str, action: &str) 
             return;
         }
     };
+    // FM-100 lease epochs: advance every pooled key's epoch exactly once per reload (not once
+    // per session). The connection and lease count are retained; only the generation advances.
+    // Each session then runs load_for_session, whose get_or_init_pooled drops the stale shared
+    // entry and builds a fresh transport object that is discarded, because
+    // McpTransportPool::acquire returns the existing leased transport, and record_epoch
+    // stores lease.generation(). The stdio server process is not restarted. Never evict or
+    // invalidate here: that would kill the retained process.
+    let mut bumped = 0usize;
+    for entry in state.mcp_pool.snapshot() {
+        state.mcp_pool.bump_epoch_on_reload(&entry.key);
+        bumped += 1;
+    }
+    tracing::debug!(
+        server,
+        action,
+        bumped,
+        "MCP lifecycle reload advanced pool epochs"
+    );
     for session in sessions {
         // A203: a reload keeps the session's own trust posture; project MCP
         // config reloads only for a workspace the session holds as Trusted.
@@ -249,7 +289,11 @@ async fn login_mcp_server_handler(
     State(state): State<DaemonState>,
     Path(name): Path<String>,
     Query(query): Query<McpManagementQuery>,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
+    // Contract R16 / D11: a login opens a browser and a listener against a URL the config
+    // chose, so it needs the same not-lower-trust source as save and delete.
+    enforce_trusted_source_authority(&headers)?;
     validate_mcp_server_name(&name)?;
     let scope = query.scope.unwrap_or_else(|| "user".to_string());
     let path = match scope.as_str() {
@@ -260,7 +304,7 @@ async fn login_mcp_server_handler(
         _ => return Err(StatusCode::BAD_REQUEST),
     };
     let file = read_mcp_config_file(&path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let _config = match file.mcp_servers.get(&name) {
+    let config = match file.mcp_servers.get(&name) {
         Some(c) => c.clone(),
         None => {
             return Ok(Json(serde_json::json!({
@@ -272,6 +316,30 @@ async fn login_mcp_server_handler(
 
     match file.mcp_oauth.get(&name) {
         Some(oauth) => {
+            // Contract R2: the token is bound to the server's own origin, so the OAuth block
+            // must name that server as its resource.
+            let server_url = match &config {
+                rightkit_mcp::agent_mcp::McpServerConfig::Http(http) => Some(http.url.as_str()),
+                rightkit_mcp::agent_mcp::McpServerConfig::Sse(sse) => Some(sse.url.as_str()),
+                rightkit_mcp::agent_mcp::McpServerConfig::Stdio(_) => None,
+            };
+            if let Some(server_url) = server_url {
+                let same = matches!(
+                    (
+                        rightkit_mcp::agent_mcp::url_origin(&oauth.resource),
+                        rightkit_mcp::agent_mcp::url_origin(server_url)
+                    ),
+                    (Some(a), Some(b)) if a == b
+                );
+                if !same {
+                    return Ok(Json(serde_json::json!({
+                        "ok": false,
+                        "error": format!(
+                            "login refused: the oauth resource for '{name}' must be on the same origin as the server URL"
+                        ),
+                    })));
+                }
+            }
             let options = rightkit_mcp::agent_mcp::McpOAuthLoginOptions {
                 open_browser: query.open_browser.unwrap_or(false),
             };
@@ -292,4 +360,101 @@ async fn login_mcp_server_handler(
             "message": format!("server '{name}' does not require login (no auth configured)"),
         }))),
     }
+}
+
+/// The stdio servers a trusted workspace declares, merged the way the loader merges them
+/// (`.mcp.json`, then `<state folder>/mcp.json`; later files win by name).
+fn workspace_stdio_servers(
+    workspace_root: &str,
+) -> Result<std::collections::HashMap<String, rightkit_mcp::agent_mcp::StdioConfig>, StatusCode> {
+    let root = std::path::PathBuf::from(workspace_root.trim());
+    if workspace_root.trim().is_empty() || !root.is_dir() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let mut servers = std::collections::HashMap::new();
+    for path in [
+        root.join(".mcp.json"),
+        root.join(rightkit_agent_config::state_dir_name())
+            .join("mcp.json"),
+    ] {
+        let file = read_mcp_config_file(&path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        for (name, config) in file.mcp_servers {
+            match config {
+                rightkit_mcp::agent_mcp::McpServerConfig::Stdio(stdio) => {
+                    servers.insert(name, stdio);
+                }
+                _ => {
+                    servers.remove(&name);
+                }
+            }
+        }
+    }
+    Ok(servers)
+}
+
+fn mcp_trust_store_path() -> std::path::PathBuf {
+    rightkit_mcp::agent_mcp::default_trust_store_path(
+        rightkit_agent_config::os_home_dir().as_deref(),
+    )
+}
+
+/// GET /mcp/approvals — workspace stdio servers waiting for the user's approval (contract R3).
+async fn list_mcp_approvals_handler(
+    Query(query): Query<McpManagementQuery>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if !rightkit_agent_config::is_workspace_trusted(std::path::Path::new(
+        query.workspace_root.trim(),
+    )) {
+        return Ok(Json(
+            serde_json::json!({"workspaceTrusted": false, "pending": []}),
+        ));
+    }
+    let servers = workspace_stdio_servers(&query.workspace_root)?;
+    let key = std::path::Path::new(query.workspace_root.trim())
+        .to_string_lossy()
+        .to_string();
+    let pending =
+        rightkit_mcp::agent_mcp::pending_workspace_stdio(&mcp_trust_store_path(), &key, &servers);
+    Ok(Json(serde_json::json!({
+        "workspaceTrusted": true,
+        "pending": pending
+            .iter()
+            .map(|p| serde_json::json!({
+                "server": p.server,
+                "command": p.command,
+                "args": p.args,
+                "envKeys": p.env_keys,
+                "fingerprint": p.fingerprint,
+            }))
+            .collect::<Vec<_>>(),
+    })))
+}
+
+/// POST /mcp/servers/{name}/approve — approve a workspace stdio server, bound to exactly its
+/// command, args and environment (contract R3). An untrusted workspace cannot be approved.
+async fn approve_mcp_server_handler(
+    State(state): State<DaemonState>,
+    Path(name): Path<String>,
+    Query(query): Query<McpManagementQuery>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    enforce_trusted_source_authority(&headers)?;
+    validate_mcp_server_name(&name)?;
+    let root = std::path::Path::new(query.workspace_root.trim());
+    if !rightkit_agent_config::is_workspace_trusted(root) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let servers = workspace_stdio_servers(&query.workspace_root)?;
+    let Some(config) = servers.get(&name) else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+    let key = root.to_string_lossy().to_string();
+    rightkit_mcp::agent_mcp::approve_workspace_stdio(&mcp_trust_store_path(), &key, &name, config)
+        .map_err(|error| {
+            tracing::warn!(error = %error, "MCP approval was not saved");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    tracing::info!(event = "mcp.trust", server = %name, outcome = "approved");
+    publish_mcp_lifecycle(&state, &name, "approved").await;
+    Ok(Json(serde_json::json!({"approved": true, "name": name})))
 }

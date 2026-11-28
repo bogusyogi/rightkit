@@ -74,7 +74,10 @@ fn blocked_authority_requests(content: &str) -> Vec<serde_json::Value> {
         blocked.push(serde_json::json!({
             "kind": "policy_change_authority",
             "blocked": true,
-            "reason": "Untrusted content cannot change RightKit tool or permission policy.",
+            "reason": format!(
+                "Untrusted content cannot change {} tool or permission policy.",
+                rightkit_agent_config::app_name()
+            ),
         }));
     }
     blocked
@@ -124,10 +127,15 @@ pub(crate) fn away_summary_line(message: &TranscriptMessage) -> Option<String> {
             Some(format!("User: {}", summarize_text(content, 140)))
         }
         TranscriptMessage::Assistant { content, .. } if !content.trim().is_empty() => {
-            Some(format!("RightKit: {}", summarize_text(content, 180)))
+            Some(format!(
+                "{}: {}",
+                rightkit_agent_config::app_name(),
+                summarize_text(content, 180)
+            ))
         }
         TranscriptMessage::Assistant { tool_calls, .. } if !tool_calls.is_empty() => Some(format!(
-            "RightKit requested tools: {}",
+            "{} requested tools: {}",
+            rightkit_agent_config::app_name(),
             tool_calls
                 .iter()
                 .map(|call| call.name.as_str())
@@ -183,6 +191,23 @@ pub(crate) fn kind_matches(data: &str, filter: &Option<String>) -> bool {
     }
 }
 
+/// The warning to show with a model switch: the live session's cached prefix is still warm and
+/// the switch will not read it. `None` when the model stays the same, the session is not live, or
+/// nothing is cached. An effort change keeps the prefix bytes (the effort travels in the request's
+/// reasoning field), so only a model switch warns.
+pub(crate) fn model_switch_cache_warning(
+    state: &DaemonState,
+    id: &str,
+    new_model: &str,
+) -> Option<String> {
+    let live = state.get_session(id)?;
+    if lock_recover(&live.model, "session.model").as_str() == new_model.trim() {
+        return None;
+    }
+    let warmth = (*lock_recover(&live.cache_warmth, "session.cache_warmth"))?;
+    warmth.switch_warning(std::time::Instant::now())
+}
+
 pub(crate) async fn update_session_model(
     state: &DaemonState,
     id: &str,
@@ -225,6 +250,33 @@ pub(crate) fn session_route_update_busy(live: &LiveSession) -> Option<&'static s
     None
 }
 
+/// Run the configured `PreModelSwitch` / `PostModelSwitch` hooks for a live session. Errors are
+/// logged and never block the switch.
+async fn run_model_switch_hooks(
+    session: &LiveSession,
+    event: &str,
+    id: &str,
+    from: &str,
+    to: &str,
+) {
+    let report = session
+        .hook_bus
+        .run_event_hooks(
+            event,
+            id,
+            Some(to),
+            None,
+            &[
+                ("RIGHTKIT_HOOK_MODEL_FROM", from.to_string()),
+                ("RIGHTKIT_HOOK_MODEL_TO", to.to_string()),
+            ],
+        )
+        .await;
+    for error in &report.errors {
+        tracing::warn!(session_id = %id, %event, %error, "model switch hook error (non-blocking)");
+    }
+}
+
 /// Switch a session's model, optionally pinning the provider route and the
 /// reasoning effort. An explicit provider binds that configured/native route
 /// exactly; without one the route is still inferred from the model name.
@@ -260,7 +312,6 @@ pub(crate) async fn update_session_effort(
     update_session_route_inner(state, id, None, None, Some(effort)).await
 }
 
-#[allow(clippy::too_many_lines)]
 async fn update_session_route_inner(
     state: &DaemonState,
     id: &str,
@@ -354,7 +405,10 @@ async fn update_session_route_inner(
             } else {
                 if let Some(provider) = provider_id.as_deref() {
                     let workspace_config = rightkit_agent_config::ConfigLoader::new()
-                        .load_files_for_workspace(FsPath::new(row.workspace_root.trim()));
+                        .load_files_for_workspace_granted(
+                            FsPath::new(row.workspace_root.trim()),
+                            crate::daemon_state::session_config_granted(id),
+                        );
                     let known = workspace_config.provider_routes.contains_key(provider)
                         || rightkit_llm::agent_providers::find_provider(provider).is_some();
                     if !known {
@@ -363,7 +417,10 @@ async fn update_session_route_inner(
                 }
                 if provider_id.is_none() {
                     let workspace_config = rightkit_agent_config::ConfigLoader::new()
-                        .load_files_for_workspace(FsPath::new(row.workspace_root.trim()));
+                        .load_files_for_workspace_granted(
+                            FsPath::new(row.workspace_root.trim()),
+                            crate::daemon_state::session_config_granted(id),
+                        );
                     durable_provider_id =
                         state.resolved_provider_id_for_model(&workspace_config, &model);
                 }
@@ -393,7 +450,10 @@ async fn update_session_route_inner(
             return Err(StatusCode::BAD_REQUEST);
         } else {
             let workspace_config = rightkit_agent_config::ConfigLoader::new()
-                .load_files_for_workspace(FsPath::new(session.workspace_root.trim()));
+                .load_files_for_workspace_granted(
+                    FsPath::new(session.workspace_root.trim()),
+                    crate::daemon_state::session_config_granted(id),
+                );
             if preserve_route {
                 // Effort-only: read the committed model and provider pin
                 // under the route gate. A pre-gate read could clobber a
@@ -440,10 +500,11 @@ async fn update_session_route_inner(
                             &workspace_config,
                             provider,
                             &model,
-                            &engine_cfg,
-                            next_effort,
-                            session.thinking_budget_tokens,
-                            session.disable_thinking,
+                            RouteOverrides {
+                                effort: next_effort,
+                                thinking_budget_tokens: session.thinking_budget_tokens,
+                                disable_thinking: session.disable_thinking,
+                            },
                         )
                         .ok_or(StatusCode::BAD_REQUEST)?,
                     None => state.provider_route_for_model(
@@ -492,6 +553,23 @@ async fn update_session_route_inner(
             }
         }
     }
+
+    // A model switch on a live session tells the `PreModelSwitch` hooks (notify only; an
+    // effort-only update keeps the model, so it is not a switch).
+    let switch_from = match &live {
+        Some(session) if !preserve_route && _route_gate.is_some() => {
+            let from = lock_recover(&session.model, "session.model").clone();
+            // A request that names the model it already runs on (an effort-only PATCH sent
+            // with the current model) is not a switch.
+            if from == model {
+                None
+            } else {
+                run_model_switch_hooks(session, "PreModelSwitch", id, &from, &model).await;
+                Some(from)
+            }
+        }
+        _ => None,
+    };
 
     // ── Atomic durable commit ────────────────────────────────────────────
     // The durable write records the effort actually committed to the live
@@ -598,6 +676,10 @@ async fn update_session_route_inner(
             drop(model_guard);
             applied_live = next_route.is_some();
         }
+    }
+
+    if let (Some(session), Some(from), true) = (&live, &switch_from, applied_live) {
+        run_model_switch_hooks(session, "PostModelSwitch", id, from, &model).await;
     }
 
     if applied_live {

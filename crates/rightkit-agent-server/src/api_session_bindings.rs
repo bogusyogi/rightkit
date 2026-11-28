@@ -1,20 +1,5 @@
 use super::*;
 
-#[derive(Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct ListSessionsQuery {
-    /// Filter by tag: only return sessions that include this tag.
-    #[serde(default)]
-    pub tag: Option<String>,
-    /// Filter by status: "running", "dormant", "done", "interrupted".
-    #[serde(default)]
-    pub status: Option<String>,
-    /// Include child worker sessions. The default session list is the
-    /// top-level chat history used by Recents.
-    #[serde(default)]
-    pub include_subagents: bool,
-}
-
 #[derive(Deserialize)]
 pub struct SessionSearchQuery {
     pub q: String,
@@ -254,7 +239,11 @@ pub(crate) async fn session_binding_row(
 ) -> Result<serde_json::Value, StatusCode> {
     if let Some(live) = state.get_session(id) {
         let mut row = session_row(&live);
-        row["status"] = serde_json::json!("running");
+        row["status"] = if row["turnActive"].as_bool() == Some(true) {
+            serde_json::json!("running")
+        } else {
+            serde_json::json!("idle")
+        };
         return Ok(row);
     }
     let Some(storage) = &state.storage else {

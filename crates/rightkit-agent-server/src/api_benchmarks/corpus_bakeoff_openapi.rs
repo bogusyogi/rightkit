@@ -30,11 +30,17 @@ fn insert_corpus_bakeoff_openapi_components(schemas: &mut Map<String, Value>) {
         json!({
             "type": "object",
             "required": ["manifestPath"],
+            "description": "A manifest with a `profile` answers 409 `profile lock missing: run once with freeze:true` when no lock exists and freeze is false, 409 `profile drifted from its lock (manifest|profile)` when the manifest or the profile changed since the lock was written, and 409 `prompt drift: manifest pins <a>, the shipping prompt is <b>` when profile.systemPromptSha256 is not the shipping prompt digest.",
             "properties": {
                 "manifestPath": {
                     "type": "string",
                     "minLength": 1,
-                    "description": format!("Operator-selected local path to a {app}.eval-corpus.v1 JSON manifest.", app = crate::host_identity::app())
+                    "description": format!("Operator-selected local path to a {app}.eval-corpus.v1 JSON manifest. The manifest may carry a measurement block.", app = crate::host_identity::app())
+                },
+                "freeze": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Write the profile lock (<manifest path>.lock.json) before running. Only meaningful when the manifest carries a profile."
                 }
             },
             "additionalProperties": false
@@ -84,7 +90,7 @@ fn insert_corpus_bakeoff_openapi_components(schemas: &mut Map<String, Value>) {
                 "workspaceRoot": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "Relative path to an already-materialized local Git workspace; RightKit does not invoke Harbor Docker environments."
+                    "description": "Relative path to an already-materialized local Git workspace; the daemon does not invoke Harbor Docker environments."
                 }
             },
             "additionalProperties": false
@@ -110,7 +116,83 @@ fn insert_corpus_bakeoff_openapi_components(schemas: &mut Map<String, Value>) {
                 "contextTokens": {"type": "integer", "minimum": 0, "maximum": MAX_CONTEXT_TOKENS},
                 "contextClass": {"type": "string", "enum": ["standard", "long"]},
                 "contextCohort": {"type": ["string", "null"], "maxLength": 128},
-                "candidateCostLimitUsd": {"type": ["number", "null"], "exclusiveMinimum": 0, "maximum": MAX_COST_LIMIT_USD}
+                "candidateCostLimitUsd": {"type": ["number", "null"], "exclusiveMinimum": 0, "maximum": MAX_COST_LIMIT_USD},
+                "family": {"type": "string", "maxLength": 64, "description": "Task family; required when the manifest declares a measurement block."},
+                "fixtureTree": {"type": "string", "pattern": "^[0-9a-f]{40}$", "description": "Git tree id of the task workspace directory; required when the manifest declares a measurement block."}
+            },
+            "additionalProperties": false
+        }),
+    );
+    schemas.insert(
+        "CorpusIdentity".to_string(),
+        json!({
+            "type": "object",
+            "required": ["policyVersion", "providerId", "modelId"],
+            "properties": {
+                "policyVersion": {"type": "string", "minLength": 1, "maxLength": 128},
+                "providerId": {"type": "string", "minLength": 1, "maxLength": 128},
+                "modelId": {"type": "string", "minLength": 1, "maxLength": 128}
+            },
+            "additionalProperties": false
+        }),
+    );
+    schemas.insert(
+        "CorpusBudgets".to_string(),
+        json!({
+            "type": "object",
+            "required": ["perTaskUsd", "totalUsd"],
+            "properties": {
+                "perTaskUsd": {"type": "number", "exclusiveMinimum": 0, "maximum": MAX_COST_LIMIT_USD},
+                "totalUsd": {"type": "number", "exclusiveMinimum": 0, "maximum": MAX_COST_LIMIT_USD, "description": "At least perTaskUsd; the sum of the per-task limits must not exceed it."}
+            },
+            "additionalProperties": false
+        }),
+    );
+    schemas.insert(
+        "CorpusMeasurement".to_string(),
+        json!({
+            "type": "object",
+            "required": ["identity", "seed", "repetitions", "budgets", "heldOutFamilies", "verifierVersion"],
+            "properties": {
+                "identity": {"$ref": "#/components/schemas/CorpusIdentity"},
+                "seed": {"type": "integer", "minimum": 0},
+                "repetitions": {"type": "integer", "minimum": 1, "maximum": 10},
+                "budgets": {"$ref": "#/components/schemas/CorpusBudgets"},
+                "heldOutFamilies": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1, "maxLength": 64}},
+                "verifierVersion": {"type": "string", "minLength": 1, "maxLength": 128}
+            },
+            "additionalProperties": false
+        }),
+    );
+    schemas.insert(
+        "CorpusProfile".to_string(),
+        json!({
+            "type": "object",
+            "required": ["modelId", "contextWindow", "effort", "systemPromptSha256"],
+            "properties": {
+                "modelId": {"type": "string", "minLength": 1, "maxLength": 128},
+                "contextWindow": {"type": "integer", "minimum": 1},
+                "effort": {"type": "string", "minLength": 1, "maxLength": 64},
+                "systemPromptSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Digest of the constant part of the shipping system prompt; a different value is refused with 409 prompt drift."}
+            },
+            "additionalProperties": false
+        }),
+    );
+    schemas.insert(
+        "CorpusRunArtifact".to_string(),
+        json!({
+            "type": "object",
+            "required": ["caseNonce", "role", "classification", "contextTokens"],
+            "properties": {
+                "caseNonce": {"type": "string"},
+                "role": {"type": "string"},
+                "classification": {"type": "string", "enum": ["completed", "aborted", "deadline"]},
+                "contextTokens": {"type": "integer", "minimum": 0},
+                "inputTokens": {"type": "integer", "minimum": 0, "description": "Absent when the provider reported no usage."},
+                "cachedInputTokens": {"type": "integer", "minimum": 0, "description": "Absent when the provider reported no usage."},
+                "outputTokens": {"type": "integer", "minimum": 0, "description": "Absent when the provider reported no usage."},
+                "costUsd": {"type": "number", "minimum": 0, "description": "Absent when the cost is unknown."},
+                "tracePath": {"type": "string", "description": "Raw event trace file (one JSON object per line)."}
             },
             "additionalProperties": false
         }),
@@ -128,8 +210,11 @@ fn insert_corpus_bakeoff_openapi_components(schemas: &mut Map<String, Value>) {
                 "baselineRole": {"type": "string", "minLength": 1, "maxLength": 64},
                 "tasks": {"type": "array", "minItems": 1, "maxItems": MAX_TASKS, "items": {"$ref": "#/components/schemas/CorpusBakeoffTask"}},
                 "gate": {"$ref": "#/components/schemas/ExecutedBakeoffGate"},
-                "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": MAX_TIMEOUT_SECONDS, "default": DEFAULT_TIMEOUT_SECONDS}
+                "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": MAX_TIMEOUT_SECONDS, "default": DEFAULT_TIMEOUT_SECONDS},
+                "profile": {"$ref": "#/components/schemas/CorpusProfile"},
+                "measurement": {"$ref": "#/components/schemas/CorpusMeasurement"}
             },
+            "description": format!("{app}.eval-corpus.v1 JSON manifest with an optional measurement block.", app = crate::host_identity::app()),
             "additionalProperties": false
         }),
     );
@@ -137,7 +222,7 @@ fn insert_corpus_bakeoff_openapi_components(schemas: &mut Map<String, Value>) {
         "CorpusBakeoffResponse".to_string(),
         json!({
             "type": "object",
-            "required": ["schemaVersion", "manifestSha256", "taskCount", "sources", "report", "decision"],
+            "required": ["schemaVersion", "manifestSha256", "taskCount", "sources", "report", "decision", "systemPromptSha256", "runs"],
             "properties": {
                 "schemaVersion": {"type": "string", "const": CORPUS_REPORT_SCHEMA_VERSION.as_str()},
                 "manifestSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Corpus snapshot digest bound to manifest bytes, resolved instructions, verifier expectations, and clean workspace Git HEAD/subdirectory identity."},
@@ -163,6 +248,17 @@ fn insert_corpus_bakeoff_openapi_components(schemas: &mut Map<String, Value>) {
                         "failures": {"type": "array", "items": {"type": "string"}}
                     },
                     "additionalProperties": false
+                },
+                "systemPromptSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Digest of the constant part of the shipping system prompt, read live on every run."},
+                "runs": {"type": "array", "items": {"$ref": "#/components/schemas/CorpusRunArtifact"}},
+                "measurement": {
+                    "type": "object",
+                    "description": "Echo of the validated measurement block: identity, seed, repetitions, budgets, verifierVersion, splits {development, heldout} and tasks [{caseNonce, family, split, fixtureTree}]. Present only when the manifest declares one."
+                },
+                "repetitionReports": {
+                    "type": "array",
+                    "description": "Every repetition's report in order (the first is also `report`). Present only with a measurement block.",
+                    "items": {"type": "object"}
                 }
             },
             "additionalProperties": false

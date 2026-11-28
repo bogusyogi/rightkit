@@ -52,7 +52,6 @@ pub(crate) fn cli_auth_mode(value: &str) -> rightkit_agents::driver_host::cli_ru
 #[derive(Debug, Clone)]
 pub(crate) struct ResolvedCliLaunchRoute {
     pub launch_profile: rightkit_agents::driver_host::cli_runtime::CliAccountProfile,
-    pub native_profile_hash: String,
     pub effective_profile_hash: String,
     pub model_id: Option<String>,
 }
@@ -60,7 +59,6 @@ pub(crate) struct ResolvedCliLaunchRoute {
 pub(crate) enum CliLaunchRouteError {
     InvalidRouteMode,
     NativeLoginRequired,
-    ModelUnavailable,
     AttestationMissing,
     AttestationDrift,
 }
@@ -82,14 +80,21 @@ pub(crate) fn missing_default_profile_is_allowed(
     provider_id: &rightkit_agents::driver_host::cli_runtime::CliProviderId,
     profile_id: &str,
 ) -> bool {
-    mode == CliRouteMode::Native && provider_id.as_str() == "codex" && profile_id == "codex/default"
+    // No vendor program may start without a stored profile. The one exception is the Codex
+    // native profile, and only for a host that offers the Codex built-in provider.
+    mode == CliRouteMode::Native
+        && provider_id.as_str() == "codex"
+        && profile_id == "codex/default"
+        && rightkit_agents::driver_host::host_options::built_in_provider_offered("codex")
 }
 
 pub(crate) fn missing_default_profile_is_allowed_current(
     provider_id: &rightkit_agents::driver_host::cli_runtime::CliProviderId,
     profile_id: &str,
 ) -> Result<bool, CliLaunchRouteError> {
-    let mode = parse_cli_route_mode(&std::env::var("RIGHTKIT_CLI_ROUTE_MODE").unwrap_or_default())?;
+    let mode = parse_cli_route_mode(
+        &std::env::var(rightkit_agent_config::env_name("CLI_ROUTE_MODE")).unwrap_or_default(),
+    )?;
     Ok(missing_default_profile_is_allowed(
         mode,
         provider_id,
@@ -109,7 +114,6 @@ impl CliLaunchRouteError {
         match self {
             Self::InvalidRouteMode => "invalid_route_mode",
             Self::NativeLoginRequired => "native_login_required",
-            Self::ModelUnavailable => "model_unavailable",
             Self::AttestationMissing => "harness_verification_required",
             Self::AttestationDrift => "route_attestation_drift",
         }
@@ -166,7 +170,9 @@ pub(crate) async fn resolve_cli_launch_route(
     profile: rightkit_agents::driver_host::cli_runtime::CliAccountProfile,
     requested_model_id: Option<&str>,
 ) -> Result<ResolvedCliLaunchRoute, CliLaunchRouteError> {
-    parse_cli_route_mode(&std::env::var("RIGHTKIT_CLI_ROUTE_MODE").unwrap_or_default())?;
+    parse_cli_route_mode(
+        &std::env::var(rightkit_agent_config::env_name("CLI_ROUTE_MODE")).unwrap_or_default(),
+    )?;
     let native_hash = rightkit_agents::driver_host::cli_runtime::native_profile_hash(&profile);
     if !profile.signed_in
         || profile.auth_mode
@@ -176,7 +182,6 @@ pub(crate) async fn resolve_cli_launch_route(
     }
     Ok(ResolvedCliLaunchRoute {
         launch_profile: profile,
-        native_profile_hash: native_hash.clone(),
         effective_profile_hash: native_hash,
         model_id: requested_model_id.map(str::to_string),
     })
@@ -204,9 +209,9 @@ pub(crate) fn current_launch_attestation_inputs(
                 .clone()
                 .unwrap_or_else(|| adapter.transport_kind().label().to_string()),
             profile_hash: row.profile_hash.clone(),
-            policy_hash: rightkit_fs::digest::sha256_bytes(AsRef::<[u8]>::as_ref(
-                &rightkit_agents::driver_host::RUN_SCOPED_POLICY.as_bytes(),
-            )),
+            policy_hash: rightkit_fs::digest::sha256_bytes(
+                rightkit_agents::driver_host::run_scoped_policy().as_bytes(),
+            ),
             tool_schema_hash: gateway_tool_schema_hash()
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
             operating_system: std::env::consts::OS.to_string(),
@@ -217,7 +222,8 @@ pub(crate) fn current_launch_attestation_inputs(
 }
 
 pub(crate) fn gateway_tool_schema_hash() -> Result<String, serde_json::Error> {
-    let registry = ToolRegistry::build_default();
+    let mut registry = ToolRegistry::build_default();
+    crate::host_options::apply_tool_registry_controls(&mut registry);
     let mut names = registry
         .all()
         .iter()
@@ -249,7 +255,8 @@ pub(crate) async fn persisted_cli_profile(
         .await
         .get_cli_account_profile(&profile_id)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(row.map_or(fallback, |row| {
+    let is_claude = claims_claude_account(&provider_id);
+    let mut profile = row.map_or(fallback, |row| {
         rightkit_agents::driver_host::cli_runtime::CliAccountProfile {
             id: rightkit_agents::driver_host::cli_runtime::CliAccountProfileId::new(row.id),
             provider_id,
@@ -260,7 +267,112 @@ pub(crate) async fn persisted_cli_profile(
             account_fingerprint: row.account_fingerprint,
             last_verified_at: row.last_verified_at,
         }
-    }))
+    });
+    if is_claude {
+        apply_claude_account(&mut profile, None);
+    }
+    Ok(profile)
+}
+
+/// Whether the profile of `provider_id` takes the person's own Claude Code folder: the Claude
+/// provider, for a host that links Claude profiles
+/// (`rightkit_agents::driver_host::host_options::set_linked_profiles`).
+fn claims_claude_account(
+    provider_id: &rightkit_agents::driver_host::cli_runtime::CliProviderId,
+) -> bool {
+    provider_id.as_str() == "claude"
+        && rightkit_agents::driver_host::host_options::linked_profiles()
+}
+
+/// Point the Claude profile at the person's own Claude Code folder.
+///
+/// A host that links Claude profiles has no Claude sign-in of its own: the person signs in with Claude
+/// Code itself, in a folder of their own, and adds that folder in Settings. This sets the
+/// profile's home to the folder the launch will run on and marks it signed in when that folder
+/// holds a sign-in (a Claude plan, or a set-up for Bedrock or Vertex).
+///
+/// Which folder: the account picked for the chat (`session` is the chat id and its workspace),
+/// else the project's default account. A picked account that cannot be used leaves the profile
+/// not signed in, so the launch is refused rather than run on another account. With nothing
+/// picked the launch runs on Claude Code's own default login (`~/.claude`) when one exists.
+/// Without a chat (the harness check, the provider list) the default login is used, else the
+/// first added account that is signed in.
+///
+/// The profile id and the stored fingerprint are left alone: the harness check is about the
+/// program, the policy and the tool channel, which are the same for every account.
+pub(crate) fn apply_claude_account(
+    profile: &mut rightkit_agents::driver_host::cli_runtime::CliAccountProfile,
+    session: Option<(&str, &str)>,
+) {
+    use rightkit_agents::driver_host::cli_runtime::account_identity as accounts;
+    let holds_sign_in = |folder: &std::path::Path| {
+        folder.is_dir()
+            && (accounts::read_linked_claude_identity(folder).is_some()
+                || accounts::claude_platform_of(folder).is_some())
+    };
+    let default_login = || {
+        accounts::user_home()
+            .map(|home| home.join(".claude"))
+            .filter(|folder| holds_sign_in(folder))
+    };
+    let picked = session.map(|(session_id, workspace)| {
+        crate::main_runtime::resolve_claude_account(session_id, workspace)
+    });
+    let folder = match picked {
+        Some(Ok(Some(resolved))) => match resolved.launch {
+            rightkit_agents::driver_host::ClaudeAccountLaunch::Subscription { managed_home } => {
+                Some(managed_home).filter(|folder| holds_sign_in(folder))
+            }
+            // An API-key account runs on the host's own engine, not through Claude Code.
+            rightkit_agents::driver_host::ClaudeAccountLaunch::ApiKey { .. } => None,
+        },
+        Some(Err(_)) => None,
+        Some(Ok(None)) => default_login(),
+        None => default_login().or_else(|| {
+            accounts::list_subscription_accounts()
+                .into_iter()
+                .find(|account| account.provider == "claude" && account.signed_in)
+                .map(|account| account.managed_home)
+        }),
+    };
+    match folder {
+        Some(folder) => {
+            profile.managed_home = folder;
+            profile.signed_in = true;
+            profile.auth_mode =
+                rightkit_agents::driver_host::cli_runtime::CliAuthMode::NativeCliAccount;
+        }
+        None => profile.signed_in = false,
+    }
+}
+
+/// The Claude profile for one chat: `persisted_cli_profile` with the chat's own account applied.
+pub(crate) async fn cli_profile_for_session(
+    state: &DaemonState,
+    provider_id: rightkit_agents::driver_host::cli_runtime::CliProviderId,
+    session_id: &str,
+    workspace: &str,
+) -> Result<rightkit_agents::driver_host::cli_runtime::CliAccountProfile, StatusCode> {
+    let is_claude = claims_claude_account(&provider_id);
+    let mut profile = persisted_cli_profile(state, provider_id).await?;
+    if is_claude {
+        apply_claude_account(&mut profile, Some((session_id, workspace)));
+    }
+    Ok(profile)
+}
+
+/// `cli_profile_for_session`, refused with 409 when the chat's account holds no sign-in.
+pub(crate) async fn launchable_cli_profile_for_session(
+    state: &DaemonState,
+    provider_id: rightkit_agents::driver_host::cli_runtime::CliProviderId,
+    session_id: &str,
+    workspace: &str,
+) -> Result<rightkit_agents::driver_host::cli_runtime::CliAccountProfile, StatusCode> {
+    let profile = cli_profile_for_session(state, provider_id, session_id, workspace).await?;
+    if !profile.signed_in {
+        return Err(StatusCode::CONFLICT);
+    }
+    Ok(profile)
 }
 
 pub(crate) async fn launchable_cli_profile(

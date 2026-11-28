@@ -10,7 +10,9 @@ pub(crate) fn split_entitled<F>(mut has_feature: F) -> bool
 where
     F: FnMut(&str) -> bool,
 {
-    has_feature(ROLE_MODEL_SPLIT_FEATURE) || has_feature(PRO_FEATURE)
+    crate::host_options::role_model_split_open_to_all()
+        || has_feature(ROLE_MODEL_SPLIT_FEATURE)
+        || has_feature(PRO_FEATURE)
 }
 
 /// Re-exported so the daemon and the agent registry cannot disagree about who

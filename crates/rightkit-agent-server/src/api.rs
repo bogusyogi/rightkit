@@ -45,6 +45,7 @@
 //!   GET  /local-models/hardware                        → local hardware/runtime probe
 //!   GET  /local-models/catalog                         → local model cookbook catalog
 //!   POST /local-models/probe                           → probe OpenAI-compatible local endpoint
+//!   POST /local-models/discover                        → probe candidate / usual local-server addresses
 //!   POST /local-models/chat-smoke                      → smoke-test local chat completions
 //!   POST /local-models/add-provider                    → persist/apply local provider route config
 //!   GET  /hooks/status                                 → redacted hook readiness diagnostics
@@ -89,7 +90,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use rightkit_agent_engine_core::agents::WEBSITE_DESIGNER_SYSTEM_PROMPT;
+use rightkit_agent_engine_core::agents::website_designer_system_prompt;
 use rightkit_agent_engine_core::Conduit;
 use rightkit_agent_engine_protocol::{
     ContentTrust, ProtocolEvent, TranscriptMessage, TrustEnvelope,
@@ -153,18 +154,18 @@ use crate::api_skills::{
 };
 use crate::api_specs::spec_routes;
 use crate::api_stores::{
-    default_instincts_store_path, default_message_store_path, default_permission_denial_store_path,
+    append_message_history_row, append_permission_denial_row, default_instincts_store_path,
+    default_message_store_path, default_permission_denial_store_path,
     default_permission_rule_store_path, default_team_store_path,
     default_workspace_trust_store_path, load_message_history_store, load_permission_denial_store,
-    load_permission_rule_store, load_team_store, load_workspace_trust_store,
-    write_message_history_store, write_permission_denial_store, MessageHistoryRow,
+    load_permission_rule_store, load_team_store, load_workspace_trust_store, MessageHistoryRow,
     PermissionDenialRow, PersistentPermissionRuleStore, WorkspaceTrustStore,
 };
 use crate::api_tool_invocations::tool_invocation_routes;
 use crate::api_tool_schemas::tool_schema_routes;
 use crate::api_toolsets::{
     apply_toolset_profile, resolve_toolset_profile, resolve_toolset_profile_with_config,
-    toolset_routes, SCHEDULE_ADMIN_TOOLSET,
+    toolset_routes,
 };
 use crate::api_triggers::trigger_routes;
 
@@ -186,7 +187,15 @@ mod api_slash_session_commands;
 mod api_state;
 pub(crate) use api_state::native_spawn_route;
 
+/// True while the daemon settles its running turns at shutdown: the partial-reply snapshots are kept so
+/// shutdown can store them as interrupted replies (STORE-09).
+pub(crate) static SHUTDOWN_SETTLING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 pub use api_router::build_router;
+// A loopback host applies its own CORS; the router still carries a CORS layer of its own, so the
+// origin list has to leave this private module for a host config to read it.
+pub(crate) use api_router::allowed_origins;
 pub(crate) use api_session_bindings::{
     ensure_bound_spec_can_complete, session_binding_row, session_spec_completion_summary,
     session_workspace_root, update_session_spec_binding, ListSessionsQuery, SessionSearchQuery,
@@ -196,21 +205,25 @@ pub(crate) use api_session_config::{
     effective_tool_filter, initial_license_features, load_workspace_config_with_env,
     merge_active_skill_ids, normalize_driver_kind, normalize_effort, normalize_mcp_channel,
     normalize_thinking_budget, parse_workspace_trust_label, require_license_feature,
-    run_dispatched_session_entry, session_row, session_runtime_options_from_config,
-    session_title_prompt, should_auto_title_for_workspace, spawn_auto_title_task, touch_session,
-    validate_execution_backend, web_search_config_from_config, workspace_trust_key,
-    workspace_trust_label, AfterQuery, AnswerQuestion, Attachment, AwaySummaryQuery,
-    BindSessionSpecRequest, CreateSession, LlmDispatchClassifier, OrchestrateBody, PatchSession,
-    PostMessage, ResolveApproval, ResolvePlan, SessionQuery, SetGoal, WorkspaceQuery,
+    resumed_permission_mode, run_dispatched_session_entry, session_row,
+    session_runtime_options_from_config, session_title_prompt, should_auto_title_for_workspace,
+    spawn_auto_title_task, touch_session, validate_execution_backend,
+    web_search_config_from_config, workspace_trust_key, workspace_trust_label, AfterQuery,
+    AnswerQuestion, Attachment, AutoTitleSession, AwaySummaryQuery, BindSessionSpecRequest,
+    CreateSession, LlmDispatchClassifier, OrchestrateBody, PatchSession, PostMessage,
+    ResolveApproval, ResolvePlan, SessionQuery, SetGoal, WorkspaceQuery,
 };
 pub(crate) use api_session_context::{
     apply_brief_default, apply_fable_mode, build_session_environment_snapshot,
     compose_session_system_prompt, decorate_user_payload_with_system_reminder,
     direct_message_engine_payload, discover_instruction_files, dynamic_user_turn_reminder,
     execute_daemon_command, get_instructions_handler, goal_state_from_row, instinct_guidance_block,
-    load_instruction_context, load_stored_artifacts, now_iso, now_millis,
-    persist_artifacts_snapshot, plugin_prompt_context, push_session_artifact,
-    remote_channel_engine_payload, retrieve_session_memory, trust_envelope,
+    instinct_rules_within_cap, load_instruction_context, load_stored_artifacts, now_iso,
+    now_millis, persist_artifacts_snapshot, plugin_prompt_context, push_session_artifact,
+    remote_channel_engine_payload, retrieve_session_memory, session_posture_block,
+    session_state_note, session_state_text, shipping_prompt_digest, trust_envelope,
+    user_turn_reminder_at, user_turn_reminder_with_state_at, SessionPromptParts,
+    MAX_INSTINCT_BYTES,
 };
 pub(crate) use api_session_contract::{
     answer_question_request_schema, answer_question_response_schema, clear_goal_response_schema,
@@ -224,21 +237,26 @@ pub(crate) use api_session_contract::{
     steer_session_response_schema, untrusted_content_item,
 };
 pub(crate) use api_session_utils::{
-    await_event_persistence, away_summary_line, kind_matches, live_shell_statuses_for_workspace,
-    load_workspace_task_records, normalize_session_status, publish_agent_roster,
-    record_subagent_transcript_artifact, same_path, set_goal_status_field, spawn_event_persister,
-    spawn_latch_cancel, summarize_text, task_node_json, task_record_json, transcript_created_at,
-    transcript_for_session, untrusted_policy_action, update_session_effort, update_session_model,
-    update_session_route, workspace_tasks_path, EditGoal,
+    agent_roster_view, await_event_persistence, away_summary_line, kind_matches,
+    live_shell_statuses_for_workspace, load_workspace_task_records, model_switch_cache_warning,
+    normalize_session_status, publish_agent_roster, record_subagent_transcript_artifact, same_path,
+    set_goal_status_field, spawn_event_persister, spawn_latch_cancel,
+    spawn_partial_reply_snapshotter, summarize_text, task_node_json, task_record_json,
+    transcript_created_at, transcript_for_session, untrusted_policy_action, update_session_effort,
+    update_session_model, update_session_route, workspace_tasks_path, EditGoal,
 };
 pub(crate) use api_slash_session_commands::{command_effort, command_model, command_usage};
 pub(crate) use api_state::{
-    build_subagent_fork, cleanup_subagent_worktree, lock_recover, missing_provider_key_message,
-    prepare_subagent_workspace, record_engine_unavailable_reason, record_subagent_runtime_span,
-    BudgetDecision, DaemonSubagentSupervisor, DriverToolRequest, RunSubagentBudget,
-    SessionRuntimeOptions, SubagentFork, SubagentLifecycleMark,
+    append_partial_reply_at_shutdown, governed_workspace_worktree_pool, open_subagent_worktree_pool,
 };
-pub(crate) use api_state::{governed_workspace_worktree_pool, open_subagent_worktree_pool};
+pub(crate) use api_state::{
+    build_subagent_fork, cleanup_finished_subagent_worktree, cleanup_subagent_worktree,
+    lock_recover, missing_provider_key_message, prepare_subagent_workspace,
+    record_engine_unavailable_reason, record_subagent_runtime_span, BudgetDecision,
+    DaemonSubagentSupervisor, DriverToolRequest, RouteOverrides, RunBudgetLedger,
+    RunSubagentBudget, SessionRuntimeOptions, SubagentFork, SubagentIdentity,
+    SubagentLifecycleMark, SubagentSpan, SubagentSpanExecution, SubagentSpanSubject,
+};
 pub use api_state::{
     DaemonSettingsStore, DaemonState, EngineConfig, LiveSession, PendingElicitation,
     PendingElicitationCleanup, SharedStorage,
@@ -246,6 +264,26 @@ pub use api_state::{
 
 /// Canonical composition-root ingress for durable event writes.
 ///
+/// Stored events carry the schema version they were written under as a trailing `"v"` field. A row
+/// from an older build has none and reads as version 1, the shape written today, so no row needs
+/// rewriting; a later change to an event's shape bumps the number and branches on it.
+///
+/// The stamp is a storage-shape convention of the host: it is written only when the host option
+/// `stamp_event_schema_version` is on, and every other host keeps the payload byte for byte.
+pub(crate) fn stamp_event_schema_version(payload: &str) -> String {
+    if !crate::host_options::stamp_event_schema_version() {
+        return payload.to_string();
+    }
+    let trimmed = payload.trim_end();
+    match trimmed.strip_suffix('}') {
+        Some(body) if trimmed.starts_with('{') && !body.trim_end().ends_with('{') => format!(
+            "{body},\"v\":{}}}",
+            rightkit_agent_engine_protocol::event::EVENT_ENVELOPE_SCHEMA_V1
+        ),
+        _ => payload.to_string(),
+    }
+}
+
 /// API projections provide event data, but they do not select or call a
 /// storage writer directly. Keeping sequence assignment/replay handling here
 /// makes the host-composed `SharedStorage` writer the sole durable authority.
@@ -256,6 +294,8 @@ pub(crate) fn append_event_via_storage_authority(
     kind: &str,
     payload: &str,
 ) -> Result<(), String> {
+    let payload = stamp_event_schema_version(payload);
+    let payload = payload.as_str();
     if seq >= 1 {
         storage
             .append_event_at_seq(session_id, seq, kind, payload)

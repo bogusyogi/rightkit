@@ -1,7 +1,7 @@
 //! Truthful projection of the Pulse Membrane CLI binding.
 //!
-//! This is presentation only. RightKit reaches Membrane solely through the
-//! `{app}-membrane-cli` adapter; this module only checks whether the CLI can be
+//! This is presentation only. The host reaches Membrane solely through the
+//! Membrane CLI adapter; this module only checks whether the CLI can be
 //! located (no process is spawned, no store is created) and never infers health.
 
 use serde::{Deserialize, Serialize};
@@ -64,20 +64,30 @@ fn component(name: &str, state: ComponentState, reason: Option<&str>) -> Context
     }
 }
 
-/// `membraneBinding` object for `/runtime/resource-metrics`: whether Pulse's Membrane CLI
-/// is installed. `bound` means the binary was located, not that it is healthy.
+/// `membraneBinding` object for `/runtime/resource-metrics`, read from the one process-wide
+/// `MembraneHandle`. `bound` means the Pulse Membrane CLI was located and verified (the handle's
+/// bounded `membrane where` check passed), never that a file exists. `off` is no Pulse binary;
+/// `unusable` is a binary that failed the check, with the handle's reason as the note.
 pub(crate) fn cli_binding_json() -> Value {
-    match rightkit_memory_client::membrane::MembraneCli::locate() {
-        Some(binary) => serde_json::json!({
+    let handle = rightkit_memory_client::backend::MembraneHandle::shared();
+    match handle.verified_cli() {
+        Some(cli) => serde_json::json!({
             "bound": true,
             "mode": "cli",
-            "binary": binary.display().to_string(),
+            "binary": cli.binary().display().to_string(),
             "subsystems": COMPONENTS.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
         }),
-        None => serde_json::json!({
+        None if handle.is_off() => serde_json::json!({
             "bound": false,
             "mode": "off",
             "note": rightkit_memory_client::membrane::OFF_REASON,
+        }),
+        None => serde_json::json!({
+            "bound": false,
+            "mode": "unusable",
+            "note": handle
+                .off_reason()
+                .unwrap_or_else(|| rightkit_memory_client::membrane::OFF_REASON.to_owned()),
         }),
     }
 }

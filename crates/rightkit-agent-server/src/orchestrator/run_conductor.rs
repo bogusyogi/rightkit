@@ -45,6 +45,89 @@ fn compose_run_report(
     out
 }
 
+/// Budget (tokens) for the conductor's one `context pull`: the planner prompt
+/// takes the text whole, so the pull is capped well below any model window.
+const CONDUCTOR_CONTEXT_PULL_BUDGET: usize = 4_000;
+
+/// Deadline for the conductor's `context pull`; a slow pull degrades to
+/// "context off" and never holds the run.
+const CONDUCTOR_CONTEXT_PULL_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// What the conductor's one `context pull` produced: the text for the planner
+/// (`None` when there is none) and, when there is none, the reason the run
+/// report states (orchestration rules 36 and 47, context rule 42).
+#[derive(Debug, PartialEq, Eq)]
+struct ConductorMemory {
+    text: Option<String>,
+    off_reason: Option<String>,
+}
+
+/// Turn a `context pull` result into the conductor's memory text or its
+/// "context off" reason. Pure so the Pulse-absent and Pulse-present paths are
+/// tested without a binary.
+fn conductor_memory_from_pull(
+    pull: Result<rightkit_memory_client::membrane::ContextPull, String>,
+) -> ConductorMemory {
+    match pull {
+        Err(error) => ConductorMemory {
+            text: None,
+            off_reason: Some(format!("memory retrieval unavailable: {error}")),
+        },
+        Ok(pull) => {
+            let text = pull.text.trim();
+            if text.is_empty() {
+                let reason = pull
+                    .off_reason
+                    .or(pull.reason)
+                    .unwrap_or_else(|| "context pull returned no items".to_string());
+                ConductorMemory {
+                    text: None,
+                    off_reason: Some(format!("memory retrieval unavailable: {reason}")),
+                }
+            } else {
+                ConductorMemory {
+                    text: Some(text.to_string()),
+                    off_reason: None,
+                }
+            }
+        }
+    }
+}
+
+/// The conductor asks Membrane the way a turn does: one `context pull` for the
+/// goal in the session workspace (orchestration rule 36; no host-side
+/// retrieval exists on this path).
+async fn pull_conductor_memory(workspace_root: &str, goal: &str) -> ConductorMemory {
+    let root = std::path::Path::new(workspace_root.trim());
+    let context =
+        rightkit_memory_client::backend::CallContext::after(CONDUCTOR_CONTEXT_PULL_DEADLINE);
+    let pull = rightkit_memory_client::backend::MembraneHandle::shared()
+        .context_pull(
+            &context,
+            root,
+            goal,
+            Some(CONDUCTOR_CONTEXT_PULL_BUDGET),
+            Some(root),
+        )
+        .await
+        .map_err(|error| error.to_string());
+    conductor_memory_from_pull(pull)
+}
+
+/// Add the one-line "context off" note to a run report when the conductor's
+/// memory was unavailable (orchestration rule 47, CR-19: a turn with no
+/// context binding runs visibly degraded, with the reason).
+fn report_with_memory_note(report: String, memory_error: Option<&str>) -> String {
+    match memory_error {
+        None => report,
+        Some(reason) => {
+            let reason: String = reason.split_whitespace().collect::<Vec<_>>().join(" ");
+            let reason = truncate(&reason, 200);
+            format!("{report}\n\n_Context off: conductor memory unavailable ({reason})._")
+        }
+    }
+}
+
 impl DaemonState {
     /// Run a full conductor goal: plan → execute the task graph with real agents
     /// → report. Progress streams to the session's conduit as `TaskGraphUpdated`
@@ -60,21 +143,79 @@ impl DaemonState {
             .get_session(session_id)
             .ok_or_else(|| format!("session not found: {session_id}"))?;
         let conduit = session.conduit.clone();
-        let workspace_config =
-            load_workspace_config_with_env(std::path::Path::new(session.workspace_root.trim()));
+        let workspace_config = crate::daemon_state::load_workspace_config_granted(
+            std::path::Path::new(session.workspace_root.trim()),
+            crate::daemon_state::session_config_granted(session_id),
+        );
+
+        // The sub-agent cumulative limit is per run (orchestration rule 6): a
+        // new goal in the same chat starts from zero, in memory and in storage.
+        {
+            let mut ledger = session.run_budget.lock().await;
+            ledger.reset_cumulative();
+            if let Some(storage) = self.storage.as_ref() {
+                if let Err(error) = storage.lock().await.upsert_run_budget(session_id, 0) {
+                    tracing::warn!(session_id = %session_id, error = %error, "failed to persist the reset sub-agent budget");
+                }
+            }
+        }
+        // Per-task typed-mutation evidence is per run too: the planner reuses
+        // ids `t1…tN`, so an earlier goal's `t2` must not back this one's.
+        lock_recover(&session.task_typed_evidence, "session.task_typed_evidence").clear();
+        // The unbacked-work arbiter counts attempts per goal (audit 2026-11-05
+        // orchestration M2): a different goal in the same chat starts with
+        // fresh attempt counters and a fresh aggregate typed-mutation count,
+        // while a retry of the same goal keeps both so the cap still applies.
+        {
+            let persistent_goal = lock_recover(&session.goal, "session.goal").clone();
+            let goal_key = conductor_goal_key(persistent_goal.as_deref(), goal);
+            let mut arbiter = session.governed_arbiter.lock().await;
+            if arbiter.begin_goal(session_id, &goal_key) {
+                session
+                    .typed_mutations
+                    .store(0, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
 
         // Capture the current git HEAD so the victory gate can diff against it
         // for eval-hack detection.
         let initial_git_ref = git_rev_parse_head(&session.workspace_root);
 
-        let mut registry = self.agent_registry_for_workspace(&session.workspace_root);
+        let mut registry = self.agent_registry_with_workspace_config(&workspace_config);
         let budget_cfg = workspace_config.orchestration.budget.clone();
         let configured_conductor_model = self
             .agent_descriptor_with_workspace_config(&workspace_config, "conductor")
             .map(|descriptor| descriptor.model_id)
             .unwrap_or_default();
         let live_session_model = lock_recover(&session.model, "session.model").clone();
+        // The model/provider the session was explicitly created with (`--model`, `provider::model`),
+        // persisted at creation. `session.model` cannot say so: it is overwritten below after a run.
+        let (explicit_model, explicit_provider) = {
+            let row = match self.storage.as_ref() {
+                Some(storage) => storage.lock().await.get_session(session_id).ok().flatten(),
+                None => None,
+            };
+            let config: serde_json::Value = row
+                .and_then(|row| serde_json::from_str(&row.config_json).ok())
+                .unwrap_or(serde_json::Value::Null);
+            let field = |key: &str| {
+                config
+                    .get(key)
+                    .and_then(|value| value.as_str())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+            };
+            let model = field("explicitModel");
+            let provider = if model.is_some() {
+                field("explicitProvider")
+            } else {
+                None
+            };
+            (model, provider)
+        };
         let conductor_model = resolve_conductor_runtime_model(
+            explicit_model.as_deref(),
             &live_session_model,
             &configured_conductor_model,
             self.engine_cfg.as_ref().map(|cfg| cfg.model_id.as_str()),
@@ -99,38 +240,27 @@ impl DaemonState {
             }
         }
 
-        // Evolution harness: traces every worker result to ~/.{app}/traces/<session_id>.jsonl
-        // and tracks failures for the ratchet loop.
-        let traces_dir = rightkit_agent_config::state_root()
-            .map(|root| root.join("traces"))
-            .unwrap_or_else(|| {
-                std::path::PathBuf::from(format!(
-                    "/tmp/{app}/traces",
-                    app = crate::host_identity::app()
-                ))
-            });
+        // Evolution harness: traces every worker result to <state root>/traces/<session_id>.jsonl
+        // and tracks failures for the ratchet loop. No state root means no traces directory.
+        let traces_dir = rightkit_agent_config::state_root_required().join("traces");
         let mut evolution_harness = EvolutionHarness::new(traces_dir, session_id);
 
+        // PL-010: an explicit `tool:` followed by a tool name, a space and a JSON object goal runs through the deterministic executor host and never reaches a model.
+        if !dry_run {
+            if let Some(outcome) = self.run_explicit_mechanism_goal(session_id, goal).await? {
+                return Ok(outcome);
+            }
+        }
         // Build an LLM client for the conductor's configured model.
         let llm = self.build_llm_for_role_in_workspace(
             "conductor",
             &workspace_config,
             Some(&conductor_model),
+            explicit_provider.as_deref(),
         )?;
 
-        // Retrieve relevant past experience to inform planning and execution.
-        let memory_injection = crate::api::retrieve_session_memory(
-            self,
-            session_id,
-            &session.workspace_root,
-            goal,
-            5,
-            "conductor",
-        )
-        .await;
-        let memory_ctx = memory_injection
-            .as_ref()
-            .map(|injection| injection.context.as_str());
+        // Also picks up teams another process saved since this one read the file.
+        crate::api_stores::refresh_team_store(&self.team_store_path, &self.live_teams);
         let mut team_templates: Vec<_> = lock_recover(&self.live_teams, "self.live_teams")
             .values()
             .cloned()
@@ -171,8 +301,10 @@ impl DaemonState {
                                     .to_string(),
                                 reasoning_content: None,
                                 tool_calls: Vec::new(),
-                                pinned: false, origin: None,
-                            }, phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
+                                pinned: false,
+                                origin: None,
+                            },
+                            phase: rightkit_agent_engine_protocol::AssistantMessagePhase::Final,
                         });
                         return Ok(outcome);
                     }
@@ -192,8 +324,10 @@ impl DaemonState {
                                         .to_string(),
                                 reasoning_content: None,
                                 tool_calls: Vec::new(),
-                                pinned: false, origin: None,
-                            }, phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
+                                pinned: false,
+                                origin: None,
+                            },
+                            phase: rightkit_agent_engine_protocol::AssistantMessagePhase::Interim,
                         });
                     }
                     Err(e) => return Err(e),
@@ -201,8 +335,42 @@ impl DaemonState {
             }
         }
 
-        // 1. Plan (informed by memory).
-        let plan = plan_goal(llm.as_ref(), goal, memory_ctx, &registry, &team_templates).await?;
+        // 1. Plan (informed by memory). With the host's `context pull` path and Membrane
+        // absent, the run goes on and the report says "context off" with the reason
+        // (orchestration rules 36, 47).
+        let (memory_text, memory_off_reason) = if crate::host_options::conductor_context_pull() {
+            let ConductorMemory { text, off_reason } =
+                pull_conductor_memory(&session.workspace_root, goal).await;
+            (text, off_reason)
+        } else {
+            // Retrieve relevant past experience through the workspace memory backend.
+            let injection = crate::api::retrieve_session_memory(
+                self,
+                session_id,
+                &session.workspace_root,
+                goal,
+                5,
+                "conductor",
+            )
+            .await;
+            (injection.map(|injection| injection.context), None)
+        };
+        let memory_ctx = memory_text;
+        // Tell the planner the sub-agent caps up front (W2-04); same wording as the session note.
+        let budget = crate::daemon_state::effective_run_budget(self, session_id);
+        let budget_note = format!(
+            "Sub-agent budget for this session: at most {} sub-agents run at once (extra spawns wait for a free slot); at most {} sub-agents in total. Plan your delegation to fit within {}.",
+            budget.concurrent_max, budget.cumulative_max, budget.cumulative_max
+        );
+        let plan = plan_goal(
+            llm.as_ref(),
+            goal,
+            memory_ctx.as_deref(),
+            &registry,
+            &team_templates,
+            Some(&budget_note),
+        )
+        .await?;
 
         // 2. Build and validate the graph.
         let mut graph = TaskGraph::new();
@@ -224,12 +392,6 @@ impl DaemonState {
         )?;
 
         let router = AgentRouter::new();
-        // Duration-aware seam: when the roster has multiple agents with the
-        // same role, the DurationAwareRouter picks the one with the highest
-        // recorded reliability in this task's expected duration bucket.
-        // It transparently forwards to the inner AgentRouter otherwise.
-        let duration_aware_router = DurationAwareRouter::new();
-        let _ = duration_aware_router; // wired for the routing path; future lanes will populate `register_taste` from the harness.
         let projected = projected_cost(&graph, &registry, &router);
         let team_preset = matching_team_execution_preset(goal, &team_templates);
         let per_goal_ceiling =
@@ -240,10 +402,13 @@ impl DaemonState {
                 session_id,
                 &conduit,
                 &graph,
-                &registry,
-                &router,
+                &ConductorPlan {
+                    registry: &registry,
+                    router: &router,
+                    budget_cfg: &budget_cfg,
+                    team_preset: team_preset.as_ref(),
+                },
                 projected,
-                team_preset.as_ref(),
             ));
         }
 
@@ -289,7 +454,7 @@ impl DaemonState {
                         pinned: false,
                         origin: None,
                     },
-                    phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
+                    phase: rightkit_agent_engine_protocol::AssistantMessagePhase::Final,
                 });
                 return Ok(RunOutcome {
                     completed: false,
@@ -311,13 +476,17 @@ impl DaemonState {
             .execute_conductor_graph(
                 session_id,
                 &session.workspace_root,
-                goal,
-                memory_ctx,
+                ConductorGoal {
+                    goal,
+                    memory_ctx: memory_ctx.as_deref(),
+                },
                 &mut graph,
-                &registry,
-                &router,
-                &budget_cfg,
-                team_preset.as_ref(),
+                &ConductorPlan {
+                    registry: &registry,
+                    router: &router,
+                    budget_cfg: &budget_cfg,
+                    team_preset: team_preset.as_ref(),
+                },
                 &conduit,
             )
             .await?;
@@ -369,6 +538,49 @@ impl DaemonState {
         // The ONLY path to `achieved`.
         self.finalize_goal(session_id, &conduit, state).await;
 
+        // Memorize the experience through native Membrane memory before the
+        // report is composed, so an unavailable backend is named in the report
+        // (orchestration rule 47) instead of only in the log. A completed run
+        // must stay visible even when the bounded backend write is unavailable,
+        // with no local fallback.
+        let memory_content = format!(
+            "Conductor run\nGoal: {goal}\nOutcome: {}\nSummary: {summary}",
+            if goal_complete {
+                "completed"
+            } else {
+                "incomplete"
+            },
+        );
+        let memory_context =
+            rightkit_memory_client::backend::CallContext::after(std::time::Duration::from_secs(5));
+        let memory_error = match self
+            .memory_backend
+            .remember(
+                &memory_context,
+                &memory_content,
+                vec![
+                    "conductor".to_string(),
+                    if goal_complete {
+                        "completed".to_string()
+                    } else {
+                        "incomplete".to_string()
+                    },
+                ],
+            )
+            .await
+        {
+            Ok(_) => None,
+            Err(error) => {
+                tracing::warn!(
+                    session_id = %session_id,
+                    error = %error,
+                    error_kind = ?error.kind(),
+                    "native Membrane memory write failed after conductor run"
+                );
+                Some(error.to_string())
+            }
+        };
+
         // 6. Report.
         //
         // The verdict line alone ("Accepted (GDS 1.00)…") used to be the ENTIRE
@@ -378,7 +590,28 @@ impl DaemonState {
         // sub-agent transcripts or the handoff-results files on disk. Backend
         // success is not UI success — the work has to land where the human is
         // looking.
-        let content = compose_run_report(&summary, &outcome.results);
+        let memory_note = if crate::host_options::conductor_context_pull() {
+            match (memory_off_reason.as_deref(), memory_error.as_deref()) {
+                (Some(off), Some(error)) => Some(format!("{off}; memory write failed: {error}")),
+                (Some(off), None) => Some(off.to_string()),
+                (None, Some(error)) => Some(format!("memory write failed: {error}")),
+                (None, None) => None,
+            }
+        } else {
+            None
+        };
+        let mut content = report_with_memory_note(
+            compose_run_report(&summary, &outcome.results),
+            memory_note.as_deref(),
+        );
+        if let Some(preset) = team_preset.as_ref() {
+            // The preset that shaped this run is named with the reason it was
+            // picked (orchestration rule 25).
+            content.push_str(&format!(
+                "\n\n_Team preset: {} (its name appears in the goal)._",
+                preset.team_name
+            ));
+        }
         let seq = conduit.next_seq();
         conduit.publish(ProtocolEvent::AssistantMessageCompleted {
             session_id: session_id.to_string(),
@@ -393,7 +626,7 @@ impl DaemonState {
                 pinned: false,
                 origin: None,
             },
-            phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
+            phase: rightkit_agent_engine_protocol::AssistantMessagePhase::Final,
         });
 
         // 7. Self-evaluating harness: feed the finished run back into learning
@@ -421,43 +654,6 @@ impl DaemonState {
             },
         };
         self.learning.record_run(&learning_summary, &role_results);
-
-        // Memorize the experience through native Membrane memory. Keep this
-        // best-effort: a completed run must remain visible even when the
-        // bounded backend write is unavailable, with no local fallback.
-        let memory_content = format!(
-            "Conductor run\nGoal: {goal}\nOutcome: {}\nSummary: {summary}",
-            if goal_complete {
-                "completed"
-            } else {
-                "incomplete"
-            },
-        );
-        let memory_context =
-            rightkit_memory_client::backend::CallContext::after(std::time::Duration::from_secs(5));
-        if let Err(error) = self
-            .memory_backend
-            .remember(
-                &memory_context,
-                &memory_content,
-                vec![
-                    "conductor".to_string(),
-                    if goal_complete {
-                        "completed".to_string()
-                    } else {
-                        "incomplete".to_string()
-                    },
-                ],
-            )
-            .await
-        {
-            tracing::warn!(
-                session_id = %session_id,
-                error = %error,
-                error_kind = ?error.kind(),
-                "native Membrane memory write failed after conductor run"
-            );
-        }
 
         // Observation layer: one execution record per participating role,
         // feeding the per-role TasteScore.
@@ -535,5 +731,46 @@ impl DaemonState {
             failed: outcome.failed,
             stall_nudge: outcome.stall_nudge,
         })
+    }
+}
+
+/// The key the governed arbiter's per-goal counters are bound to (round 2
+/// L6). It joins the persistent session goal with this run's goal: keyed on
+/// the persistent goal alone, every run under it shared one key, so a reused
+/// task id such as `t2` inherited an exhausted unbacked-attempt counter from
+/// an earlier, different request. A retry of the same request keeps its key,
+/// so the cap still applies across retries.
+fn conductor_goal_key(persistent_goal: Option<&str>, run_goal: &str) -> String {
+    let run_goal = run_goal.trim();
+    match persistent_goal
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+    {
+        Some(persistent) => format!("{persistent}\n{run_goal}"),
+        None => run_goal.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod conductor_goal_key_tests {
+    use super::conductor_goal_key;
+
+    #[test]
+    fn a_new_request_under_a_persistent_goal_gets_a_new_key() {
+        let first = conductor_goal_key(Some("ship v2"), "fix the login bug");
+        let second = conductor_goal_key(Some("ship v2"), "add the export button");
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn a_retry_keeps_its_key() {
+        assert_eq!(
+            conductor_goal_key(Some("ship v2"), "fix the login bug"),
+            conductor_goal_key(Some(" ship v2 "), "fix the login bug ")
+        );
+        assert_eq!(
+            conductor_goal_key(None, "task"),
+            conductor_goal_key(Some("  "), "task")
+        );
     }
 }

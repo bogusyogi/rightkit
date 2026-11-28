@@ -1,3 +1,15 @@
+/// The manifest metadata as a client reads it: the host's block keyed by the host slug.
+fn skill_metadata_json(
+    metadata: &rightkit_agent_skills::manifest::SkillPackageMetadata,
+) -> serde_json::Value {
+    let mut keyed = serde_json::Map::new();
+    keyed.insert(
+        rightkit_agent_config::host_slug(),
+        serde_json::to_value(&metadata.host).unwrap_or(serde_json::Value::Null),
+    );
+    serde_json::Value::Object(keyed)
+}
+
 fn skill_item_json(item: &SkillItem) -> serde_json::Value {
     serde_json::json!({
         "slug": item.slug,
@@ -12,7 +24,7 @@ fn skill_item_json(item: &SkillItem) -> serde_json::Value {
         "compatibility": item.compatibility,
         "platforms": item.platforms,
         "requiredEnvironmentVariables": item.required_environment_variables,
-        "metadata": item.metadata,
+        "metadata": skill_metadata_json(&item.metadata),
         "category": item.category,
         "priority": item.priority,
         "disableModelInvocation": item.disable_model_invocation,
@@ -86,7 +98,7 @@ fn fallback_skill_description(content: &str) -> String {
         .find(|line| !line.is_empty())
         .map(|line| line.trim_start_matches('#').trim().to_string())
         .filter(|line| !line.is_empty())
-        .unwrap_or_else(|| "Local RightKit skill".to_string())
+        .unwrap_or_else(|| format!("Local {} skill", rightkit_agent_config::app_name()))
 }
 
 fn skill_prompt_body(content: &str) -> String {
@@ -122,7 +134,7 @@ fn limit_chars(text: &str, max_chars: usize) -> String {
 fn review_skill_provenance(source_url: &str, content: &str) -> SkillProvenanceReviewResponse {
     let mut findings = Vec::new();
     let normalized_source_url =
-        match rightkit_agent_host_traits::skill_host::normalize_skill_pack_github_url(source_url) {
+        match rightkit_agent_skills::normalize_skill_pack_github_url(source_url) {
             Ok(url) => {
                 findings.push(SkillProvenanceFinding {
                     severity: "info",
@@ -160,12 +172,14 @@ fn review_skill_provenance(source_url: &str, content: &str) -> SkillProvenanceRe
                     message: "External skill packs should be installed as quarantined until reviewed and benchmarked.".to_string(),
                 });
             }
-            if manifest.metadata.coderight.benchmark_ids.is_empty() {
+            if manifest.metadata.host.benchmark_ids.is_empty() {
                 findings.push(SkillProvenanceFinding {
                     severity: "warning",
                     code: "missing-benchmark-ids",
-                    message: "No RightKit benchmark ids are declared for this skill pack."
-                        .to_string(),
+                    message: format!(
+                        "No {} benchmark ids are declared for this skill pack.",
+                        rightkit_agent_config::app_name()
+                    ),
                 });
             }
             if !manifest.required_environment_variables.is_empty() {
@@ -218,7 +232,9 @@ fn render_installed_skill(slug: &str, body: InstallSkillRequest) -> String {
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .unwrap_or("Local RightKit skill");
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("Local {} skill", rightkit_agent_config::app_name()));
+    let description = description.as_str();
     let trigger = body.trigger.as_deref().map(str::trim).unwrap_or_default();
     let enabled = body.enabled.unwrap_or(true);
     let category = body.category.unwrap_or(SkillCategory::Tool);

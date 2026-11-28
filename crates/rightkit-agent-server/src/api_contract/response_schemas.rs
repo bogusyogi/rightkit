@@ -1,6 +1,18 @@
 fn openapi_response_schema(method: &str, path: &str) -> Option<Value> {
     match (method, path) {
         ("get", "/commands") => Some(crate::api_commands::list_commands_response_schema()),
+        // Linked Claude profile folders (api_accounts.rs). Rows never carry a secret.
+        ("post", "/accounts/linked") => Some(json!({
+            "type": "object", "required": ["account"],
+            "properties": {"account": {"type": "object"}}
+        })),
+        ("delete", "/accounts/linked/{provider}/{label}") => Some(json!({
+            "type": "object", "required": ["ok"], "properties": {"ok": {"type": "boolean"}}
+        })),
+        ("get", "/accounts/discover") => Some(json!({
+            "type": "object", "required": ["folders"],
+            "properties": {"folders": {"type": "array", "items": {"type": "object"}}}
+        })),
         ("post", "/commands/execute") => {
             Some(crate::api_commands::execute_command_response_schema())
         }
@@ -36,6 +48,19 @@ fn openapi_response_schema(method: &str, path: &str) -> Option<Value> {
             Some(json!({"type": "object"}))
         }
         ("delete", "/provider-auth/{provider}") => Some(json!({"type": "object"})),
+        // Vendor CLI providers answer JSON objects.
+        ("get", "/cli-providers")
+        | ("get", "/cli-providers/{provider}/discovery")
+        | ("get", "/cli-providers/{provider}/auth-status")
+        | ("get", "/cli-providers/{provider}/models")
+        | ("get", "/cli-providers/{provider}/attestation")
+        | ("post", "/cli-providers/{provider}/login")
+        | ("post", "/cli-providers/{provider}/logout")
+        | ("post", "/cli-providers/{provider}/verify-harness") => Some(json!({"type": "object"})),
+        // The worktree pool answers JSON objects.
+        ("get", "/worktrees/pool/status")
+        | ("post", "/worktrees/pool/acquire")
+        | ("post", "/worktrees/pool/{id}/release") => Some(json!({"type": "object"})),
         ("get", "/inference/connections") => {
             Some(crate::api_settings::inference_connections_response_schema())
         }
@@ -149,6 +174,7 @@ fn openapi_response_schema(method: &str, path: &str) -> Option<Value> {
         ("post", "/sessions/{id}/goal/resume") => Some(crate::api::resume_goal_response_schema()),
         ("post", "/sessions/{id}/goal/edit") => Some(crate::api::edit_goal_response_schema()),
         ("post", "/sessions/{id}/rewind") => Some(crate::api::rewind_session_response_schema()),
+        ("post", "/sessions/{id}/redo") => Some(crate::api::rewind_session_response_schema()),
         ("post", "/sessions/{id}/orchestrate") => {
             Some(crate::api::orchestrate_session_response_schema())
         }
@@ -259,6 +285,9 @@ fn openapi_response_schema(method: &str, path: &str) -> Option<Value> {
         }
         ("post", "/local-models/probe") => {
             Some(crate::api_local_models::probe_local_model_response_schema())
+        }
+        ("post", "/local-models/discover") => {
+            Some(crate::api_local_models::discover_local_models_response_schema())
         }
         ("post", "/local-models/chat-smoke") => {
             Some(crate::api_local_models::chat_smoke_local_model_response_schema())

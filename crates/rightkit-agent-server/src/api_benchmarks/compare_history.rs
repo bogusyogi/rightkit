@@ -246,26 +246,6 @@ async fn record_benchmark_history_with_detail(
     }
 }
 
-pub(crate) fn verification_shell_command(command: &str) -> tokio::process::Command {
-    #[cfg(windows)]
-    {
-        let mut cmd = rightkit_child_process::tokio_support::command("powershell");
-        cmd.arg("-NoLogo")
-            .arg("-NoProfile")
-            .arg("-ExecutionPolicy")
-            .arg("Bypass")
-            .arg("-Command")
-            .arg(command);
-        cmd
-    }
-    #[cfg(not(windows))]
-    {
-        let mut cmd = rightkit_child_process::tokio_support::command("sh");
-        cmd.arg("-c").arg(command);
-        cmd
-    }
-}
-
 /// Adapter-backed verification launch for live benchmark owners. The legacy
 /// command builder remains for compatibility tests; production callers should
 /// use this managed path so cancellation/reaping stays with execution host.

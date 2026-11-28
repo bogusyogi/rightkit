@@ -1,3 +1,13 @@
+/// Collapse whitespace to a single line and cap at 240 chars so one skill cannot bloat the catalog.
+fn catalog_one_line(s: &str) -> String {
+    let mut out = s.split_whitespace().collect::<Vec<_>>().join(" ");
+    if out.chars().count() > 240 {
+        out = out.chars().take(239).collect();
+        out.push('…');
+    }
+    out
+}
+
 pub(crate) fn skill_runtime_context_with_behavioral(
     dirs: &[PathBuf],
     workspace_root: &str,
@@ -40,7 +50,8 @@ pub(crate) fn skill_runtime_context_with_behavioral(
             "Active behavioral skill instructions. Apply these prompt-level guidelines additively, in the order shown; project-specific instructions may add stricter rules but should not erase them.",
         );
         for skill in ordered.into_iter().take(8) {
-            let Ok(raw) = std::fs::read_to_string(&skill.path) else {
+            let Some(raw) = rightkit_agent_skills::manifest::read_bounded_skill_source(&skill.path)
+            else {
                 continue;
             };
             let body = skill_prompt_body(&raw);
@@ -70,11 +81,13 @@ pub(crate) fn skill_runtime_context_with_behavioral(
             let trigger = if skill.trigger.trim().is_empty() {
                 "model-invoked".to_string()
             } else {
-                format!("trigger: {}", skill.trigger)
+                format!("trigger: {}", catalog_one_line(&skill.trigger))
             };
             section.push_str(&format!(
                 "\n- {}: {} ({})",
-                skill.slug, skill.description, trigger
+                skill.slug,
+                catalog_one_line(&skill.description),
+                trigger
             ));
             if let Some(effects) = skill_effects_summary(&skill.effects) {
                 section.push_str(&format!("; effects: {effects}"));
@@ -82,7 +95,7 @@ pub(crate) fn skill_runtime_context_with_behavioral(
         }
         if invocable.len() > 40 {
             section.push_str(&format!(
-                "\n- ... {} more skill(s) omitted from the catalog.",
+                "\n- ... {} more skill(s) omitted from the catalog; find one with `invoke_skill` and `query`.",
                 invocable.len() - 40
             ));
         }
@@ -100,7 +113,8 @@ pub(crate) fn skill_runtime_context_with_behavioral(
         })
         .take(8)
     {
-        let Ok(raw) = std::fs::read_to_string(&skill.path) else {
+        let Some(raw) = rightkit_agent_skills::manifest::read_bounded_skill_source(&skill.path)
+        else {
             continue;
         };
         let body = skill_prompt_body(&raw);

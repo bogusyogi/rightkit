@@ -16,5 +16,5 @@ pub use direct::{
 pub use resolver::{
     bind_inference_route, ensure_inference_selection_qualified, resume_binding_matches,
 };
-pub use scheduler::InferenceScheduler;
+pub use scheduler::{default_active_stream_limit, InferenceScheduler};
 pub use types::*;

@@ -125,6 +125,13 @@ fn row_mcp(state: &DaemonState) -> ReadinessRow {
 }
 
 fn row_license(state: &DaemonState) -> ReadinessRow {
+    if !state.license_enforced {
+        return ReadinessRow::ready(
+            "license",
+            "License",
+            "Pro features available to everyone (licence not enforced)",
+        );
+    }
     let features = state.current_license_features();
     if features.is_empty() {
         ReadinessRow::warn(

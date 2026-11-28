@@ -7,29 +7,63 @@ fn emit_cli_json_line(value: &serde_json::Value) {
     let _ = std::io::stdout().flush();
 }
 
+fn emit_cli_error_json(value: &serde_json::Value) {
+    eprintln!("{}", cli_json_line(value));
+}
+
+/// R10: every error prints the stderr object `{"error":{code,message,retryable}}`
+/// in machine-output mode and the plain message otherwise; stdout carries no
+/// error text.
 fn cli_error_exit(stream_json: bool, code: CliExitCode, message: &str) -> i32 {
-    if stream_json {
-        emit_cli_json_line(&cli_error_envelope(code, message));
+    run_error_exit_on_stderr(stream_json, run_exit_code_from_cli(code), message)
+}
+
+fn run_error_exit_on_stderr(machine: bool, code: RunExitCode, message: &str) -> i32 {
+    if machine {
+        eprintln!("{}", cli_json_line(&run_error_envelope(code, message)));
+    } else {
+        eprintln!("{message}");
     }
     code.as_i32()
 }
 
-fn cli_error_envelope(code: CliExitCode, message: &str) -> serde_json::Value {
-    serde_json::json!({
-        "schema_version": crate::host_identity::schema("cli.error.v1"),
-        "event": "error",
-        "error": {
-            "class": code.class(),
-            "exit_code": code.as_i32(),
-            "message": message,
-        },
-    })
+/// Exit 3 `unreachable` (headless-cli.md section 2.5, R9, R10): a verb that needs
+/// the host found none and nothing ran. The call is safe to retry, so the exit
+/// is the suite code 3, not 1. `machine` selects the stderr object (`--json`)
+/// over the plain message.
+fn host_unreachable_exit(machine: bool) -> i32 {
+    run_error_exit_on_stderr(machine, RunExitCode::Unreachable, &no_daemon_message())
 }
 
-fn cli_exit_code_from_events(
-    events: &[rightkit_agent_engine_protocol::ProtocolEvent],
-) -> Option<CliExitCode> {
-    events.iter().find_map(cli_exit_code_from_event)
+/// The text of the "no daemon" refusal. Helpers that return `Err(String)` use it so their
+/// callers can tell "no host" (exit 3) from any other failure (exit 1).
+fn no_daemon_message() -> String {
+    format!(
+        "No running daemon found. Start one with `{app} serve`.",
+        app = crate::host_identity::app()
+    )
+}
+
+/// Exit code for a daemon-helper `Err(message)`: 3 when the message is the "no daemon" refusal
+/// (nothing ran, safe to retry), 1 otherwise. Prints the message either way.
+fn daemon_error_exit(machine: bool, message: &str) -> i32 {
+    if message == no_daemon_message() {
+        return host_unreachable_exit(machine);
+    }
+    eprintln!("{message}");
+    1
+}
+
+/// The stable error object (headless-cli.md section 2.5): `code` is fixed per
+/// contract version, `message` is the human text, `retryable` is fixed per code.
+fn run_error_envelope(code: RunExitCode, message: &str) -> serde_json::Value {
+    serde_json::json!({
+        "error": {
+            "code": code.class(),
+            "message": message,
+            "retryable": code.retryable(),
+        },
+    })
 }
 
 fn cli_exit_code_from_event(
@@ -56,14 +90,28 @@ fn cli_exit_code_from_failure_kind(kind: &str, error: &str) -> CliExitCode {
         "budget" => CliExitCode::Budget,
         "permission" => CliExitCode::Permission,
         "sandbox" => CliExitCode::Sandbox,
-        "usage" | "max_iterations" => CliExitCode::Usage,
+        "usage" => CliExitCode::Usage,
+        // Same classes `run_exit_code_from_failure_kind` gives these kinds, so the
+        // stream `error` object and the process exit agree and a retry can help.
+        "max_iterations" | "network" | "rate_limited" => CliExitCode::TimeoutStall,
         _ => cli_exit_code_from_error(error),
     }
 }
 
 fn cli_exit_code_from_error(error: &str) -> CliExitCode {
     let error = error.to_ascii_lowercase();
-    if error.contains("api key") || error.contains("unauthorized") || error.contains("auth") {
+    // Transient provider failures first: a retry can help, and their text may
+    // carry words ("auth", "denied") that would otherwise misclassify them.
+    if error.contains("rate limit")
+        || error.contains("rate-limit")
+        || error.contains("too many requests")
+        || error.contains("overloaded")
+        || error.contains("service unavailable")
+        || error.contains("temporarily unavailable")
+    {
+        CliExitCode::TimeoutStall
+    } else if error.contains("api key") || error.contains("unauthorized") || error.contains("auth")
+    {
         CliExitCode::Auth
     } else if error.contains("permission")
         || error.contains("approval")
@@ -104,10 +152,11 @@ fn render_cli_stream_event(
             }
             _ => "",
         };
+        let code = run_exit_code_from_cli(code);
         serde_json::json!({
-            "class": code.class(),
-            "exit_code": code.as_i32(),
+            "code": code.class(),
             "message": message,
+            "retryable": code.retryable(),
         })
     });
     let mut value = serde_json::json!({
@@ -124,72 +173,8 @@ fn render_cli_stream_event(
     value
 }
 
-fn cli_stream_event_data(event: &serde_json::Value) -> &serde_json::Value {
-    event.get("data").unwrap_or(event)
-}
-
-fn event_seq(ev: &rightkit_agent_engine_protocol::ProtocolEvent) -> i64 {
-    use rightkit_agent_engine_protocol::ProtocolEvent::*;
-    match ev {
-        SessionStarted { seq, .. }
-        | SessionTitleUpdated { seq, .. }
-        | AssistantDelta { seq, .. }
-        | AssistantMessageCompleted { seq, .. }
-        | ToolCallStarted { seq, .. }
-        | ToolApprovalRequested { seq, .. }
-        | ToolApprovalResolved { seq, .. }
-        | ToolPolicyEvent { seq, .. }
-        | ToolResultAdded { seq, .. }
-        | SessionTurnFinished { seq, .. }
-        | StreamResyncRequired { seq, .. }
-        | Overloaded { seq, .. }
-        | PersistenceFailed { seq, .. }
-        | ProviderRetrying { seq, .. }
-        | SessionCompactionStarted { seq, .. }
-        | VerificationFinished { seq, .. }
-        | TaskGraphUpdated { seq, .. }
-        | TaskStatusUpdated { seq, .. }
-        | TaskArtifactUpdated { seq, .. }
-        | ArtifactLineageUpdated { seq, .. }
-        | RunInterrupted { seq, .. }
-        | RunFailed { seq, .. }
-        | SessionCompacted { seq, .. }
-        | SessionContextFolded { seq, .. }
-        | UsageUpdated { seq, .. }
-        | BudgetExceeded { seq, .. }
-        | ProviderRouteUpdated { seq, .. }
-        | AccountRateLimited { seq, .. }
-        | AccountUsageReported { seq, .. }
-        | DispatchDecided { seq, .. }
-        | OrchestrationObservationRecorded { seq, .. }
-        | AgentQueryIssued { seq, .. }
-        | AgentQueryResponded { seq, .. }
-        | HumanSteeringInjected { seq, .. }
-        | SubAgentSpawned { seq, .. }
-        | SubAgentCompleted { seq, .. }
-        | SubAgentCancelled { seq, .. }
-        | UserMessageSubmitted { seq, .. }
-        | UserQuestionAsked { seq, .. }
-        | McpElicitationRequested { seq, .. }
-        | CredentialRequested { seq, .. }
-        | CredentialResolved { seq, .. }
-        | UserQuestionAnswered { seq, .. }
-        | PlanPresented { seq, .. }
-        | AgentRosterUpdated { seq, .. }
-        | CheckRunCompleted { seq, .. }
-        | GoalProgressUpdated { seq, .. }
-        | SelfReviewProposalReceived { seq, .. }
-        | ToolApprovalReviewed { seq, .. }
-        | RunGovernanceRejected { seq, .. }
-        | TurnUsage { seq, .. }
-        | PromptCacheBreak { seq, .. }
-        | ToolOutputDelta { seq, .. }
-        | ToolArgumentsPartial { seq, .. }
-        | SubAgentOutput { seq, .. }
-        | BackgroundShellExited { seq, .. }
-        | ModelRouteDecision { seq, .. } => *seq,
-    }
-}
+/// The sequence number of any protocol event. The one definition is RightKit's (#305).
+use rightkit_bot_messaging::daemon::event_seq;
 
 /// `--color` resolution: `always`/`never` are absolute; `auto` colors only
 /// when the destination stream is a terminal and `NO_COLOR` is unset.
@@ -235,9 +220,20 @@ fn print_event(ev: &rightkit_agent_engine_protocol::ProtocolEvent, color: crate:
         ToolApprovalResolved {
             tool_call_id,
             approved,
+            reason,
             ..
         } if !approved => {
-            eprintln!("[denied] {tool_call_id}");
+            // Say why. "denied" alone read as if a person had refused, when in a run with
+            // nobody attached no one was asked.
+            let why = match reason.as_deref() {
+                Some("unattended") => {
+                    "not run: this run has nobody to ask, so a call that needs approval is refused"
+                }
+                Some("detached") => "not run: the client that could approve it went away",
+                Some("cancelled") => "not run: the turn was stopped",
+                _ => "denied",
+            };
+            eprintln!("[{why}] {tool_call_id}");
         }
         RunFailed { error, .. } if color_enabled => {
             eprintln!("\n\x1b[31m[run failed]\x1b[0m {error}")
@@ -339,12 +335,68 @@ fn render_cli_diff_output(
     output
 }
 
-fn build_cli_review_goal(focus: &[String], base: Option<&str>, dirs: &[String]) -> String {
-    let mut prompt = "Run a read-only auditor pass for the current workspace changes. Create a task categorized as `code-review` so RightKit routes this to `auditor`, not the plan-review jury/council. Review git status, git diff, and relevant files as evidence. Findings should lead, ordered by severity, with concrete file/line references wherever possible. Keep summaries brief. If there are no actionable issues, say that clearly and mention any remaining test gaps or residual risk.".to_string();
-    if let Some(base) = base.map(str::trim).filter(|value| !value.is_empty()) {
-        prompt.push_str("\n\nReview scope base ref: ");
-        prompt.push_str(&json_string(base));
-        prompt.push_str(". Compare current changes against this ref when collecting git evidence.");
+/// What a `{app} review` looks at: the current changes (default), the
+/// changes against a base ref, what is not committed yet, or one commit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ReviewScope {
+    Current,
+    Base(String),
+    Uncommitted,
+    Commit(String),
+}
+
+/// The scope the review flags name. `--base`, `--uncommitted` and `--commit`
+/// exclude one another (clap enforces it; this also refuses a blank value and a
+/// commit that could be read as a git option).
+fn review_scope(
+    base: Option<&str>,
+    uncommitted: bool,
+    commit: Option<&str>,
+) -> Result<ReviewScope, String> {
+    if let Some(commit) = commit {
+        let commit = commit.trim();
+        if commit.is_empty()
+            || commit.starts_with('-')
+            || commit.chars().any(|c| c.is_whitespace() || c.is_control())
+        {
+            return Err(format!(
+                "`--commit` takes a commit sha or ref, not {commit:?}"
+            ));
+        }
+        return Ok(ReviewScope::Commit(commit.to_string()));
+    }
+    if uncommitted {
+        return Ok(ReviewScope::Uncommitted);
+    }
+    Ok(
+        match base.map(str::trim).filter(|value| !value.is_empty()) {
+            Some(base) => ReviewScope::Base(base.to_string()),
+            None => ReviewScope::Current,
+        },
+    )
+}
+
+fn build_cli_review_goal(focus: &[String], scope: &ReviewScope, dirs: &[String]) -> String {
+    let mut prompt = format!("Run a read-only auditor pass for the current workspace changes. Create a task categorized as `code-review` so {host} routes this to `auditor`, not the plan-review jury/council. Review git status, git diff, and relevant files as evidence. Findings should lead, ordered by severity, with concrete file/line references wherever possible. Keep summaries brief. If there are no actionable issues, say that clearly and mention any remaining test gaps or residual risk.", host = rightkit_agent_config::app_name());
+    match scope {
+        ReviewScope::Current => {}
+        ReviewScope::Base(base) => {
+            prompt.push_str("\n\nReview scope base ref: ");
+            prompt.push_str(&json_string(base));
+            prompt.push_str(
+                ". Compare current changes against this ref when collecting git evidence.",
+            );
+        }
+        ReviewScope::Uncommitted => {
+            prompt.push_str("\n\nReview scope: uncommitted changes only. Review the working tree and the index against HEAD (`git status`, `git diff HEAD`, and the untracked files `git status` lists); ignore everything already committed.");
+        }
+        ReviewScope::Commit(commit) => {
+            prompt.push_str("\n\nReview scope: one commit, ");
+            prompt.push_str(&json_string(commit));
+            prompt.push_str(". Read it with `git show ");
+            prompt.push_str(commit);
+            prompt.push_str("` and review only what that commit changed; ignore later changes and the uncommitted working tree.");
+        }
     }
     let dirs = dirs
         .iter()
@@ -492,14 +544,6 @@ pub(crate) fn read_secret_line(label: &str) -> Result<String, String> {
     }
 }
 
-/// Canonical connect/rotate request body for the provider-key PUT.
-///
-/// Uses the daemon's camelCase wire name (`apiKey`); the handler also accepts
-/// the snake_case `api_key` spelling as an alias so both callers deserialize.
-pub(crate) fn provider_key_put_body(secret: &str) -> serde_json::Value {
-    serde_json::json!({ "apiKey": secret.trim() })
-}
-
 // ── S:H14: redacted config view ─────────────────────────────────────────────
 //
 // `{app} config` prints the merged configuration. The merged config can
@@ -560,5 +604,31 @@ pub(crate) fn redacted_merged_config_view() -> Result<serde_json::Value, String>
     let mut value = serde_json::to_value(&cfg)
         .map_err(|error| format!("config serialization failed: {error}"))?;
     redact_config_json(&mut value);
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "schema_version".to_string(),
+            serde_json::json!(crate::host_identity::schema("cli.config.v1")),
+        );
+        // Keys in a config file that no setting reads (a typo such as `[permisions]`): named
+        // here, and only when there are any, so a clean config prints exactly what it did.
+        let unknown = rightkit_agent_config::ConfigLoader::unknown_keys();
+        if !unknown.is_empty() {
+            object.insert(
+                "unknown_keys".to_string(),
+                serde_json::Value::Array(
+                    unknown
+                        .iter()
+                        .map(|layer| {
+                            serde_json::json!({
+                                "layer": layer.layer,
+                                "path": layer.path.display().to_string(),
+                                "keys": layer.keys,
+                            })
+                        })
+                        .collect(),
+                ),
+            );
+        }
+    }
     Ok(value)
 }

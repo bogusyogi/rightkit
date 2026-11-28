@@ -209,3 +209,43 @@ fn extract_text(value: &serde_json::Value, pointers: &[&str]) -> Option<String> 
             .map(str::to_string)
     })
 }
+
+#[cfg(test)]
+mod lesson_dedupe_tests {
+    use super::*;
+
+    fn proposal(id: &str, summary: &str) -> Proposal {
+        Proposal {
+            id: id.to_string(),
+            kind: ProposalKind::HarnessRule,
+            summary: summary.to_string(),
+            evidence: String::new(),
+            // Approval needs an evaluated proposal above the promotion threshold.
+            score: 0.9,
+            status: ProposalStatus::Evaluated,
+            created_at: "2026-11-13T00:00:00Z".to_string(),
+            age_sessions: 0,
+            rejection_reason: None,
+        }
+    }
+
+    #[test]
+    fn the_same_lesson_from_three_sessions_is_one_line() {
+        let harness = LearningHarness::new();
+        for id in ["a", "b", "c"] {
+            harness.add_proposal_if_absent(proposal(id, "avoid: tool error: file not found"));
+            assert!(harness.approve_proposal(id));
+        }
+        harness.add_proposal_if_absent(proposal("d", "prefer small commits"));
+        assert!(harness.approve_proposal("d"));
+        let mut lessons = harness.lessons();
+        lessons.sort();
+        assert_eq!(
+            lessons,
+            vec![
+                "avoid: tool error: file not found".to_string(),
+                "prefer small commits".to_string()
+            ]
+        );
+    }
+}

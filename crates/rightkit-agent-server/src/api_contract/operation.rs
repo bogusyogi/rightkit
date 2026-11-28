@@ -50,6 +50,20 @@ fn openapi_operation(endpoint: &ApiEndpoint, openapi_path: &str, method: &str) -
                 }
             }),
         );
+    } else if method == "get" && endpoint.path == "/sessions/{id}/events" {
+        // The session event stream: each `data:` frame is one ProtocolEvent and its `id:` is the
+        // event's seq, so `Last-Event-ID` resumes it.
+        responses.insert(
+            success_status.to_string(),
+            json!({
+                "description": success_description,
+                "content": {
+                    "text/event-stream": {
+                        "schema": {"$ref": "#/components/schemas/ProtocolEvent"}
+                    }
+                }
+            }),
+        );
     } else {
         responses.insert(
             success_status.to_string(),

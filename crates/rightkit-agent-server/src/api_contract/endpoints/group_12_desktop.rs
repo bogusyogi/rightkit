@@ -10,7 +10,7 @@ macro_rules! endpoint {
     };
 }
 
-pub(super) const ENDPOINT_GROUP_12_DESKTOP: [ApiEndpoint; 63] = [
+pub(super) const ENDPOINT_GROUP_12_DESKTOP: [ApiEndpoint; 62] = [
     endpoint!("GET", "/workspace/tree", "List a workspace directory"),
     endpoint!(
         "POST",
@@ -177,12 +177,7 @@ pub(super) const ENDPOINT_GROUP_12_DESKTOP: [ApiEndpoint; 63] = [
     endpoint!(
         "GET",
         "/sessions/{id}/browser/workspace/profile",
-        "Read browser profile mode"
-    ),
-    endpoint!(
-        "POST",
-        "/sessions/{id}/browser/workspace/profile",
-        "Consent to a browser profile mode"
+        "Read the profile each browser session runs on"
     ),
     endpoint!("GET", "/delivery/status", "Read delivery capability status"),
     endpoint!("GET", "/delivery/branches", "List repository branches"),

@@ -1,4 +1,4 @@
-use crate::api::{lock_recover, DaemonState, LiveSession};
+use crate::api::{lock_recover, DaemonState};
 use crate::api_permissions::enforce_trusted_source_authority;
 use axum::{
     extract::{Path, State},
@@ -62,15 +62,4 @@ pub(crate) async fn resolve_credential_request(
         },
     );
     Ok(Json(serde_json::json!({ "resolved": true })))
-}
-
-#[allow(dead_code)]
-pub(crate) fn pending_credentials(
-    live: &LiveSession,
-) -> Vec<rightkit_agent_engine_core::credential_request::CredentialRequest> {
-    lock_recover(
-        &live.pending_credential_requests,
-        "session.pending_credential_requests",
-    )
-    .pending()
 }

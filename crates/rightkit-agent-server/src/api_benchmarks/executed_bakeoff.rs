@@ -122,10 +122,34 @@ pub(crate) struct ExecutedBakeoffResponse {
     pub(crate) report: BakeoffReport,
     pub(crate) decision: BakeoffGateDecision,
     pub(crate) membrane_comparison: serde_json::Value,
+    pub(crate) runs: Vec<ExecutedRunArtifact>,
+}
+
+/// What one candidate or baseline execution left behind, for the corpus response's per-run
+/// artifacts. `None` token or cost fields mean the provider reported nothing, never zero.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ExecutedRunArtifact {
+    pub(crate) case_nonce: String,
+    pub(crate) role: String,
+    pub(crate) completed: bool,
+    pub(crate) deadline: bool,
+    pub(crate) input_tokens: Option<u64>,
+    pub(crate) cached_input_tokens: Option<u64>,
+    pub(crate) output_tokens: Option<u64>,
+    pub(crate) observed_cost_usd: Option<f64>,
+    pub(crate) trace_path: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct ExecutedBakeoffRuntimeConfig {
+    /// Side map filled by each execution, drained by `run_live_executed_bakeoff` into
+    /// `ExecutedBakeoffResponse.runs`. Keyed by (case nonce, role). `ExecutionRecord` belongs to
+    /// the orchestration crate and carries none of this, and the config is the one value both
+    /// executors share.
+    run_artifacts: Arc<std::sync::Mutex<BTreeMap<(String, String), ExecutedRunArtifact>>>,
+    task_case_nonces: BTreeMap<String, String>,
+    run_directory_id: u64,
     workspace_root: String,
     task_workspace_roots: BTreeMap<String, String>,
     coding_verifiers: BTreeMap<String, RuntimeCodingVerifier>,
@@ -234,6 +258,7 @@ pub(crate) async fn run_live_executed_bakeoff(
     let mut tasks = Vec::with_capacity(body.tasks.len());
     let mut task_workspace_roots = BTreeMap::new();
     let mut coding_verifiers = BTreeMap::new();
+    let mut task_case_nonces = BTreeMap::new();
     for row in &body.tasks {
         let verification = match (&row.expected_output, &row.coding_verifier) {
             (Some(expected), None) => VerificationContract {
@@ -297,10 +322,15 @@ pub(crate) async fn run_live_executed_bakeoff(
                 },
             );
         }
+        task_case_nonces.insert(task.id.as_str().to_string(), row.case_nonce.clone());
         tasks.push(task);
     }
 
+    let run_artifacts = Arc::new(std::sync::Mutex::new(BTreeMap::new()));
     let runtime_config = ExecutedBakeoffRuntimeConfig {
+        run_artifacts: run_artifacts.clone(),
+        task_case_nonces,
+        run_directory_id: RUN_SEQUENCE.fetch_add(1, Ordering::Relaxed),
         workspace_root: body.workspace_root,
         task_workspace_roots,
         coding_verifiers,
@@ -352,10 +382,14 @@ pub(crate) async fn run_live_executed_bakeoff(
             "reason": "ADP-076 host/corpus comparison bindings were not supplied"
         }),
     };
+    let runs = std::mem::take(&mut *lock_recover(&run_artifacts, "bakeoff.run_artifacts"))
+        .into_values()
+        .collect();
     Ok(ExecutedBakeoffResponse {
         report,
         decision,
         membrane_comparison,
+        runs,
     })
 }
 
@@ -669,6 +703,30 @@ async fn execute_routed_candidate(
         request.cost_limit_usd,
     );
     let _session_guard = BakeoffSessionGuard::new(state.clone(), parent_id.clone());
+    let role = config.candidate_roles.join("+");
+    let result = execute_routed_candidate_body(
+        state,
+        request,
+        config,
+        isolated,
+        parent_id.clone(),
+        coding_verifier,
+    )
+    .await;
+    if let Ok(record) = &result {
+        record_run_artifact(state, request, config, &parent_id, &role, record).await;
+    }
+    result
+}
+
+async fn execute_routed_candidate_body(
+    state: &DaemonState,
+    request: &ExecutionRequest,
+    config: &ExecutedBakeoffRuntimeConfig,
+    isolated: BakeoffWorktree,
+    parent_id: String,
+    coding_verifier: Option<RuntimeCodingVerifier>,
+) -> Result<ExecutionRecord, String> {
     // Coding tasks exercise the actual product path: production conductor
     // planning, routing, DAG execution, recovery, and victory gate. The
     // response-only corpus retains the fixed synthesis scaffold so exact-text
@@ -843,6 +901,30 @@ async fn execute_single_agent(
         request.cost_limit_usd,
     );
     let _session_guard = BakeoffSessionGuard::new(state.clone(), parent_id.clone());
+    let role = config.baseline_role.clone();
+    let result = execute_single_agent_body(
+        state,
+        request,
+        config,
+        isolated,
+        parent_id.clone(),
+        coding_verifier,
+    )
+    .await;
+    if let Ok(record) = &result {
+        record_run_artifact(state, request, config, &parent_id, &role, record).await;
+    }
+    result
+}
+
+async fn execute_single_agent_body(
+    state: &DaemonState,
+    request: &ExecutionRequest,
+    config: &ExecutedBakeoffRuntimeConfig,
+    isolated: BakeoffWorktree,
+    parent_id: String,
+    coding_verifier: Option<RuntimeCodingVerifier>,
+) -> Result<ExecutionRecord, String> {
     let conductor = Conductor::new(Arc::new(DaemonSpawnWorker {
         state: state.clone(),
         parent_session_id: parent_id.clone(),
@@ -892,6 +974,117 @@ async fn execute_single_agent(
     };
     isolated.cleanup().await;
     Ok(record)
+}
+
+/// Record one execution's per-run artifact: token sums from the descendant sessions' `TurnUsage`
+/// events and a raw event trace file under `<state root>/bakeoff-runs/<run id>/`. A write failure
+/// leaves `trace_path` `None` and is logged; it never fails the run. Runs before the session guard
+/// drops, while the stored events still exist.
+async fn record_run_artifact(
+    state: &DaemonState,
+    request: &ExecutionRequest,
+    config: &ExecutedBakeoffRuntimeConfig,
+    parent_id: &str,
+    role: &str,
+    record: &ExecutionRecord,
+) {
+    let case_nonce = config
+        .task_case_nonces
+        .get(request.task_id.as_str())
+        .cloned()
+        .unwrap_or_else(|| request.task_id.as_str().to_string());
+    let mut lines = Vec::new();
+    let (mut input, mut cached, mut output) = (0i64, 0i64, 0i64);
+    let mut reported = false;
+    if let Some(storage) = state.storage.clone() {
+        for session in descendant_sessions(state, parent_id) {
+            let rows = storage.lock().await.events_after(&session.id, 0);
+            let rows = match rows {
+                Ok(rows) => rows,
+                Err(error) => {
+                    tracing::warn!(session_id = %session.id, %error, "bakeoff trace events unavailable");
+                    continue;
+                }
+            };
+            for row in rows {
+                if let Ok(rightkit_agent_engine_protocol::ProtocolEvent::TurnUsage {
+                    input_tokens,
+                    cached_input_tokens,
+                    output_tokens,
+                    ..
+                }) = serde_json::from_str::<rightkit_agent_engine_protocol::ProtocolEvent>(
+                    &row.payload_json,
+                ) {
+                    if input_tokens > 0 || output_tokens > 0 {
+                        reported = true;
+                        input += input_tokens;
+                        cached += cached_input_tokens;
+                        output += output_tokens;
+                    }
+                }
+                lines.push(row.payload_json);
+            }
+        }
+    }
+    let trace_path = write_run_trace(state, config, &case_nonce, role, &lines);
+    let tokens = |value: i64| reported.then(|| value.max(0) as u64);
+    let cost = record.observed_cost_usd;
+    let artifact = ExecutedRunArtifact {
+        case_nonce: case_nonce.clone(),
+        role: role.to_string(),
+        completed: !matches!(record.execution_failure, Some(FailureKind::Aborted)),
+        deadline: request.cost_limit_usd.is_some_and(|limit| cost > limit),
+        input_tokens: tokens(input),
+        cached_input_tokens: tokens(cached),
+        output_tokens: tokens(output),
+        observed_cost_usd: Some(cost),
+        trace_path,
+    };
+    lock_recover(&config.run_artifacts, "bakeoff.run_artifacts")
+        .insert((case_nonce, role.to_string()), artifact);
+}
+
+fn write_run_trace(
+    state: &DaemonState,
+    config: &ExecutedBakeoffRuntimeConfig,
+    case_nonce: &str,
+    role: &str,
+    lines: &[String],
+) -> Option<String> {
+    let state_root = Path::new(&state.database_path)
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())?;
+    let file_safe = |text: &str| {
+        text.chars()
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || ch == '-' {
+                    ch
+                } else {
+                    '_'
+                }
+            })
+            .collect::<String>()
+    };
+    let directory = state_root
+        .join("bakeoff-runs")
+        .join(config.run_directory_id.to_string());
+    let path = directory.join(format!(
+        "{}-{}.events.jsonl",
+        file_safe(case_nonce),
+        file_safe(role)
+    ));
+    let mut body = lines.join("\n");
+    if !body.is_empty() {
+        body.push('\n');
+    }
+    let written = std::fs::create_dir_all(&directory).and_then(|_| std::fs::write(&path, body));
+    match written {
+        Ok(()) => Some(path.to_string_lossy().to_string()),
+        Err(error) => {
+            tracing::warn!(path = %path.display(), %error, "bakeoff trace file not written");
+            None
+        }
+    }
 }
 
 fn create_bakeoff_parent(
@@ -1342,7 +1535,7 @@ pub(crate) fn insert_executed_bakeoff_openapi_components(schemas: &mut Map<Strin
                 "expectedOutput": {"type": "string", "maxLength": MAX_EXPECTED_OUTPUT_BYTES_PER_TASK},
                 "codingVerifier": {"$ref": "#/components/schemas/ExecutedCodingVerifier"},
                 "workspaceRoot": {"type": ["string", "null"], "minLength": 1, "description": "Optional per-task prepared Git workspace. Corpus adapters use this to keep each task isolated."},
-                "contextTokens": {"type": "integer", "minimum": 0, "maximum": MAX_CONTEXT_TOKENS, "description": "Optional asserted token count. When non-zero it must match RightKit's measured prompt token count."},
+                "contextTokens": {"type": "integer", "minimum": 0, "maximum": MAX_CONTEXT_TOKENS, "description": "Optional asserted token count. When non-zero it must match the daemon's measured prompt token count."},
                 "contextClass": {"type": "string", "enum": ["standard", "long"]},
                 "contextCohort": {"type": ["string", "null"], "maxLength": 128},
                 "candidateCostLimitUsd": {"type": ["number", "null"], "exclusiveMinimum": 0, "maximum": MAX_COST_LIMIT_USD}

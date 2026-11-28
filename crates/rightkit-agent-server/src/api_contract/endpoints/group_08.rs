@@ -1,6 +1,6 @@
 use super::ApiEndpoint;
 
-pub(super) const ENDPOINT_GROUP_08: [ApiEndpoint; 21] = [
+pub(super) const ENDPOINT_GROUP_08: [ApiEndpoint; 23] = [
     ApiEndpoint {
         method: "POST",
         path: "/skills/proposals/{id}/run-benchmark",
@@ -95,6 +95,16 @@ pub(super) const ENDPOINT_GROUP_08: [ApiEndpoint; 21] = [
         method: "POST",
         path: "/mcp/servers/{name}/login",
         summary: "Trigger OAuth login for an MCP server",
+    },
+    ApiEndpoint {
+        method: "POST",
+        path: "/mcp/servers/{name}/approve",
+        summary: "Approve a workspace stdio MCP server",
+    },
+    ApiEndpoint {
+        method: "GET",
+        path: "/mcp/approvals",
+        summary: "List workspace stdio MCP servers awaiting approval",
     },
     ApiEndpoint {
         method: "GET",

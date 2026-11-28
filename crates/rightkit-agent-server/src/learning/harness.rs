@@ -181,12 +181,9 @@ impl LearningHarness {
             p.id = format!("{}-{}-{i}", summary.session_id, p.id);
             // B3: no held-out set plumbed yet — base-only scoring avoids self-evidence leakage
             engine.evaluate(&mut p, None);
-            let promote = engine.should_promote(&p);
-            let id = p.id.clone();
+            // Proposals stay evaluated until a person approves them; the
+            // harness never promotes its own rules.
             store.add(p);
-            if promote {
-                let _ = store.promote(&id);
-            }
         }
         drop(store);
         self.persist();
@@ -204,6 +201,12 @@ impl LearningHarness {
             .filter(|p| matches!(p.kind, ProposalKind::HarnessRule | ProposalKind::Memory))
             .map(|p| p.summary.clone())
             .collect();
+        // The same lesson learned from several sessions is one line, not three.
+        let mut seen = std::collections::HashSet::new();
+        // Newest first, so the copy kept is the latest and the 12-line cap still drops the oldest.
+        promoted.reverse();
+        promoted.retain(|lesson| seen.insert(lesson.trim().to_string()));
+        promoted.reverse();
         if promoted.len() > MAX_INJECTED_LESSONS {
             promoted = promoted.split_off(promoted.len() - MAX_INJECTED_LESSONS);
         }

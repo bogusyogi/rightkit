@@ -1,11 +1,21 @@
 pub(crate) fn mcp_routes() -> Router<DaemonState> {
-    Router::new()
+    let router = Router::new()
         .route("/mcp", get(list_mcp_handler))
-        .route("/mcp/server/status", get(mcp_server_status_handler))
         .route("/mcp/servers", post(save_mcp_server_handler))
         .route("/mcp/servers/{name}", delete(delete_mcp_server_handler))
         .route("/mcp/servers/{name}/probe", post(probe_mcp_server_handler))
         .route("/mcp/servers/{name}/login", post(login_mcp_server_handler))
+        .route(
+            "/mcp/servers/{name}/approve",
+            post(approve_mcp_server_handler),
+        )
+        .route("/mcp/approvals", get(list_mcp_approvals_handler));
+    // The stand-alone `mcp-server` status route belongs to a host that runs a public MCP server.
+    if crate::host_options::mcp_public_server() {
+        router.route("/mcp/server/status", get(mcp_server_status_handler))
+    } else {
+        router
+    }
 }
 
 pub(crate) fn mcp_openapi_components() -> Map<String, Value> {
@@ -144,37 +154,6 @@ pub(crate) fn mcp_openapi_components() -> Map<String, Value> {
         }),
     );
     schemas.insert(
-        "McpServerModeStatus".to_string(),
-        json!({
-            "type": "object",
-            "required": [
-                "command",
-                "readOnlyCommand",
-                "mutatingCommand",
-                "defaultMode",
-                "mutatingRequiresOptIn",
-                "readOnlyToolCount",
-                "mutatingToolCount",
-                "totalToolCount",
-                "readOnlyTools",
-                "mutatingTools"
-            ],
-            "properties": {
-                "command": {"type": "string"},
-                "readOnlyCommand": {"type": "string"},
-                "mutatingCommand": {"type": "string"},
-                "defaultMode": {"type": "string"},
-                "mutatingRequiresOptIn": {"type": "boolean"},
-                "readOnlyToolCount": {"type": "integer"},
-                "mutatingToolCount": {"type": "integer"},
-                "totalToolCount": {"type": "integer"},
-                "readOnlyTools": {"type": "array", "items": {"type": "string"}},
-                "mutatingTools": {"type": "array", "items": {"type": "string"}}
-            },
-            "additionalProperties": false
-        }),
-    );
-    schemas.insert(
         "SaveMcpServerRequest".to_string(),
         json!({
             "type": "object",
@@ -271,6 +250,39 @@ pub(crate) fn mcp_openapi_components() -> Map<String, Value> {
             "additionalProperties": false
         }),
     );
+    if crate::host_options::mcp_public_server() {
+        schemas.insert(
+            "McpServerModeStatus".to_string(),
+            json!({
+                "type": "object",
+                "required": [
+                    "command",
+                    "readOnlyCommand",
+                    "mutatingCommand",
+                    "defaultMode",
+                    "mutatingRequiresOptIn",
+                    "readOnlyToolCount",
+                    "mutatingToolCount",
+                    "totalToolCount",
+                    "readOnlyTools",
+                    "mutatingTools"
+                ],
+                "properties": {
+                    "command": {"type": "string"},
+                    "readOnlyCommand": {"type": "string"},
+                    "mutatingCommand": {"type": "string"},
+                    "defaultMode": {"type": "string"},
+                    "mutatingRequiresOptIn": {"type": "boolean"},
+                    "readOnlyToolCount": {"type": "integer"},
+                    "mutatingToolCount": {"type": "integer"},
+                    "totalToolCount": {"type": "integer"},
+                    "readOnlyTools": {"type": "array", "items": {"type": "string"}},
+                    "mutatingTools": {"type": "array", "items": {"type": "string"}}
+                },
+                "additionalProperties": false
+            }),
+        );
+    }
     schemas
 }
 
@@ -286,9 +298,6 @@ pub(crate) fn mcp_openapi_request_schema(method: &str, path: &str) -> Option<Val
 pub(crate) fn mcp_openapi_response_schema(method: &str, path: &str) -> Option<Value> {
     match (method, path) {
         ("get", "/mcp") => Some(json!({"$ref": "#/components/schemas/McpListResponse"})),
-        ("get", "/mcp/server/status") => {
-            Some(json!({"$ref": "#/components/schemas/McpServerModeStatus"}))
-        }
         ("post", "/mcp/servers") => {
             Some(json!({"$ref": "#/components/schemas/SaveMcpServerResponse"}))
         }
@@ -300,6 +309,9 @@ pub(crate) fn mcp_openapi_response_schema(method: &str, path: &str) -> Option<Va
         }
         ("post", "/mcp/servers/{name}/login") => {
             Some(json!({"$ref": "#/components/schemas/McpLoginResult"}))
+        }
+        ("get", "/mcp/server/status") if crate::host_options::mcp_public_server() => {
+            Some(json!({"$ref": "#/components/schemas/McpServerModeStatus"}))
         }
         _ => None,
     }

@@ -17,15 +17,13 @@
 //! part of this digest. The harness records that limitation rather than
 //! implying full conflict coverage.
 
-use clap::{Command as ClapCommand, CommandFactory};
+use clap::Command as ClapCommand;
 use rightkit_agent_host_traits::skill_host::command_specs;
-
-use crate::cli::Cli;
 
 /// Build the full inventory JSON string (`{"cli": [...], "slash": [...]}`).
 pub(crate) fn inventory_json() -> String {
     let mut cli = Vec::new();
-    walk(&Cli::command(), &mut Vec::new(), &mut cli);
+    walk(&crate::cli::localized_command(), &mut Vec::new(), &mut cli);
     cli.sort();
     cli.dedup();
 
@@ -41,7 +39,7 @@ pub(crate) fn inventory_json() -> String {
 fn walk(cmd: &ClapCommand, path: &mut Vec<String>, out: &mut Vec<String>) {
     let name = cmd.get_name().to_string();
     // Skip the synthetic root frame; record every real command node.
-    if !path.is_empty() || name != Cli::command().get_name() {
+    if !path.is_empty() || name != crate::cli::localized_command().get_name() {
         path.push(name);
         out.push(command_descriptor(cmd, path));
     }

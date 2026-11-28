@@ -48,7 +48,7 @@ use serde_json::{json, Value};
 use crate::api::DaemonState;
 
 /// What the spawn helper returns. `child_agent_id` is the
-/// RightKit-native id used by every downstream consumer (UI rail,
+/// Host-native id used by every downstream consumer (UI rail,
 /// agent roster, follow-up `ContinueAgent` calls). `result` is the
 /// structured [`AgentResult`] so the parent turn gets evidence refs
 /// and the provider id without parsing `final_text` for hidden
@@ -190,10 +190,12 @@ pub async fn dispatch_cli_spawn(
         &state,
         &parent,
         &resolution,
-        &binding_id,
-        &child_session_id,
-        &child_agent_id,
-        &parent_agent_id,
+        ChildIdentity {
+            binding_id: &binding_id,
+            session_id: &child_session_id,
+            agent_id: &child_agent_id,
+            parent_agent_id: &parent_agent_id,
+        },
         &child_runtime_options,
     )
     .await
@@ -451,17 +453,28 @@ fn enforce_child_tool_ceiling(
     Ok(allowed_tools)
 }
 
-#[allow(clippy::too_many_arguments)]
+/// The identifiers a CLI child is prepared under: its driver binding, its session and agent, and
+/// its parent's agent.
+struct ChildIdentity<'a> {
+    binding_id: &'a str,
+    session_id: &'a str,
+    agent_id: &'a str,
+    parent_agent_id: &'a str,
+}
+
 async fn prepare_child_runtime(
     state: &DaemonState,
     parent: &std::sync::Arc<crate::api::LiveSession>,
     resolution: &RuntimeResolution,
-    binding_id: &str,
-    session_id: &str,
-    agent_id: &str,
-    parent_agent_id: &str,
+    identity: ChildIdentity<'_>,
     child_options: &crate::api::SessionRuntimeOptions,
 ) -> Result<PreparedChildRuntime, String> {
+    let ChildIdentity {
+        binding_id,
+        session_id,
+        agent_id,
+        parent_agent_id,
+    } = identity;
     let AgentRuntimeBackend::AuthenticatedCli {
         provider_id,
         model_id,
@@ -629,11 +642,17 @@ async fn prepare_child_runtime(
     // Membrane is reached through Pulse's CLI; no binding identity is injected.
     let mcp_env = vec![
         (
-            "RIGHTKIT_DAEMON_URL".into(),
+            rightkit_agent_config::env_name("DAEMON_URL"),
             format!("http://127.0.0.1:{}", state.bound_port),
         ),
-        ("RIGHTKIT_GATEWAY_TOKEN".into(), capability_token),
-        ("RIGHTKIT_DRIVER_INSTANCE_SECRET".into(), process_secret),
+        (
+            rightkit_agent_config::env_name("GATEWAY_TOKEN"),
+            capability_token,
+        ),
+        (
+            rightkit_agent_config::env_name("DRIVER_INSTANCE_SECRET"),
+            process_secret,
+        ),
     ];
     Ok(PreparedChildRuntime {
         lease_id,

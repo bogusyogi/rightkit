@@ -1,4 +1,4 @@
-use rightkit_agent_host_traits::skill_host::{CommandAction, CommandResult};
+use rightkit_agent_skills::{CommandAction, CommandResult};
 use std::path::PathBuf;
 
 use crate::api::{discover_instruction_files, load_workspace_task_records, workspace_tasks_path};
@@ -7,7 +7,7 @@ use crate::api_benchmarks::{
     benchmark_history_json, benchmark_proof_json, run_terminal_bench_task, TerminalBenchRunRequest,
 };
 use crate::api_command_mcp::configured_mcp_server_count;
-use crate::api_plugins::{load_plugin_marketplace, plugin_manifests_with_roots};
+use crate::api_plugins::plugin_manifests_with_roots;
 use crate::api_schedules::{
     load_api_schedule_runs, load_api_schedules, schedule_runs_for, schedules_store_path,
 };

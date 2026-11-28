@@ -284,6 +284,32 @@ pub fn open_with_migration_report<P: AsRef<Path>>(
         );
     }
 
+    // Several in-process hosts may start at the same instant, and the migration runner reads the
+    // schema version before it takes its write lock, so two openers could both apply the same
+    // step. One opener at a time: the lock covers the open (migrations, their back-up and the
+    // quarantine pass) and nothing after it. A lock that cannot be had within the wait is logged
+    // and the open goes ahead, as it did before this lock existed.
+    let open_lock_path = {
+        let mut name = effective_before.as_os_str().to_os_string();
+        name.push(".open.lock");
+        PathBuf::from(name)
+    };
+    if let Some(parent) = open_lock_path.parent() {
+        if let Err(error) = std::fs::create_dir_all(parent) {
+            tracing::warn!(dir = %parent.display(), %error, "database open lock directory unavailable");
+        }
+    }
+    let _open_guard = match rightkit_fs::FileLock::acquire(
+        &open_lock_path,
+        &rightkit_fs::LockOptions::wait(std::time::Duration::from_secs(120)),
+    ) {
+        Ok(lock) => Some(lock),
+        Err(error) => {
+            tracing::warn!(lock = %open_lock_path.display(), %error, "database open lock unavailable; opening without it");
+            None
+        }
+    };
+
     let before_version = current_user_version_best_effort(&effective_before);
     let storage = Storage::open(&db_path)?;
     let after_version = current_user_version_best_effort(&effective_db_path(&db_path));
@@ -310,7 +336,7 @@ pub fn open_with_migration_report<P: AsRef<Path>>(
 /// through the owner's `effective_path`.
 fn effective_db_path(db_path: &Path) -> PathBuf {
     rightkit_db::DbOptions::new(db_path)
-        .with_journal_env("RIGHTKIT_SQLITE_JOURNAL_MODE")
+        .with_journal_env(rightkit_agent_engine_storage::journal_mode_env())
         .with_per_host_fallback(true)
         .effective_path()
 }

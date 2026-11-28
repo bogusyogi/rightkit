@@ -493,6 +493,10 @@ async fn stop_daemon(force: bool) -> Result<BackendOutcome, String> {
     }
 
     if !force {
+        // Show what the daemon's shutdown is about to stop (issue 448). The CLI stop only reaches
+        // here confirmed: the CLI gate makes it a dry run otherwise.
+        print_running_background_work(&format!("http://127.0.0.1:{}", info.port), &info.token)
+            .await;
         let takeover_url = format!("http://127.0.0.1:{}/internal/takeover", info.port);
         let cooperative = rightkit_agent_daemon::http_client::daemon_client_probe(
             &takeover_url,
@@ -506,8 +510,10 @@ async fn stop_daemon(force: bool) -> Result<BackendOutcome, String> {
             .is_ok_and(|response| rightkit_agent_daemon::http_client::is_success(response.status))
         {
             // The takeover ack only means the request was accepted; confirm the
-            // process actually exited and escalate if it lingers.
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            // process actually exited and escalate if it lingers. Wait past the
+            // daemon's own bound (shutdown steps, then the drain) so escalation never
+            // cuts short a shutdown that would have finished by itself.
+            let deadline = std::time::Instant::now() + crate::main_runtime::shutdown_exit_bound();
             while crate::daemon::reload::process_alive(info.pid)
                 && std::time::Instant::now() < deadline
             {
@@ -532,6 +538,71 @@ async fn stop_daemon(force: bool) -> Result<BackendOutcome, String> {
         ),
         ..Default::default()
     })
+}
+
+/// One buffered, bearer-authenticated GET to the daemon with a short budget.
+async fn daemon_get(url: &str, token: &str) -> Result<(u16, String), String> {
+    let client = rightkit_agent_daemon::http_client::daemon_client_probe(
+        url,
+        std::time::Duration::from_millis(500),
+        std::time::Duration::from_secs(5),
+    )?;
+    let request = rightkit_http::Request::new(rightkit_http::Method::Get, url).bearer(token);
+    let response = rightkit_agent_daemon::http_client::send_any(&client, &request).await?;
+    let status = response.status;
+    Ok((status, response.text().to_string()))
+}
+
+/// Print the live background processes (`GET /execution/processes`: `live` and
+/// status `running`). The daemon's shutdown stops them (issue 448); this only
+/// tells the user. Best effort: a failed listing is reported on stderr and the
+/// stop goes on.
+async fn print_running_background_work(base_url: &str, token: &str) {
+    let listing = daemon_get(&format!("{base_url}/execution/processes"), token)
+        .await
+        .and_then(|(status, body)| {
+            if !rightkit_agent_daemon::http_client::is_success(status) {
+                return Err(format!("status {status}"));
+            }
+            serde_json::from_str::<Value>(&body).map_err(|e| e.to_string())
+        });
+    let listing = match listing {
+        Ok(listing) => listing,
+        Err(error) => {
+            eprintln!("could not list background work ({error}); stopping the daemon anyway");
+            return;
+        }
+    };
+    let field = |row: &Value, key: &str| {
+        row.get(key)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
+    let running: Vec<(String, String, String)> = listing
+        .get("processes")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|row| {
+            row.get("live").and_then(Value::as_bool) == Some(true)
+                && row.get("status").and_then(Value::as_str) == Some("running")
+        })
+        .map(|row| {
+            (
+                field(row, "id"),
+                field(row, "command"),
+                field(row, "sessionId"),
+            )
+        })
+        .collect();
+    if running.is_empty() {
+        return;
+    }
+    println!("Background work still running (stopping it with the daemon):");
+    for (id, command, session_id) in &running {
+        println!("  {id}  {command}  (session {session_id})");
+    }
 }
 
 async fn daemon_json(

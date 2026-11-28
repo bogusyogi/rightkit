@@ -113,8 +113,14 @@ pub enum RecipeCommand {
         #[arg(long)]
         workspace: Option<String>,
         /// Allow all mutating tools without prompting.
-        #[arg(long, alias = "yes")]
+        // The twin's `--yes` alias of this flag is the global `--yes` now (`Cli::yes`); a host that
+        // sets `host_options::yes_flag_is_auto_approve` reads it as this flag.
+        #[arg(long)]
         auto_approve: bool,
+        /// Permission mode of the recipe run: plan, ask, accept-edits or
+        /// auto-safe (`bypass` is `run` only).
+        #[arg(long = "permission-mode", value_enum)]
+        permission_mode: Option<CliPermissionMode>,
         /// Print events as JSONL to stdout.
         #[arg(long)]
         stream_json: bool,

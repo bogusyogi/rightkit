@@ -128,6 +128,26 @@ pub fn resolve_builtin_role_pack_for_spawn(
     }
 }
 
+/// Single-model counterpart of [`resolve_builtin_role_pack_for_spawn`]: the
+/// pack's persona and limits apply and the child runs on `model_id` (rule 42).
+pub fn resolve_builtin_role_pack_for_single_model_spawn(
+    role: &str,
+    model_id: &str,
+) -> Result<Option<role_pack::ResolvedRolePack>, SpawnRolePackError> {
+    let Some(raw) = builtin_role_pack_source(role) else {
+        return Ok(None);
+    };
+    let personas = PersonaRegistry::from_builtin_role_packs()
+        .map_err(|_| SpawnRolePackError::InvalidField("persona"))?;
+    role_pack::resolve_role_pack_on_single_model(
+        raw,
+        model_id,
+        crate::model_policy::provider_id_for_model_slug(model_id),
+        Some(&personas),
+    )
+    .map(Some)
+}
+
 fn builtin_role_pack_source(role: &str) -> Option<&'static str> {
     match role {
         "orchestrator" => Some(include_str!("../../data/role-packs/orchestrator.v1.toml")),

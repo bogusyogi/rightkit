@@ -14,6 +14,15 @@ use super::types::{
     now_millis, session_not_found, workspace_error, AnnotationSent, BrowserActionActor,
     BrowserActionEntry, BrowserAnnotation, StoredAnnotation,
 };
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Per-engine-session cap on stored annotations. A post past the cap evicts the oldest one, so a
+/// long-lived session keeps working (there is no delete route to recover from a refusal).
+const MAX_ANNOTATIONS_PER_SESSION: usize = 100;
+/// Cap on `screenshot_base64` text length (1 MiB of base64).
+const MAX_SCREENSHOT_BASE64_BYTES: usize = 1_048_576;
+/// Disambiguates annotations created within the same millisecond.
+static ANNOTATION_SEQ: AtomicU64 = AtomicU64::new(0);
 
 pub(crate) fn annotation_to_json(a: &StoredAnnotation) -> Value {
     json!({
@@ -77,12 +86,27 @@ pub(crate) async fn annotation_handler<S: BrowserWorkspaceServices>(
     if req.note.is_empty() && req.screenshot_base64.is_none() && req.locator.is_none() {
         return Err(workspace_error(
             StatusCode::BAD_REQUEST,
-            "ssrf_refused",
+            "invalid_request",
             "Annotation must include at least one of note, screenshot, locator.".into(),
         ));
     }
+    if req
+        .screenshot_base64
+        .as_ref()
+        .is_some_and(|s| s.len() > MAX_SCREENSHOT_BASE64_BYTES)
+    {
+        return Err(workspace_error(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "annotation_too_large",
+            format!("Annotation screenshot exceeds {MAX_SCREENSHOT_BASE64_BYTES} bytes of base64."),
+        ));
+    }
     let stored = StoredAnnotation {
-        id: format!("ann-{}", now_millis()),
+        id: format!(
+            "ann-{}-{}",
+            now_millis(),
+            ANNOTATION_SEQ.fetch_add(1, Ordering::Relaxed)
+        ),
         at_ms: req.at_ms,
         screenshot_base64: req.screenshot_base64.clone(),
         locator: req.locator.clone(),
@@ -93,9 +117,12 @@ pub(crate) async fn annotation_handler<S: BrowserWorkspaceServices>(
     {
         let store = state.state.annotations();
         let mut map = store.lock().await;
-        map.entry(session_id.clone())
-            .or_insert_with(Vec::new)
-            .push(stored.clone());
+        let list = map.entry(session_id.clone()).or_insert_with(Vec::new);
+        if list.len() >= MAX_ANNOTATIONS_PER_SESSION {
+            let excess = list.len() + 1 - MAX_ANNOTATIONS_PER_SESSION;
+            list.drain(..excess);
+        }
+        list.push(stored.clone());
     }
     state.services.push_action(
         &session_id,
@@ -135,7 +162,7 @@ pub(crate) async fn annotation_send_handler<S: BrowserWorkspaceServices>(
         .map_err(|e| {
             workspace_error(
                 StatusCode::BAD_GATEWAY,
-                "ssrf_refused",
+                "browser_action_failed",
                 format!("Annotation dispatch failed: {e}"),
             )
         })?;

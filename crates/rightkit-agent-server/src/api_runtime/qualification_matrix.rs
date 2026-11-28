@@ -11,13 +11,13 @@
 /// from the engine's response; nothing is preset. A probe that waits on an
 /// approval is withdrawn after a bounded wait, which the engine treats as a
 /// revoked approval.
-const QUALIFICATION_MATRIX_VERSION: &str = "ops006.v1";
+const QUALIFICATION_MATRIX_VERSION: &str = "ops006.v2";
 const QUALIFICATION_MAX_CAPABILITIES: usize = 64;
 const QUALIFICATION_PROBE_TIMEOUT_SECS: u64 = 5;
 
-/// Versioned rows: (row id, capability, probe arguments JSON, expected outcome).
+/// Versioned rows (v2): (row id, capability, probe arguments JSON, expected outcome).
 /// An empty expected outcome records the observation without a pass/fail gate.
-const QUALIFICATION_MATRIX_V1: &[(&str, &str, &str, &str)] = &[
+const QUALIFICATION_MATRIX_V2: &[(&str, &str, &str, &str)] = &[
     (
         "read_file.allowed",
         "read_file",
@@ -29,6 +29,42 @@ const QUALIFICATION_MATRIX_V1: &[(&str, &str, &str, &str)] = &[
         "ops006_absent_capability",
         "{}",
         "unavailable",
+    ),
+    (
+        "list_files.allowed",
+        "list_files",
+        r#"{"path":"."}"#,
+        "allowed",
+    ),
+    (
+        "search.allowed",
+        "search",
+        r#"{"pattern":"ops006"}"#,
+        "allowed",
+    ),
+    (
+        "read_file.outside_workspace",
+        "read_file",
+        r#"{"path":"/etc/hosts"}"#,
+        "",
+    ),
+    (
+        "write_file.observed",
+        "write_file",
+        r#"{"path":"ops006-probe-write.txt","content":"x"}"#,
+        "",
+    ),
+    (
+        "edit_file.observed",
+        "edit_file",
+        r#"{"path":"ops006-probe.txt","old_string":"a","new_string":"b"}"#,
+        "",
+    ),
+    (
+        "shell.observed",
+        "shell",
+        r#"{"command":"echo ops006"}"#,
+        "",
     ),
 ];
 
@@ -77,7 +113,7 @@ async fn post_qualification_matrix_run(
         .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
 
     let requested: Vec<String> = if body.capabilities.is_empty() {
-        QUALIFICATION_MATRIX_V1
+        QUALIFICATION_MATRIX_V2
             .iter()
             .map(|row| row.1.to_string())
             .collect()
@@ -88,7 +124,7 @@ async fn post_qualification_matrix_run(
     let mut cases = Vec::with_capacity(requested.len());
     let mut failed = 0usize;
     for (index, capability) in requested.iter().enumerate() {
-        let (row_id, arguments, expected): (String, &str, &str) = match QUALIFICATION_MATRIX_V1
+        let (row_id, arguments, expected): (String, &str, &str) = match QUALIFICATION_MATRIX_V2
             .iter()
             .find(|row| row.1 == capability.as_str())
         {

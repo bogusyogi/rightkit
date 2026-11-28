@@ -339,7 +339,43 @@ pub(crate) async fn resource_metrics_json(state: &DaemonState) -> serde_json::Va
     // `/inference/load` reads — instead of duplicating its counters.
     let load = state.inference_scheduler.snapshot().await;
 
-    let mcp_pool_size = state.mcp_pool.snapshot().len();
+    let mcp_pool_snapshot = state.mcp_pool.snapshot();
+    let mcp_pool_size = mcp_pool_snapshot.len();
+    let mcp_pool_leases = {
+        let mut rows: Vec<(String, String, String, serde_json::Value)> = mcp_pool_snapshot
+            .iter()
+            .map(|entry| {
+                let (scope, scope_id) = match &entry.key.scope {
+                    rightkit_agent_engine_runtime_resources::ServiceScope::Daemon => {
+                        ("daemon", serde_json::Value::Null)
+                    }
+                    rightkit_agent_engine_runtime_resources::ServiceScope::Workspace(id) => {
+                        ("workspace", serde_json::json!(id))
+                    }
+                    rightkit_agent_engine_runtime_resources::ServiceScope::Session(id) => {
+                        ("session", serde_json::json!(id))
+                    }
+                };
+                let diagnostic_id = entry.key.diagnostic_id().to_string();
+                (
+                    entry.key.kind.clone(),
+                    format!("{scope}\u{0}{}", scope_id.as_str().unwrap_or("")),
+                    diagnostic_id.clone(),
+                    serde_json::json!({
+                        "kind": entry.key.kind,
+                        "scope": scope,
+                        "scopeId": scope_id,
+                        "diagnosticId": diagnostic_id,
+                        "leases": entry.leases,
+                        "generation": entry.generation,
+                        "idleMs": entry.idle_for.as_millis() as u64,
+                    }),
+                )
+            })
+            .collect();
+        rows.sort_by(|a, b| (&a.0, &a.1, &a.2).cmp(&(&b.0, &b.1, &b.2)));
+        rows.into_iter().map(|row| row.3).collect::<Vec<_>>()
+    };
 
     let latency = rightkit_agent_telemetry::turn_latency_percentiles();
     let latency_raw = rightkit_agent_telemetry::latency_raw_samples();
@@ -366,7 +402,7 @@ pub(crate) async fn resource_metrics_json(state: &DaemonState) -> serde_json::Va
         .count();
     let lsp_bridge_count = rightkit_agent_coding_tools::lsp_tool::bridge_count().await;
 
-    // Context is served by Pulse's `membrane` CLI; RightKit holds no in-process binding.
+    // Context is served by Pulse's `membrane` CLI; host app holds no in-process binding.
     // Reports whether the binary is installed without spawning it (use
     // /runtime/context/status for a live read).
     let mut membrane_binding_json = crate::context_status::cli_binding_json();
@@ -452,10 +488,10 @@ pub(crate) async fn resource_metrics_json(state: &DaemonState) -> serde_json::Va
             "note": "host-owned mechanical observations only; each row carries schema version, provenance, estimator basis, or typed unavailable gaps; provider rows contain bounded identities/digests only, never request content",
         },
         "membraneBinding": membrane_binding_json,
-        // OPS-009: resource claims must distinguish incremental RightKit cost
-        // from combined RightKit + canonical Membrane steady state. This is
+        // OPS-009: resource claims must distinguish incremental host app cost
+        // from combined host app + canonical Membrane steady state. This is
         // the production consumer of that contract - the endpoint reports the
-        // RightKit-only figure and, when no Membrane process was observed,
+        // host app-only figure and, when no Membrane process was observed,
         // reports the typed refusal instead of a whole-system number.
         "ops009": ops009_resource_report(),
         "daemon": {
@@ -482,9 +518,9 @@ pub(crate) async fn resource_metrics_json(state: &DaemonState) -> serde_json::Va
             // supervisor's 1s tick (scheduled deadline vs actual poll time).
             "eventLoopDelay": event_loop_delay_json(),
         },
-        // OPS-002: live RightKit-owned process topology. Children are
-        // enumerated by the platform sampler and labelled RightKitHelper;
-        // Membrane is never a RightKit child and is reported separately.
+        // OPS-002: live host app-owned process topology. Children are
+        // enumerated by the platform sampler and labelled HostHelper;
+        // Membrane is never a host app child and is reported separately.
         "processTopology": process_topology_json(),
         "openSseStreams": open_sse_streams,
         "liveSessions": live_sessions,
@@ -494,6 +530,7 @@ pub(crate) async fn resource_metrics_json(state: &DaemonState) -> serde_json::Va
             "activeLimit": load.active_limit,
         },
         "mcpPoolSize": mcp_pool_size,
+        "mcpPool": mcp_pool_leases,
         "lspBridges": {
             "available": true,
             "count": lsp_bridge_count,
@@ -670,7 +707,7 @@ fn enumerate_child_pids() -> Option<Vec<u32>> {
     None
 }
 
-/// OPS-002/003: enumerate RightKit-owned children into labelled helper
+/// OPS-002/003: enumerate host app-owned children into labelled helper
 /// observations. Every real child is sampled where the platform supports it;
 /// children are helpers regardless of which host binary they are.
 fn observe_host_helpers(
@@ -740,7 +777,7 @@ fn sample_child_windows(
     }
 }
 
-/// OPS-002 topology projection: the allowed RightKit-owned process shape is
+/// OPS-002 topology projection: the allowed host app-owned process shape is
 /// one primary plus explicitly-allowed helpers. `childrenMeasurable=false`
 /// means this host cannot enumerate children — never rendered as zero.
 fn process_topology_json() -> serde_json::Value {
@@ -750,7 +787,7 @@ fn process_topology_json() -> serde_json::Value {
             "primaryPid": std::process::id(),
             format!("{app}ChildPids", app = crate::host_identity::app()): children,
             format!("{app}ChildCount", app = crate::host_identity::app()): children.len(),
-            "note": "Membrane is separate first-party infrastructure and is never a RightKit child; strict profile requires this count to be zero",
+            "note": format!("Membrane is separate first-party infrastructure and is never a {} child; strict profile requires this count to be zero", rightkit_agent_config::app_name()),
         }),
         None => serde_json::json!({
             "measurable": false,
@@ -762,11 +799,11 @@ fn process_topology_json() -> serde_json::Value {
 
 /// OPS-009 production report.
 ///
-/// Labels this process as the RightKit primary and samples it for real.
+/// Labels this process as the host app primary and samples it for real.
 /// Membrane runs as separate first-party infrastructure and is not a
-/// RightKit child, so no Membrane process is observable from here; the
+/// host app child, so no Membrane process is observable from here; the
 /// combined claim is therefore REFUSED rather than silently reported as the
-/// RightKit-only total. That refusal is the point of the atom.
+/// host app-only total. That refusal is the point of the atom.
 fn ops009_resource_report() -> serde_json::Value {
     use rightkit_agent_telemetry::resource_report::{
         LabelledProcess, ProcessOwnership, ReclamationPoint, ResourceReport,
@@ -790,7 +827,7 @@ fn ops009_resource_report() -> serde_json::Value {
         sample,
     });
     // OPS-003 helper residency: real enumerated children join the report as
-    // RightKitHelper so incremental cost and the post-task reclamation
+    // HostHelper so incremental cost and the post-task reclamation
     // check have genuine helper observations, not a fabricated zero.
     let _child_pids = observe_host_helpers(&mut report);
 
@@ -809,7 +846,7 @@ fn ops009_resource_report() -> serde_json::Value {
 
     serde_json::json!({
         "schema": crate::host_identity::schema("ops009.resource-report.v1"),
-        "incrementalRightKit": {
+        format!("incremental{}", rightkit_agent_config::app_name()): {
             "processCount": incremental.process_count,
             "rssBytes": incremental.rss_bytes,
             "pssBytes": incremental.pss_bytes,
@@ -818,7 +855,7 @@ fn ops009_resource_report() -> serde_json::Value {
             "helperProcesses": report.host_helper_count(),
         },
         "combinedWithMembrane": combined,
-        "note": "incremental RightKit cost only; a combined RightKit + Membrane steady state is reported only when a Membrane process is actually observed",
+        "note": format!("incremental {app} cost only; a combined {app} + Membrane steady state is reported only when a Membrane process is actually observed", app = rightkit_agent_config::app_name()),
     })
 }
 

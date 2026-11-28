@@ -97,7 +97,8 @@ async fn quarantine_skill_proposal_handler(
     std::fs::create_dir_all(&dir).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let skill_path = dir.join(format!("{}.md", proposal.slug));
     ensure_skill_path_is_managed(&state.skill_dirs, &skill_path)?;
-    let parent_hash = std::fs::read_to_string(&skill_path).ok().map(|content| {
+    let existing = rightkit_agent_skills::manifest::read_bounded_skill_source(&skill_path);
+    let parent_hash = existing.map(|content| {
         format!(
             "sha256:{}",
             rightkit_fs::digest::sha256_bytes(content.as_bytes())
@@ -195,7 +196,7 @@ fn record_skill_proposal_benchmark(
     }
     let gate_mode = body
         .gate_mode
-        .unwrap_or(rightkit_agent_host_traits::skill_host::SkillGateMode::Hard);
+        .unwrap_or(rightkit_agent_skills::SkillGateMode::Hard);
     let score = body
         .score_continuous
         .unwrap_or(if body.passed { 1.0 } else { 0.0 });

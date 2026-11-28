@@ -22,15 +22,33 @@ async fn run_startup_guard(db_path: &str) -> Result<(), String> {
         Ok(c) => c,
         Err(_) => return Ok(()),
     };
-    let health = match client
-        .send_any(&rightkit_http::Request::get(format!("{url}/health")))
-        .await
-    {
-        Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status) => {
-            resp.json::<serde_json::Value>().ok()
+    // `/health` answers liveness only; the other daemon's database path sits behind its bearer on
+    // `/machine/info` (client API R37), and the discovery record holds that bearer.
+    let alive = matches!(
+        client
+            .send_any(&rightkit_http::Request::get(format!("{url}/health")))
+            .await,
+        Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status)
+    );
+    let machine_info = if alive {
+        match client
+            .send_any(
+                &rightkit_http::Request::get(format!("{url}/machine/info")).bearer(&info.token),
+            )
+            .await
+        {
+            Ok(resp) if rightkit_agent_daemon::http_client::is_success(resp.status) => {
+                resp.json::<serde_json::Value>().ok()
+            }
+            _ => None,
         }
-        _ => None,
+    } else {
+        None
     };
+    let health = machine_info.map(|mut value| {
+        value["ok"] = serde_json::Value::Bool(true);
+        value
+    });
     crate::api_clients::startup_guard_decision(health.as_ref(), db_path, &url)
 }
 
@@ -55,15 +73,22 @@ fn spawn_client_presence_reaper(state: DaemonState) {
             state.presence.config().heartbeat_seconds,
         ));
         loop {
-            interval.tick().await;
+            let tick_instant = interval.tick().await;
             // R12/CR-38: one daemon wakeup. This loop fires on the heartbeat
             // interval whether or not anything needs reaping, so it is exactly
             // the idle cost the S0 baseline is meant to expose -- a daemon that
             // wakes constantly with no clients attached is the thing the
             // wakeups-per-second column exists to catch.
             rightkit_agent_telemetry::record_wakeup();
+            // OPS-003 event-loop stall probe: the gap between the interval's scheduled deadline and now is scheduler delay.
+            rightkit_agent_telemetry::record_event_loop_delay(
+                std::time::Instant::now().saturating_duration_since(tick_instant.into()),
+            );
             crate::api_clients::reap_expired_clients(&state);
-            let any_running = any_session_running(&state).await;
+            let any_running = any_session_running(&state).await
+                // Issue 448 (Adrian, 2026-11-09): a user-started background shell keeps
+                // the daemon alive; the last client detaching must not end its work.
+                || any_background_shell_running(&state);
             // Honor the keep-daemon-resident setting OR any enabled schedule
             // with a future cron occurrence: headless schedules must keep
             // firing while the desktop app is closed.
@@ -139,4 +164,16 @@ async fn any_session_running(state: &DaemonState) -> bool {
     })
     .await
     .unwrap_or(false)
+}
+
+/// Whether any live session has a background shell still running (issue 448).
+fn any_background_shell_running(state: &DaemonState) -> bool {
+    use rightkit_agent_coding_tools::background_shell::BgStatus;
+    lock_recover(&state.sessions, "state.sessions")
+        .values()
+        .any(|live| {
+            lock_recover(&live.background_shells, "live.background_shells")
+                .values()
+                .any(|shell| matches!(shell.status(), BgStatus::Running))
+        })
 }

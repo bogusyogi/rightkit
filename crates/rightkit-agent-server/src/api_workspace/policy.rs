@@ -69,6 +69,15 @@ pub(crate) fn derive_trust_root(workspace_root: &str) -> Result<PathBuf, PolicyE
     let canonical = std::fs::canonicalize(p).map_err(|err| {
         PolicyError::BadRequest(format!("workspaceRoot could not be resolved: {err}"))
     })?;
+    // The root must be a workspace this engine knows: one with a recorded trust decision (or one
+    // of its subfolders, rule 60). Any other absolute path a client sends (a home directory, `/`)
+    // is refused, so the file API cannot be pointed at a folder nobody opened (API-04).
+    if !rightkit_agent_config::is_workspace_registered(&canonical) {
+        return Err(PolicyError::Forbidden(
+            "workspaceRoot is not a registered workspace of this engine; open and trust the folder first"
+                .into(),
+        ));
+    }
     Ok(canonical)
 }
 
@@ -120,6 +129,15 @@ pub(crate) fn is_secret_leaf(name: &str) -> bool {
         return true;
     }
     false
+}
+
+/// The same deny globs the file tools enforce (credential stores, key
+/// material, shell start-up files, VCS internals), matched against the
+/// workspace-relative path.
+fn default_path_deny() -> &'static rightkit_agent_policy::DenyGlobSet {
+    static DEFAULT: std::sync::OnceLock<rightkit_agent_policy::DenyGlobSet> =
+        std::sync::OnceLock::new();
+    DEFAULT.get_or_init(rightkit_agent_policy::DenyGlobSet::new)
 }
 
 /// Resolve a workspace path against the trust root and verify the result
@@ -181,6 +199,17 @@ pub(crate) fn resolve_within_trust_root(
         return Err(PolicyError::Forbidden(format!(
             "secret file `{leaf_name}` is policy-blocked from workspace reads"
         )));
+    }
+    // The same read deny globs the file tools enforce (credential stores, key material),
+    // on the resolved workspace-relative path (API-04 read side). A directory listing of the
+    // root (empty path) never reaches here.
+    let rel_text = rel.to_string_lossy().replace('\\', "/");
+    if !rel_text.is_empty() {
+        if let Some(glob) = default_path_deny().first_read_match(&rel_text) {
+            return Err(PolicyError::Forbidden(format!(
+                "`{rel_text}` matches the read deny glob `{glob}`"
+            )));
+        }
     }
     let metadata = std::fs::metadata(&canonical)
         .map_err(|err| PolicyError::Forbidden(format!("metadata could not be read: {err}")))?;
@@ -261,6 +290,24 @@ pub(crate) fn resolve_writable_within_trust_root(
         if is_secret_leaf(name) {
             return Err(PolicyError::Forbidden(format!(
                 "secret file `{name}` is policy-blocked from workspace edits"
+            )));
+        }
+    }
+    // Same write deny globs as the file tools, on the resolved target.
+    let leaf = joined
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_default();
+    let resolved = if joined.exists() {
+        std::fs::canonicalize(&joined).unwrap_or_else(|_| canonical_parent.join(&leaf))
+    } else {
+        canonical_parent.join(&leaf)
+    };
+    if let Ok(rel) = resolved.strip_prefix(trust_root) {
+        let rel_text = rel.to_string_lossy().replace('\\', "/");
+        if let Some(glob) = default_path_deny().first_write_match(&rel_text) {
+            return Err(PolicyError::Forbidden(format!(
+                "`{rel_text}` matches the write deny glob `{glob}`"
             )));
         }
     }

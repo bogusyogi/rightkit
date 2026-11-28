@@ -18,13 +18,6 @@ pub async fn fire_schedule_by_id(
     Ok(())
 }
 
-/// Execute an API-materialized bot occurrence through the same scheduler
-/// consumer as persisted schedules. The entry is intentionally ephemeral;
-/// profile authority remains in workflow version storage.
-pub(crate) async fn fire_schedule_entry(state: &DaemonState, root: &Path, entry: &ScheduleEntry) {
-    fire_schedule(state, root, entry).await;
-}
-
 fn scheduled_prompt(entry: &ScheduleEntry, rendered_recipe_prompt: Option<&str>) -> String {
     let mut lines = vec![
         format!("[Scheduled prompt: {}]", entry.id),
@@ -107,18 +100,30 @@ fn clean_optional_string(value: Option<&str>) -> Option<String> {
         .map(str::to_string)
 }
 
-#[allow(clippy::too_many_arguments)]
+/// One scheduled-job span: the middleware phase and status it records, the span it nests under,
+/// the message shown with it, and the extra attributes merged into it.
+struct ScheduledJobSpan<'a> {
+    phase: MiddlewarePhase,
+    status: &'a str,
+    parent_id: Option<&'a str>,
+    message: Option<&'a str>,
+    extra: serde_json::Value,
+}
+
 fn record_scheduled_job_span(
     state: &DaemonState,
-    phase: MiddlewarePhase,
-    status: &str,
     session_id: &str,
-    parent_id: Option<&str>,
     root: &Path,
     entry: &ScheduleEntry,
-    message: Option<&str>,
-    extra: serde_json::Value,
+    span: ScheduledJobSpan<'_>,
 ) -> Option<String> {
+    let ScheduledJobSpan {
+        phase,
+        status,
+        parent_id,
+        message,
+        extra,
+    } = span;
     let definitions = state
         .runtime_middleware
         .lock()
@@ -284,4 +289,30 @@ pub(super) fn sanitize_id(id: &str) -> String {
     id.chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect()
+}
+
+#[cfg(test)]
+mod script_only_timeout_tests {
+    use super::*;
+
+    fn entry(max_runtime_seconds: Option<u64>) -> ScheduleEntry {
+        serde_json::from_value(serde_json::json!({
+            "id": "s",
+            "cron_expr": "* * * * *",
+            "prompt": "sleep 100000",
+            "max_runtime_seconds": max_runtime_seconds,
+        }))
+        .expect("schedule entry")
+    }
+
+    #[test]
+    fn unset_or_zero_runtime_gets_the_default_cap() {
+        let default = Duration::from_secs(DEFAULT_SCRIPT_ONLY_MAX_RUNTIME_SECONDS);
+        assert_eq!(script_only_timeout(&entry(None)), default);
+        assert_eq!(script_only_timeout(&entry(Some(0))), default);
+        assert_eq!(
+            script_only_timeout(&entry(Some(42))),
+            Duration::from_secs(42)
+        );
+    }
 }

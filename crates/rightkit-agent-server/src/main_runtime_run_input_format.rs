@@ -31,7 +31,8 @@ pub enum ControlAction {
 /// vocabulary — `user_message` reuses `text`/`nonce`/`trust` from
 /// `ProtocolEvent::UserMessageSubmitted`; `tool_result` mirrors the body of
 /// `TranscriptMessage::Tool`. We deliberately reuse the EXISTING concepts
-/// instead of inventing a parallel schema.
+/// instead of inventing a parallel schema. The variants are `user_message`, `tool_result`,
+/// `control` and `approval_response`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum RunInputEvent {
@@ -66,6 +67,17 @@ pub enum RunInputEvent {
     #[serde(rename = "control")]
     Control {
         action: ControlAction,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
+    /// Answers a `toolApprovalRequested` event that the run raised under `--approval-callback`.
+    /// Counted and refused otherwise: a response for no open approval is ignored.
+    #[serde(rename = "approval_response")]
+    ApprovalResponse {
+        tool_call_id: String,
+        approved: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        remember: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
     },
@@ -189,122 +201,29 @@ impl std::error::Error for InputParseError {}
 // include!-module rule that forbids re-importing parent symbols. Future
 // contributors: do NOT add a `use std::io::BufRead;` line to this file.
 
-/// Pure line-by-line JSONL event producer. For every non-blank line the parser
-/// invokes `on_event(line_no, &event)` in source order. Returns the count of
-/// non-blank events consumed on clean EOF, or `Err(InputParseError)` on the
-/// FIRST malformed line — the loop short-circuits so a downstream operator
-/// gets a single, correct line number. Blank lines are skipped silently.
-pub fn drive_jsonl_script<R, F>(mut reader: R, mut on_event: F) -> Result<usize, InputParseError>
-where
-    R: BufRead,
-    F: FnMut(usize, &RunInputEvent),
-{
-    let mut line_no: usize = 0;
-    let mut non_blank: usize = 0;
-    let mut buf = String::new();
-    loop {
-        line_no += 1;
-        buf.clear();
-        let n = match reader.read_line(&mut buf) {
-            Ok(n) => n,
-            Err(e) => {
-                return Err(InputParseError {
-                    line: line_no,
-                    message: format!("I/O read failed: {e}"),
-                    raw: buf.trim().to_string(),
-                });
+#[cfg(test)]
+mod approval_response_tests {
+    use super::*;
+
+    #[test]
+    fn approval_response_round_trips() {
+        let line = r#"{"type":"approval_response","tool_call_id":"call-1","approved":true,"remember":"session"}"#;
+        let event = serde_json::from_str::<RunInputEvent>(line).expect("parses");
+        assert_eq!(
+            event,
+            RunInputEvent::ApprovalResponse {
+                tool_call_id: "call-1".to_string(),
+                approved: true,
+                remember: Some("session".to_string()),
+                reason: None,
             }
-        };
-        if n == 0 {
-            return Ok(non_blank);
-        }
-        let trimmed = buf.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        match serde_json::from_str::<RunInputEvent>(trimmed) {
-            Ok(ev) => {
-                on_event(line_no, &ev);
-                non_blank += 1;
-            }
-            Err(e) => {
-                return Err(InputParseError {
-                    line: line_no,
-                    message: e.to_string(),
-                    raw: trimmed.to_string(),
-                });
-            }
-        }
+        );
+        let text = serde_json::to_string(&event).expect("serializes");
+        assert!(
+            !text.contains("reason"),
+            "an absent reason is omitted: {text}"
+        );
+        let back = serde_json::from_str::<RunInputEvent>(&text).expect("round-trips");
+        assert_eq!(back, event);
     }
-}
-
-/// Drain every JSONL line from `reader` into an in-memory ordering-preserving
-/// vector (1-based physical line per entry). This is the testable, pure
-/// version of the bind point between stream-json input and the engine.
-pub fn drain_jsonl_script<R: BufRead>(
-    reader: R,
-) -> Result<Vec<(usize, RunInputEvent)>, InputParseError> {
-    let mut events = Vec::new();
-    drive_jsonl_script(reader, |line, ev| events.push((line, ev.clone())))?;
-    Ok(events)
-}
-
-/// Pick the FIRST [`RunInputEvent::UserMessage`] in emission order. Returns
-/// its 1-based physical line number and the user text that will seed the
-/// engine's first turn.
-pub fn pick_initial_prompt(events: &[(usize, RunInputEvent)]) -> Option<(usize, String)> {
-    for (line, ev) in events {
-        if let RunInputEvent::UserMessage { text, .. } = ev {
-            return Some((*line, text.clone()));
-        }
-    }
-    None
-}
-
-/// First [`RunInputEvent::Control`] with `action=abort` in emission order —
-/// the run layer maps this onto a typed `UserAbort` result after the engine
-/// has finished its current iteration budget.
-pub fn detect_abort(events: &[(usize, RunInputEvent)]) -> Option<(usize, Option<String>)> {
-    for (line, ev) in events {
-        if let RunInputEvent::Control {
-            action: ControlAction::Abort,
-            reason,
-        } = ev
-        {
-            return Some((*line, reason.clone()));
-        }
-    }
-    None
-}
-
-/// Per-script summary the run layer logs to stderr after the engine has
-/// returned, so operators can audit that downstream events were observed
-/// even though only the first `user_message` actually drives the engine.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ScriptSummary {
-    pub event_count: usize,
-    pub initial_prompt_line: usize,
-    pub abort_line: Option<usize>,
-    pub trailing_event_count: usize,
-}
-
-/// Decompose a drained script into the parts the engine bin consumes:
-/// (initial_prompt_text, summary_record). Returns `None` when the script
-/// contains no `user_message` event (treated as a Usage error upstream).
-pub fn summarize_script(events: &[(usize, RunInputEvent)]) -> Option<(String, ScriptSummary)> {
-    let (init_line, prompt) = pick_initial_prompt(events)?;
-    let abort_line = detect_abort(events).map(|(line, _)| line);
-    let trailing = events
-        .iter()
-        .filter(|(other_line, _)| *other_line != init_line)
-        .count();
-    Some((
-        prompt,
-        ScriptSummary {
-            event_count: events.len(),
-            initial_prompt_line: init_line,
-            abort_line,
-            trailing_event_count: trailing,
-        },
-    ))
 }

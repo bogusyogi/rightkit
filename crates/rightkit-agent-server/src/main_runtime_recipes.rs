@@ -1,4 +1,6 @@
-async fn cli_recipe(command: RecipeCommand) -> i32 {
+/// `yes`: the global `--yes`, read as `--auto-approve` on a host that sets
+/// `host_options::yes_flag_is_auto_approve` (see `cli::effective_auto_approve`).
+async fn cli_recipe(command: RecipeCommand, yes: bool) -> i32 {
     match command {
         RecipeCommand::List { store, json } => {
             let store_path = cli_recipe_store_path(store.as_deref());
@@ -120,11 +122,23 @@ async fn cli_recipe(command: RecipeCommand) -> i32 {
             provider,
             workspace,
             auto_approve,
+            permission_mode,
             stream_json,
             max_turns,
             toolset,
             max_budget_usd,
         } => {
+            let permission_mode = permission_mode.map(|mode| mode.to_policy());
+            if permission_mode == Some(rightkit_agent_policy::PermissionMode::Bypass) {
+                eprintln!("`--permission-mode bypass` is available on `run` only");
+                return 2;
+            }
+            // `--auto-approve` (or the global `--yes` where a host reads it so) is accept-edits
+            // unless a mode is named.
+            let permission_mode = permission_mode.or_else(|| {
+                crate::cli::effective_auto_approve(auto_approve, yes)
+                    .then_some(rightkit_agent_policy::PermissionMode::AcceptEdits)
+            });
             let store_path = cli_recipe_store_path(store.as_deref());
             let mut store = api_recipes::load_recipe_store(&store_path);
             let recipe = match resolve_cli_recipe_target(&target, &store) {
@@ -157,6 +171,9 @@ async fn cli_recipe(command: RecipeCommand) -> i32 {
                 }
                 return 1;
             }
+            if let Err(code) = recipe_run_trust_gate(&recipe, &params, &store, &workspace) {
+                return code;
+            }
             let rendered = match render_recipe(&recipe, &params) {
                 Ok(rendered) => rendered,
                 Err(error) => {
@@ -175,14 +192,16 @@ async fn cli_recipe(command: RecipeCommand) -> i32 {
                 &recipe,
                 &params,
                 &store,
-                model.clone(),
-                provider.clone(),
-                workspace.clone(),
-                auto_approve,
-                stream_json,
-                max_turns,
-                toolset.clone(),
-                max_budget_usd,
+                RecipeSubRunSettings {
+                    cli_model: model.clone(),
+                    provider: provider.clone(),
+                    workspace: workspace.clone(),
+                    permission_mode,
+                    stream_json,
+                    max_turns,
+                    toolset: toolset.clone(),
+                    max_budget_usd,
+                },
             )
             .await
             {
@@ -227,7 +246,6 @@ async fn cli_recipe(command: RecipeCommand) -> i32 {
                 .or_else(|| rendered.required_toolsets.first().cloned());
             let run_id = format!("recipe-cli-run-{}", unix_millis());
             let code = run_session(RunArgs {
-                context_mode: ContextMode::effective(),
                 output_schema,
                 prompt: rendered.rendered_prompt.clone(),
                 print: false,
@@ -237,15 +255,18 @@ async fn cli_recipe(command: RecipeCommand) -> i32 {
                 provider: Some(provider),
                 effort: None,
                 workspace: effective_workspace,
-                auto_approve: auto_approve || permission_auto_approve,
-                bypass_approvals: false,
-                permission_mode: None,
+                permission_mode: permission_mode.or_else(|| {
+                    permission_auto_approve
+                        .then_some(rightkit_agent_policy::PermissionMode::AcceptEdits)
+                }),
                 stream_json,
                 exit_on_error: false,
                 max_turns,
                 allowed_tools: Vec::new(),
                 disallowed_tools: Vec::new(),
                 toolset: effective_toolset,
+                own_toolset: None,
+                trust_workspace: false,
                 max_budget_usd,
                 bare: false,
                 // Recipe runs honor the strict policy / permission tier only
@@ -270,6 +291,8 @@ async fn cli_recipe(command: RecipeCommand) -> i32 {
                 tools: Vec::new(),
                 exclude_tools: Vec::new(),
                 no_mcp: false,
+                unattended: false,
+                approval_callback: false,
             })
             .await;
             store.add_run(RecipeRun {
@@ -339,7 +362,7 @@ async fn cli_recipe(command: RecipeCommand) -> i32 {
 fn cli_recipe_store_path(store: Option<&str>) -> std::path::PathBuf {
     store
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| recipe_store_path(&default_db_path()))
+        .unwrap_or_else(|| recipe_store_path(&default_db_path_required()))
 }
 
 fn resolve_cli_recipe_target(target: &str, store: &RecipeStore) -> Result<Recipe, String> {

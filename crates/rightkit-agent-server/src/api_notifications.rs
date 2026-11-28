@@ -129,7 +129,7 @@ pub fn append_desktop_notification(
     session_id: Option<&str>,
     title: impl Into<String>,
     body: impl Into<String>,
-) -> Result<NotificationRow, String> {
+) -> Result<(NotificationRow, bool), String> {
     let now_seconds = current_unix_seconds();
     append_desktop_notification_at(
         workspace_root,
@@ -146,8 +146,9 @@ pub fn append_desktop_notification(
 /// notification is HELD, not dropped. It is persisted at once with `release_at` set to the
 /// Unix second the quiet hours end (each window read in its own zone, the inbox's rules), the
 /// list route and the attention list leave it out until then, and it appears when the time
-/// passes. Quiet hours that never end hold nothing (deliver at once). `now_seconds` is
-/// injected so the routing decision is deterministic.
+/// passes. Quiet hours that never end hold nothing (deliver at once). The flag says whether the
+/// notification is shown now (`true`) or held for later (`false`); either way it is persisted.
+/// `now_seconds` is injected so the routing decision is deterministic.
 fn append_desktop_notification_at(
     workspace_root: &FsPath,
     source: &str,
@@ -156,7 +157,7 @@ fn append_desktop_notification_at(
     title: String,
     body: String,
     now_seconds: u64,
-) -> Result<NotificationRow, String> {
+) -> Result<(NotificationRow, bool), String> {
     let row = NotificationRow {
         id: format!("notification-{}", current_epoch_nanos()),
         kind: "desktopNotification".to_string(),
@@ -182,7 +183,8 @@ fn append_desktop_notification_at(
     let mut rows = load_notifications(workspace_root)?;
     rows.push(row.clone());
     save_notifications(&path, &rows)?;
-    Ok(row)
+    let shown = row.release_at.is_none();
+    Ok((row, shown))
 }
 
 async fn list_notifications_handler(
@@ -245,8 +247,17 @@ fn load_notifications(workspace_root: &FsPath) -> Result<Vec<NotificationRow>, S
     }
     let raw = std::fs::read_to_string(&path)
         .map_err(|e| format!("failed to read notifications '{}': {e}", path.display()))?;
-    serde_json::from_str(&raw)
-        .map_err(|e| format!("failed to parse notifications '{}': {e}", path.display()))
+    serde_json::from_str(&raw).map_err(|e| {
+        // A file that does not parse is kept aside, so the next write cannot
+        // replace the only copy from an empty default (orchestration rule 23).
+        let kept = crate::store_write::set_aside_damaged(&path)
+            .map(|to| format!("; kept as '{}'", to.display()))
+            .unwrap_or_default();
+        format!(
+            "failed to parse notifications '{}': {e}{kept}",
+            path.display()
+        )
+    })
 }
 
 fn save_notifications(path: &FsPath, rows: &[NotificationRow]) -> Result<(), String> {

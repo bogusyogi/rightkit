@@ -23,32 +23,7 @@ const TERMINATION_CONFIRM: Duration = Duration::from_secs(1);
 /// Allowed gap between a recorded start epoch and the live process's start time.
 pub(super) const PIN_TOLERANCE: Duration = Duration::from_millis(2_000);
 
-/// Terminate `pid` (and, on POSIX, its whole process group / on Windows its
-/// process tree). `forceful` selects `SIGKILL`/forced kill directly instead
-/// of the graceful `SIGTERM` first step — callers that already tried a
-/// graceful signal and waited out `TERMINATION_GRACE` pass `true`.
-///
-/// Returns `Ok(())` only once the target is confirmed gone (or was already
-/// gone). Never partial-succeeds on a disappeared root while descendants
-/// remain — matches the Archon donor contract.
-pub(crate) fn terminate_pid(pid: u32, forceful: bool) -> io::Result<()> {
-    if pid == 0 || pid == std::process::id() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("refusing to terminate invalid target pid {pid}"),
-        ));
-    }
-    let Some(target) = std::num::NonZeroU32::new(pid) else {
-        return Ok(());
-    };
-    // A pid that no longer exists is already gone.
-    match rightkit_child_process::AdoptedIdentity::capture(target)? {
-        Some(root) => terminate_identity(&root, forceful),
-        None => Ok(()),
-    }
-}
-
-/// [`terminate_pid`] with an exact-identity re-check against `boot_epoch_ms`
+/// Terminate `pid` with an exact-identity re-check against `boot_epoch_ms`
 /// immediately before signaling, so a pid recycled between pin and signal is
 /// never touched. Used by `takeover.rs`'s stale-owner escalation.
 pub(crate) fn terminate_pid_pinned(
@@ -133,12 +108,25 @@ fn terminate_identity(
 /// when the daemon itself is force-killed or crashes. Breakaway is allowed
 /// explicitly, so the reload replacement daemon (reload.rs, which launches with
 /// `CREATE_BREAKAWAY_FROM_JOB`) outlives the old one; everything else stays contained.
-/// Best-effort: failure (e.g. an outer job forbidding nesting) is ignored.
+/// Best-effort: failure (e.g. an outer job forbidding nesting) is ignored, but
+/// recorded so the reload knows whether a non-breakaway child would die with us.
 #[cfg(windows)]
 pub(crate) fn contain_descendants_in_job() {
     use rightkit_child_process::WindowsJob;
-    let _ = WindowsJob::contain_current_process_with(WindowsJob::builder().allow_breakaway(true));
+    let contained =
+        WindowsJob::contain_current_process_with(WindowsJob::builder().allow_breakaway(true))
+            .is_ok();
+    SELF_CONTAINED.store(contained, std::sync::atomic::Ordering::SeqCst);
 }
 
+/// Whether [`contain_descendants_in_job`] put this process in its kill-on-close job.
+#[cfg(windows)]
+pub(crate) static SELF_CONTAINED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Unix has no job object to join; containment is per launch instead: every child the engine
+/// starts leads its own session and its whole process group is tied to the daemon by RightKit's
+/// watchdog (`rightkit_agent_coding_tools::shell::parent_death::tie_group_or_kill`, issues 448 and 500) on Linux
+/// and macOS, with `PR_SET_PDEATHSIG` on the direct child as well on Linux.
 #[cfg(not(windows))]
 pub(crate) fn contain_descendants_in_job() {}

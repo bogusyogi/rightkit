@@ -101,6 +101,7 @@ pub(crate) fn runtime_openapi_response_schema(method: &str, path: &str) -> Optio
         ("post", "/runtime/learning/{id}/approve") | ("post", "/runtime/learning/{id}/reject") => {
             Some(runtime_learning_decision_response_schema())
         }
+        ("get", "/runtime/instincts") => Some(runtime_schema_ref("RuntimeInstinctsResponse")),
         ("get", "/runtime/skillopt/runs") => Some(skillopt_runs_response_schema()),
         ("post", "/runtime/skillopt/runs") => Some(create_skillopt_run_response_schema()),
         ("get", "/runtime/skillopt/runs/{id}") => Some(skillopt_run_response_schema()),

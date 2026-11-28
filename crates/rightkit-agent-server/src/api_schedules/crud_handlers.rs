@@ -66,11 +66,49 @@ struct PatchScheduleRequest {
     max_runtime_seconds: Option<Option<u64>>,
 }
 
+/// R42 (D35): an unknown `overlap` or `misfire` string is refused on create, with a message.
+fn validate_lifecycle_policies(lifecycle: &ScheduleLifecycleState) -> Result<(), String> {
+    let overlap = lifecycle.overlap.trim();
+    if !overlap.is_empty() && !matches!(overlap, "skip" | "queue-one" | "bounded-parallel") {
+        return Err(format!(
+            "unknown lifecycle overlap `{overlap}`: use skip, queue-one or bounded-parallel"
+        ));
+    }
+    let misfire = lifecycle.misfire.trim();
+    if !misfire.is_empty() && !matches!(misfire, "skip" | "coalesce" | "catch_up") {
+        return Err(format!(
+            "unknown lifecycle misfire `{misfire}`: use skip, coalesce or catch_up"
+        ));
+    }
+    Ok(())
+}
+
+/// Every refusal carries a message body, never a bare status.
 async fn create_schedule_handler(
+    state: State<DaemonState>,
+    headers: HeaderMap,
+    q: Query<ScheduleWorkspaceQuery>,
+    Json(req): Json<CreateScheduleRequest>,
+) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<serde_json::Value>)> {
+    let refuse = |status: StatusCode, message: String| {
+        (status, Json(serde_json::json!({ "error": message })))
+    };
+    if let Some(lifecycle) = &req.lifecycle {
+        validate_lifecycle_policies(lifecycle).map_err(|m| refuse(StatusCode::BAD_REQUEST, m))?;
+    }
+    create_schedule(state, headers, q, req)
+        .await
+        .map_err(|status| {
+            let reason = status.canonical_reason().unwrap_or("schedule refused");
+            refuse(status, format!("schedule create refused: {reason}"))
+        })
+}
+
+async fn create_schedule(
     State(state): State<DaemonState>,
     headers: HeaderMap,
     Query(q): Query<ScheduleWorkspaceQuery>,
-    Json(req): Json<CreateScheduleRequest>,
+    req: CreateScheduleRequest,
 ) -> Result<(StatusCode, Json<serde_json::Value>), StatusCode> {
     enforce_trusted_source_authority(&headers)?;
     require_license_feature(&state, "schedules")?;
@@ -99,18 +137,19 @@ async fn create_schedule_handler(
                     .and_then(serde_json::Value::as_i64)
                     .ok_or(StatusCode::BAD_REQUEST)?
             ),
+            // R51 / D3: the interval minimum is 60 s, and an interval created without a start
+            // takes the creation time as its start, which is stored in the expression.
             "interval" => format!(
                 "interval:{}:{}",
                 trigger
                     .get("everySeconds")
                     .and_then(serde_json::Value::as_u64)
-                    .filter(|v| *v > 0)
+                    .filter(|v| *v >= crate::scheduler::MIN_INTERVAL_SECONDS)
                     .ok_or(StatusCode::BAD_REQUEST)?,
                 trigger
                     .get("startUnixMs")
                     .and_then(serde_json::Value::as_i64)
-                    .map(|v| v.to_string())
-                    .unwrap_or_default()
+                    .unwrap_or_else(|| crate::api::now_millis() as i64)
             ),
             "monitor" => format!(
                 "monitor:{}:{}",

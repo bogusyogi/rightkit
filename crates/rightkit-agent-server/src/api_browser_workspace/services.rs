@@ -6,9 +6,9 @@
 //! the pre-decomposition monolith:
 //!
 //! - This module owns the trait Agent 4 implements. The fragment itself
-//!   holds the per-RightKit-session annotation store and the route
+//!   holds the per-engine-session annotation store and the route
 //!   handlers; the trait carries the `BrowserStore`, host policy, action
-//!   log, pause flag, profile kind/label, viewport, capability gate, and the
+//!   log, pause flag, viewport, capability gate, and the
 //!   dispatch seam into the live agent. Agent 4's implementation is what
 //!   reaches into `LiveSession::browser_*`, not this file.
 //!
@@ -19,12 +19,11 @@
 //!     * Browser capability gate runs before any state mutation.
 //!     * Page text and console output are wrapped via
 //!       `rightkit_agent_coding_tools::browser_fetch::wrap_untrusted_web_text`.
-//!     * Browser profiles are ephemeral by default; named shared profiles
-//!       require the operator to flip `profile_kind` through the consent
-//!       endpoint below.
+//!     * Browser profiles are ephemeral by default; a session reuses the
+//!       user's sign-ins only under a consent receipt (granted by the host).
 //!     * Page text is bounded by `MAX_TEXT_BYTES`, screenshots by
-//!       `MAX_SCREENSHOT_BYTES`, console by RightKit's own 500-line cap.
-//!     * Action log, host policy, pause, viewport, profile state all
+//!       `MAX_SCREENSHOT_BYTES`, console by the engine's own 500-line cap.
+//!     * Action log, host policy, pause and viewport state all
 //!       live with the session and are dropped with it.
 
 use axum::Router;
@@ -41,8 +40,8 @@ use crate::api::DaemonState;
 
 use super::policy::browser_capability_verdict;
 use super::types::{
-    BrowserActionEntry, BrowserProfileKind, CapabilityVerdict, ConsoleLineView, HostPolicyDecision,
-    StoredAnnotation, ViewportInfo,
+    BrowserActionEntry, CapabilityKind, CapabilityVerdict, ConsoleLineView, HostPolicyDecision,
+    StoredAnnotation, ViewportInfo, BROWSER_SESSION_NOT_FOUND,
 };
 
 /// Re-exported for callers that want the canonical browser-store type without
@@ -63,6 +62,14 @@ pub trait BrowserWorkspaceServices: Send + Sync + 'static {
     /// `allowed = false` short-circuits every state mutation.
     fn capability_gate(&self, session_id: &str) -> CapabilityVerdict;
 
+    /// Gate for the operator's stop controls (pause, resume, take control, release control,
+    /// host policy). They must work in every permission mode, `Ask` included, because that is
+    /// the default mode in which the agent most needs stopping (contract R19, D22). Only a
+    /// missing session or a locked workspace refuses them.
+    fn stop_control_gate(&self, session_id: &str) -> CapabilityVerdict {
+        self.capability_gate(session_id)
+    }
+
     /// Per-session browser store. Fragment holds the `Arc<BrowserStore>` only
     /// for the duration of a single handler — Agent 4's impl can clone a fresh
     /// `Arc` from `LiveSession::browser_sessions` on demand.
@@ -82,12 +89,6 @@ pub trait BrowserWorkspaceServices: Send + Sync + 'static {
     /// refused with `409 browser_paused`. The fragment calls this to gate
     /// state-mutating actions.
     fn is_paused(&self, session_id: &str) -> bool;
-
-    /// Per-session profile state. The fragment advertises it on
-    /// `get /workspace`; it refuses `name=...` on `post /open` unless
-    /// `kind == NamedShared`.
-    fn profile_kind(&self, session_id: &str) -> BrowserProfileKind;
-    fn profile_label(&self, session_id: &str) -> Option<String>;
 
     /// Per-session viewport. The fragment reads this to enrich summaries and
     /// overwrites it from `post /viewport`.
@@ -132,8 +133,6 @@ pub trait BrowserWorkspaceServices: Send + Sync + 'static {
     }
 
     fn set_navigation_trust(&self, _session_id: &str, _trust: BrowserNavigationTrustV1) {}
-
-    fn set_profile(&self, _session_id: &str, _kind: BrowserProfileKind, _label: Option<String>) {}
 
     /// Open a Chrome session and store it under `browser_store(session_id)`.
     /// Returns the new browser session id. The fragment does not hold the
@@ -203,7 +202,7 @@ pub trait BrowserWorkspaceServices: Send + Sync + 'static {
     ) -> impl std::future::Future<Output = Result<Vec<u8>, String>> + Send;
 
     /// Read console lines from the browser session. Returned slice MUST be
-    /// bounded by RightKit's own 500-line page cap. Fragment filters by level before
+    /// bounded by the engine's own 500-line page cap. Fragment filters by level before
     /// responding.
     fn console_lines(
         &self,
@@ -258,7 +257,6 @@ struct DaemonBrowserOperatorState {
     actions: HashMap<String, Vec<BrowserActionEntry>>,
     host_policy: HashMap<String, HashMap<String, HostPolicyDecision>>,
     navigation_trust: HashMap<String, BrowserNavigationTrustV1>,
-    profiles: HashMap<String, (BrowserProfileKind, Option<String>)>,
     viewports: HashMap<String, ViewportInfo>,
     zoom: HashMap<String, f64>,
 }
@@ -308,17 +306,18 @@ impl DaemonBrowserWorkspaceServices {
             .await
             .get(browser_session_id)
             .cloned()
-            .ok_or_else(|| format!("browser session not found: {browser_session_id}"))?;
+            .ok_or_else(|| format!("{BROWSER_SESSION_NOT_FOUND}{browser_session_id}"))?;
         Ok(browser)
     }
 }
 
 impl BrowserWorkspaceServices for DaemonBrowserWorkspaceServices {
-    fn capability_gate(&self, session_id: &str) -> CapabilityVerdict {
+    fn stop_control_gate(&self, session_id: &str) -> CapabilityVerdict {
         match self.daemon.get_session(session_id) {
             None => CapabilityVerdict {
                 allowed: false,
                 reason: "session not found".to_string(),
+                kind: CapabilityKind::SessionMissing,
             },
             Some(session)
                 if session.workspace_trust == rightkit_agent_policy::WorkspaceTrust::Locked =>
@@ -326,6 +325,31 @@ impl BrowserWorkspaceServices for DaemonBrowserWorkspaceServices {
                 CapabilityVerdict {
                     allowed: false,
                     reason: "workspace is locked".to_string(),
+                    kind: CapabilityKind::Denied,
+                }
+            }
+            Some(_) => CapabilityVerdict {
+                allowed: true,
+                reason: "operator stop control".to_string(),
+                kind: CapabilityKind::Allowed,
+            },
+        }
+    }
+
+    fn capability_gate(&self, session_id: &str) -> CapabilityVerdict {
+        match self.daemon.get_session(session_id) {
+            None => CapabilityVerdict {
+                allowed: false,
+                reason: "session not found".to_string(),
+                kind: CapabilityKind::SessionMissing,
+            },
+            Some(session)
+                if session.workspace_trust == rightkit_agent_policy::WorkspaceTrust::Locked =>
+            {
+                CapabilityVerdict {
+                    allowed: false,
+                    reason: "workspace is locked".to_string(),
+                    kind: CapabilityKind::Denied,
                 }
             }
             Some(session) => {
@@ -392,31 +416,6 @@ impl BrowserWorkspaceServices for DaemonBrowserWorkspaceServices {
                 browser.set_operator_paused(paused);
             }
         }
-    }
-
-    fn profile_kind(&self, session_id: &str) -> BrowserProfileKind {
-        self.with_operator(|state| {
-            state
-                .profiles
-                .get(session_id)
-                .map(|profile| profile.0)
-                .unwrap_or(BrowserProfileKind::Ephemeral)
-        })
-    }
-
-    fn profile_label(&self, session_id: &str) -> Option<String> {
-        self.with_operator(|state| {
-            state
-                .profiles
-                .get(session_id)
-                .and_then(|profile| profile.1.clone())
-        })
-    }
-
-    fn set_profile(&self, session_id: &str, kind: BrowserProfileKind, label: Option<String>) {
-        self.with_operator_mut(|state| {
-            state.profiles.insert(session_id.to_string(), (kind, label));
-        });
     }
 
     fn viewport(&self, session_id: &str) -> Option<ViewportInfo> {
@@ -534,7 +533,7 @@ impl BrowserWorkspaceServices for DaemonBrowserWorkspaceServices {
             .lock()
             .await
             .remove(browser_session_id)
-            .ok_or_else(|| format!("browser session not found: {browser_session_id}"))?;
+            .ok_or_else(|| format!("{BROWSER_SESSION_NOT_FOUND}{browser_session_id}"))?;
         browser.shutdown().await;
         Ok(())
     }
@@ -553,7 +552,7 @@ impl BrowserWorkspaceServices for DaemonBrowserWorkspaceServices {
             .await
             .get(browser_session_id)
             .cloned()
-            .ok_or_else(|| format!("browser session not found: {browser_session_id}"))?;
+            .ok_or_else(|| format!("{BROWSER_SESSION_NOT_FOUND}{browser_session_id}"))?;
         browser.navigate_with_observation(url).await
     }
 

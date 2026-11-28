@@ -50,6 +50,7 @@ pub(crate) fn settings_openapi_components() -> Map<String, Value> {
                 "maxEscalationDepth",
                 "maxRetriesPerRole",
                 "maxWallClockMinutes",
+                "turnMaxWallClockMinutes",
                 "maxIterations",
                 "maxWorkers"
             ],
@@ -64,6 +65,7 @@ pub(crate) fn settings_openapi_components() -> Map<String, Value> {
                 "maxEscalationDepth": {"type": "integer", "minimum": 0},
                 "maxRetriesPerRole": {"type": "integer", "minimum": 0},
                 "maxWallClockMinutes": {"type": "integer", "minimum": 0},
+                "turnMaxWallClockMinutes": {"type": "integer", "minimum": 0},
                 "maxIterations": {"type": "integer", "minimum": 0},
                 "maxWorkers": {"type": "integer", "minimum": 0}
             },

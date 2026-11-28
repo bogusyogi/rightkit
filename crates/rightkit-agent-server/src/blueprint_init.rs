@@ -56,12 +56,10 @@ struct BlueprintReport {
 
 fn emit_bootstrap_understanding(root: &Path) -> Result<BlueprintReport, String> {
     let host_dir = root.join(crate::host_identity::home_dir());
-    fs::create_dir_all(&host_dir)
-        .map_err(|err| format!("create RightKit state directory: {err}"))?;
+    fs::create_dir_all(&host_dir).map_err(|err| format!("create the state directory: {err}"))?;
     let gitignore = host_dir.join(".gitignore");
     if !gitignore.exists() {
-        fs::write(&gitignore, "*\n")
-            .map_err(|err| format!("ignore RightKit workspace state: {err}"))?;
+        fs::write(&gitignore, "*\n").map_err(|err| format!("ignore the workspace state: {err}"))?;
     }
     let out_dir = root.join(understanding_dir());
     let previous = read_previous_fingerprint(&out_dir);

@@ -23,11 +23,10 @@
 //! `daemon_post_pretty_json` / `daemon_delete_pretty_json` REST helpers, plus
 //! the few call sites that talk to the daemon directly) spawn `{app}
 //! serve` detached, poll for its startup file, and proceed. Set
-//! `RIGHTKIT_NO_AUTOSTART=1` to disable (status/info commands never
+//! `{ENV_PREFIX}_NO_AUTOSTART=1` to disable (status/info commands never
 //! auto-start — they exist to report truthfully on whether a daemon is up).
 
 use crate::main_runtime::resolve_daemon;
-use serde::Deserialize;
 use std::time::Duration;
 
 const MIN_HEARTBEAT_SECONDS: u64 = 1;
@@ -48,26 +47,14 @@ fn presence_allowed_for_label(label: &str, service_host_selected: bool) -> bool 
     label != "run" || service_host_selected
 }
 
-/// One CLI process's registration with the daemon's client-presence tracker.
-/// Holding this alive is what tells the daemon "someone still needs me" —
-/// dropping it (End of scope, process exit via destructor, or explicit
-/// `detach().await`) tells the daemon this client is gone.
+/// One CLI process's registration with the daemon's client-presence tracker (the shared
+/// `rightkit_daemon::loopback::PresenceClient`: `POST /clients`, heartbeats on the granted
+/// cadence, a re-attach when the daemon forgot the client, `DELETE /clients/{id}` on detach).
+/// Holding this alive is what tells the daemon "someone still needs me"; dropping it, or
+/// `detach().await`, tells the daemon this client is gone.
 pub struct PresenceGuard {
-    base_url: String,
-    token: String,
-    client_id: String,
-    heartbeat_handle: Option<tokio::task::JoinHandle<()>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct AttachResponse {
-    #[serde(rename = "clientId")]
-    client_id: String,
-    #[serde(rename = "heartbeatSeconds")]
-    heartbeat_seconds: u64,
-    #[allow(dead_code)]
-    #[serde(rename = "expirySeconds")]
-    expiry_seconds: u64,
+    client: Option<std::sync::Arc<rightkit_daemon::loopback::PresenceClient>>,
+    stop: rightkit_daemon::stop::StopSource,
 }
 
 /// Attach the current process to the daemon's client-presence tracker as a
@@ -85,136 +72,109 @@ pub(crate) async fn attach_cli_presence(label: &str) -> Option<PresenceGuard> {
     }
     let (base_url, token) = resolve_daemon()?;
     drain_autostart_log();
-    attach_cli_presence_to(&base_url, &token, label, std::process::id()).await
+    attach_cli_presence_to(&base_url, &token, label).await
 }
 
-async fn attach_cli_presence_to(
+/// The loopback record a presence client needs: the port of `base_url` and the bearer token.
+fn loopback_record(
     base_url: &str,
     token: &str,
-    label: &str,
-    pid: u32,
-) -> Option<PresenceGuard> {
-    let client = rightkit_agent_daemon::http_client::daemon_client_probe(
-        base_url,
-        Duration::from_millis(500),
-        Duration::from_secs(3),
-    )
-    .ok()?;
-    let body = serde_json::json!({ "kind": "cli", "pid": pid, "label": label });
-    let resp = client
-        .send_any(
-            &rightkit_http::Request::post(format!("{base_url}/clients"))
-                .bearer(token)
-                .json(&body)
-                .ok()?,
-        )
-        .await
+) -> Option<rightkit_daemon::loopback::LoopbackRecord> {
+    let port = base_url
+        .trim_end_matches('/')
+        .rsplit(':')
+        .next()?
+        .parse::<u16>()
         .ok()?;
-    if !rightkit_agent_daemon::http_client::is_success(resp.status) {
-        return None;
-    }
-    let attach: AttachResponse = resp.json().ok()?;
-    let heartbeat_period = Duration::from_secs(clamp_heartbeat_seconds(attach.heartbeat_seconds));
-    let heartbeat_handle = spawn_heartbeat_task(
-        client,
-        base_url.to_string(),
-        token.to_string(),
-        attach.client_id.clone(),
-        heartbeat_period,
-    );
-    Some(PresenceGuard {
-        base_url: base_url.to_string(),
+    Some(rightkit_daemon::loopback::LoopbackRecord {
+        port,
         token: token.to_string(),
-        client_id: attach.client_id,
-        heartbeat_handle: Some(heartbeat_handle),
+        database_path: String::new(),
+        pid: 0,
+        boot_epoch_ms: 0,
+        protocol_version: 0,
+        schema_id: String::new(),
+        runtime: String::new(),
+        generation: 0,
     })
 }
 
-fn spawn_heartbeat_task(
-    client: rightkit_http::AsyncClient,
-    base_url: String,
-    token: String,
-    client_id: String,
-    period: Duration,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(period);
-        interval.tick().await; // first tick fires immediately; skip it, attach already counted
-        loop {
-            interval.tick().await;
-            let _ = client
-                .send_any(
-                    &rightkit_http::Request::post(format!(
-                        "{base_url}/clients/{client_id}/heartbeat"
-                    ))
-                    .bearer(&token),
-                )
-                .await;
-        }
+async fn attach_cli_presence_to(base_url: &str, token: &str, label: &str) -> Option<PresenceGuard> {
+    let record = loopback_record(base_url, token)?;
+    let label = label.to_string();
+    // The presence client is blocking (bounded retries and timeouts), so it attaches off the
+    // async runtime.
+    let client = tokio::task::spawn_blocking(move || {
+        rightkit_daemon::loopback::PresenceClient::attach(&record, "cli", Some(&label)).ok()
     })
+    .await
+    .ok()??;
+    let client = std::sync::Arc::new(client);
+    let stop = rightkit_daemon::stop::StopSource::new();
+    // The heartbeat thread runs until the guard stops it; a failed beat is retried at the next.
+    spawn_heartbeat_thread(client.clone(), stop.token()).ok()?;
+    Some(PresenceGuard {
+        client: Some(client),
+        stop,
+    })
+}
+
+/// Heartbeat on the cadence the daemon granted, held to `MIN_HEARTBEAT_SECONDS..=MAX_HEARTBEAT_SECONDS`
+/// so a daemon that grants an absurd cadence cannot silence the heartbeat, until `stop`. A failed
+/// beat (the client retries a transport failure and re-attaches when the daemon forgot it) is
+/// tried again at the next.
+fn spawn_heartbeat_thread(
+    client: std::sync::Arc<rightkit_daemon::loopback::PresenceClient>,
+    stop: rightkit_daemon::stop::StopToken,
+) -> std::io::Result<()> {
+    std::thread::Builder::new()
+        .name(crate::host_identity::prefixed("presence"))
+        .spawn(move || loop {
+            let granted = client
+                .heartbeat_interval()
+                .map_or(MAX_HEARTBEAT_SECONDS, |every| every.as_secs());
+            if stop
+                .wait(Duration::from_secs(clamp_heartbeat_seconds(granted)))
+                .is_some()
+            {
+                break;
+            }
+            if let Err(error) = client.heartbeat() {
+                tracing::debug!(
+                    ?error,
+                    "presence heartbeat failed; trying again at the next beat"
+                );
+            }
+        })
+        .map(|_| ())
 }
 
 impl PresenceGuard {
-    /// Explicit async detach — best-effort, bounded to 2s so a hung/unreachable
-    /// daemon never blocks process exit. Prefer this over relying solely on
-    /// `Drop` when the caller is already in an async context and can await it
-    /// (`Drop` can only fire a detached best-effort task, never await).
+    /// Explicit async detach — best-effort, bounded so a hung/unreachable daemon never blocks
+    /// process exit. Prefer this over relying solely on `Drop` when the caller is already in an
+    /// async context and can await it.
     pub(crate) async fn detach(mut self) {
-        self.stop_heartbeat();
-        let _ = tokio::time::timeout(Duration::from_secs(2), self.send_detach()).await;
-    }
-
-    fn stop_heartbeat(&mut self) {
-        if let Some(handle) = self.heartbeat_handle.take() {
-            handle.abort();
-        }
-    }
-
-    async fn send_detach(&self) {
-        if let Ok(client) = rightkit_agent_daemon::http_client::daemon_client_with(
-            &self.base_url,
-            Duration::from_secs(2),
-        ) {
-            let _ = client
-                .send_any(
-                    &rightkit_http::Request::delete(format!(
-                        "{}/clients/{}",
-                        self.base_url, self.client_id
-                    ))
-                    .bearer(&self.token),
-                )
-                .await;
+        self.stop
+            .trigger(rightkit_daemon::stop::StopCause::Requested);
+        if let Some(client) = self.client.take() {
+            let _ = tokio::time::timeout(
+                Duration::from_secs(2),
+                tokio::task::spawn_blocking(move || client.detach()),
+            )
+            .await;
         }
     }
 }
 
 impl Drop for PresenceGuard {
     fn drop(&mut self) {
-        self.stop_heartbeat();
-        // Best-effort fire-and-forget detach on unexpected drop (e.g. panic
-        // unwind) — spawn a bounded-lifetime task rather than block a
-        // destructor on network I/O. If there's no runtime left to spawn onto
-        // (process is already tearing down), this silently no-ops, which is
-        // fine: heartbeat silence past expirySeconds covers this case too.
-        let base_url = self.base_url.clone();
-        let token = self.token.clone();
-        let client_id = self.client_id.clone();
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            handle.spawn(async move {
-                if let Ok(client) = rightkit_agent_daemon::http_client::daemon_client_with(
-                    &base_url,
-                    Duration::from_secs(2),
-                ) {
-                    let _ = client
-                        .send_any(
-                            &rightkit_http::Request::delete(format!(
-                                "{base_url}/clients/{client_id}"
-                            ))
-                            .bearer(&token),
-                        )
-                        .await;
-                }
-            });
+        // Stop the heartbeat; the client's own drop sends the best-effort detach once the
+        // heartbeat thread has let go of it. Heartbeat silence past the expiry covers a daemon
+        // that cannot be reached.
+        self.stop
+            .trigger(rightkit_daemon::stop::StopCause::Requested);
+        if let Some(client) = self.client.take() {
+            std::thread::spawn(move || client.detach());
         }
     }
 }
@@ -229,8 +189,9 @@ impl Drop for PresenceGuard {
 /// directly so they report the true current state rather than mutating it.
 pub(crate) async fn resolve_daemon_or_autostart() -> Option<(String, String)> {
     if let Some(found) = resolve_daemon() {
-        let explicit_daemon = std::env::var_os("RIGHTKIT_DAEMON_URL").is_some()
-            && std::env::var_os("RIGHTKIT_DAEMON_TOKEN").is_some();
+        let explicit_daemon = std::env::var_os(rightkit_agent_config::env_name("DAEMON_URL"))
+            .is_some()
+            && std::env::var_os(rightkit_agent_config::env_name("DAEMON_TOKEN")).is_some();
         if explicit_daemon || daemon_health_ok(&found.0).await {
             return Some(found);
         }
@@ -240,7 +201,11 @@ pub(crate) async fn resolve_daemon_or_autostart() -> Option<(String, String)> {
         // gate succeeds.
         tracing::debug!(url = %found.0, "daemon health probe failed; preserving daemon.port");
     }
-    if !autostart_enabled_from_env(std::env::var("RIGHTKIT_NO_AUTOSTART").ok().as_deref()) {
+    if !autostart_enabled_from_env(
+        std::env::var(rightkit_agent_config::env_name("NO_AUTOSTART"))
+            .ok()
+            .as_deref(),
+    ) {
         return None;
     }
     let Some(claim) = acquire_autostart_claim() else {
@@ -256,7 +221,44 @@ pub(crate) async fn resolve_daemon_or_autostart() -> Option<(String, String)> {
     let resolved = crate::daemon::launch::DaemonLaunchCoordinator::global()
         .ensure("daemon.port", || async {
             let mut child = spawn_detached_daemon().ok_or(())?;
-            Ok::<_, ()>(poll_for_daemon(&mut child, Duration::from_millis(250), 12).await)
+            let interval = Duration::from_millis(250);
+            let mut outcome = poll_for_daemon(&mut child, interval, 12).await;
+            // `serve` exits 1 ("refusing second instance") while an incumbent holds
+            // daemon.lock without a published daemon.port: either a draining incumbent
+            // (shutdown removed daemon.port, drain lasts up to 10 s) or a starting one
+            // (not published yet). Wait the incumbent out; respawn at most once if it
+            // vacates. A free lock means the child failed for a real reason.
+            if let SpawnPoll::ExitedEarly = outcome {
+                if !daemon_lock_free() {
+                    let deadline = crate::main_runtime::SHUTDOWN_DRAIN_TIMEOUT
+                        + std::time::Duration::from_secs(2);
+                    eprintln!(
+                        "{app}: another {app} process holds the daemon lock; waiting up to {} s for it to finish (a daemon draining or starting)",
+                        deadline.as_secs(),
+                        app = crate::host_identity::app()
+                    );
+                    match wait_out_incumbent(interval, deadline).await {
+                        IncumbentWait::Ready(found) => outcome = SpawnPoll::Ready(found),
+                        IncumbentWait::Vacated => {
+                            if let Some(mut retry) = spawn_detached_daemon() {
+                                outcome = poll_for_daemon(&mut retry, interval, 12).await;
+                                // Another CLI won the respawn race and is starting the
+                                // daemon: follow it once, no further respawn.
+                                if matches!(outcome, SpawnPoll::ExitedEarly) {
+                                    if let Some(found) = poll_for_existing_daemon(interval, 9).await {
+                                        outcome = SpawnPoll::Ready(found);
+                                    }
+                                }
+                            }
+                        }
+                        IncumbentWait::TimedOut => {}
+                    }
+                }
+            }
+            Ok::<_, ()>(match outcome {
+                SpawnPoll::Ready(found) => Some(found),
+                _ => None,
+            })
         })
         .await
         .ok()
@@ -266,7 +268,7 @@ pub(crate) async fn resolve_daemon_or_autostart() -> Option<(String, String)> {
 }
 
 /// Pure decision: should auto-start attempt to fire, given the
-/// `RIGHTKIT_NO_AUTOSTART` env value (or its absence)? Extracted so the
+/// `{ENV_PREFIX}_NO_AUTOSTART` env value (or its absence)? Extracted so the
 /// on/off logic is unit-testable without touching a real process env.
 fn autostart_enabled_from_env(no_autostart: Option<&str>) -> bool {
     !matches!(no_autostart, Some("1") | Some("true") | Some("TRUE"))
@@ -350,12 +352,15 @@ fn spawn_detached_daemon() -> Option<rightkit_child_process::OwnedChild> {
 /// into `path` scrubbed of credentials and rotated at [`AUTOSTART_LOG_MAX_BYTES`] with
 /// [`AUTOSTART_LOG_HISTORY`] numbered predecessors. Autostart logs are diagnostic evidence, so
 /// each launch appends to the existing file instead of truncating it.
+fn autostart_writer(path: &std::path::Path) -> rightkit_logs::RotatingTextWriter {
+    rightkit_logs::RotatingTextWriter::new(path, AUTOSTART_LOG_MAX_BYTES)
+        .with_generations(u32::from(AUTOSTART_LOG_HISTORY))
+}
+
 fn autostart_capture(path: &std::path::Path) -> rightkit_logs::DetachedLog {
-    let sink = std::sync::Arc::new(
-        rightkit_logs::RotatingTextWriter::new(path, AUTOSTART_LOG_MAX_BYTES)
-            .with_generations(u32::from(AUTOSTART_LOG_HISTORY)),
-    );
+    let sink = std::sync::Arc::new(autostart_writer(path));
     rightkit_logs::DetachedLog::new(sink)
+        .with_known_secrets(rightkit_llm::agent_providers::host_credentials::host().known_secrets())
 }
 
 /// Drain whatever the autostarted daemon has written since the last drain. Called when a CLI run
@@ -396,11 +401,25 @@ static AUTOSTART_DRAINER: std::sync::Mutex<
 > = std::sync::Mutex::new(None);
 const AUTOSTART_LOG_DRAIN_INTERVAL: Duration = Duration::from_secs(1);
 
+enum SpawnPoll {
+    Ready((String, String)),
+    /// The spawned child exited before publishing a daemon.
+    ExitedEarly,
+    GaveUp,
+}
+
+enum IncumbentWait {
+    Ready((String, String)),
+    /// Lock released and no daemon record appeared: the incumbent exited.
+    Vacated,
+    TimedOut,
+}
+
 async fn poll_for_daemon(
     child: &mut rightkit_child_process::OwnedChild,
     interval: Duration,
     max_attempts: u32,
-) -> Option<(String, String)> {
+) -> SpawnPoll {
     let mut delay = interval;
     for _ in 0..max_attempts {
         match child.try_wait() {
@@ -410,54 +429,120 @@ async fn poll_for_daemon(
                     app = crate::host_identity::app()
                 );
                 finish_autostart_capture_after_exit();
-                return None;
+                return SpawnPoll::ExitedEarly;
             }
             Err(error) => {
                 eprintln!(
                     "[{app}] could not inspect auto-started daemon: {error}",
                     app = crate::host_identity::app()
                 );
-                return None;
+                return SpawnPoll::GaveUp;
             }
             Ok(None) => {}
         }
         tokio::time::sleep(delay).await;
-        if let Some((base_url, token)) = resolve_daemon() {
-            if daemon_health_ok_with(&base_url).await {
-                return Some((base_url, token));
-            }
+        if let Some(found) = adopt_live_daemon().await {
+            return SpawnPoll::Ready(found);
         }
         delay = (delay * 2).min(Duration::from_secs(2));
     }
-    None
+    SpawnPoll::GaveUp
 }
 
+/// Non-destructive probe of `daemon.lock`: acquire and drop at once. Only a free lock
+/// is ever taken, and never held. An unresolvable path or I/O error counts as free.
+fn daemon_lock_free() -> bool {
+    let Some(path) = crate::daemon::ownership::default_lockfile_path() else {
+        return true;
+    };
+    !matches!(
+        crate::daemon::ownership::OwnershipLock::acquire(&path),
+        Ok(None)
+    )
+}
+
+/// Poll for the incumbent daemon that holds the lock; report `Vacated` as soon as the
+/// lock is free while no daemon record exists.
+async fn wait_out_incumbent(interval: Duration, deadline: Duration) -> IncumbentWait {
+    let started = std::time::Instant::now();
+    let mut delay = interval;
+    while started.elapsed() < deadline {
+        tokio::time::sleep(delay).await;
+        if let Some(found) = adopt_live_daemon().await {
+            return IncumbentWait::Ready(found);
+        }
+        if crate::main_runtime::resolve_daemon_quick().is_none() && daemon_lock_free() {
+            return IncumbentWait::Vacated;
+        }
+        delay = (delay * 2).min(Duration::from_secs(2));
+    }
+    IncumbentWait::TimedOut
+}
+
+/// Wait for the daemon another launcher is starting (RightKit's
+/// `loopback::wait_for_claim_winner`): its record must name the live process that wrote it and
+/// answer `/health`. `max_attempts` polls, `interval` apart at first and doubling to 2 s, as before.
 async fn poll_for_existing_daemon(
     interval: Duration,
     max_attempts: u32,
 ) -> Option<(String, String)> {
+    let path = crate::daemon::ownership::default_discovery_path()?;
+    let mut budget = Duration::ZERO;
     let mut delay = interval;
     for _ in 0..max_attempts {
-        tokio::time::sleep(delay).await;
-        if let Some((base_url, token)) = resolve_daemon() {
-            if daemon_health_ok_with(&base_url).await {
-                return Some((base_url, token));
-            }
-        }
+        budget += delay;
         delay = (delay * 2).min(Duration::from_secs(2));
     }
-    None
+    tokio::task::spawn_blocking(move || {
+        rightkit_daemon::loopback::wait_for_claim_winner(&path, budget, interval, |record| {
+            rightkit_daemon::loopback::probe_health(record, POLL_HEALTH_TIMEOUT)
+        })
+        .map(|record| (record.base_url(), record.token))
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
+/// The daemon `daemon.port` names, when it is the live process that wrote the record and answers
+/// `/health` (RightKit's `loopback::adopt_or_spawn`; a dead or recycled pid is never adopted).
+async fn adopt_live_daemon() -> Option<(String, String)> {
+    let path = crate::daemon::ownership::default_discovery_path()?;
+    tokio::task::spawn_blocking(move || {
+        match rightkit_daemon::loopback::adopt_or_spawn(&path, |record| {
+            rightkit_daemon::loopback::probe_health(record, POLL_HEALTH_TIMEOUT)
+        }) {
+            rightkit_daemon::loopback::LoopbackAdopt::Adopt(record) => {
+                Some((record.base_url(), record.token))
+            }
+            rightkit_daemon::loopback::LoopbackAdopt::Spawn => None,
+        }
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// Health budget inside the autostart poll loops (`poll_for_daemon`, `wait_out_incumbent`,
+/// `poll_for_existing_daemon`). They are attempt-counted and repeat on their own schedule, so
+/// they keep the quick budget; with the patient one, 12 attempts against a daemon that answers
+/// and then wedges would take minutes before "automatic start failed".
+const POLL_HEALTH_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// The readiness check after the first, patient `resolve_daemon()`: same patient budget, so
+/// a busy daemon that resolve just reached is not failed again by a 500 ms check (W2-10).
+/// Resolve accepts any HTTP answer while this needs a 2xx, so a daemon answering non-2xx
+/// (for example during startup) still sends the caller into autostart; that spawn exits
+/// "refusing second instance" and the caller waits out the incumbent.
 async fn daemon_health_ok(base_url: &str) -> bool {
-    daemon_health_ok_with(base_url).await
+    daemon_health_ok_with(base_url, crate::main_runtime::BUSY_DAEMON_HEALTH_TIMEOUT).await
 }
 
-async fn daemon_health_ok_with(base_url: &str) -> bool {
+async fn daemon_health_ok_with(base_url: &str, response_budget: Duration) -> bool {
     let Ok(client) = rightkit_agent_daemon::http_client::daemon_client_probe(
         base_url,
         Duration::from_millis(300),
-        Duration::from_millis(500),
+        response_budget,
     ) else {
         return false;
     };
@@ -473,11 +558,9 @@ fn host_home_dir() -> Option<std::path::PathBuf> {
     rightkit_agent_config::state_root()
 }
 
-/// Held for the duration of the spawn; dropping releases the `rightkit_fs`
+/// The claim is held for the duration of the spawn; dropping it releases the `rightkit_fs`
 /// advisory lock (a crashed holder never leaves a stale claim behind).
-struct AutostartClaim(#[allow(dead_code)] rightkit_fs::FileLock);
-
-fn acquire_autostart_claim() -> Option<AutostartClaim> {
+fn acquire_autostart_claim() -> Option<rightkit_fs::FileLock> {
     let path = host_home_dir()?.join("daemon-autostart.claim");
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -486,7 +569,7 @@ fn acquire_autostart_claim() -> Option<AutostartClaim> {
         &path,
         &rightkit_fs::LockOptions::default().labeled(&crate::host_identity::prefixed("autostart")),
     ) {
-        Ok(lock) => Some(AutostartClaim(lock)),
+        Ok(lock) => Some(lock),
         Err(rightkit_fs::FsError::Locked { .. } | rightkit_fs::FsError::LockTimeout { .. }) => {
             tracing::debug!("daemon autostart already claimed by another client");
             None

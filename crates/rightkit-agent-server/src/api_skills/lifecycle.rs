@@ -60,38 +60,32 @@ fn required_trimmed(value: Option<&str>) -> Result<String, StatusCode> {
         .ok_or(StatusCode::BAD_REQUEST)
 }
 
-fn default_skill_benchmark_threshold(
-    mode: rightkit_agent_host_traits::skill_host::SkillGateMode,
-) -> f64 {
+fn default_skill_benchmark_threshold(mode: rightkit_agent_skills::SkillGateMode) -> f64 {
     match mode {
-        rightkit_agent_host_traits::skill_host::SkillGateMode::Hard => 1.0,
-        rightkit_agent_host_traits::skill_host::SkillGateMode::Soft
-        | rightkit_agent_host_traits::skill_host::SkillGateMode::Mixed => 0.75,
+        rightkit_agent_skills::SkillGateMode::Hard => 1.0,
+        rightkit_agent_skills::SkillGateMode::Soft
+        | rightkit_agent_skills::SkillGateMode::Mixed => 0.75,
     }
 }
 
 fn skill_benchmark_gate_passed(
-    mode: rightkit_agent_host_traits::skill_host::SkillGateMode,
+    mode: rightkit_agent_skills::SkillGateMode,
     score: f64,
     runner_passed: bool,
     threshold: f64,
 ) -> bool {
     match mode {
-        rightkit_agent_host_traits::skill_host::SkillGateMode::Hard => {
-            runner_passed && score >= threshold
-        }
-        rightkit_agent_host_traits::skill_host::SkillGateMode::Soft => score >= threshold,
-        rightkit_agent_host_traits::skill_host::SkillGateMode::Mixed => {
-            runner_passed && score >= threshold
-        }
+        rightkit_agent_skills::SkillGateMode::Hard => runner_passed && score >= threshold,
+        rightkit_agent_skills::SkillGateMode::Soft => score >= threshold,
+        rightkit_agent_skills::SkillGateMode::Mixed => runner_passed && score >= threshold,
     }
 }
 
 fn proposal_gate_mode(
     dirs: &[PathBuf],
     slug: &str,
-) -> Option<rightkit_agent_host_traits::skill_host::SkillGateMode> {
-    find_skill_item(dirs, slug).and_then(|(item, _)| item.metadata.coderight.gate_mode)
+) -> Option<rightkit_agent_skills::SkillGateMode> {
+    find_skill_item(dirs, slug).and_then(|(item, _)| item.metadata.host.gate_mode)
 }
 
 fn discover_skill_items(dirs: &[PathBuf]) -> Vec<SkillItem> {
@@ -228,7 +222,8 @@ fn append_skill_audit_log(dir: &FsPath, entry: SkillAuditEntry) -> Result<(), St
     rows.push(entry);
     let json =
         serde_json::to_string_pretty(&rows).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    std::fs::write(path, json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    crate::store_write::write_store_file(&path, json.as_bytes())
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 fn managed_skill_dir(dirs: &[PathBuf]) -> Result<PathBuf, StatusCode> {
@@ -260,7 +255,8 @@ fn write_skill_governance_store(
         std::fs::create_dir_all(parent).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }
     let raw = serde_json::to_string_pretty(store).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    std::fs::write(path, raw).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    crate::store_write::write_store_file(path, raw.as_bytes())
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 fn next_skill_version(store: &SkillGovernanceStore, slug: &str) -> u32 {

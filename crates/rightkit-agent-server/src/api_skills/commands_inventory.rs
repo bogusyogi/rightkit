@@ -35,6 +35,27 @@ pub(crate) fn render_skills_command(skill_dirs: &[PathBuf]) -> String {
     output
 }
 
+/// Each skill the model's catalogue offers (enabled, active, valid, model-invocable) with the tokens it costs
+/// context when it is read, estimated as characters / 4 of its catalogue line plus its file. `/skill-doctor`.
+pub(crate) fn skill_context_costs(skill_dirs: &[PathBuf]) -> Vec<(String, usize)> {
+    discover_skill_items(skill_dirs)
+        .into_iter()
+        .filter(|skill| {
+            skill.enabled
+                && skill.lifecycle == SkillLifecycle::Active
+                && skill.valid
+                && !skill.disable_model_invocation
+        })
+        .map(|skill| {
+            let catalogue = skill.slug.chars().count() + skill.description.chars().count();
+            let body = std::fs::read_to_string(&skill.path)
+                .map(|text| text.chars().count())
+                .unwrap_or(0);
+            (skill.slug.clone(), (catalogue + body).div_ceil(4))
+        })
+        .collect()
+}
+
 pub(crate) fn skill_inventory_counts(skill_dirs: &[PathBuf]) -> (usize, usize) {
     let skills = discover_skill_items(skill_dirs);
     let enabled_valid = skills

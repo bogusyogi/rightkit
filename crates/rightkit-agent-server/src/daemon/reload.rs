@@ -319,8 +319,8 @@ pub fn replacement_command_for_request(
         command.current_dir(cwd);
     }
     if let Some((request_id, hash)) = identity {
-        command.env(RELOAD_REQUEST_ID_ENV, request_id);
-        command.env(RELOAD_HASH_ENV, hash);
+        command.env(reload_request_id_env(), request_id);
+        command.env(reload_hash_env(), hash);
     }
     command
 }
@@ -329,8 +329,15 @@ pub fn replacement_command_for_request(
 /// own readiness. Without these the replacement has no way to know it was
 /// launched by a reload, `publish_socket_ready` is never called, and
 /// `wait_ready` times out and rolls back a perfectly healthy replacement.
-pub const RELOAD_REQUEST_ID_ENV: &str = "RIGHTKIT_RELOAD_REQUEST_ID";
-pub const RELOAD_HASH_ENV: &str = "RIGHTKIT_RELOAD_HASH";
+/// The names carry the host's environment prefix.
+pub fn reload_request_id_env() -> String {
+    rightkit_agent_config::env_name("RELOAD_REQUEST_ID")
+}
+
+/// See [`reload_request_id_env`].
+pub fn reload_hash_env() -> String {
+    rightkit_agent_config::env_name("RELOAD_HASH")
+}
 
 /// Spawn the replacement daemon. `identity` carries the reload request this
 /// replacement is fulfilling, so it can publish `SocketReady` for exactly that
@@ -340,8 +347,10 @@ pub fn spawn_replacement_for_request(
     identity: Option<(&str, &str)>,
 ) -> std::io::Result<Child> {
     // The replacement must outlive this daemon, so it breaks away from the
-    // daemon's kill-on-close containment job; fall back to a plain spawn when
-    // an outer job forbids breakaway.
+    // daemon's kill-on-close containment job. When an outer job forbids breakaway,
+    // a plain spawn is only safe if this daemon is NOT in its own kill-on-close job;
+    // otherwise the replacement would die with us, so fail the launch and let the
+    // saga roll back to the running daemon.
     #[cfg(windows)]
     let child = {
         use std::os::windows::process::CommandExt as _;
@@ -352,6 +361,13 @@ pub fn spawn_replacement_for_request(
         );
         match command.spawn() {
             Ok(child) => child,
+            Err(error)
+                if super::kill_tree::SELF_CONTAINED.load(std::sync::atomic::Ordering::SeqCst) =>
+            {
+                return Err(std::io::Error::other(format!(
+                    "replacement cannot break away from the daemon's kill-on-close job: {error}"
+                )))
+            }
             Err(_) => replacement_command_for_request(spec, identity).spawn()?,
         }
     };
@@ -563,15 +579,19 @@ pub fn publish_socket_ready_if_replacement() -> bool {
 /// The reload identity this process was launched with, if any. Absent for an
 /// ordinary daemon start.
 fn reload_identity_from_env() -> Option<(String, String)> {
-    match (
-        std::env::var(RELOAD_REQUEST_ID_ENV),
-        std::env::var(RELOAD_HASH_ENV),
-    ) {
+    let pair = |request: &str, hash: &str| match (std::env::var(request), std::env::var(hash)) {
         (Ok(request_id), Ok(hash)) => Some((request_id, hash)),
         // A half-set identity is not a reload: publishing against a guessed
         // request id could satisfy someone else's wait.
         _ => None,
-    }
+    };
+    // A daemon started before this host's own names existed stamps RightKit's shared names.
+    pair(&reload_request_id_env(), &reload_hash_env()).or_else(|| {
+        pair(
+            rightkit_daemon::reload::ENV_RELOAD_REQUEST,
+            rightkit_daemon::reload::ENV_RELOAD_HASH,
+        )
+    })
 }
 
 /// Resolution half of [`publish_socket_ready_if_replacement`], separated from

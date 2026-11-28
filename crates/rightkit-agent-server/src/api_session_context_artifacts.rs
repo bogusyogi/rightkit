@@ -136,26 +136,6 @@ pub(crate) fn stamp_spec_artifact_metadata(
     artifact.meta = meta.to_string();
 }
 
-/// Load layered project instructions for daemon-created sessions.
-///
-/// This preserves legacy `right.md` support while also honoring common coding
-/// agent files such as `CLAUDE.md`, `AGENTS.md`, `.claude/rules/*.md`, and
-/// `.claude/instructions/*.md`.
-pub(crate) fn load_instruction_context(workspace_root: &str) -> Option<String> {
-    let (loader, files) = discover_instruction_files(workspace_root);
-    if files.is_empty() {
-        return None;
-    }
-
-    let composed = loader.compose(&files);
-    let trimmed = composed.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_string())
-    }
-}
-
 pub(crate) fn discover_instruction_files(
     workspace_root: &str,
 ) -> (
@@ -184,7 +164,11 @@ pub(crate) fn discover_instruction_files(
         );
     }
 
-    // Only `.claude/rules` is trust-gated; root files stay ungated (#131).
+    // Rules 13 and 67: every project and local instruction file is trust-gated. The project walk
+    // adds each directory from the project root down to the working directory.
+    if !workspace_root.is_empty() {
+        loader.add_project_walk(std::path::Path::new(workspace_root));
+    }
     let files = loader.discover_gated(|_| {
         !workspace_root.is_empty()
             && rightkit_agent_config::is_workspace_trusted(std::path::Path::new(workspace_root))
@@ -331,24 +315,22 @@ fn discover_capability_index(
     let mut skill_roots = Vec::new();
     if let Some(state) = state_dir_for_discovery() {
         skill_roots.push((
-            rightkit_agent_host_traits::skill_host::manifest::SkillSourceScope::User,
+            rightkit_agent_skills::manifest::SkillSourceScope::User,
             state.join("skills"),
         ));
     }
     skill_roots.push((
-        rightkit_agent_host_traits::skill_host::manifest::SkillSourceScope::WorkspaceCompatibility,
+        rightkit_agent_skills::manifest::SkillSourceScope::WorkspaceCompatibility,
         workspace.join(".claude/skills"),
     ));
     skill_roots.push((
-        rightkit_agent_host_traits::skill_host::manifest::SkillSourceScope::Workspace,
+        rightkit_agent_skills::manifest::SkillSourceScope::Workspace,
         workspace.join(format!(
             "{home}/skills",
             home = crate::host_identity::home_dir()
         )),
     ));
-    for skill in
-        rightkit_agent_host_traits::skill_host::manifest::discover_skill_roots(&skill_roots)
-    {
+    for skill in rightkit_agent_skills::manifest::discover_skill_roots(&skill_roots) {
         let mut risks = scan_declaration_risks(&skill.manifest.body);
         if !skill.manifest.effects.allowed_tools.is_empty()
             || !skill.manifest.effects.disallowed_tools.is_empty()

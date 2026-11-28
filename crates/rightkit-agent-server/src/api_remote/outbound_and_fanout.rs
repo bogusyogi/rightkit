@@ -339,12 +339,19 @@ async fn record_remote_fanout_delivery(
         content: text.to_string(),
         artifact_path: None,
     };
+    // Ids must be unique: the store replaces on id, and status_timestamp() has 1s resolution.
+    static FANOUT_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or_default();
     let row = rightkit_agent_engine_storage::RemoteDeliveryRow {
         id: format!(
-            "remote-fanout-{}-{}-{}",
+            "remote-fanout-{}-{}-{}-{}",
             channel_id,
             binding.id,
-            status_timestamp()
+            nanos,
+            FANOUT_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ),
         channel_id: channel_id.to_string(),
         binding_id: Some(binding.id.clone()),

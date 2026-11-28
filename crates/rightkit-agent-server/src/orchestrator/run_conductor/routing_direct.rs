@@ -36,7 +36,7 @@ impl DaemonState {
             push_artifact(
                 &session,
                 ProtocolArtifact {
-                    id: format!("art-{}", now_millis()),
+                    id: crate::daemon_state::next_artifact_id(),
                     path: String::new(),
                     kind: "routing_decision".into(),
                     content_hash: content_hash(&format!("PATH: {}", path.as_token())),
@@ -80,7 +80,7 @@ impl DaemonState {
         push_artifact(
             &session,
             ProtocolArtifact {
-                id: format!("art-{}", now_millis()),
+                id: crate::daemon_state::next_artifact_id(),
                 path: String::new(),
                 kind: "mechanism_decision".into(),
                 content_hash: content_hash(&mechanism_receipt),
@@ -90,7 +90,11 @@ impl DaemonState {
                 provenance: session_id.to_string(),
                 verdict: None,
                 approvals: vec![],
-                meta: truncate(&mechanism_receipt, 400),
+                meta: mechanism_receipt_meta(
+                    &mechanism_receipt,
+                    &content_hash(&mechanism_receipt),
+                    &mechanism.reason,
+                ),
                 created_at: now_iso(),
             },
         );
@@ -164,7 +168,7 @@ impl DaemonState {
         push_artifact(
             &session,
             ProtocolArtifact {
-                id: format!("art-{}", now_millis()),
+                id: crate::daemon_state::next_artifact_id(),
                 path: String::new(),
                 kind: "direct_edit_result".into(),
                 content_hash: result_hash.clone(),

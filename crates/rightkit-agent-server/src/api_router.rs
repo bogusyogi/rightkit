@@ -27,20 +27,16 @@ pub fn build_router(state: DaemonState) -> Router {
     // The Tauri webview always reaches the daemon via tauri://localhost. The
     // localhost:1422/5173 origins are dev-only (Vite dev server + headless QA)
     // and are now compiled OUT of release binaries entirely (audit A-8 SPEC 2):
-    // the previous runtime RIGHTKIT_ALLOW_DEV_ORIGINS env-var check had no
+    // the previous runtime dev-origins env-var check had no
     // effect in release either, so we replaced it with a single cfg gate to
     // make the dev/release split impossible to override at runtime.
-    let origins = vec![
-        "tauri://localhost",
-        "http://tauri.localhost",
-        "https://tauri.localhost",
-    ];
-    let allowed_origins = origins
+    let origins = allowed_origins();
+    let origin_values = origins
         .into_iter()
         .filter_map(|o| o.parse().ok())
         .collect::<Vec<_>>();
     let cors = CorsLayer::new()
-        .allow_origin(AllowOrigin::list(allowed_origins))
+        .allow_origin(AllowOrigin::list(origin_values))
         .allow_methods([
             Method::GET,
             Method::POST,
@@ -138,6 +134,20 @@ pub fn build_router(state: DaemonState) -> Router {
 async fn takeover_handler(State(state): State<DaemonState>) -> StatusCode {
     let _ = state.shutdown_tx.send(true);
     StatusCode::NO_CONTENT
+}
+
+/// The origins the release daemon accepts: the three Tauri webview origins and nothing else
+/// (client API R23).
+pub(crate) const PRODUCTION_ORIGINS: [&str; 3] = [
+    "tauri://localhost",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+];
+
+/// The origin list `build_router` uses for its CORS layer and a loopback host reads for its own
+/// host config. The release profile compiles dev origins out.
+pub(crate) fn allowed_origins() -> Vec<&'static str> {
+    PRODUCTION_ORIGINS.to_vec()
 }
 
 async fn api_not_found() -> StatusCode {

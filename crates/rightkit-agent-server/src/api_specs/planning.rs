@@ -191,8 +191,12 @@ fn implementation_prompt(
     analysis: &rightkit_evidence::SpecAnalysisRun,
 ) -> String {
     let mut prompt = format!(
-        "Implement the bound RightKit feature spec.\n\nSpec: {} ({})\nWorkspace: {}\nStatus: {:?}\n\n",
-        spec.title, spec.id, spec.workspace_root, spec.status
+        "Implement the bound {} feature spec.\n\nSpec: {} ({})\nWorkspace: {}\nStatus: {:?}\n\n",
+        rightkit_agent_config::app_name(),
+        spec.title,
+        spec.id,
+        spec.workspace_root,
+        spec.status
     );
     prompt.push_str("Requirements:\n");
     for req in &spec.functional_requirements {

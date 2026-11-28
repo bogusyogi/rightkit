@@ -98,25 +98,27 @@ pub(crate) fn probe_policy(verbose: bool) -> Dimension {
     }
 }
 
-/// Probe workspace trust by reading `RIGHTKIT_WORKSPACE_TRUST` and parsing
-/// via the canonical `parse_workspace_trust` helper.
+/// Probe the persisted trust of the current directory, resolved the same way
+/// the CLI and TUI do (`workspace_trust_for`, nearest recorded ancestor wins).
 pub(crate) fn probe_workspace_trust(verbose: bool) -> Dimension {
-    use rightkit_agent_policy::{parse_workspace_trust, WorkspaceTrust};
+    use rightkit_agent_policy::WorkspaceTrust;
 
-    let raw = std::env::var("RIGHTKIT_WORKSPACE_TRUST").ok();
-    let parsed = parse_workspace_trust(raw.as_deref());
+    let root = std::env::current_dir()
+        .map(|dir| dir.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let parsed = crate::main_runtime::workspace_trust_for(&root);
     let (status, detail) = match parsed {
-        WorkspaceTrust::Trusted => (
-            "pass",
-            "workspace-trust: Trusted (default for fully-trusted repos)".to_string(),
-        ),
+        WorkspaceTrust::Trusted => ("pass", format!("workspace-trust: Trusted ({root})")),
         WorkspaceTrust::Sandboxed => (
             "pass",
             "workspace-trust: Sandboxed (read/write sandbox enforced)".to_string(),
         ),
         WorkspaceTrust::Untrusted => (
             "warn",
-            "workspace-trust: Untrusted (operator input rejected)".to_string(),
+            format!(
+                "workspace-trust: Untrusted ({root}); run `{}` to trust this directory",
+                crate::host_identity::command("trust")
+            ),
         ),
         WorkspaceTrust::Locked => (
             "block",
@@ -126,12 +128,11 @@ pub(crate) fn probe_workspace_trust(verbose: bool) -> Dimension {
 
     if verbose {
         let evidence = vec![Evidence {
-            id: "workspace_trust_env".to_string(),
-            label: "RIGHTKIT_WORKSPACE_TRUST".to_string(),
+            id: "workspace_trust_store".to_string(),
+            label: "persisted workspace trust".to_string(),
             status,
             detail: format!(
-                "raw={:?}, parsed={:?}",
-                raw,
+                "root={root:?}, parsed={:?}",
                 format!("{:?}", parsed).to_ascii_lowercase()
             ),
         }];
@@ -141,15 +142,15 @@ pub(crate) fn probe_workspace_trust(verbose: bool) -> Dimension {
     }
 }
 
-/// Probe hook-deny readiness: confirm the destructive-command guard
-/// (`rightkit-agent-policy`) refuses a catastrophic command AND the engine-side
-/// destructive-guard config is on disk.
+/// Probe hook-deny readiness: confirm the destructive-command guard every shell
+/// decision uses (`rightkit-agent-policy`) refuses a catastrophic command AND the
+/// engine-side destructive-guard config is on disk.
 pub(crate) fn probe_hooks(verbose: bool) -> Dimension {
     // The guard every shell decision uses must refuse `rm -rf /` (rightkit#1687).
     let refused = rightkit_agent_policy::catastrophic_reason("rm -rf /");
     let mut evidence = vec![Evidence {
         id: "destructive_guard_refuses_root_delete".to_string(),
-        label: "rightkit_agent_policy::catastrophic_reason(\"rm -rf /\")".to_string(),
+        label: "catastrophic_reason(\"rm -rf /\")".to_string(),
         status: if refused.is_some() { "pass" } else { "block" },
         detail: match refused {
             Some(reason) => format!("destructive shell guard refuses rm -rf /: {reason}"),
@@ -266,8 +267,7 @@ pub(crate) fn probe_learning(verbose: bool) -> Dimension {
     use rightkit_agent_learning::InstinctStore;
 
     let Some(home) = host_home() else {
-        let detail =
-            "learning: no state directory — cannot locate the RightKit state directory".to_string();
+        let detail = "learning: no state directory — cannot locate the state directory".to_string();
         return if verbose {
             dim_with_evidence("unknown", detail, Vec::new())
         } else {
@@ -279,7 +279,7 @@ pub(crate) fn probe_learning(verbose: bool) -> Dimension {
     match std::fs::read_to_string(&path) {
         Err(_) => {
             let detail =
-                "learning: no instincts.json in the RightKit state directory — no live learning surface reachable from this CLI".to_string();
+                "learning: no instincts.json in the state directory — no live learning surface reachable from this CLI".to_string();
             if verbose {
                 dim_with_evidence("unknown", detail, Vec::new())
             } else {
@@ -320,7 +320,7 @@ pub(crate) fn probe_learning(verbose: bool) -> Dimension {
                         path.display()
                     )
                 } else {
-                    "learning: instincts.json in the RightKit state directory present but invalid InstinctStore JSON".to_string()
+                    "learning: instincts.json in the state directory present but invalid InstinctStore JSON".to_string()
                 };
                 let status = if arr_count > 0 { "warn" } else { "block" };
                 let evidence = vec![Evidence {
@@ -343,7 +343,7 @@ pub(crate) fn probe_learning(verbose: bool) -> Dimension {
     }
 }
 
-/// Helper: locate the RightKit state directory (the rightkit-daemon AppRoot).
+/// Helper: locate the state directory (the rightkit-daemon AppRoot).
 pub(crate) fn host_home() -> Option<PathBuf> {
     rightkit_agent_config::state_root()
 }
@@ -388,5 +388,71 @@ mod hooks_probe_tests {
             .find(|e| e.id == "destructive_guard_refuses_root_delete")
             .expect("guard evidence");
         assert_eq!(guard.status, "pass", "{}", guard.detail);
+    }
+}
+
+#[cfg(test)]
+mod abac_policy_doctor_tests {
+    //! Audit 2026-11-05 round 2 M2: doctor reports an ABAC policy that does
+    //! not load, with its path and error.
+    use super::*;
+
+    fn write(dir: &std::path::Path, text: &str) -> std::path::PathBuf {
+        let state = dir.join(rightkit_agent_config::state_dir_name());
+        std::fs::create_dir_all(&state).unwrap();
+        let path = state.join("policy.abac.yaml");
+        std::fs::write(&path, text).unwrap();
+        path
+    }
+
+    #[test]
+    fn broken_policy_file_blocks_with_path_and_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(
+            dir.path(),
+            "rules:\n  - id: r\n    effect: deny\n    tol: shell\n",
+        );
+        let facts = gather_abac_policies(None, dir.path());
+        let check = abac_policy_check(&facts);
+        assert_eq!(check.status, Status::Block);
+        assert!(
+            check.detail.contains(&path.display().to_string()),
+            "{}",
+            check.detail
+        );
+        assert!(check.detail.contains("tol: shell"), "{}", check.detail);
+        assert!(check.fix.contains("new session"), "{}", check.fix);
+    }
+
+    #[test]
+    fn valid_or_absent_policy_passes() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(gather_abac_policies(None, dir.path()).is_empty());
+        assert_eq!(abac_policy_check(&[]).status, Status::Pass);
+        write(
+            dir.path(),
+            "rules:\n  - id: r\n    effect: deny\n    tool: shell\n",
+        );
+        let facts = gather_abac_policies(None, dir.path());
+        assert_eq!(facts[0].result, Ok(1));
+        assert_eq!(abac_policy_check(&facts).status, Status::Pass);
+    }
+
+    #[test]
+    fn broken_inline_policy_wins_over_the_file_and_blocks() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            dir.path(),
+            "rules:\n  - id: r\n    effect: deny\n    tool: shell\n",
+        );
+        let facts = gather_abac_policies(Some("rules:\n  - id: r\n    tool: shell\n"), dir.path());
+        assert_eq!(facts.len(), 1);
+        let check = abac_policy_check(&facts);
+        assert_eq!(check.status, Status::Block);
+        assert!(
+            check.detail.contains("permissions.abac_yaml"),
+            "{}",
+            check.detail
+        );
     }
 }

@@ -247,6 +247,68 @@ where
     report
 }
 
+/// Worker-id prefix for the claims [`claim_idle_root_sessions`] makes.
+const IDLE_ROOT_WORKER_PREFIX: &str = "idle-root:";
+
+/// Make idle root sessions eviction candidates for the next sweep.
+///
+/// The sweep only evaluates supervisor workers, and plain sessions are never
+/// claimed by one, so without this pass they stay resident for the daemon's
+/// lifetime. A root session is claimed while it has no active turn, no human
+/// (SSE/TUI) subscriber (an open TUI/desktop view holds one) and no attached
+/// client, and the claim is released as soon as any of those stops being true.
+///
+/// Only human subscribers count: internal subscriptions (the session's
+/// projection task, the scheduler) are permanent receivers on the conduit, so
+/// `subscriber_count()` is never zero for a live session.
+///
+/// Known race: a subscriber arriving between this pass and the sweep in the
+/// same tick is not re-checked under the mutation fence; the next tick
+/// releases the claim.
+pub(crate) fn claim_idle_root_sessions(state: &crate::api::DaemonState) {
+    // Root sessions in memory with a turn/subscriber-idle flag; the sessions
+    // lock is dropped before the supervisor is touched.
+    let roots: Vec<(String, bool)> = {
+        let sessions = crate::api::lock_recover(&state.sessions, "sessions");
+        sessions
+            .iter()
+            .filter(|(_, session)| session.parent_session_id.is_none())
+            .map(|(id, session)| {
+                let idle = !session.live_turn_handle.is_active()
+                    && session.conduit.human_subscriber_count() == 0;
+                (id.clone(), idle)
+            })
+            .collect()
+    };
+    let idle_roots: std::collections::HashMap<String, bool> = roots
+        .into_iter()
+        .map(|(id, idle)| {
+            let idle = idle && crate::api_clients::supervisor_attached_client_count(&id) == 0;
+            (id, idle)
+        })
+        .collect();
+
+    let owners = crate::api_clients::supervisor_worker_owners();
+    for owner in &owners {
+        if owner.worker_id.0.starts_with(IDLE_ROOT_WORKER_PREFIX)
+            && !idle_roots
+                .get(owner.session_id.0.as_str())
+                .copied()
+                .unwrap_or(false)
+        {
+            crate::api_clients::supervisor_release_worker(&owner.worker_id.0);
+        }
+    }
+    for (id, idle) in &idle_roots {
+        if *idle && !owners.iter().any(|owner| &owner.session_id.0 == id) {
+            crate::api_clients::supervisor_claim_worker(
+                &format!("{IDLE_ROOT_WORKER_PREFIX}{id}"),
+                id,
+            );
+        }
+    }
+}
+
 /// A repeating, unref-equivalent idle sweep timer.
 ///
 /// Tokio tasks do not keep the process alive after the runtime begins

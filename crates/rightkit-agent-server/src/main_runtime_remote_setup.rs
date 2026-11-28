@@ -54,7 +54,10 @@ fn cli_remote_setup(
     }) {
         Ok(next) => next,
         Err(e) => {
-            eprintln!("Failed to save RightKit user config: {e}");
+            eprintln!(
+                "Failed to save {} user config: {e}",
+                rightkit_agent_config::app_name()
+            );
             return 1;
         }
     };
@@ -91,7 +94,10 @@ fn remote_setup_next_steps(cfg: &rightkit_agent_config::HostConfig) -> Vec<&'sta
                 "Run `{app} remote validate` to verify Telegram accepts the saved BotFather token.",
                 app = crate::host_identity::app()
             )),
-            "Message the bot once from the Telegram account that should control RightKit.",
+            crate::host_identity::interned(format!(
+                "Message the bot once from the Telegram account that should control {}.",
+                rightkit_agent_config::app_name()
+            )),
             crate::host_identity::interned(format!(
                 "Run `{app} remote users` to discover the numeric Telegram user id.",
                 app = crate::host_identity::app()

@@ -251,13 +251,126 @@ pub(super) fn replay_causal_receipts(
     Ok(chains)
 }
 
+/// Record, once, that a schedule record could not be interpreted (R6). The event stays in the run
+/// list with the reason; the same reason is not written again while it is the latest event.
+fn record_bad_schedule(
+    run_state: &mut ScheduleRunState,
+    entry: &ScheduleEntry,
+    epoch_minute: i64,
+    reason: &str,
+) {
+    let message = format!("schedule record cannot be run: {reason}");
+    let already_recorded = run_state
+        .history
+        .iter()
+        .rev()
+        .find(|event| event.schedule_id == entry.id)
+        .is_some_and(|event| event.status == "failed" && event.message == message);
+    tracing::warn!(schedule_id = %entry.id, %reason, "skipping an unreadable schedule record");
+    if already_recorded {
+        return;
+    }
+    run_state.history.push(schedule_run_event(
+        entry,
+        epoch_minute,
+        "failed",
+        &format!("schedule-{}", sanitize_id(&entry.id)),
+        &message,
+    ));
+}
+
+/// R7: a run left `claimed`, `submitted` or `queued` by a daemon that died is closed as `failed`
+/// with the reason `daemon_restarted`, so a stale event never blocks a later occurrence under any
+/// overlap policy. Returns how many runs were closed. Call once per workspace when this daemon
+/// first sees it.
+pub(crate) fn reconcile_orphaned_runs(root: &Path) -> Result<usize, String> {
+    let mut run_state = load_run_state(root)?;
+    let mut latest: HashMap<String, usize> = HashMap::new();
+    for (index, event) in run_state.history.iter().enumerate() {
+        latest.insert(event.schedule_id.clone(), index);
+    }
+    let mut orphans: Vec<usize> = latest
+        .into_values()
+        .filter(|index| {
+            matches!(
+                run_state.history[*index].status.as_str(),
+                "claimed" | "submitted" | "queued"
+            )
+        })
+        .collect();
+    orphans.sort_unstable();
+    for index in &orphans {
+        let mut closed = run_state.history[*index].clone();
+        tracing::warn!(
+            schedule_id = %closed.schedule_id,
+            minute = closed.epoch_minute,
+            was = %closed.status,
+            "closing a run left open by a daemon that stopped"
+        );
+        closed.status = "failed".to_string();
+        closed.message = "daemon_restarted".to_string();
+        closed.finished_at = Some(crate::api::now_iso());
+        run_state.history.push(closed);
+    }
+    if !orphans.is_empty() {
+        save_run_state(root, &run_state)?;
+    }
+    Ok(orphans.len())
+}
+
+/// R8: whether the newest run of `schedule_id` failed and may be retried now. The chain is the
+/// original claim plus its retries; failures in it are counted, and the retry is allowed while
+/// that count is at most `retry_limit` (so `retryLimit` 2 gives three attempts in all) and the
+/// failure is from an earlier minute than `epoch_minute`.
+fn pending_retry(
+    run_state: &ScheduleRunState,
+    schedule_id: &str,
+    retry_limit: u32,
+    epoch_minute: i64,
+) -> bool {
+    let mut failures = 0u32;
+    let mut newest_minute = None;
+    for event in run_state
+        .history
+        .iter()
+        .rev()
+        .filter(|event| event.schedule_id == schedule_id)
+    {
+        if newest_minute.is_none() {
+            if event.status != "failed" {
+                return false;
+            }
+            newest_minute = Some(event.epoch_minute);
+        }
+        match event.status.as_str() {
+            "failed" => failures += 1,
+            "submitted" | "queued" => {}
+            // The original claim ends the chain; a retry claim belongs to it.
+            "claimed" if event.message.contains("claimed bounded retry") => {}
+            _ => break,
+        }
+    }
+    failures > 0
+        && failures <= retry_limit
+        && newest_minute.is_some_and(|minute| epoch_minute > minute)
+}
+
 pub fn claim_due_schedules(root: &Path, epoch_minute: i64) -> Result<Vec<ScheduleEntry>, String> {
     let schedules = load_schedules(root)?;
     let mut run_state = load_run_state(root)?;
     let mut due = Vec::new();
     let mut changed = false;
     for entry in schedules.values() {
-        let metadata = load_runtime_metadata(root, entry)?;
+        // R6 / D16: a bad record never stops the other schedules. It is recorded in the run list
+        // once, with its reason, and the scan moves on.
+        let metadata = match load_runtime_metadata(root, entry) {
+            Ok(metadata) => metadata,
+            Err(reason) => {
+                record_bad_schedule(&mut run_state, entry, epoch_minute, &reason);
+                changed = true;
+                continue;
+            }
+        };
         if entry.paused
             || metadata.lifecycle.paused
             || metadata.profile.as_ref().is_some_and(|p| !p.enabled)
@@ -281,17 +394,39 @@ pub fn claim_due_schedules(root: &Path, epoch_minute: i64) -> Result<Vec<Schedul
             ScheduleSpec::Cron {
                 expression,
                 time_zone,
-            } => cron_matches_in_time_zone(&expression, epoch_minute, &time_zone)?,
+            } => match cron_matches_in_time_zone(&expression, epoch_minute, &time_zone) {
+                Ok(due) => due,
+                Err(reason) => {
+                    record_bad_schedule(&mut run_state, entry, epoch_minute, &reason);
+                    changed = true;
+                    continue;
+                }
+            },
             ScheduleSpec::Interval {
                 every_seconds,
                 start_unix_ms,
             } => {
                 let step = (every_seconds as i64).saturating_mul(1_000);
-                let start = start_unix_ms.unwrap_or(now_ms);
-                step > 0 && now_ms >= start && (now_ms - start) % step < 60_000
+                // An interval with no stored start is invalid (R51); it is never due, rather
+                // than fired every minute from a start of "now" on each tick (D3).
+                match start_unix_ms {
+                    Some(start) => {
+                        step >= 60_000 && now_ms >= start && (now_ms - start) % step < 60_000
+                    }
+                    None => false,
+                }
             }
             ScheduleSpec::Monitor { .. } => false,
         };
+        // R8: a cron or interval run that failed is retried at the next ticks, at most
+        // `retryLimit` times, even when the expression does not match again.
+        let retry_due = !due_now
+            && !is_once
+            && retry_limit > 0
+            && pending_retry(&run_state, &entry.id, retry_limit, epoch_minute);
+        if retry_due {
+            due_now = true;
+        }
         // Once triggers are consumed permanently after their first claim;
         // later daemon ticks must not replay them.
         if is_once
@@ -315,7 +450,10 @@ pub fn claim_due_schedules(root: &Path, epoch_minute: i64) -> Result<Vec<Schedul
                     start_unix_ms,
                 } => {
                     let step = (every_seconds as i64).saturating_mul(1_000);
-                    let start = start_unix_ms.unwrap_or(now_ms);
+                    // No stored start: not a valid interval (R51), nothing to recover.
+                    let Some(start) = start_unix_ms else {
+                        continue;
+                    };
                     if step <= 0 {
                         false
                     } else {
@@ -386,7 +524,9 @@ pub fn claim_due_schedules(root: &Path, epoch_minute: i64) -> Result<Vec<Schedul
                     && event.status == "failed"
             })
             .count() as u32;
-        let retrying = if is_once {
+        let retrying = if retry_due {
+            true
+        } else if is_once {
             failed_total > 0 && failed_total <= retry_limit
         } else {
             failed_attempts > 0 && failed_attempts <= retry_limit
