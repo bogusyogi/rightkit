@@ -211,7 +211,7 @@ fn valid_team(team_id: &str) -> bool {
 /// The partition-list description is a property list, usually hex-encoded; read either form as bytes.
 fn description_bytes(text: &str) -> Vec<u8> {
     let hex = text.trim().as_bytes();
-    if !hex.is_empty() && hex.len() % 2 == 0 && hex.iter().all(u8::is_ascii_hexdigit) {
+    if !hex.is_empty() && hex.len().is_multiple_of(2) && hex.iter().all(u8::is_ascii_hexdigit) {
         let nibble = |b: u8| -> u8 {
             match b {
                 b'0'..=b'9' => b - b'0',
@@ -219,12 +219,11 @@ fn description_bytes(text: &str) -> Vec<u8> {
                 _ => b - b'A' + 10,
             }
         };
-        return hex
-            .chunks_exact(2)
-            .map(|pair| match pair {
-                [high, low] => (nibble(*high) << 4) | nibble(*low),
-                _ => 0,
-            })
+        // The length is even (checked above), so `as_chunks` leaves no remainder.
+        let (pairs, _) = hex.as_chunks::<2>();
+        return pairs
+            .iter()
+            .map(|[high, low]| (nibble(*high) << 4) | nibble(*low))
             .collect();
     }
     text.as_bytes().to_vec()
