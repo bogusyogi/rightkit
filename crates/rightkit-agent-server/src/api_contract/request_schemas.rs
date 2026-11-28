@@ -9,6 +9,7 @@ fn openapi_request_schema(method: &str, path: &str) -> Option<Value> {
         | ("post", "/cli-providers/{provider}/logout")
         | ("post", "/cli-providers/{provider}/verify-harness")
         | ("post", "/diagnostics/bundle")
+        | ("post", "/browser/consents/{id}/revoke")
         | ("post", "/worktrees/pool/acquire")
         | ("post", "/worktrees/pool/{id}/release") => Some(serde_json::json!({"type": "object"})),
         ("post", "/provider-auth/{provider}/login/{challenge}/submit") => Some(serde_json::json!({
@@ -17,6 +18,21 @@ fn openapi_request_schema(method: &str, path: &str) -> Option<Value> {
         ("post", "/commands/execute") => {
             Some(crate::api_commands::execute_command_request_schema())
         }
+        ("post", "/browser/consents") => Some(serde_json::json!({
+            "type": "object",
+            "required": ["browser", "profile", "domains"],
+            "properties": {
+                "browser": {"type": "string", "enum": ["chrome", "edge"]},
+                "profile": {"type": "string", "minLength": 1, "examples": ["Default"]},
+                "domains": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"type": "string", "examples": ["example.com"]}
+                },
+                "expiresAtMs": {"type": ["integer", "null"], "minimum": 0}
+            },
+            "additionalProperties": false
+        })),
         ("post", "/hooks/test") => Some(crate::hooks::hook_test_request_schema()),
         ("post", "/hooks/revoke") => Some(crate::hooks::hook_revoke_request_schema()),
         ("post", "/tool-schemas/validate") => {
@@ -194,6 +210,7 @@ fn openapi_request_schema(method: &str, path: &str) -> Option<Value> {
             })
             .or_else(|| crate::api_delivery::delivery_openapi_request_schema(method, path))
             .or_else(|| crate::api_environments::environments_openapi_request_schema(method, path))
+            .or_else(|| crate::api_cloud_forge::cloud_openapi_request_schema(method, path))
             .or_else(|| {
                 rightkit_agent_engine_attention::attention_openapi_request_schema(method, path)
             })

@@ -44,6 +44,10 @@ mod group_12;
 mod group_13;
 #[path = "endpoints/group_14_inference.rs"]
 mod group_14;
+#[path = "endpoints/group_15_cloud.rs"]
+mod group_15;
+#[path = "endpoints/group_16_optional.rs"]
+mod group_16;
 
 const EMPTY_API_ENDPOINT: ApiEndpoint = ApiEndpoint {
     method: "",
@@ -81,6 +85,49 @@ static DAEMON_API_ENDPOINT_ARRAY: [ApiEndpoint; DAEMON_API_ENDPOINT_COUNT] =
     build_daemon_api_endpoints();
 
 pub(crate) const DAEMON_API_ENDPOINTS: &[ApiEndpoint] = &DAEMON_API_ENDPOINT_ARRAY;
+
+/// Put `group` into `list` right before the endpoint `anchor` (method, path), or at the end when
+/// the anchor is not there.
+fn insert_endpoints_before(
+    list: &mut Vec<ApiEndpoint>,
+    anchor: (&str, &str),
+    group: &[ApiEndpoint],
+) {
+    let at = list
+        .iter()
+        .position(|endpoint| endpoint.method == anchor.0 && endpoint.path == anchor.1)
+        .unwrap_or(list.len());
+    list.splice(at..at, group.iter().copied());
+}
+
+/// The manifest this host serves: [`DAEMON_API_ENDPOINTS`] plus the endpoints of every optional
+/// route set the host turned on (guest links, browser consent, cloud workspaces), so the contract
+/// documents exactly the routes `api_router::build_router` mounts. Built once, after the host set
+/// its options.
+pub(crate) fn daemon_api_endpoints() -> &'static [ApiEndpoint] {
+    static ACTIVE: std::sync::OnceLock<Vec<ApiEndpoint>> = std::sync::OnceLock::new();
+    ACTIVE.get_or_init(|| {
+        let mut list = DAEMON_API_ENDPOINTS.to_vec();
+        if crate::host_options::guest_shares() {
+            insert_endpoints_before(
+                &mut list,
+                ("GET", "/sessions/{id}/rewind/points"),
+                &group_16::ENDPOINT_GROUP_16_GUEST_SHARES,
+            );
+        }
+        if crate::host_options::browser_consent_routes() {
+            insert_endpoints_before(
+                &mut list,
+                ("GET", "/delivery/status"),
+                &group_16::ENDPOINT_GROUP_16_BROWSER_CONSENT,
+            );
+        }
+        if crate::host_options::cloud_workspaces() {
+            list.extend_from_slice(&group_15::ENDPOINT_GROUP_15_CLOUD);
+        }
+        list
+    })
+}
 
 const fn copy_endpoint_group<const N: usize, const M: usize>(
     mut endpoints: [ApiEndpoint; N],

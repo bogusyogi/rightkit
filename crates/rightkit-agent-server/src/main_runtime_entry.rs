@@ -8,6 +8,11 @@ mod onboarding;
 #[path = "main_runtime_cli_gate.rs"]
 mod cli_gate;
 
+// R1 to R4: `{app} contract`, the machine-readable manifest and the per-command effect table
+// (used only on a host that sets `host_options::cli_contract`).
+#[path = "cli_contract.rs"]
+mod cli_contract;
+
 // The `/providers` screen's list, status projection and key/test actions,
 // shared by the TUI host and `{app} provider ...`.
 #[path = "provider_setup.rs"]
@@ -804,11 +809,26 @@ fn interactive_layout_invocation(args: &[String]) -> bool {
 /// grammar, its effect row and the host route. `-p` re-enters here with a
 /// synthetic `run`, so a command that cannot be re-derived from argv is `run`.
 fn begin_call_journal(cli: &Cli, route: CliHostRoute) {
-    // Only `run` has a journal row here: the per-command effect table (`cli_contract`) stays
-    // with the host that ships one. `-p` re-enters here with a synthetic `run`.
-    if !matches!(cli.command, Command::Run { .. }) {
+    // A host that sets `host_options::cli_contract` gives every command its row from the effect
+    // table; without it only `run` has a journal row. `-p` re-enters here with a synthetic `run`.
+    let (path, effect, approval) = if crate::host_options::cli_contract() {
+        let path = cli_contract::invoked_path(&lossy_args())
+            .map(|(path, _)| path)
+            .or_else(|| matches!(cli.command, Command::Run { .. }).then(|| "run".to_string()));
+        let Some(path) = path else {
+            return;
+        };
+        let table = cli_contract::rows();
+        let Some(row) = cli_contract::row_for(&table, &path) else {
+            return;
+        };
+        let (effect, approval) = (row.effect, row.approval);
+        (path, effect, approval)
+    } else if matches!(cli.command, Command::Run { .. }) {
+        ("run".to_string(), "spend", "none")
+    } else {
         return;
-    }
+    };
     let host_route = match route {
         CliHostRoute::LocalUtility => "local",
         CliHostRoute::InlineHost => "inline",
@@ -820,9 +840,9 @@ fn begin_call_journal(cli: &Cli, route: CliHostRoute) {
         _ => None,
     };
     crate::cli_journal::begin(
-        "run",
-        "spend",
-        "none",
+        &path,
+        effect,
+        approval,
         cli.yes,
         host_route,
         cli.caller.as_deref(),
@@ -830,9 +850,10 @@ fn begin_call_journal(cli: &Cli, route: CliHostRoute) {
     );
 }
 
-/// A command that belongs to a host product and has no handler in this server (a host's own
-/// verbs: the CLI contract manifest, rpc mode, guest shares, ssh, LAN discovery, the web client
-/// URL, and commands that were removed). Prints the refusal and returns the usage exit code.
+/// A command this host does not offer: one of the optional verbs whose host option is off (the
+/// CLI contract manifest `cli_contract`, `rpc_mode`, `guest_shares`, `remote_ssh`,
+/// `lan_listener` for `discover`, the web client files), or a command that was removed. Prints
+/// the refusal and returns the usage exit code.
 fn host_only_command_unavailable(name: &str) -> i32 {
     eprintln!(
         "{}: `{name}` is not available in this build",
@@ -847,16 +868,30 @@ async fn async_main(mut cli: Cli) {
     }
     let cli_host_route = classify_cli_host_route(&cli.command);
     begin_call_journal(&cli, cli_host_route);
-    // R37: on a host that sets `destructive_cli_verbs_need_yes`, the permanent removals are dry
-    // runs without `--yes`.
-    if !cli.yes && crate::host_options::destructive_cli_verbs_need_yes() {
-        if let Some((method, plan)) = cli_gate::destroy_plan(&cli.command) {
-            cli_exit(cli_gate::dry_run_exit(method, "destroy", plan));
+    if !cli.yes {
+        // R37: on a host that sets `destructive_cli_verbs_need_yes`, the permanent removals are
+        // dry runs without `--yes`.
+        if crate::host_options::destructive_cli_verbs_need_yes() {
+            if let Some((method, plan)) = cli_gate::destroy_plan(&cli.command) {
+                cli_exit(cli_gate::dry_run_exit(method, "destroy", plan));
+            }
+        }
+        // R6: on a host that ships the contract table (`host_options::cli_contract`), every
+        // other tool with approval `yes` is a dry run too.
+        if crate::host_options::cli_contract() {
+            if let Some((method, effect, plan)) = cli_contract::dry_run_plan(&lossy_args()) {
+                cli_exit(cli_gate::dry_run_exit(&method, effect, plan));
+            }
         }
     }
     let yes = cli.yes;
     match cli.command {
-        Command::Contract { .. } => cli_exit(host_only_command_unavailable("contract")),
+        Command::Contract { json } => {
+            if !crate::host_options::cli_contract() {
+                cli_exit(host_only_command_unavailable("contract"));
+            }
+            cli_exit(cli_contract::print(json))
+        }
         Command::Login {
             provider,
             with_api_key,
@@ -892,15 +927,29 @@ async fn async_main(mut cli: Cli) {
             provider,
             resident,
             lan,
+            lan_port,
+            no_mdns,
             ..
         } => {
-            // The daemon listens on loopback only; a network listener is a host's own addition.
+            // The network listener is a host's own addition: it needs `lan_listener` and the
+            // guest links it serves (`guest_shares`).
             if lan {
-                eprintln!(
-                    "{}: `serve --lan` is not available in this build: the daemon listens on loopback only",
-                    crate::host_identity::app()
-                );
-                cli_exit(2);
+                if !crate::lan_listener::lan_enabled() {
+                    eprintln!(
+                        "{}: `serve --lan` is not available in this build: the daemon listens on loopback only",
+                        crate::host_identity::app()
+                    );
+                    cli_exit(2);
+                }
+                if crate::lan_listener::OPTIONS
+                    .set(crate::lan_listener::LanOptions {
+                        port: lan_port,
+                        advertise: !no_mdns,
+                    })
+                    .is_err()
+                {
+                    eprintln!("[serve] the LAN options were already set; the first ones stay");
+                }
             }
             if let Err(existing) =
                 rightkit_agent_coding_tools::process_resource_authority::install_process_resource_profile(
@@ -1335,11 +1384,109 @@ async fn async_main(mut cli: Cli) {
             let code = daemon_resume(session_id.as_deref(), last, all, all_workspaces).await;
             cli_exit(code);
         }
-        Command::Rpc { .. } => cli_exit(host_only_command_unavailable("rpc")),
-        Command::Share { .. } => cli_exit(host_only_command_unavailable("share")),
-        Command::Ssh { .. } => cli_exit(host_only_command_unavailable("ssh")),
-        Command::Discover { .. } => cli_exit(host_only_command_unavailable("discover")),
-        Command::WebUrl { .. } => cli_exit(host_only_command_unavailable("web")),
+        Command::Rpc {
+            run_args,
+            approval_timeout_secs,
+        } => {
+            if !crate::host_options::rpc_mode() {
+                cli_exit(host_only_command_unavailable("rpc"));
+            }
+            if approval_timeout_secs == Some(0) {
+                eprintln!("error: --approval-timeout-secs must be at least 1");
+                cli_exit(2);
+            }
+            let code = crate::rpc_mode::run_rpc(
+                run_args,
+                std::time::Duration::from_secs(approval_timeout_secs.unwrap_or(300)),
+            )
+            .await;
+            cli_exit(code);
+        }
+        Command::Share { command } => {
+            if !crate::host_options::guest_shares() {
+                cli_exit(host_only_command_unavailable("share"));
+            }
+            cli_exit(cli_share(command).await)
+        }
+        Command::Ssh {
+            destination,
+            port,
+            ssh_port,
+            ssh_option,
+            remote_bin,
+            open,
+        } => {
+            if !crate::host_options::remote_ssh() {
+                cli_exit(host_only_command_unavailable("ssh"));
+            }
+            cli_exit(
+                crate::remote_ssh::run(crate::remote_ssh::RemoteArgs {
+                    destination,
+                    local_port: port,
+                    ssh_port,
+                    ssh_options: ssh_option,
+                    remote_bin,
+                    open,
+                })
+                .await,
+            )
+        }
+        Command::Discover { timeout, json } => {
+            if !crate::host_options::lan_listener() {
+                cli_exit(host_only_command_unavailable("discover"));
+            }
+            let wait = std::time::Duration::from_secs(timeout.clamp(1, 60));
+            match crate::lan_listener::discover(wait) {
+                Ok(found) if json => {
+                    println!(
+                        "{}",
+                        serde_json::json!({"schema_version": crate::host_identity::schema("cli.discover.v1"), "daemons": found})
+                    );
+                    cli_exit(0);
+                }
+                Ok(found) if found.is_empty() => {
+                    println!(
+                        "No {} daemon advertised on this network (start one with `{}`).",
+                        rightkit_agent_config::app_name(),
+                        crate::host_identity::command("serve --lan")
+                    );
+                    cli_exit(0);
+                }
+                Ok(found) => {
+                    for row in found {
+                        println!(
+                            "{}\t{}\t{}",
+                            row.name,
+                            row.url,
+                            row.version.unwrap_or_default()
+                        );
+                    }
+                    cli_exit(0);
+                }
+                Err(error) => {
+                    eprintln!("discover: {error}");
+                    cli_exit(1);
+                }
+            }
+        }
+        Command::Web { open } => {
+            if !crate::api_web::web_client_enabled() {
+                cli_exit(host_only_command_unavailable("web"));
+            }
+            let Some((base_url, token)) = crate::cli_presence::resolve_daemon_or_autostart().await
+            else {
+                cli_exit(host_unreachable_exit(false));
+            };
+            let url = crate::api_web::web_url(&base_url, &token);
+            println!("{url}");
+            if open {
+                let opened = crate::open_url::open_url(&url);
+                if !opened.is_ok_and(|status| status.success()) {
+                    eprintln!("could not open a browser; open the URL above yourself");
+                }
+            }
+            cli_exit(0);
+        }
         Command::CliRuntime { .. } => cli_exit(host_only_command_unavailable("cli-runtime")),
         Command::Fork {
             session_id,
@@ -1676,4 +1823,147 @@ fn generate_completion(shell: CompletionShell) -> Vec<u8> {
         }
     }
     output
+}
+
+/// `lifetime` as seconds: `90`, `90s`, `30m`, `1h`, `2d`.
+fn parse_share_lifetime(text: &str) -> Result<u64, String> {
+    let text = text.trim();
+    let (number, unit) = match text.char_indices().last() {
+        Some((index, c)) if c.is_ascii_alphabetic() => (&text[..index], c),
+        _ => (text, 's'),
+    };
+    let value: u64 = number
+        .parse()
+        .map_err(|_| format!("--expires {text:?}: expected a number with s, m, h or d"))?;
+    let per_unit: u64 = match unit {
+        's' => 1,
+        'm' => 60,
+        'h' => 3600,
+        'd' => 86_400,
+        _ => return Err(format!("--expires {text:?}: unit must be s, m, h or d")),
+    };
+    // A product too large for u64 is out of range, not a wrapped small number.
+    let secs = value
+        .checked_mul(per_unit)
+        .ok_or_else(|| "--expires must be between 1m and 7d".to_string())?;
+    if !(crate::guest_shares::MIN_TTL_SECS..=crate::guest_shares::MAX_TTL_SECS).contains(&secs) {
+        return Err("--expires must be between 1m and 7d".to_string());
+    }
+    Ok(secs)
+}
+
+async fn cli_share(command: crate::cli::ShareCommand) -> i32 {
+    use crate::cli::ShareCommand;
+    match command {
+        ShareCommand::List => daemon_get_pretty_json("/shares", "share list").await,
+        ShareCommand::Revoke { share_id } => {
+            daemon_delete_pretty_json(
+                &format!("/shares/{}", url_encode_component(&share_id)),
+                "share revoke",
+            )
+            .await
+        }
+        ShareCommand::Create {
+            session_id,
+            expires,
+            approve,
+            json,
+        } => {
+            let secs = match parse_share_lifetime(&expires) {
+                Ok(secs) => secs,
+                Err(message) => {
+                    eprintln!("error: {message}");
+                    return 2;
+                }
+            };
+            let Some((base_url, token)) = crate::cli_presence::resolve_daemon_or_autostart().await
+            else {
+                return host_unreachable_exit(false);
+            };
+            let body = serde_json::json!({"expiresInSecs": secs, "canApprove": approve});
+            let response = match rightkit_agent_daemon::http_client::daemon_call(
+                rightkit_http::Method::Post,
+                &format!(
+                    "{base_url}/sessions/{}/shares",
+                    url_encode_component(&session_id)
+                ),
+                &token,
+                Some(&body),
+            )
+            .await
+            {
+                Ok(response) => response,
+                Err(error) => {
+                    eprintln!("Failed to contact daemon: {error}");
+                    return 1;
+                }
+            };
+            if !rightkit_agent_daemon::http_client::is_success(response.status) {
+                let status = response.status;
+                eprintln!(
+                    "share create: daemon returned {status}: {}",
+                    response.text()
+                );
+                return 1;
+            }
+            let mut share = response.json::<serde_json::Value>().unwrap_or_default();
+            let local = format!(
+                "{}{}",
+                base_url.trim_end_matches('/'),
+                share["path"].as_str().unwrap_or_default()
+            );
+            share["localUrl"] = serde_json::json!(local);
+            if json {
+                println!("{share}");
+                return 0;
+            }
+            println!(
+                "Guest link for session {session_id} (expires {}):",
+                share["expiresAt"].as_str().unwrap_or("?")
+            );
+            println!("  on this machine: {local}");
+            match share["lanUrl"].as_str() {
+                Some(lan) => println!("  on your network: {lan}"),
+                None => println!(
+                    "  (start the daemon with `{}` to reach it from other machines, or forward the port over SSH)",
+                    crate::host_identity::command("serve --lan")
+                ),
+            }
+            println!(
+                "The guest can follow this session{}. Revoke it with: {}",
+                if approve {
+                    " and answer its approvals"
+                } else {
+                    " (read only)"
+                },
+                crate::host_identity::command(&format!(
+                    "share revoke {}",
+                    share["shareId"].as_str().unwrap_or("?")
+                ))
+            );
+            0
+        }
+    }
+}
+
+#[cfg(test)]
+mod share_lifetime_tests {
+    use super::parse_share_lifetime;
+
+    #[test]
+    fn a_lifetime_is_a_number_with_a_unit_between_one_minute_and_seven_days() {
+        assert_eq!(parse_share_lifetime("90"), Ok(90));
+        assert_eq!(parse_share_lifetime("90s"), Ok(90));
+        assert_eq!(parse_share_lifetime("30m"), Ok(1800));
+        assert_eq!(parse_share_lifetime("1h"), Ok(3600));
+        assert_eq!(parse_share_lifetime("7d"), Ok(7 * 86_400));
+        assert!(parse_share_lifetime("59s").is_err());
+        assert!(parse_share_lifetime("8d").is_err());
+        assert!(parse_share_lifetime("1w").is_err());
+        assert!(parse_share_lifetime("h").is_err());
+        assert!(parse_share_lifetime("").is_err());
+        // A product that overflows is refused, never wrapped into a small lifetime.
+        assert!(parse_share_lifetime("999999999999999999999d").is_err());
+        assert!(parse_share_lifetime("18446744073709551615d").is_err());
+    }
 }

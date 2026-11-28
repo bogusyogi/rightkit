@@ -1,6 +1,6 @@
 use super::ApiEndpoint;
 
-pub(super) const ENDPOINT_GROUP_03: [ApiEndpoint; 32] = [
+pub(super) const ENDPOINT_GROUP_03: [ApiEndpoint; 31] = [
     ApiEndpoint {
         method: "POST",
         path: "/sessions/{id}/goal/pause",
@@ -30,11 +30,6 @@ pub(super) const ENDPOINT_GROUP_03: [ApiEndpoint; 32] = [
         method: "GET",
         path: "/sessions/{id}/rewind/points",
         summary: "List rewindable user prompts",
-    },
-    ApiEndpoint {
-        method: "POST",
-        path: "/sessions/{id}/clone",
-        summary: "Clone a session transcript into an independent session",
     },
     ApiEndpoint {
         method: "GET",

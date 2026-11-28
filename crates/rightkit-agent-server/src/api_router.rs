@@ -19,32 +19,14 @@ pub fn build_router(state: DaemonState) -> Router {
         } else {
             None
         };
-    // Only the Tauri webview and local dev servers should reach the daemon.
-    // `allow_origin(Any)` let any webpage the user visited talk to the daemon
-    // (it binds to 127.0.0.1, but browsers will still send the request).
-    // Same-origin requests from the embedded web UI carry no Origin header and
-    // are unaffected by this list.
+    // CORS, the per-class request-rate limit and the Host and Origin checks of the owner
+    // listener run in the loopback host (rightkit_daemon::loopback) before this router.
+    // The origin allow-list lives in `PRODUCTION_ORIGINS` and `allowed_origins()` below;
+    // loopback_adapter.rs reads them for the host config.
     // The Tauri webview always reaches the daemon via tauri://localhost. The
     // localhost:1422/5173 origins are dev-only (Vite dev server + headless QA)
-    // and are now compiled OUT of release binaries entirely (audit A-8 SPEC 2):
-    // the previous runtime dev-origins env-var check had no
-    // effect in release either, so we replaced it with a single cfg gate to
-    // make the dev/release split impossible to override at runtime.
-    let origins = allowed_origins();
-    let origin_values = origins
-        .into_iter()
-        .filter_map(|o| o.parse().ok())
-        .collect::<Vec<_>>();
-    let cors = CorsLayer::new()
-        .allow_origin(AllowOrigin::list(origin_values))
-        .allow_methods([
-            Method::GET,
-            Method::POST,
-            Method::PUT,
-            Method::DELETE,
-            Method::PATCH,
-        ])
-        .allow_headers(Any);
+    // and are compiled OUT of release binaries entirely (audit A-8 SPEC 2).
+    // Same-origin requests from the embedded web UI carry no Origin header.
 
     let mut management_routes = Router::new()
         .merge(health_routes())
@@ -107,26 +89,44 @@ pub fn build_router(state: DaemonState) -> Router {
     if let Some(routes) = workflow_routes {
         management_routes = management_routes.merge(routes);
     }
+    // Route sets only some hosts offer; each is mounted only when its host option is on, and
+    // `api_contract` documents it under the same option.
+    if crate::host_options::cloud_workspaces() {
+        management_routes = management_routes
+            .merge(crate::api_cloud_forge::cloud_forge_routes())
+            .merge(crate::api_cloud_workspaces::cloud_workspace_routes());
+    }
+    if crate::host_options::browser_consent_routes() {
+        management_routes =
+            management_routes.merge(crate::api_browser_consent::browser_consent_routes());
+    }
+    if crate::host_options::license_status_route() {
+        management_routes =
+            management_routes.merge(crate::api_license_status::license_status_routes());
+    }
+    if crate::host_options::guest_shares() {
+        management_routes = management_routes.merge(crate::guest_shares::share_routes());
+    }
     let management_routes = management_routes
         .with_state(state)
         .layer(middleware::from_fn(
             rightkit_memory_client::api_memright::memory_request_context,
         ))
-        // Gate the API behind the per-launch token. CORS stays outermost so
-        // preflight is handled first.
+        // Gate the API behind the per-launch token (it also resolves guest bearers).
         .layer(middleware::from_fn_with_state(
             auth_token,
             crate::auth::require_token,
         ));
 
-    management_routes
-        .merge(gateway_routes)
-        .layer(middleware::from_fn_with_state(
-            crate::auth::RateLimiter::new(),
-            crate::auth::rate_limit,
-        ))
-        .layer(cors)
-        .fallback(api_not_found)
+    let routes = management_routes.merge(gateway_routes);
+    // The browser client's static files: no data, so no bearer (api_web.rs); none when the
+    // host supplied no files.
+    let routes = if crate::api_web::web_client_enabled() {
+        routes.merge(crate::api_web::web_routes())
+    } else {
+        routes
+    };
+    routes.fallback(api_not_found)
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
@@ -144,8 +144,9 @@ pub(crate) const PRODUCTION_ORIGINS: [&str; 3] = [
     "https://tauri.localhost",
 ];
 
-/// The origin list `build_router` uses for its CORS layer and a loopback host reads for its own
-/// host config. The release profile compiles dev origins out.
+/// The origin list the loopback adapter hands to the loopback host's origin policy (CORS and the
+/// Origin check). The release profile compiles dev origins out. These are the webview origins of
+/// the Tauri shell, not product names.
 pub(crate) fn allowed_origins() -> Vec<&'static str> {
     PRODUCTION_ORIGINS.to_vec()
 }

@@ -341,6 +341,19 @@ impl DaemonState {
         if let Some(live) = self.get_session(id) {
             return Some(live);
         }
+        // Issue 510: an in-process host revives only a session no other process is running.
+        let lease_id = id.to_string();
+        match tokio::task::spawn_blocking(move || crate::session_lease::hold(&lease_id)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(reason)) => {
+                tracing::warn!(session_id = %id, %reason, "resume refused: the session is leased to another process");
+                return None;
+            }
+            Err(error) => {
+                tracing::warn!(session_id = %id, %error, "resume refused: the session lease task did not finish");
+                return None;
+            }
+        }
         let storage = self.storage.clone()?;
         let storage2 = storage.clone();
         let id_owned = id.to_string();

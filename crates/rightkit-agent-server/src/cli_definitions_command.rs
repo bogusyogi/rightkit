@@ -231,7 +231,6 @@ pub enum Command {
         command: ScheduleCommand,
     },
     /// Supervise one daemon-owned browser workspace for a session.
-    #[command(alias = "web")]
     Browser {
         #[command(subcommand)]
         command: BrowserCommand,
@@ -372,8 +371,7 @@ pub enum Command {
     /// Print the browser client URL for the running daemon (starting one if
     /// needed). The URL carries the daemon token in its fragment; treat it as
     /// a credential.
-    #[command(name = "web-url")]
-    WebUrl {
+    Web {
         /// Also open the URL in the default browser.
         #[arg(long)]
         open: bool,

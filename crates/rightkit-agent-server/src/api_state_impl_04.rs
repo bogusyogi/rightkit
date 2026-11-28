@@ -2878,6 +2878,11 @@ run_budget: tokio::sync::Mutex::new(RunBudgetLedger::new(RunSubagentBudget::defa
 // unbacked-victory-claim attempts and refuses a goal after the policy
 // cap when the run claims done without typed mutations.
 governed_arbiter: tokio::sync::Mutex::new(rightkit_agent_orchestration::coding::run_governance::GovernedArbiter::default()), });
+        // Issue 510: every live session of an in-process host is leased to it, so another
+        // process that tries to revive it (a child by its id, say) is refused.
+        if let Err(reason) = crate::session_lease::hold(id) {
+            tracing::error!(session_id = %id, %reason, "a session went live without its lease");
+        }
         lock_recover(&self.sessions, "sessions").insert(id.to_string(), live.clone());
         live
     }

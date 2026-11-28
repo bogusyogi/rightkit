@@ -37,6 +37,23 @@ fn openapi_response_schema(method: &str, path: &str) -> Option<Value> {
         ("get", "/provider-keys/{provider}") => {
             Some(crate::api_settings::provider_key_status_response_schema())
         }
+        // Guest links (`guest_shares.rs`).
+        ("post", "/sessions/{id}/shares") => Some(json!({
+            "type": "object", "required": ["shareId", "sessionId", "token", "canApprove", "expiresAt", "path"],
+            "properties": {"shareId": {"type": "string"}, "sessionId": {"type": "string"}, "token": {"type": "string"}, "canApprove": {"type": "boolean"}, "expiresAt": {"type": "string"}, "path": {"type": "string"}, "lanUrl": {"type": ["string", "null"]}}
+        })),
+        ("get", "/shares") => Some(json!({
+            "type": "object", "required": ["shares"],
+            "properties": {"shares": {"type": "array", "items": {"type": "object"}}, "lanAddress": {"type": ["string", "null"]}}
+        })),
+        ("delete", "/shares/{id}") => Some(json!({
+            "type": "object", "required": ["revoked", "shareId"],
+            "properties": {"revoked": {"type": "boolean"}, "shareId": {"type": "string"}}
+        })),
+        ("get", "/guest/whoami") => Some(json!({
+            "type": "object", "required": ["guest"],
+            "properties": {"guest": {"type": "boolean"}, "shareId": {"type": "string"}, "sessionId": {"type": "string"}, "canApprove": {"type": "boolean"}, "expiresAt": {"type": "string"}}
+        })),
         ("get", "/provider-auth/{provider}") => Some(json!({
             "type": "object", "required": ["provider_id", "configured", "subscription_eligibility"],
             "properties": {"provider_id": {"type": "string"}, "configured": {"type": "boolean"}, "source": {"type": ["string", "null"]}, "subscription_auth_state": {}, "account_fingerprint": {"type": ["string", "null"]}, "available_model_ids": {"type": "array", "items": {"type": "string"}}, "subscription_eligibility": {"type": "string"}}
@@ -57,8 +74,12 @@ fn openapi_response_schema(method: &str, path: &str) -> Option<Value> {
         | ("post", "/cli-providers/{provider}/login")
         | ("post", "/cli-providers/{provider}/logout")
         | ("post", "/cli-providers/{provider}/verify-harness") => Some(json!({"type": "object"})),
-        // The worktree pool answers JSON objects.
-        ("get", "/worktrees/pool/status")
+        // Browser consent and the worktree pool answer JSON objects.
+        ("get", "/browser/consent/sources")
+        | ("get", "/browser/consents")
+        | ("post", "/browser/consents")
+        | ("post", "/browser/consents/{id}/revoke")
+        | ("get", "/worktrees/pool/status")
         | ("post", "/worktrees/pool/acquire")
         | ("post", "/worktrees/pool/{id}/release") => Some(json!({"type": "object"})),
         ("get", "/inference/connections") => {
@@ -365,6 +386,7 @@ fn openapi_response_schema(method: &str, path: &str) -> Option<Value> {
             })
             .or_else(|| crate::api_delivery::delivery_openapi_response_schema(method, path))
             .or_else(|| crate::api_environments::environments_openapi_response_schema(method, path))
+            .or_else(|| crate::api_cloud_forge::cloud_openapi_response_schema(method, path))
             .or_else(|| {
                 rightkit_agent_engine_attention::attention_openapi_response_schema(method, path)
             })

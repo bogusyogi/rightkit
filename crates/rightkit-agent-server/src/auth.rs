@@ -1,9 +1,12 @@
-//! Daemon HTTP auth + rate limiting.
+//! Daemon HTTP auth + LAN rate limiting.
 //!
-//! A single global `require_token` layer gates every route (applied in
-//! `api::build_router`), with a small, explicit exemption set (`/health`, CORS
-//! preflight, and the signed webhook delivery endpoints). Extracted from `api.rs` so the
-//! auth surface — the entire unauthenticated boundary — is auditable in isolation.
+//! The owner listener's Host check, CORS, bearer check for the owner and request-rate limit are
+//! the loopback host's (rightkit-daemon). A single `require_token` layer gates every route
+//! (applied in `api::build_router`; the loopback host calls the router behind it), with a small,
+//! explicit exemption set (`/health`, CORS preflight, and the signed webhook delivery endpoints).
+//! It also resolves guest links. This file holds the LAN listener's request-rate limiter.
+//! Extracted from `api.rs` so the auth surface, the entire unauthenticated boundary, is
+//! auditable in isolation.
 
 use crate::api::lock_recover;
 use axum::extract::{Request, State};
@@ -159,15 +162,6 @@ fn is_health_probe(method: &Method, path: &str) -> bool {
     *method == Method::GET && path == "/health"
 }
 
-/// A coarse global token-bucket rate limiter. The daemon is single-user on
-/// localhost, so this exists only to stop a runaway client loop from pinning the
-/// process — the limits are far above any legitimate burst (the UI's heaviest
-/// action, loading every Runtime panel, is well under ten concurrent calls).
-#[derive(Clone)]
-pub(crate) struct RateLimiter {
-    inner: Arc<Mutex<Bucket>>,
-}
-
 struct Bucket {
     tokens: f64,
     last: std::time::Instant,
@@ -175,36 +169,6 @@ struct Bucket {
 
 const RATE_PER_SEC: f64 = 200.0;
 const BURST: f64 = 400.0;
-
-impl RateLimiter {
-    pub(crate) fn new() -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(Bucket {
-                tokens: BURST,
-                last: std::time::Instant::now(),
-            })),
-        }
-    }
-}
-
-pub(crate) async fn rate_limit(
-    State(rl): State<RateLimiter>,
-    req: Request,
-    next: Next,
-) -> Response {
-    {
-        let mut b = lock_recover(&rl.inner, "rl.inner");
-        let now = std::time::Instant::now();
-        let elapsed = now.duration_since(b.last).as_secs_f64();
-        b.last = now;
-        b.tokens = (b.tokens + elapsed * RATE_PER_SEC).min(BURST);
-        if b.tokens < 1.0 {
-            return (StatusCode::TOO_MANY_REQUESTS, "rate limited").into_response();
-        }
-        b.tokens -= 1.0;
-    }
-    next.run(req).await
-}
 
 /// A coarse token-bucket rate limiter for the LAN listener only: 200 requests per second with a
 /// burst of 400. It exists to stop a runaway or hostile network client from pinning the daemon.

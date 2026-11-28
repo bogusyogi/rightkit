@@ -285,20 +285,26 @@ async fn serve(
         let _ = crate::api_adapt::install_adapt_application_host(host);
     }
 
-    // Bind first so we know the actual port (when port == 0). Loopback only: the daemon never
-    // listens on a network address.
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
-        .await
-        .unwrap_or_else(|error| {
+    // Bind first so we know the actual port (when port == 0). The owner listener is RightKit's
+    // loopback host (127.0.0.1 only: Host check, Origin and CORS, bearer check, per-class rate
+    // limit, connection cap); the router joins it through the adapter once it is built. A
+    // network listener exists only under `serve --lan` on a host that offers one.
+    let router_slot = std::sync::Arc::new(crate::loopback_adapter::RouterSlot::new(
+        tokio::runtime::Handle::current(),
+        token.clone(),
+    ));
+    let host =
+        crate::loopback_adapter::start(port, &token, router_slot.clone()).unwrap_or_else(|error| {
             #[cfg(unix)]
             let detail = file_descriptor_error(&error, &raise_nofile_soft_limit());
             #[cfg(not(unix))]
             let detail = file_descriptor_error(&error);
             panic!("failed to bind serve port: {detail}")
         });
-    let actual_port = listener.local_addr().expect("local_addr").port();
+    let actual_port = host.port();
 
-    // Emit the startup contract line as the very first stdout output.
+    // The startup contract line is written below, immediately before the listener serves (R3): a
+    // launcher that has read it can call `/health` on its first try.
     let info = LoopbackRecord::for_this_process(
         actual_port,
         &token,
@@ -310,8 +316,6 @@ async fn serve(
             generation: 1,
         },
     );
-    rightkit_sidecar::write_json_line_flush(&mut std::io::stdout().lock(), &info, 64 * 1024)
-        .unwrap_or_else(|error| panic!("startup contract line not written: {error}"));
     init_daemon_telemetry();
 
     let config = load_current_merged_config();
@@ -975,17 +979,43 @@ async fn serve(
     // user saw was an app whose every request was refused while
     // `daemon.port` still advertised the dead port, with no way back short of
     // quitting the app.
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(
-            shutdown_rx,
-            primary_daemon,
-            ownership_lock.clone(),
-            live_sessions,
-            shutdown_storage,
-            shutdown_runtime_middleware,
-        ))
-        .await
-        .expect("server error");
+    // The startup contract line is the first stdout output and comes last among the startup steps
+    // (daemon-lifecycle R3): the listener is bound, the router is built and every blocking stage
+    // has finished, so the launcher's first `/health` call is answered, not refused or left waiting.
+    // `serve --lan`: a guest-only listener on the network address (lan_listener.rs).
+    if let Some(options) = crate::lan_listener::OPTIONS.get().copied() {
+        match crate::lan_listener::start(app.clone(), options).await {
+            Ok(address) => eprintln!(
+                "[serve] LAN listener on http://{address} (guest links only; the owner token stays on loopback)"
+            ),
+            Err(error) => eprintln!("[serve] LAN listener not started: {error}"),
+        }
+    }
+    router_slot.bind(app.clone());
+    rightkit_sidecar::write_json_line_flush(&mut std::io::stdout().lock(), &info, 64 * 1024)
+        .unwrap_or_else(|error| panic!("startup contract line not written: {error}"));
+    shutdown_signal(
+        shutdown_rx,
+        primary_daemon,
+        ownership_lock.clone(),
+        live_sessions,
+        shutdown_storage,
+        shutdown_runtime_middleware,
+    )
+    .await;
+    match tokio::time::timeout(
+        SHUTDOWN_DRAIN_TIMEOUT,
+        tokio::task::spawn_blocking(move || host.shutdown()),
+    )
+    .await
+    {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => eprintln!("[serve] the loopback host shutdown task failed: {error}"),
+        Err(_) => eprintln!(
+            "[serve] the loopback host did not finish draining within {}s",
+            SHUTDOWN_DRAIN_TIMEOUT.as_secs()
+        ),
+    }
 
     // Graceful exit (Ctrl-C/SIGTERM or client-presence auto-exit): remove the
     // port file so CLI subcommands and the startup guard don't find a stale
@@ -1020,7 +1050,7 @@ pub(crate) fn shutdown_exit_bound() -> std::time::Duration {
 /// is forced at `DEFAULT_SHUTDOWN_EXIT_GRACE`.
 fn shutdown_phases(primary_daemon: bool) -> rightkit_daemon::OrderedShutdown {
     use crate::daemon::shutdown::{DEFAULT_SHUTDOWN_EXIT_GRACE, SHUTDOWN_PHASE_DEADLINE};
-    // Phase 1 — runtime. Nothing to tear down here: axum's graceful shutdown closes the listener
+    // Phase 1 — runtime. Nothing to tear down here: the loopback host closes the listener
     // and drains in-flight requests once the shutdown future returns. The phase
     // exists so the ordering is explicit and observable in the log.
     let mut shutdown =
