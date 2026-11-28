@@ -14,7 +14,10 @@ const DATA: &str = include_str!("../data/option-gated-routes.json");
 
 /// Every option the file may name, with its getter. The file and this table name the same
 /// options; a test fails when they differ.
-const GATING_OPTIONS: &[(&str, fn() -> bool)] = &[
+/// An option name as the data file spells it, and the getter that answers for it.
+type GatingOption = (&'static str, fn() -> bool);
+
+const GATING_OPTIONS: &[GatingOption] = &[
     ("mcp_public_server", crate::host_options::mcp_public_server),
     (
         "plugin_marketplace",
