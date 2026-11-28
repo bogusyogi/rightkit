@@ -299,13 +299,18 @@ pub fn web_client_assets() -> &'static [WebAsset] {
 
 host_option!(
     /// The state stores (teams, messages, instincts, permission rules, permission denials,
-    /// workspace trust) and the run-changes folder may be moved with the environment variables
-    /// `<PREFIX>_TEAM_STORE`, `<PREFIX>_MESSAGE_STORE`, `<PREFIX>_INSTINCTS_STORE`,
-    /// `<PREFIX>_PERMISSION_RULE_STORE`, `<PREFIX>_PERMISSION_DENIAL_STORE`,
-    /// `<PREFIX>_WORKSPACE_TRUST_STORE` and `<PREFIX>_RUN_CHANGES_DIR`. With the option on, every
+    /// workspace trust, Telegram chat bindings, peer-team boards) and the run-changes folder may
+    /// be moved with the environment variables `<PREFIX>_TEAM_STORE`, `<PREFIX>_MESSAGE_STORE`,
+    /// `<PREFIX>_INSTINCTS_STORE`, `<PREFIX>_PERMISSION_RULE_STORE`,
+    /// `<PREFIX>_PERMISSION_DENIAL_STORE`, `<PREFIX>_WORKSPACE_TRUST_STORE`,
+    /// `<PREFIX>_TELEGRAM_BINDINGS`, `<PREFIX>_PEER_TEAM_STORE_ROOT` and
+    /// `<PREFIX>_RUN_CHANGES_DIR`. With the option on, every
     /// reader of the workspace trust store in this crate reads the file the variable names, so
     /// the file that grants trust is the file that is checked. `true` (the default) reads the
-    /// variables; `false` ignores them and always uses the files under the state root.
+    /// variables; `false` ignores them and always uses the files under the state root. Without
+    /// the cargo feature `state-store-env` the variables are not compiled in at all: the setter
+    /// still returns `true` or `false`, but the value has no effect (the files under the state
+    /// root are always used).
     STATE_STORE_PATHS_FROM_ENVIRONMENT,
     set_state_store_paths_from_environment,
     state_store_paths_from_environment,
@@ -404,5 +409,28 @@ host_option!(
     EMBEDDER_RUNTIME_SETUP,
     set_embedder_runtime_setup,
     embedder_runtime_setup,
+    default = true
+);
+
+host_option!(
+    /// The six `/peer-teams` routes exist (a shared task board, a mailbox and a mission log for
+    /// peers that work on one team, kept in a store of their own under the state folder). `true`
+    /// (the default) mounts them; `false` does not mount them, and no route, contract entry or
+    /// command mentions them. The store folder follows the stores option
+    /// (`state_store_paths_from_environment`).
+    PEER_TEAMS,
+    set_peer_teams,
+    peer_teams,
+    default = true
+);
+
+host_option!(
+    /// `POST /runtime/membrane/background-review` exists: it runs one restricted review request
+    /// from the context service against the configured model provider, which costs a provider
+    /// call. `true` (the default) mounts it; `false` does not mount it and the contract does
+    /// not list it.
+    MEMBRANE_BACKGROUND_REVIEW,
+    set_membrane_background_review,
+    membrane_background_review,
     default = true
 );

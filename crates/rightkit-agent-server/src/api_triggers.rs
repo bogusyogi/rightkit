@@ -548,7 +548,7 @@ async fn deliver_trigger(
     match crate::api_workflows::routes::admit_legacy_trigger_delivery(
         &state,
         workflow_delivery,
-        workflow_trigger_shadow_mode(),
+        workflow_trigger_shadow_mode(&state),
     )
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
@@ -754,7 +754,13 @@ fn trigger_now_millis() -> u64 {
     now_millis().min(u64::MAX as u128) as u64
 }
 
-fn workflow_trigger_shadow_mode() -> bool {
+/// Whether workflow trigger admission runs in shadow mode: workflows are enabled for this process
+/// and `<PREFIX>_WORKFLOW_TRIGGER_SHADOW` is `1` or `true`. With workflows off the variable is
+/// never read.
+fn workflow_trigger_shadow_mode(state: &DaemonState) -> bool {
+    if !state.workflows_feature.is_enabled() {
+        return false;
+    }
     matches!(
         std::env::var(rightkit_agent_config::env_name("WORKFLOW_TRIGGER_SHADOW")).as_deref(),
         Ok("1") | Ok("true") | Ok("TRUE")

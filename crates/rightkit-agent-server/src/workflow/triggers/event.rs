@@ -35,9 +35,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use rightkit_workflow::control_plane::clock::UnixMs;
-use rightkit_workflow::control_plane::domain::{
-    ContentHash, OccurrenceId, TriggerEventId, TriggerId, WorkflowVersionId,
-};
+use rightkit_workflow::control_plane::domain::{ContentHash, TriggerEventId, TriggerId};
 
 // ─── Bounded data ─────────────────────────────────────────────────────────────
 
@@ -294,68 +292,6 @@ impl NormalizedTriggerEvent {
             std::sync::LazyLock::new(|| crate::host_identity::schema("trigger/v1"));
         VERSION.as_str()
     }
-
-    /// Set the runtime `time` and `received_at` fields from unix-ms values
-    /// using a deterministic RFC3339 formatter. The inbox calls this once
-    /// during admission; downstream callers can rebuild the event from the
-    /// stored fields without re-deriving them.
-    pub fn stamp_times(&mut self, time_unix_ms: UnixMs, received_at_unix_ms: UnixMs) {
-        self.time = format_unix_ms_as_iso(time_unix_ms);
-        self.received_at = format_unix_ms_as_iso(received_at_unix_ms);
-    }
-}
-
-// ─── Persisted projections (used by the occurrence layer) ────────────────────
-
-/// Durable record written by the inbox for every admitted event. The shape
-/// is what the storage layer persists; `NormalizedTriggerEvent` is what the
-/// JSON envelope looks like. They are the same row, just sliced for storage.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PersistedEventRow {
-    pub event_id: TriggerEventId,
-    pub trigger_id: Option<TriggerId>,
-    pub source: String,
-    pub type_: String,
-    pub time_unix_ms: i64,
-    pub received_at_unix_ms: i64,
-    pub dedupe_key: String,
-    pub content_hash: ContentHash,
-    pub trust: TrustInfo,
-    /// Full normalized event JSON, suitable for replay.
-    pub envelope_json: String,
-}
-
-/// One durable occurrence row produced by the occurrence admission layer.
-/// The workflow supervisor consumes this projection to dispatch runs.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PersistedOccurrence {
-    pub occurrence_id: OccurrenceId,
-    pub event_id: TriggerEventId,
-    pub trigger_id: TriggerId,
-    pub workflow_id: Option<String>,
-    pub workflow_version_id: Option<WorkflowVersionId>,
-    pub fire_time_unix_ms: i64,
-    pub admission_decision: String,
-    pub dedupe_key: String,
-    pub created_at_unix_ms: i64,
-}
-
-/// One audit row written by the inbox. Bounded FIFO; trim is the caller's
-/// responsibility (the inbox helper [`trim_front`] lives in `dedupe.rs`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct InboxAuditRow {
-    pub created_at_unix_ms: i64,
-    pub trigger_id: Option<TriggerId>,
-    pub source: String,
-    pub outcome: String,
-    pub reason: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub event_id: Option<TriggerEventId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub delivery_id: Option<String>,
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

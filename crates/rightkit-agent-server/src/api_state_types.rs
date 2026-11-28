@@ -582,12 +582,6 @@ pub struct DaemonState {
     /// (PR 13). Bumped when workspace trust changes, the user
     /// re-authenticates, the model changes, or the policy changes.
     pub cli_recovery_live_epoch: Arc<crate::cli_recovery_runtime::LiveContextEpochState>,
-    /// Deferred active-binding update queue for the CLI runtime recovery
-    /// flow (PR 13). The applier drains this only at the turn boundary
-    /// so the `idx_one_active_binding_per_agent` UNIQUE invariant is
-    /// preserved.
-    pub cli_recovery_deferred_updates:
-        Arc<rightkit_agents::driver_host::cli_runtime::DeferredBindingUpdates>,
     /// Pending blind model comparisons, keyed by comparison id.
     pub comparisons:
         Arc<Mutex<HashMap<String, rightkit_agent_orchestration::coding::BlindComparison>>>,

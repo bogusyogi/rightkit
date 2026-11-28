@@ -234,13 +234,6 @@ impl FsWatchManager {
             events: std::mem::take(&mut *pending),
         }
     }
-
-    /// Adapted from the donor's `connection_closed` — releases every watch
-    /// owned by one client, e.g. on daemon session teardown.
-    pub async fn client_disconnected(&self, client_id: &str) {
-        let mut state = self.state.lock().await;
-        state.entries.retain(|key, _| key.client_id != client_id);
-    }
 }
 
 pub fn router() -> Router<DaemonState> {

@@ -6,7 +6,7 @@ use std::{
         Arc, Mutex,
     },
 };
-use tokio::sync::{mpsc, watch, OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{watch, OwnedSemaphorePermit, Semaphore};
 
 /// Default maximum number of simultaneously active cloud inference streams.
 /// One connection may hold half of them, so the host decides how many sessions or
@@ -14,8 +14,6 @@ use tokio::sync::{mpsc, watch, OwnedSemaphorePermit, Semaphore};
 pub fn default_active_stream_limit() -> u32 {
     crate::host_options::active_stream_limit()
 }
-/// Each active stream has this many event slots. It is deliberately bounded.
-pub const EVENT_CHANNEL_CAPACITY: usize = 128;
 
 #[derive(Clone)]
 pub struct InferenceScheduler {
@@ -57,16 +55,6 @@ pub struct SchedulerPermit {
     lease: Arc<ActiveLease>,
     job: SchedulerJob,
     cancellation: watch::Receiver<bool>,
-}
-
-pub struct SchedulerEventSender<T> {
-    sender: mpsc::Sender<T>,
-    buffered_events: Arc<AtomicUsize>,
-}
-
-pub struct SchedulerEventReceiver<T> {
-    receiver: mpsc::Receiver<T>,
-    buffered_events: Arc<AtomicUsize>,
 }
 
 struct ActiveLease {
@@ -146,19 +134,6 @@ impl InferenceScheduler {
         route: Option<&str>,
     ) -> Result<SchedulerPermit, &'static str> {
         self.acquire_lane_job(job, InferenceLane::Interactive, connection, route)
-            .await
-    }
-
-    /// Acquire a non-interactive slot. Conductor/background fan-out cannot
-    /// consume the interactive reserve, which keeps operator turns responsive
-    /// even when all shared provider capacity is queued.
-    pub async fn acquire_lane(
-        &self,
-        lane: InferenceLane,
-        connection: &str,
-        route: Option<&str>,
-    ) -> Result<SchedulerPermit, &'static str> {
-        self.acquire_lane_job(&self.new_job(), lane, connection, route)
             .await
     }
 
@@ -261,21 +236,6 @@ impl InferenceScheduler {
         }
     }
 
-    /// Creates a real bounded Tokio MPSC channel for one active stream.
-    pub fn event_channel<T>(&self) -> (SchedulerEventSender<T>, SchedulerEventReceiver<T>) {
-        let (sender, receiver) = mpsc::channel(EVENT_CHANNEL_CAPACITY);
-        (
-            SchedulerEventSender {
-                sender,
-                buffered_events: self.buffered_events.clone(),
-            },
-            SchedulerEventReceiver {
-                receiver,
-                buffered_events: self.buffered_events.clone(),
-            },
-        )
-    }
-
     pub async fn snapshot(&self) -> LoadSnapshot {
         LoadSnapshot {
             queued_agents: self.queued.load(Ordering::SeqCst),
@@ -373,51 +333,6 @@ impl ActiveLease {
     }
 }
 
-impl<T> Clone for SchedulerEventSender<T> {
-    fn clone(&self) -> Self {
-        Self {
-            sender: self.sender.clone(),
-            buffered_events: self.buffered_events.clone(),
-        }
-    }
-}
-
-impl<T> SchedulerEventSender<T> {
-    pub async fn send(&self, event: T) -> Result<(), mpsc::error::SendError<T>> {
-        self.sender.send(event).await?;
-        self.buffered_events.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    }
-
-    pub fn try_send(&self, event: T) -> Result<(), mpsc::error::TrySendError<T>> {
-        self.sender.try_send(event)?;
-        self.buffered_events.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    }
-}
-
-impl<T> SchedulerEventReceiver<T> {
-    pub async fn recv(&mut self) -> Option<T> {
-        let event = self.receiver.recv().await;
-        if event.is_some() {
-            decrement_atomic(&self.buffered_events, 1);
-        }
-        event
-    }
-
-    pub fn try_recv(&mut self) -> Result<T, mpsc::error::TryRecvError> {
-        let event = self.receiver.try_recv()?;
-        decrement_atomic(&self.buffered_events, 1);
-        Ok(event)
-    }
-}
-
-impl<T> Drop for SchedulerEventReceiver<T> {
-    fn drop(&mut self) {
-        decrement_atomic(&self.buffered_events, self.receiver.len());
-    }
-}
-
 fn increment(map: &Mutex<BTreeMap<String, usize>>, key: &str) {
     *map.lock()
         .expect("scheduler counter lock poisoned")
@@ -433,10 +348,4 @@ fn decrement(map: &Mutex<BTreeMap<String, usize>>, key: &str) {
             map.remove(key);
         }
     }
-}
-
-fn decrement_atomic(counter: &AtomicUsize, amount: usize) {
-    let _ = counter.try_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
-        Some(current.saturating_sub(amount))
-    });
 }

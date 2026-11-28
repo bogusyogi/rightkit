@@ -27,10 +27,14 @@ pub async fn run_telegram_bot(
     .await;
 }
 
-/// The `TELEGRAM_BINDINGS` environment variable (host-prefixed), else `telegram-bindings.json` in the state root.
+/// The file `<PREFIX>_TELEGRAM_BINDINGS` names when the host lets the environment move its state
+/// stores (`host_options::state_store_paths_from_environment`; with that option off the variable
+/// is never read), else `telegram-bindings.json` in the state root.
 pub(crate) fn telegram_binding_store_path() -> PathBuf {
-    if let Ok(path) = std::env::var(rightkit_agent_config::env_name("TELEGRAM_BINDINGS")) {
-        return PathBuf::from(path);
+    if let Some(path) =
+        crate::api_stores::state_store_override(crate::api_stores::StateStoreKey::TelegramBindings)
+    {
+        return path;
     }
     if let Some(root) = rightkit_agent_config::state_root() {
         return root.join("telegram-bindings.json");

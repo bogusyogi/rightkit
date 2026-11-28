@@ -647,6 +647,25 @@
         ]
       ]
     },
+    "rightkit-agent-server": {
+      "featureSets": [
+        []
+      ],
+      "checkFeatureSets": [
+        [
+          "--no-default-features"
+        ],
+        [
+          "--no-default-features",
+          "--features",
+          "benchmarks,qualification"
+        ],
+        [
+          "--features",
+          "benchmarks,qualification,fastembed"
+        ]
+      ]
+    },
     "rightkit-agent-coding-tools": {
       "featureSets": [
         []

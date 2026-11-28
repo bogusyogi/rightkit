@@ -7,7 +7,7 @@
 //! any bounded inner executor — those live in WP-04 / WP-05.
 //!
 //! WP-06 lives alongside in the [`triggers`] submodule: the
-//! normalized trigger-event inbox and the typed occurrence admission
+//! normalized trigger-event shape and the typed occurrence admission
 //! policy sit *in front of* the supervisor, feeding it admitted
 //! occurrences rather than raw webhook payloads.
 //!
@@ -58,11 +58,10 @@ pub use supervisor::{
 };
 pub use triggers::{
     build_normalized_canonical_json, compute_content_hash, derive_dedupe_key, derive_event_id,
-    format_unix_ms_as_iso, parse_iso_as_unix_ms, truncate_bytes, InboxAdmission, InboxAuditRow,
-    InboxError, NormalizedData, NormalizedDataError, NormalizedTriggerEvent,
-    OccurrenceAdmissionLayer, OccurrenceDecision, OccurrenceError, OccurrenceInputs,
-    PersistedEventRow, PersistedOccurrence, RawArtifact, TriggerInbox, TrustFinding, TrustInfo,
-    TrustLevel, TrustOrigin, TrustSeverity,
+    format_unix_ms_as_iso, parse_iso_as_unix_ms, truncate_bytes, NormalizedData,
+    NormalizedDataError, NormalizedTriggerEvent, OccurrenceAdmissionLayer, OccurrenceDecision,
+    OccurrenceError, OccurrenceInputs, RawArtifact, TrustFinding, TrustInfo, TrustLevel,
+    TrustOrigin, TrustSeverity,
 };
 
 use rightkit_workflow::control_plane::prelude::{Clock, FeatureGate};

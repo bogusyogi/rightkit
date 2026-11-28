@@ -10,8 +10,10 @@
 /// home and depend on that, and AppDirs ignores `XDG_DATA_HOME` in release builds.
 /// There is no fallback (clean port, #406): when the per-user
 /// data dir does not resolve, or the private directory cannot be created, this fails.
-/// A database left in the old `<data>/<app name>` or `<data>/RightKit` folder is moved once (see
-/// [`move_legacy_database_folder`]); any failure of that move fails this call too.
+/// A database left in the old `<data>/<app name>` folder is moved once (see
+/// [`move_legacy_database_folder`]); the server's earlier `<data>/RightKit` folder is looked at
+/// only when the host's own folders hold no database, so a host whose own database exists is never
+/// refused because of it. Any failure of a move fails this call too.
 pub(crate) fn default_db_path() -> Result<String, String> {
     // A QA/test build with an isolated state root keeps the database inside it; a release
     // build never has one.
@@ -27,7 +29,12 @@ pub(crate) fn default_db_path() -> Result<String, String> {
     })?;
     if !isolated {
         if let Some(user_data) = user_data {
-            for legacy in legacy_folder_names() {
+            for (index, legacy) in legacy_folder_names().into_iter().enumerate() {
+                // Only the host's own folder (first) is always looked at: the earlier server
+                // folder is consulted when the host has no database of its own yet.
+                if index > 0 && std::fs::symlink_metadata(dir.join(db_file_name())).is_ok() {
+                    break;
+                }
                 move_legacy_database_folder(&user_data.join(legacy), &dir)?;
             }
         }
@@ -69,8 +76,9 @@ const SERVER_LEGACY_FOLDER_NAME: &str = "RightKit";
 
 /// Names of the folders (under the per-user data directory) that may still hold the database from
 /// before it moved under `Orthic Labs`: the host's own `<data>/<app name>` and this server's
-/// earlier `<data>/RightKit`, each once. A database found in more than one is refused (the
-/// move reports both folders).
+/// earlier `<data>/RightKit`, each once, the host's own first. The caller looks at a later folder
+/// only while the host's database does not exist yet; a database that would have to move onto an
+/// existing one is refused (the move reports both folders).
 fn legacy_folder_names() -> Vec<&'static str> {
     let mut names = vec![rightkit_agent_config::app_name()];
     if SERVER_LEGACY_FOLDER_NAME != rightkit_agent_config::app_name() {

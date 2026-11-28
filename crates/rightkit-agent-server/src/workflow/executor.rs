@@ -211,15 +211,9 @@ pub struct NodeExecutor {
     /// takes a `&Connection` directly; the supervisor does not expose
     /// its storage. The mutex lets the executor hand the live handle to
     /// `tokio::task::spawn_blocking` while keeping the single-writer
-    /// SQLite invariant intact. Marked `#[allow(dead_code)]` because the
-    /// supervisor is currently the only call site that constructs an
-    /// executor — but the field is required for journal writes.
-    #[allow(dead_code)]
+    /// SQLite invariant intact.
     storage: SharedStorage,
-    /// Run-supervisor handle. The executor owns a reference so it can
-    /// route through the supervisor in future WP-04 / WP-05 work, but
-    /// the WP-03b code path does not call into it directly.
-    #[allow(dead_code)]
+    /// Run-supervisor handle. The executor renews a run's lease through it while a node runs.
     supervisor: Arc<RunSupervisor>,
     /// Bounded inner executor. Stored as `Arc<dyn ExecuteNode + Send +
     /// Sync>` so tests can inject a deterministic dispatcher without
@@ -647,21 +641,6 @@ impl NodeExecutor {
                     })
                 }
             }
-        }
-    }
-
-    /// Returns the current global in-flight slot count. Used for
-    /// observability / tests.
-    pub fn global_in_use(&self) -> usize {
-        self.total_active.load(Ordering::Acquire)
-    }
-
-    /// Returns the current per-run in-flight slot count, or `0` if no
-    /// nodes for `run_id` are leased.
-    pub fn per_run_in_use(&self, run_id: &str) -> usize {
-        match self.per_run_active.lock() {
-            Ok(map) => map.get(run_id).copied().unwrap_or(0),
-            Err(poisoned) => poisoned.into_inner().get(run_id).copied().unwrap_or(0),
         }
     }
 

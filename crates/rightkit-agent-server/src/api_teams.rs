@@ -5,7 +5,7 @@
 //! parent-child subagent team *definitions*, not peer runtime coordination.
 //!
 //! `api_router::build_router` mounts [`peer_team_routes`] on the daemon's
-//! authenticated management router. The runtime module exports this file;
+//! authenticated management router when `host_options::peer_teams` is on. The runtime module exports this file;
 //! therefore board, mailbox, and mission-log operations reach durable shared
 //! state rather than remaining an unregistered library surface.
 //!
@@ -29,19 +29,14 @@ use std::path::PathBuf;
 
 use crate::api::DaemonState;
 
-/// Root directory holding one SQLite file per team:
-/// `<root>/<team_id>.sqlite`. Overridable for tests/CI via
-/// `<PREFIX>_PEER_TEAM_STORE_ROOT` (the host's environment prefix).
-fn peer_team_store_root() -> PathBuf {
-    std::env::var_os(rightkit_agent_config::env_name("PEER_TEAM_STORE_ROOT"))
-        .map(PathBuf::from)
+/// Root directory holding one SQLite file per team: `<root>/<team_id>.sqlite`. It is
+/// `<state root>/peer-teams`, or the folder `<PREFIX>_PEER_TEAM_STORE_ROOT` names when the host
+/// lets the environment move its stores (`host_options::state_store_paths_from_environment`;
+/// with that option off the variable is never read). With no state root there is no store:
+/// the working directory is never used instead.
+fn peer_team_store_root() -> Option<PathBuf> {
+    crate::api_stores::state_store_override(crate::api_stores::StateStoreKey::PeerTeamStoreRoot)
         .or_else(|| rightkit_agent_config::state_root().map(|root| root.join("peer-teams")))
-        .unwrap_or_else(|| {
-            std::env::current_dir()
-                .unwrap_or_else(|_| PathBuf::from("."))
-                .join(rightkit_agent_config::state_dir_name())
-                .join("peer-teams")
-        })
 }
 
 fn sanitize_team_id(team_id: &str) -> Result<String, StatusCode> {
@@ -58,7 +53,8 @@ fn sanitize_team_id(team_id: &str) -> Result<String, StatusCode> {
 
 fn open_store(team_id: &str) -> Result<TeamCoordinationStore, StatusCode> {
     let safe_id = sanitize_team_id(team_id)?;
-    let path = peer_team_store_root().join(format!("{safe_id}.sqlite"));
+    let root = peer_team_store_root().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let path = root.join(format!("{safe_id}.sqlite"));
     TeamCoordinationStore::open(path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 

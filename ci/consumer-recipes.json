@@ -3886,9 +3886,9 @@
       "pkId": "PK172",
       "id": "ci/consumers/rightkit-agent-server/src/main.rs",
       "files": {
-        "Cargo.toml": "1d322e44cd86b29d9e2f09ad547c507f88d4dae7cfd92292c9604dc47e8c98e2",
-        "README.md": "5754c650b8eb76876e95b70f66c8ef1cf54681347e0da420180aa496223e22b3",
-        "src/main.rs": "eb82c9e70b7584441b394efd0eaa4bc1ff55e9a7668cb60d4b847e0a6107dc20"
+        "Cargo.toml": "a1a78013fb279227aed096100413b08f82b18051fd466a5d736673d958e5814b",
+        "README.md": "8ca1f8fb96f95c728769b9be6158642b68e2fd999b06a8ac4d1d3d96ae89d455",
+        "src/main.rs": "387ab319233601eae6652370a97a52b19e30ac12682482895b26112c28269753"
       }
     },
     "rightkit-agent-skills": {

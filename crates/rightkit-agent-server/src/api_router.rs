@@ -62,7 +62,6 @@ pub fn build_router(state: DaemonState) -> Router {
             get(super::api_session_context::get_capability_discovery_handler),
         )
         .merge(memory_routes())
-        .merge(crate::api_membrane_background::membrane_background_routes())
         .merge(notification_routes())
         .merge(remote_routes())
         .merge(settings_routes())
@@ -73,14 +72,9 @@ pub fn build_router(state: DaemonState) -> Router {
         .merge(plugin_routes())
         .merge(skills_routes())
         .merge(coordination_routes())
-        // VG-007 peer-team coordination: durable shared task board, mailbox,
-        // and mission log across independent sessions/processes — distinct
-        // from `coordination_routes()`'s parent-child subagent team
-        // definitions (see api_teams.rs module doc).
         .merge(crate::api_fs_watch::router())
         .merge(crate::api_external_observations::routes())
         .merge(crate::api_task_list::task_list_routes())
-        .merge(crate::api_teams::peer_team_routes())
         .merge(schedule_routes())
         .merge(runtime_routes())
         .merge(benchmark_routes())
@@ -90,7 +84,19 @@ pub fn build_router(state: DaemonState) -> Router {
         management_routes = management_routes.merge(routes);
     }
     // Route sets only some hosts offer; each is mounted only when its host option is on, and
-    // `api_contract` documents it under the same option.
+    // `api_contract` documents it under the same option. `data/option-gated-routes.json` lists
+    // every route of each option, and `api_contract` drops them from the contract from that file.
+    // VG-007 peer-team coordination: a durable shared task board, mailbox and mission log across
+    // independent sessions and processes, distinct from `coordination_routes()`'s parent-child
+    // subagent team definitions (see api_teams.rs module doc).
+    if crate::host_options::peer_teams() {
+        management_routes = management_routes.merge(crate::api_teams::peer_team_routes());
+    }
+    // One restricted background review request against the configured provider (a provider call).
+    if crate::host_options::membrane_background_review() {
+        management_routes =
+            management_routes.merge(crate::api_membrane_background::membrane_background_routes());
+    }
     if crate::host_options::cloud_workspaces() {
         management_routes = management_routes
             .merge(crate::api_cloud_forge::cloud_forge_routes())

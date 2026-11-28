@@ -131,15 +131,22 @@ pub(crate) fn daemon_api_endpoints() -> &'static [ApiEndpoint] {
 }
 
 /// Whether a host option removes this endpoint from the contract: the routes of a feature that
-/// is on by default and that a host can turn off. [`crate::api_router::build_router`] does not
-/// mount them there either.
+/// a host can turn off. The list is `data/option-gated-routes.json`, the file that also names the
+/// routes [`crate::api_router::build_router`] mounts under each option (see
+/// `option_gated_routes.rs`), so the two cannot drift.
 fn removed_by_options(endpoint: &ApiEndpoint) -> bool {
-    let path = endpoint.path;
-    (!crate::host_options::mcp_public_server() && path == "/mcp/server/status")
-        || (!crate::host_options::plugin_marketplace() && path.starts_with("/plugins/marketplace"))
-        || (!crate::host_options::adapt_routes()
-            && path.starts_with("/runtime/context/adapt/")
-            && path != "/runtime/context/adapt/insights")
+    crate::option_gated_routes::removed_by_options(endpoint.method, endpoint.path)
+}
+
+/// Every endpoint any group declares, the optional groups included, whatever the host's options
+/// are. For the test that keeps `data/option-gated-routes.json` in step with these tables.
+#[cfg(test)]
+pub(crate) fn declared_endpoints() -> Vec<ApiEndpoint> {
+    let mut list = DAEMON_API_ENDPOINTS.to_vec();
+    list.extend_from_slice(&group_15::ENDPOINT_GROUP_15_CLOUD);
+    list.extend_from_slice(&group_16::ENDPOINT_GROUP_16_GUEST_SHARES);
+    list.extend_from_slice(&group_16::ENDPOINT_GROUP_16_BROWSER_CONSENT);
+    list
 }
 
 const fn copy_endpoint_group<const N: usize, const M: usize>(

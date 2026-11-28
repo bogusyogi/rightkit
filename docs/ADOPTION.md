@@ -16,8 +16,8 @@ Status values compare each pin with the latest published version (registry-recor
 ## Summary
 
 - Packages in RightKit: 287 (236 crates, 51 npm packages).
-- Packages with at least one app pin: 179.
-- App pins: 615. Stale: 204. Ahead of published: 196. Unpublished: 120. Local: 0. Git: 0. Unparsed: 0.
+- Packages with at least one app pin: 175.
+- App pins: 611. Stale: 204. Ahead of published: 196. Unpublished: 116. Local: 0. Git: 0. Unparsed: 0.
 - Vendored copies of RightKit packages inside app repos: 0.
 - App and package pairs with more than one requirement: 0.
 
@@ -32,7 +32,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-agent-daemon` | crates.io | 0.2.0 | none recorded | 1 | coderight | - |
 | `rightkit-agent-demo` | crates.io | 0.2.1 | none recorded | 1 | cutright | - |
 | `rightkit-agent-engine` | crates.io | 0.2.0 | none recorded | 0 | none | - |
-| `rightkit-agent-engine-api-integrations` | crates.io | 0.1.6 | none recorded | 1 | coderight | - |
+| `rightkit-agent-engine-api-integrations` | crates.io | 0.1.6 | none recorded | 0 | none | - |
 | `rightkit-agent-engine-api-platform` | crates.io | 0.1.3 | none recorded | 1 | coderight | - |
 | `rightkit-agent-engine-api-sessions` | crates.io | 0.1.1 | none recorded | 0 | none | - |
 | `rightkit-agent-engine-api-workflows` | crates.io | 0.2.2 | none recorded | 0 | none | - |
@@ -48,14 +48,14 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-agent-engine-tasks` | crates.io | 0.3.0 | none recorded | 1 | coderight | - |
 | `rightkit-agent-gateway` | crates.io | 0.3.1 | none recorded | 0 | none | - |
 | `rightkit-agent-host-traits` | crates.io | 0.1.3 | none recorded | 1 | coderight | - |
-| `rightkit-agent-learning` | crates.io | 0.1.2 | none recorded | 1 | coderight | - |
-| `rightkit-agent-local-models` | crates.io | 0.1.3 | none recorded | 1 | coderight | - |
+| `rightkit-agent-learning` | crates.io | 0.1.2 | none recorded | 0 | none | - |
+| `rightkit-agent-local-models` | crates.io | 0.1.3 | none recorded | 0 | none | - |
 | `rightkit-agent-orchestration` | crates.io | 0.1.8 | none recorded | 1 | coderight | - |
 | `rightkit-agent-orchestration-handoff` | crates.io | 0.1.2 | none recorded | 1 | legion | - |
-| `rightkit-agent-plugins` | crates.io | 0.1.4 | none recorded | 1 | coderight | - |
+| `rightkit-agent-plugins` | crates.io | 0.1.4 | none recorded | 0 | none | - |
 | `rightkit-agent-policy` | crates.io | 0.2.4 | none recorded | 1 | coderight | - |
 | `rightkit-agent-recipes` | crates.io | 0.1.3 | none recorded | 1 | coderight | - |
-| `rightkit-agent-server` | crates.io | 0.3.0 | none recorded | 1 | coderight | - |
+| `rightkit-agent-server` | crates.io | 0.3.1 | none recorded | 1 | coderight | - |
 | `rightkit-agent-skills` | crates.io | 0.2.0 | none recorded | 1 | coderight | - |
 | `rightkit-agent-task-contract` | crates.io | 0.1.2 | none recorded | 0 | none | - |
 | `rightkit-agent-task-journal` | crates.io | 0.1.1 | none recorded | 0 | none | - |
@@ -321,7 +321,6 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-agent-config` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.1.6` | none recorded | unpublished |
 | `rightkit-agent-daemon` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.2.0` | none recorded | unpublished |
 | `rightkit-agent-demo` | cutright | `cutright/apps/cutright/src-tauri/Cargo.toml` | dependencies | `=0.2.0` | none recorded | unpublished |
-| `rightkit-agent-engine-api-integrations` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.1.6` | none recorded | unpublished |
 | `rightkit-agent-engine-api-platform` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.1.3` | none recorded | unpublished |
 | `rightkit-agent-engine-attention` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.2.2` | 0.2.0 | ahead |
 | `rightkit-agent-engine-cli` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.1.1` | none recorded | unpublished |
@@ -334,15 +333,12 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-agent-engine-storage` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.3.1` | none recorded | unpublished |
 | `rightkit-agent-engine-tasks` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.3.0` | none recorded | unpublished |
 | `rightkit-agent-host-traits` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.1.3` | none recorded | unpublished |
-| `rightkit-agent-learning` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.1.2` | none recorded | unpublished |
-| `rightkit-agent-local-models` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.1.3` | none recorded | unpublished |
 | `rightkit-agent-orchestration` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.1.8` | none recorded | unpublished |
 | `rightkit-agent-orchestration-handoff` | legion | `legion/engine/bins/legion/Cargo.toml` | dependencies | `=0.1.2` | none recorded | unpublished |
 | `rightkit-agent-orchestration-handoff` | legion | `legion/engine/crates/legion-identity/Cargo.toml` | dependencies | `=0.1.2` | none recorded | unpublished |
-| `rightkit-agent-plugins` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.1.4` | none recorded | unpublished |
 | `rightkit-agent-policy` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.2.4` | none recorded | unpublished |
 | `rightkit-agent-recipes` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.1.3` | none recorded | unpublished |
-| `rightkit-agent-server` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.3.0` | none recorded | unpublished |
+| `rightkit-agent-server` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.3.1` | none recorded | unpublished |
 | `rightkit-agent-skills` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.2.0` | none recorded | unpublished |
 | `rightkit-agent-telemetry` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.1.1` | none recorded | unpublished |
 | `rightkit-agent-tools` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.4.4` | 0.4.3 | ahead |
@@ -952,7 +948,7 @@ None.
 | scraperight | yes | 10 | 0 | 76 |
 | viewright | yes | 5 | 0 | 40 |
 | heardright | yes | 11 | 0 | 74 |
-| coderight | yes | 23 | 0 | 103 |
+| coderight | yes | 19 | 0 | 99 |
 | mailright | yes | 6 | 0 | 56 |
 | postright | yes | 6 | 0 | 53 |
 | cockpit | **missing** | 0 | 0 | 0 |

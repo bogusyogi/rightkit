@@ -6,45 +6,97 @@ fn host_state_file(name: &str) -> PathBuf {
     rightkit_agent_config::state_root_required().join(name)
 }
 
-/// The file the host's `<env prefix>_<env_suffix>` variable names, when the host lets the
-/// environment move its state stores (`host_options::state_store_paths_from_environment`) and the
-/// variable is set.
-pub(crate) fn state_store_override(env_suffix: &str) -> Option<PathBuf> {
+/// A store location the environment may move (feature `state-store-env`). The variable name each
+/// one reads exists only with that feature: without it no name is compiled in and
+/// [`state_store_override`] answers `None` for every key. No `Debug` derive: it would compile the
+/// variant names into the binary.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StateStoreKey {
+    Team,
+    Message,
+    Instincts,
+    PermissionRule,
+    PermissionDenial,
+    WorkspaceTrust,
+    TelegramBindings,
+    PeerTeamStoreRoot,
+    RunChangesDir,
+}
+
+#[cfg(feature = "state-store-env")]
+impl StateStoreKey {
+    /// The part of the variable name after the host's environment prefix.
+    fn env_suffix(self) -> &'static str {
+        match self {
+            Self::Team => "TEAM_STORE",
+            Self::Message => "MESSAGE_STORE",
+            Self::Instincts => "INSTINCTS_STORE",
+            Self::PermissionRule => "PERMISSION_RULE_STORE",
+            Self::PermissionDenial => "PERMISSION_DENIAL_STORE",
+            Self::WorkspaceTrust => "WORKSPACE_TRUST_STORE",
+            Self::TelegramBindings => "TELEGRAM_BINDINGS",
+            Self::PeerTeamStoreRoot => "PEER_TEAM_STORE_ROOT",
+            Self::RunChangesDir => "RUN_CHANGES_DIR",
+        }
+    }
+}
+
+/// The file the host's `<env prefix>_<key>` variable names, when the host lets the environment
+/// move its state stores (`host_options::state_store_paths_from_environment`) and the variable
+/// is set. Feature `state-store-env` on.
+#[cfg(feature = "state-store-env")]
+pub(crate) fn state_store_override(key: StateStoreKey) -> Option<PathBuf> {
     if !crate::host_options::state_store_paths_from_environment() {
         return None;
     }
-    std::env::var_os(rightkit_agent_config::env_name(env_suffix))
+    std::env::var_os(rightkit_agent_config::env_name(key.env_suffix()))
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
 }
 
+/// Feature `state-store-env` off: the environment is never read, whatever the host option says.
+#[cfg(not(feature = "state-store-env"))]
+pub(crate) fn state_store_override(key: StateStoreKey) -> Option<PathBuf> {
+    match key {
+        StateStoreKey::Team
+        | StateStoreKey::Message
+        | StateStoreKey::Instincts
+        | StateStoreKey::PermissionRule
+        | StateStoreKey::PermissionDenial
+        | StateStoreKey::WorkspaceTrust
+        | StateStoreKey::TelegramBindings
+        | StateStoreKey::PeerTeamStoreRoot
+        | StateStoreKey::RunChangesDir => None,
+    }
+}
+
 /// The store file for `name`, or the override file (see [`state_store_override`]).
-fn store_path(env_suffix: &str, name: &str) -> PathBuf {
-    state_store_override(env_suffix).unwrap_or_else(|| host_state_file(name))
+fn store_path(key: StateStoreKey, name: &str) -> PathBuf {
+    state_store_override(key).unwrap_or_else(|| host_state_file(name))
 }
 
 pub(crate) fn default_team_store_path() -> PathBuf {
-    store_path("TEAM_STORE", "teams.json")
+    store_path(StateStoreKey::Team, "teams.json")
 }
 
 pub(crate) fn default_message_store_path() -> PathBuf {
-    store_path("MESSAGE_STORE", "messages.json")
+    store_path(StateStoreKey::Message, "messages.json")
 }
 
 pub(crate) fn default_instincts_store_path() -> PathBuf {
-    store_path("INSTINCTS_STORE", "instincts.json")
+    store_path(StateStoreKey::Instincts, "instincts.json")
 }
 
 pub(crate) fn default_permission_rule_store_path() -> PathBuf {
-    store_path("PERMISSION_RULE_STORE", "permission-rules.json")
+    store_path(StateStoreKey::PermissionRule, "permission-rules.json")
 }
 
 pub(crate) fn default_permission_denial_store_path() -> PathBuf {
-    store_path("PERMISSION_DENIAL_STORE", "permission-denials.json")
+    store_path(StateStoreKey::PermissionDenial, "permission-denials.json")
 }
 
 pub(crate) fn default_workspace_trust_store_path() -> PathBuf {
-    store_path("WORKSPACE_TRUST_STORE", "workspace-trust.json")
+    store_path(StateStoreKey::WorkspaceTrust, "workspace-trust.json")
 }
 
 // The workspace trust store has one resolver. The file the API writes
@@ -53,20 +105,22 @@ pub(crate) fn default_workspace_trust_store_path() -> PathBuf {
 // when the override is in effect `install_workspace_trust_rule` makes its `is_workspace_trusted`
 // read the override file (a trust granted for this process alone, which that crate keeps
 // privately, then does not apply), and the two functions below cover what that rule does not:
-// the file name and `is_workspace_registered`.
+// the file name and `is_workspace_registered`. Without feature `state-store-env` there is no
+// override: the rule is not installed and both functions answer from `rightkit_agent_config`.
 
 /// The workspace trust store file every reader uses: the override file when
 /// `state_store_paths_from_environment` is on and the variable is set, else
 /// `<state root>/workspace-trust.json` (`None` when there is no state root).
 pub(crate) fn workspace_trust_store_file() -> Option<PathBuf> {
-    state_store_override("WORKSPACE_TRUST_STORE")
+    state_store_override(StateStoreKey::WorkspaceTrust)
         .or_else(rightkit_agent_config::workspace_trust_store_file)
 }
 
 /// [`rightkit_agent_config::is_workspace_registered`] against the one trust store file: whether
 /// a trust decision (trusted or not) is recorded for the folder or an ancestor of it.
+#[cfg(feature = "state-store-env")]
 pub(crate) fn is_workspace_registered(workspace_root: &FsPath) -> bool {
-    let Some(store) = state_store_override("WORKSPACE_TRUST_STORE") else {
+    let Some(store) = state_store_override(StateStoreKey::WorkspaceTrust) else {
         return rightkit_agent_config::is_workspace_registered(workspace_root);
     };
     let text = workspace_root.to_string_lossy();
@@ -91,14 +145,23 @@ pub(crate) fn is_workspace_registered(workspace_root: &FsPath) -> bool {
     .is_some()
 }
 
+/// Feature `state-store-env` off: there is no override file, so this is the configuration
+/// crate's own answer.
+#[cfg(not(feature = "state-store-env"))]
+pub(crate) fn is_workspace_registered(workspace_root: &FsPath) -> bool {
+    rightkit_agent_config::is_workspace_registered(workspace_root)
+}
+
 /// With an override in effect, make the configuration crate's own trust checks read the override
 /// file: the rule it is given replaces its persisted-store lookup. The rule fails closed. Without
 /// an override the configuration crate keeps its default lookup. Run once at start-up, before
-/// any thread. A host that installed a rule of its own keeps it.
+/// any thread. A host that installed a rule of its own keeps it. Exists only with feature
+/// `state-store-env`.
+#[cfg(feature = "state-store-env")]
 pub(crate) fn install_workspace_trust_rule() {
-    if state_store_override("WORKSPACE_TRUST_STORE").is_some() {
+    if state_store_override(StateStoreKey::WorkspaceTrust).is_some() {
         rightkit_agent_config::set_workspace_trust_rule(|root| {
-            state_store_override("WORKSPACE_TRUST_STORE").is_some_and(|store| {
+            state_store_override(StateStoreKey::WorkspaceTrust).is_some_and(|store| {
                 rightkit_agent_config::is_workspace_trusted_in(&store, &root.to_string_lossy())
             })
         });

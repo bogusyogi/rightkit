@@ -110,13 +110,6 @@ impl RuntimeNodeDispatcher {
         }
     }
 
-    /// Inject daemon-owned A2A transport after startup has supplied trusted
-    /// verifier & transport bindings. `None` keeps remote execution closed.
-    pub fn with_a2a_adapter(mut self, a2a: Option<Arc<A2aAdapter>>) -> Self {
-        self.a2a = a2a;
-        self
-    }
-
     async fn execute_a2a(
         &self,
         spec: &NodeSpec,

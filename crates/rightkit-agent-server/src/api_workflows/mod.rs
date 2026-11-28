@@ -18,16 +18,9 @@ pub mod openapi;
 pub mod routes;
 pub mod state;
 
-// Public re-exports for downstream callers. Production mounts the workflow
-// surface exclusively through `state::build_router` (see
-// `main_runtime_server.rs`, which builds a real `WorkflowApiState` and calls
-// this); `routes::router`/a state-free deferred constructor are intentionally
-// not re-exported here (ra-021) so `state::build_router` remains sole owner
-// of the live typed workflow router rather than one of two competing router
-// surfaces.
-#[allow(unused_imports)]
-pub use error::WorkflowApiError;
-#[allow(unused_imports)]
-pub use openapi::openapi_v1_schema;
-#[allow(unused_imports)]
+// Production mounts the workflow surface exclusively through `state::build_router` (see
+// `main_runtime_server.rs`, which builds a real `WorkflowApiState` and calls this);
+// `routes::router`/a state-free deferred constructor are intentionally not re-exported here
+// (ra-021) so `state::build_router` remains sole owner of the live typed workflow router rather
+// than one of two competing router surfaces.
 pub use state::{build_router, WorkflowApiState};

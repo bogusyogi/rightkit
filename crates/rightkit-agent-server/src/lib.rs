@@ -158,6 +158,7 @@ mod model_policy;
 mod native_transcript_exporter;
 mod observation;
 mod open_url;
+mod option_gated_routes;
 mod orchestrator;
 mod plan_exit;
 mod pre_gate;
@@ -321,6 +322,7 @@ pub fn run(identity: HostIdentity) {
         eprintln!("{error}");
         std::process::exit(2);
     }
+    #[cfg(feature = "state-store-env")]
     api_stores::install_workspace_trust_rule();
     install_crash_capture();
     exit_quietly_on_broken_pipe();

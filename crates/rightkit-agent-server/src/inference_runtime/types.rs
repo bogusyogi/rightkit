@@ -63,27 +63,6 @@ pub struct CatalogModel {
     pub unavailable_reason: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CatalogGroup {
-    pub authority: InferenceAuthority,
-    pub connection_id: String,
-    pub name: String,
-    pub protocol: InferenceProtocol,
-    pub state: CatalogState,
-    pub models: Vec<CatalogModel>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CatalogState {
-    Ready,
-    NeedsSecret,
-    Unreachable,
-    Unqualified,
-    Invalid,
-}
-
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LoadSnapshot {
