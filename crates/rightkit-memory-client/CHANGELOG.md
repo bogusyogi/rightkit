@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2
+
+- `memory_save` (feature `agent_host`) asks for approval for anything that did not come from the user's own session (`rightkit_agent_policy::memory_write_is_authorized`), tool output included. It asked only for content from outside (web or MCP). Stricter for every host.
+- The `agent_host` feature builds against `rightkit-agent-coding-tools` 0.2 and `rightkit-agent-policy` 0.2.4. The 0.1.1 on crates.io was published while the requirement was still 0.1, so a host on coding-tools 0.2 got two copies of the tools crate; this release is the first published with the 0.2 requirement.
+
 ## 0.1.1 (2026-11-16)
 
 - Requires rightkit-agent-coding-tools 0.1.8 and names its `os-keyring` feature for `agent_host`, so the build is unchanged (coding-tools no longer implies the OS keyring). No behaviour change.

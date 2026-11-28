@@ -185,7 +185,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-media-gen-models` | crates.io | 0.1.1 | none recorded | 1 | genright | - |
 | `rightkit-media-pipeline` | crates.io | 0.2.2 | none recorded | 1 | genright | - |
 | `rightkit-memory` | crates.io | 0.3.1 | 0.3.1 | 0 | none | - |
-| `rightkit-memory-client` | crates.io | 0.1.1 | none recorded | 1 | coderight | - |
+| `rightkit-memory-client` | crates.io | 0.1.2 | none recorded | 1 | coderight | - |
 | `rightkit-memory-core` | crates.io | 0.2.1 | none recorded | 0 | none | - |
 | `rightkit-memory-store` | crates.io | 0.2.2 | 0.2.1 | 0 | none | - |
 | `rightkit-mesh` | crates.io | 0.2.3 | none recorded | 0 | none | - |

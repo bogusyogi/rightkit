@@ -708,7 +708,7 @@
     "rightkit-media-gen-models": "0.1.1",
     "rightkit-media-pipeline": "0.2.2",
     "rightkit-memory": "0.3.1",
-    "rightkit-memory-client": "0.1.1",
+    "rightkit-memory-client": "0.1.2",
     "rightkit-memory-core": "0.2.1",
     "rightkit-memory-store": "0.2.2",
     "rightkit-mesh": "0.2.3",

@@ -84,7 +84,7 @@ impl Tool for MemorySaveTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolContext) -> ToolResult {
-        if !rightkit_agent_policy::durable_write_is_authorized(
+        if !rightkit_agent_policy::memory_write_is_authorized(
             &ctx.content_provenance,
             ctx.durable_write_approved,
         ) {

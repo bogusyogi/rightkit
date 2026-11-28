@@ -1,4 +1,4 @@
-// rightkit-memory-client 0.1.0 (published as rightkit-memory until 0.1.1) consumed by exact registry
+// rightkit-memory-client 0.1.0 (published as rightkit-memory until 0.1.2) consumed by exact registry
 // pin: write screening, scope slugs, the membrane schema check and the engine's tier type at the
 // backend boundary. No external membrane binary is run.
 use rightkit_memory_client::backend::types::path_to_scope;

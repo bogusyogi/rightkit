@@ -4247,9 +4247,9 @@
       "pkId": "PK220",
       "id": "ci/consumers/rightkit-memory-client/src/main.rs",
       "files": {
-        "Cargo.toml": "cbba1c3a510f989272b68691d92355dd9bf2d9e80b499ddc863861c939df1f18",
-        "README.md": "4c56e1dc850843d829c5e2f09af259d27c9034805104c0ff79b51d2831bc29f5",
-        "src/main.rs": "95155bd8bc2f971295aede340b64f452b4741a1a40fe9ad0694720b769a70da1"
+        "Cargo.toml": "8a4ff2d3ae08dae1819ad71c0b0b70549eaf94884156709f68c2df4b5faae3e1",
+        "README.md": "a4009abfca40ff9c69ecfca26304776856dc980112b4442271c7fb0236a9c48b",
+        "src/main.rs": "48df64f9a0a4fb691d327b75f951e30d0409278e620a788cd1e8915c4be53e10"
       }
     },
     "rightkit-launcher-win": {
