@@ -10659,7 +10659,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-app-settings"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "rightkit-credentials",
  "rightkit-db",
@@ -10749,7 +10749,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-audio"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "block2",
  "cpal",
@@ -11418,7 +11418,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-dictation-app-runtime"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "rightkit-daemon",
  "rightkit-dictation-core",
@@ -12115,7 +12115,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-license"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "base64 0.23.1",
  "ed25519-dalek",
@@ -13216,7 +13216,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tauri-shell"
-version = "0.8.11"
+version = "0.8.12"
 dependencies = [
  "block2",
  "libc 0.2.191",

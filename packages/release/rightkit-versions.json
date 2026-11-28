@@ -594,13 +594,13 @@
     "rightkit-app-icon": "0.1.1",
     "rightkit-app-lock": "0.1.1",
     "rightkit-app-manager": "0.2.5",
-    "rightkit-app-settings": "0.4.4",
+    "rightkit-app-settings": "0.4.5",
     "rightkit-app-update": "0.2.1",
     "rightkit-apple-ops": "0.2.0",
     "rightkit-approvals": "0.2.2",
     "rightkit-asr": "0.5.2",
     "rightkit-assist": "0.1.1",
-    "rightkit-audio": "0.4.5",
+    "rightkit-audio": "0.4.6",
     "rightkit-autoedit": "0.2.1",
     "rightkit-automation": "0.7.6",
     "rightkit-autostart": "0.1.1",
@@ -647,7 +647,7 @@
     "rightkit-device-link": "0.1.0",
     "rightkit-device-link-core": "0.1.1",
     "rightkit-device-link-types": "0.1.2",
-    "rightkit-dictation-app-runtime": "0.3.2",
+    "rightkit-dictation-app-runtime": "0.3.3",
     "rightkit-dictation-command-host": "0.3.4",
     "rightkit-dictation-core": "0.3.7",
     "rightkit-dictation-engine": "0.2.1",
@@ -692,7 +692,7 @@
     "rightkit-launcher": "0.2.2",
     "rightkit-launcher-win": "0.2.1",
     "rightkit-library": "0.3.1",
-    "rightkit-license": "0.3.5",
+    "rightkit-license": "0.3.6",
     "rightkit-llm": "0.7.2",
     "rightkit-local-gen": "0.1.4",
     "rightkit-logs": "0.4.5",
@@ -762,7 +762,7 @@
     "rightkit-sync-keys": "0.1.0",
     "rightkit-sysmem": "0.1.0",
     "rightkit-system-monitor": "0.3.2",
-    "rightkit-tauri-shell": "0.8.11",
+    "rightkit-tauri-shell": "0.8.12",
     "rightkit-terminal-ui": "0.2.0",
     "rightkit-text-polish": "0.1.4",
     "rightkit-theme": "0.1.1",
@@ -1009,7 +1009,8 @@
       "0.3.0",
       "0.4.1",
       "0.4.2",
-      "0.4.3"
+      "0.4.3",
+      "0.4.4"
     ],
     "rightkit-asr": [
       "0.0.2",
@@ -1035,7 +1036,8 @@
       "0.4.0",
       "0.4.1",
       "0.4.3",
-      "0.4.4"
+      "0.4.4",
+      "0.4.5"
     ],
     "rightkit-automation": [
       "0.3.0",
@@ -1188,7 +1190,8 @@
     "rightkit-dictation-app-runtime": [
       "0.2.0",
       "0.2.2",
-      "0.3.1"
+      "0.3.1",
+      "0.3.2"
     ],
     "rightkit-dictation-command-host": [
       "0.3.0",
@@ -1360,7 +1363,8 @@
       "0.2.5",
       "0.3.1",
       "0.3.2",
-      "0.3.4"
+      "0.3.4",
+      "0.3.5"
     ],
     "rightkit-llm": [
       "0.1.0",
@@ -1690,7 +1694,8 @@
       "0.8.2",
       "0.8.7",
       "0.8.9",
-      "0.8.10"
+      "0.8.10",
+      "0.8.11"
     ],
     "rightkit-text-polish": [
       "0.1.1",
