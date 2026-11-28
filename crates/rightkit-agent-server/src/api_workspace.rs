@@ -64,6 +64,30 @@ mod watcher;
 
 pub use routes::workspace_routes;
 
+/// Resolve a file a client names, as a path relative to `workspace_root`, to its canonical path
+/// inside that workspace, with the policy every workspace read goes through: the root must be a
+/// workspace this engine knows (a recorded trust decision), the path must be relative, free of
+/// `..`, and must stay inside the root after symlinks are resolved, and a secret file name or a
+/// read-deny glob refuses it. The error is the status to answer with and the reason in words.
+pub(crate) fn resolve_workspace_file(
+    workspace_root: &str,
+    relative_path: &str,
+) -> Result<std::path::PathBuf, (axum::http::StatusCode, String)> {
+    let refusal = |error: types::PolicyError| {
+        let reason = match &error {
+            types::PolicyError::BadRequest(reason) | types::PolicyError::Forbidden(reason) => {
+                reason.clone()
+            }
+            types::PolicyError::NotFound => "the file was not found in the workspace".to_string(),
+        };
+        (error.status(), reason)
+    };
+    let trust_root = policy::derive_trust_root(workspace_root).map_err(refusal)?;
+    let (resolved, _, _) =
+        policy::resolve_within_trust_root(&trust_root, relative_path, true).map_err(refusal)?;
+    Ok(resolved)
+}
+
 pub(crate) use openapi::{
     workspace_openapi_components, workspace_openapi_request_schema,
     workspace_openapi_response_schema,

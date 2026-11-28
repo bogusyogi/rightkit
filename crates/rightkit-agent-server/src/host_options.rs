@@ -90,16 +90,6 @@ host_option!(
 );
 
 host_option!(
-    /// The conductor gets its planning memory from one Membrane context pull and notes in the run
-    /// report when context was off or a memory write failed. `false` (the default) uses the
-    /// session memory retrieval and adds no note.
-    CONDUCTOR_CONTEXT_PULL,
-    set_conductor_context_pull,
-    conductor_context_pull,
-    default = false
-);
-
-host_option!(
     /// A missing licence feature refuses the route that needs it. `true` (the default) enforces;
     /// `false` lets every feature check pass (the licence state is still reported).
     LICENSE_ENFORCED,
@@ -126,8 +116,11 @@ host_option!(
 );
 
 host_option!(
-    /// A provider key may come from the environment variable a route names in `api-key-env`.
-    /// `true` (the default) allows it; `false` takes keys only from the credential store.
+    /// A provider key may come from the environment variable a route names in `api-key-env`, and
+    /// the setup hints, the readiness row and the doctor tell the user to set one. `true` (the
+    /// default) allows it and says so; `false` makes those messages point to the credential store
+    /// (Settings > Providers) only. `false` does not stop the `<PREFIX>_<NAME>_API_KEY` lookups
+    /// of the provider crates: those follow the provider crates' own host options.
     PROVIDER_KEYS_FROM_ENVIRONMENT,
     set_provider_keys_from_environment,
     provider_keys_from_environment,
@@ -145,21 +138,14 @@ host_option!(
 
 host_option!(
     /// `mcp-server` without `--session-id` runs the stand-alone server (read-only unless
-    /// `--allow-mutate`), and `/mcp/server/status` exists. `true` (the default) offers it;
-    /// `false` refuses a server that is not bound to a session.
+    /// `--allow-mutate`), and `/mcp/server/status`, its contract entry and the `mcp status`
+    /// command exist. `true` (the default) offers them; `false` refuses a server that is not
+    /// bound to a session, removes the status route, entry and command, and hides `mcp-server`
+    /// from the help as an internal driver helper.
     MCP_PUBLIC_SERVER,
     set_mcp_public_server,
     mcp_public_server,
     default = true
-);
-
-host_option!(
-    /// The driver `memory_recall` tool asks the memory backend directly and labels every item
-    /// unverified. `false` (the default) uses the session memory retrieval with provenance.
-    MEMORY_RECALL_UNVERIFIED_ITEMS,
-    set_memory_recall_unverified_items,
-    memory_recall_unverified_items,
-    default = false
 );
 
 host_option!(
@@ -310,3 +296,113 @@ pub fn set_web_client_assets(assets: &'static [WebAsset]) -> bool {
 pub fn web_client_assets() -> &'static [WebAsset] {
     WEB_CLIENT_ASSETS.get().copied().unwrap_or(&[])
 }
+
+host_option!(
+    /// The state stores (teams, messages, instincts, permission rules, permission denials,
+    /// workspace trust) and the run-changes folder may be moved with the environment variables
+    /// `<PREFIX>_TEAM_STORE`, `<PREFIX>_MESSAGE_STORE`, `<PREFIX>_INSTINCTS_STORE`,
+    /// `<PREFIX>_PERMISSION_RULE_STORE`, `<PREFIX>_PERMISSION_DENIAL_STORE`,
+    /// `<PREFIX>_WORKSPACE_TRUST_STORE` and `<PREFIX>_RUN_CHANGES_DIR`. With the option on, every
+    /// reader of the workspace trust store in this crate reads the file the variable names, so
+    /// the file that grants trust is the file that is checked. `true` (the default) reads the
+    /// variables; `false` ignores them and always uses the files under the state root.
+    STATE_STORE_PATHS_FROM_ENVIRONMENT,
+    set_state_store_paths_from_environment,
+    state_store_paths_from_environment,
+    default = true
+);
+
+host_option!(
+    /// The plugin marketplace exists: the marketplace, rollback and versions routes (with their
+    /// contract entries), the matching `plugin` subcommands and the signature and provenance
+    /// fields of the plugin listing. `true` (the default) offers them; `false` removes all of
+    /// them. Either way a rollback or an install from the marketplace needs the caller's
+    /// explicit trust acceptance.
+    PLUGIN_MARKETPLACE,
+    set_plugin_marketplace,
+    plugin_marketplace,
+    default = true
+);
+
+host_option!(
+    /// The six Adapt routes (`/runtime/context/adapt/status`, `review-taste`, `adjudicate-taste`,
+    /// `apply-insights`, `apply-taste`, `recall`) exist, with their OpenAPI and contract entries.
+    /// `true` (the default) mounts them, with every client-supplied path confined to the
+    /// session's workspace; `false` mounts only the `insights` route.
+    ADAPT_ROUTES,
+    set_adapt_routes,
+    adapt_routes,
+    default = true
+);
+
+host_option!(
+    /// The `acp-server` command (alias `acp`) exists: it bridges the Agent Client Protocol on
+    /// standard input and output to a running daemon. `true` (the default) offers it; `false`
+    /// lists it as a deleted command.
+    ACP_SERVER,
+    set_acp_server,
+    acp_server,
+    default = true
+);
+
+host_option!(
+    /// `run --auto-approve` and `review --auto-approve` exist as flags. `true` (the default)
+    /// accepts them; `false` removes them from the command grammar, so they are refused as
+    /// unknown flags.
+    LEGACY_AUTO_APPROVE_FLAGS,
+    set_legacy_auto_approve_flags,
+    legacy_auto_approve_flags,
+    default = true
+);
+
+host_option!(
+    /// The licence clock is also kept in a file in the licence folder the licence owner names
+    /// (`ENV_LICENSE_DIR` of `rightkit_agent_config::licence_env`). `true` (the default) keeps it: a licence owner that names no
+    /// folder is refused (closed), and the "clock was initialised" mark the owner delivers is
+    /// passed unchanged to the file clock, so a missing or older clock file is refused. `false`
+    /// ignores the folder variable and runs the delivered mark clock only.
+    LICENSE_FILE_CLOCK,
+    set_license_file_clock,
+    license_file_clock,
+    default = true
+);
+
+host_option!(
+    /// `require_token` also accepts the bearer in the legacy `x-{app}-token` header. `false` (the
+    /// default) accepts `Authorization: Bearer` only.
+    LEGACY_TOKEN_HEADER,
+    set_legacy_token_header,
+    legacy_token_header,
+    default = false
+);
+
+host_option!(
+    /// A turn that nobody is attached to (a webhook trigger, a scheduled run) runs in the
+    /// `auto-safe` permission mode. `false` (the default) runs it in `ask`, where a call that
+    /// needs approval is denied at once as unattended.
+    UNATTENDED_TURNS_AUTO_SAFE,
+    set_unattended_turns_auto_safe,
+    unattended_turns_auto_safe,
+    default = false
+);
+
+host_option!(
+    /// A notification that arrives in quiet hours is dropped, and the response says so without a
+    /// release time. `false` (the default) holds it and answers with the time it is released.
+    NOTIFICATIONS_DROPPED_IN_QUIET_HOURS,
+    set_notifications_dropped_in_quiet_hours,
+    notifications_dropped_in_quiet_hours,
+    default = false
+);
+
+host_option!(
+    /// The server prepares the ONNX Runtime for the local embedder: it finds the runtime library
+    /// and the embedder model folder and sets the variables that name them in the process (the
+    /// names are fixed by the ONNX crate), and a build with the `fastembed` feature refuses to
+    /// start `serve` without a usable runtime. `true` (the default) does all that; `false`
+    /// leaves the embedder alone.
+    EMBEDDER_RUNTIME_SETUP,
+    set_embedder_runtime_setup,
+    embedder_runtime_setup,
+    default = true
+);

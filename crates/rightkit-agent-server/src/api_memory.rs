@@ -165,11 +165,7 @@ async fn list_memory_handler(
             .await
     };
     let entries = match entries {
-        Ok(entries) => entries
-            .into_iter()
-            .filter(|entry| !rightkit_memory_client::memory_provenance::is_provenance_id(&entry.id))
-            .take(limit)
-            .collect::<Vec<_>>(),
+        Ok(entries) => entries.into_iter().take(limit).collect::<Vec<_>>(),
         Err(error) => {
             let status = memory_backend_status(error.clone());
             return (
@@ -270,12 +266,6 @@ pub async fn render_memory_command(state: &DaemonState, args: &[String]) -> Comm
             .await
         {
             Ok(rows) => {
-                let rows = rows
-                    .into_iter()
-                    .filter(|row| {
-                        !rightkit_memory_client::memory_provenance::is_provenance_id(&row.id)
-                    })
-                    .collect::<Vec<_>>();
                 if rows.is_empty() {
                     return command_ok("No durable memories recorded yet.");
                 }
@@ -304,11 +294,7 @@ pub async fn render_memory_command(state: &DaemonState, args: &[String]) -> Comm
             .await
     };
     let entries = match entries {
-        Ok(entries) => entries
-            .into_iter()
-            .filter(|entry| !rightkit_memory_client::memory_provenance::is_provenance_id(&entry.id))
-            .take(10)
-            .collect::<Vec<_>>(),
+        Ok(entries) => entries.into_iter().take(10).collect::<Vec<_>>(),
         Err(error) => return command_error(format!("memory lookup failed: {error}")),
     };
     if entries.is_empty() {

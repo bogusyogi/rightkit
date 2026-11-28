@@ -56,7 +56,6 @@ pub(crate) struct SessionToolRegistryRequest<'a> {
     pub(crate) model_interface: rightkit_agent_coding_tools::ModelToolInterface,
     pub(crate) memory: Option<(
         Arc<dyn rightkit_memory_client::backend::MemoryBackend>,
-        rightkit_memory_client::memory_provenance::MemoryProvenanceStore,
         &'a str,
     )>,
 }
@@ -160,8 +159,11 @@ pub(crate) fn build_session_tool_registry_for_plugins(
         ));
     }
 
-    // memory_save is host-owned because it carries selected backend/provenance.
-    if let Some((backend, provenance, workspace_root)) = memory {
+    // memory_save is registered by this crate, not taken from the shared memory-client crate:
+    // this crate's tool refuses every write whose origin is not the user's own session unless the
+    // operator approved that exact call (`memory_write_is_authorized`), where the shared tool
+    // asks only for content that came from outside (`durable_write_is_authorized`).
+    if let Some((backend, workspace_root)) = memory {
         let allowed = match &filter {
             Some(selected) => selected.iter().any(|tool| tool == "memory_save"),
             None => !requested_disallowed_tools
@@ -169,13 +171,10 @@ pub(crate) fn build_session_tool_registry_for_plugins(
                 .any(|tool| tool == "memory_save"),
         };
         if allowed {
-            registry.register(Box::new(
-                rightkit_memory_client::memory_save_tool::MemorySaveTool::new(
-                    backend,
-                    provenance,
-                    workspace_root,
-                ),
-            ));
+            registry.register(Box::new(crate::memory_save_tool::MemorySaveTool::new(
+                backend,
+                workspace_root,
+            )));
         }
     }
 

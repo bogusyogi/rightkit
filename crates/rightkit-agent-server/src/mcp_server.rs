@@ -190,6 +190,14 @@ pub async fn run_stdio(options: McpServerOptions) -> i32 {
     run_reader(reader, &mut stdout, options).await
 }
 
+/// Write one start-up refusal line. The refusal is the exit status; a reader that has gone is
+/// noted, not a second failure.
+fn write_refusal<W: std::io::Write>(writer: &mut W, response: Value) {
+    if let Err(error) = writeln!(writer, "{response}") {
+        tracing::debug!(%error, "the MCP refusal could not be written");
+    }
+}
+
 pub async fn run_reader<R: BufRead, W: std::io::Write>(
     reader: R,
     writer: &mut W,
@@ -198,18 +206,14 @@ pub async fn run_reader<R: BufRead, W: std::io::Write>(
     let gateway = match SessionGateway::from_options(&options) {
         Ok(gateway) => gateway,
         Err(error) => {
-            let _ = writeln!(writer, "{}", error_response(None, -32000, error));
+            write_refusal(writer, error_response(None, -32000, error));
             return 1;
         }
     };
     if gateway.is_none() && !crate::host_options::mcp_public_server() {
         // Contract R32: on this host `mcp-server` is the session-bound driver helper only.
         // The public no-session server is deleted.
-        let _ = writeln!(
-            writer,
-            "{}",
-            error_response(None, -32000, no_session_refusal())
-        );
+        write_refusal(writer, error_response(None, -32000, no_session_refusal()));
         return 1;
     }
     let inline = if gateway.is_none() {
@@ -221,7 +225,7 @@ pub async fn run_reader<R: BufRead, W: std::io::Write>(
         {
             Ok(inline) => Some(inline),
             Err(error) => {
-                let _ = writeln!(writer, "{}", error_response(None, -32000, error));
+                write_refusal(writer, error_response(None, -32000, error));
                 return 1;
             }
         }

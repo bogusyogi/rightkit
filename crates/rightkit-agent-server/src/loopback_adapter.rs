@@ -8,8 +8,9 @@
 //! converts the router's answer back, streaming `text/event-stream` bodies chunk by chunk.
 //!
 //! Every host serves through this adapter. What differs per host: the guest-link verifier (only
-//! on a host that turns `host_options::guest_shares` on), and the `?access_token=` carrier on the
-//! event-stream route (only on a host that keeps `host_options::query_token_on_sse_route`).
+//! on a host that turns `host_options::guest_shares` on), the legacy `x-{app}-token` header (only
+//! on a host that turns `host_options::legacy_token_header` on), and the `?access_token=` carrier
+//! on the event-stream route (only on a host that keeps `host_options::query_token_on_sse_route`).
 
 use rightkit_daemon::loopback::{
     Authenticated, Body, CapabilityGrant, CapabilityVerifier, Limits, Loopback, LoopbackApp,
@@ -258,7 +259,6 @@ pub(crate) fn start(
     let mut config = LoopbackConfig::new()
         .port(port)
         .token(LoopbackToken::from_string(token).map_err(std::io::Error::other)?)
-        .legacy_token_header(&crate::host_identity::header("token"))
         .max_connections(1024)
         .route(RouteSpec::public(
             Method::Post,
@@ -270,6 +270,9 @@ pub(crate) fn start(
         ))
         .limits(Limits::default())
         .origin_policy(origin_policy());
+    if crate::host_options::legacy_token_header() {
+        config = config.legacy_token_header(&crate::host_identity::header("token"));
+    }
     if crate::host_options::guest_shares() {
         // The owner bearer or a guest-link bearer on the same session routes.
         config = config
@@ -278,10 +281,6 @@ pub(crate) fn start(
     }
     if crate::host_options::query_token_on_sse_route() {
         config = config.route(RouteSpec::bearer_query_token(SSE_ROUTE));
-    }
-    // The browser client's own files hold no data and a browser opening the page sends no bearer.
-    for path in crate::api_web::web_asset_paths() {
-        config = config.route(RouteSpec::public(Method::Get, path));
     }
     Loopback::start(config, slot)
 }
@@ -298,7 +297,6 @@ fn origin_policy() -> OriginPolicy {
         "content-type".to_string(),
         "accept".to_string(),
         "last-event-id".to_string(),
-        crate::host_identity::header("token"),
         crate::host_identity::header("trusted-source"),
         crate::host_identity::header("capability-token"),
         crate::host_identity::header("driver-instance"),
@@ -306,6 +304,9 @@ fn origin_policy() -> OriginPolicy {
         crate::host_identity::header("source-trust"),
     ] {
         policy = policy.allow_request_header(&header);
+    }
+    if crate::host_options::legacy_token_header() {
+        policy = policy.allow_request_header(&crate::host_identity::header("token"));
     }
     policy
 }

@@ -246,6 +246,7 @@ fn classify_cli_host_route_with_service_selection(
         | Command::Diff { .. }
         | Command::Discover { .. }
         | Command::Ssh { .. }
+        | Command::AcpServer { .. }
         | Command::Help { .. } => CliHostRoute::LocalUtility,
         Command::Recipe { command } => match command {
             RecipeCommand::Run { .. } => {
@@ -329,13 +330,7 @@ fn apply_membrane_cli_composition(mut state: api::DaemonState) -> api::DaemonSta
     )));
     match rightkit_memory_client::backend::native::connect_from_environment() {
         Ok(backend) => {
-            let provenance =
-                rightkit_memory_client::memory_provenance::MemoryProvenanceStore::from_backend(
-                    backend.clone(),
-                );
-            state = state
-                .with_memory_backend(backend)
-                .with_memory_provenance(provenance);
+            state = state.with_memory_backend(backend);
             // Pulse absent connects to the typed unavailable backend; the
             // context is still off and must be reported degraded.
             if rightkit_memory_client::backend::native::context_is_off() {
@@ -354,11 +349,6 @@ fn apply_membrane_cli_composition(mut state: api::DaemonState) -> api::DaemonSta
                         error.message(),
                     ),
                 ))
-                .with_memory_provenance(
-                    rightkit_memory_client::memory_provenance::MemoryProvenanceStore::unavailable(
-                        reason.clone(),
-                    ),
-                )
                 .with_context_degraded(reason);
         }
     }
@@ -880,6 +870,56 @@ impl InlineMcpProjection {
             ))
             .map_err(|_| "vendor host already bound".to_string())?;
         Ok((projection, stream))
+    }
+
+    /// A projection over a fresh read-only session (or a mutating one with `allow_mutate`) on the
+    /// shared inline host, for the stand-alone MCP server.
+    pub(crate) async fn build(
+        workspace: &std::path::Path,
+        allow_mutate: bool,
+    ) -> Result<Self, String> {
+        let host = InlineHost::shared().await?;
+        Self::build_with_state_impl(host.state, workspace, allow_mutate).await
+    }
+
+    async fn build_with_state_impl(
+        state: api::DaemonState,
+        workspace: &std::path::Path,
+        allow_mutate: bool,
+    ) -> Result<Self, String> {
+        let permission_mode = if allow_mutate { "bypass" } else { "ask" };
+        Self::build_with_state_and_mode(state, workspace, allow_mutate, permission_mode).await
+    }
+
+    async fn build_with_state_and_mode(
+        state: api::DaemonState,
+        workspace: &std::path::Path,
+        allow_mutate: bool,
+        permission_mode: &str,
+    ) -> Result<Self, String> {
+        let session_id = format!("mcp-{}", rightkit_agent_engine_protocol::uuid_v7());
+        let toolset = (!allow_mutate).then_some("read-only");
+        let request: api::CreateSession = serde_json::from_value(serde_json::json!({
+            "id": session_id,
+            "title": "MCP stdio",
+            "workspaceRoot": workspace.to_string_lossy(),
+            "toolset": toolset,
+            "safeMode": !allow_mutate,
+            "permissionMode": permission_mode,
+            "mcpChannel": "cli"
+        }))
+        .map_err(|error| format!("build inline MCP session request: {error}"))?;
+        crate::api_sessions::lifecycle::create_session_handler(
+            AxumState(state.clone()),
+            AxumJson(request),
+        )
+        .await
+        .map_err(|status| format!("create inline MCP session: HTTP {status}"))?;
+        Ok(Self {
+            state,
+            session_id,
+            vendor_grants: Mutex::new(Vec::new()),
+        })
     }
 
     pub(crate) async fn permission_prompt(

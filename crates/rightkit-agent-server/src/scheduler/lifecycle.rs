@@ -460,7 +460,7 @@ fn workspace_may_fire_schedules(root: &std::path::Path, with_untrusted_schedules
         return true;
     }
     if root
-        .join(crate::host_identity::home_dir())
+        .join(rightkit_agent_config::state_dir_name())
         .join("schedules.json")
         .is_file()
     {

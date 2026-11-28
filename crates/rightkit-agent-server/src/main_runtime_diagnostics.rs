@@ -151,8 +151,7 @@ async fn daemon_diagnostics_watch(once: bool, interval_ms: u64, json: bool) -> i
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(connection) => connection,
         None => {
-            eprintln!("{}", no_daemon_message());
-            return 1;
+            return host_unreachable_exit(json);
         }
     };
     let client = match rightkit_agent_daemon::http_client::daemon_client(&base_url) {
@@ -246,8 +245,7 @@ async fn daemon_diagnostics_bundle(output: &str) -> i32 {
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!("{}", no_daemon_message());
-            return 1;
+            return host_unreachable_exit(false);
         }
     };
     let resp = match rightkit_agent_daemon::http_client::daemon_call(

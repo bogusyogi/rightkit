@@ -219,9 +219,6 @@ pub(crate) struct SessionPromptParts<'a> {
     pub(crate) role_prompt: Option<&'a str>,
     pub(crate) instinct_block: Option<&'a str>,
     pub(crate) environment_snapshot: Option<&'a str>,
-    /// The durable-memory block; the host's context service owns admission, so this is `None`
-    /// unless a host still injects one.
-    pub(crate) memory_block: Option<&'a str>,
     pub(crate) mcp_servers: Vec<String>,
 }
 
@@ -234,7 +231,6 @@ pub(crate) fn compose_session_system_prompt(parts: SessionPromptParts<'_>) -> Op
         role_prompt,
         instinct_block,
         environment_snapshot,
-        memory_block,
         mcp_servers,
     } = parts;
     // Always-on: every session leads with identity + tone, then the
@@ -264,9 +260,6 @@ pub(crate) fn compose_session_system_prompt(parts: SessionPromptParts<'_>) -> Op
     }
     if let Some(snapshot) = environment_snapshot.filter(|s| !s.trim().is_empty()) {
         parts.push(prompt_section("environment", snapshot));
-    }
-    if let Some(memories) = memory_block.filter(|s| !s.trim().is_empty()) {
-        parts.push(prompt_section("memory", memories));
     }
     // Sorted and built once from the configured servers, so the prompt prefix stays stable for
     // the session's cache.
@@ -309,7 +302,6 @@ mod prompt_section_tests {
                 role_prompt: Some("role text"),
                 instinct_block: Some("instinct text"),
                 environment_snapshot: Some("env text"),
-                memory_block: None,
                 mcp_servers: vec!["b".into(), "a".into()],
             })
             .expect("a prompt")

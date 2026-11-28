@@ -7,10 +7,12 @@
 //! `/web/<file>` with a plain file name; anything else is skipped with a warning, so a host can
 //! never mount a file outside that prefix.
 //!
-//! These routes are the only static files the daemon serves and they sit outside the bearer gate
-//! because they hold no data: the page reads the daemon token from its URL fragment (which a
-//! browser never sends to a server), keeps it in `sessionStorage`, and calls the ordinary API
-//! with `Authorization: Bearer`. Every API call stays behind `require_token`.
+//! These routes are the only static files the daemon serves. They hold no data, but on the owner
+//! listener they sit behind the same bearer as every other route (the loopback host checks it
+//! before the router runs; only the trigger delivery routes are public there). The LAN listener
+//! (guest links) answers exactly these paths. The page reads the daemon token from its URL
+//! fragment (which a browser never sends to a server), keeps it in `sessionStorage`, and calls
+//! the ordinary API with `Authorization: Bearer`. Every API call stays behind `require_token`.
 
 use axum::http::header;
 use axum::response::IntoResponse;
@@ -62,17 +64,6 @@ pub(crate) fn is_web_path(path: &str) -> bool {
         && crate::host_options::web_client_assets()
             .iter()
             .any(|(declared, _, _)| *declared == path)
-}
-
-/// The route paths of the files the host declared, each checked (see [`valid_asset_path`]).
-/// The loopback adapter declares every one as a public route: the files hold no data and a
-/// browser opening the page has no bearer to send.
-pub(crate) fn web_asset_paths() -> Vec<&'static str> {
-    crate::host_options::web_client_assets()
-        .iter()
-        .map(|(path, _, _)| *path)
-        .filter(|path| valid_asset_path(path))
-        .collect()
 }
 
 /// The routes of the files the host declared; empty when it declared none.

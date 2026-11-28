@@ -988,7 +988,7 @@ fn workspace_config_path(workspace: &std::path::Path) -> std::path::PathBuf {
     // The file `ConfigLoader::update_workspace_from` and `save_workspace` write and
     // `load_files_for_workspace` reads (`<workspace>/{home}/config.toml`).
     workspace
-        .join(crate::host_identity::home_dir())
+        .join(rightkit_agent_config::state_dir_name())
         .join("config.toml")
 }
 

@@ -243,7 +243,18 @@ async fn cli_mcp(command: McpCommand) -> i32 {
     }
 }
 
-async fn cli_plugin(command: PluginCommand) -> i32 {
+/// The refusal of a marketplace verb that was not confirmed: it installs or syncs code that runs
+/// on this machine, so the CLI sends the daemon the trust acceptance only when the user said
+/// `--yes`. Nothing is sent without it.
+fn marketplace_needs_yes(verb: &str) -> i32 {
+    eprintln!(
+        "error: `{}` installs code that runs on this machine and replaces the plugin catalog; read the plugin and the catalog first, then run it again with --yes to confirm you trust it",
+        crate::host_identity::command(verb)
+    );
+    2
+}
+
+async fn cli_plugin(command: PluginCommand, yes: bool) -> i32 {
     match command {
         PluginCommand::List { json: _json } => daemon_get_pretty_json("/plugins", "plugins").await,
         PluginCommand::Marketplace => {
@@ -255,6 +266,9 @@ async fn cli_plugin(command: PluginCommand) -> i32 {
             overwrite,
             allow_file_urls,
         } => {
+            if !yes {
+                return marketplace_needs_yes("plugin install-marketplace");
+            }
             let body = serde_json::json!({
                 "trustAccepted": true,
                 "expectedSha256": expected_sha256,
@@ -275,6 +289,9 @@ async fn cli_plugin(command: PluginCommand) -> i32 {
             allow_unsigned,
             allow_file_urls,
         } => {
+            if !yes {
+                return marketplace_needs_yes("plugin marketplace-sync");
+            }
             let body = serde_json::json!({
                 "catalogUrl": catalog_url,
                 "expectedSha256": expected_sha256,

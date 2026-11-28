@@ -4,22 +4,17 @@
 //! send, so it must track the current `@openai/codex` release without a
 //! hard-coded bump per release. Resolution order:
 //!
-//! 1. `{ENV_PREFIX}_CHATGPT_CLIENT_VERSION` (explicit override) wins;
-//! 2. a cached value in `~/.{app}/state/codex-client-version.json`
+//! 1. a cached value in `~/.{app}/state/codex-client-version.json`
 //!    younger than 24h;
-//! 3. the npm registry's `@openai/codex/latest` `version` (5s timeout),
+//! 2. the npm registry's `@openai/codex/latest` `version` (5s timeout),
 //!    written back to the cache;
-//! 4. on fetch failure, the stale cached value;
-//! 5. the built-in fallback constant.
+//! 3. on fetch failure, the stale cached value;
+//! 4. the built-in fallback constant.
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-/// The explicit-override environment variable of the installed host.
-pub(crate) fn env_override_name() -> String {
-    rightkit_agent_config::env_name("CHATGPT_CLIENT_VERSION")
-}
 pub(crate) const FALLBACK_VERSION: &str = "0.159.2";
 const REGISTRY_URL: &str = "https://registry.npmjs.org/@openai/codex/latest";
 const CACHE_FILE: &str = "codex-client-version.json";
@@ -60,11 +55,10 @@ async fn fetch_latest_from_npm() -> Result<String, String> {
     parse_npm_version(&body).ok_or_else(|| "npm response had no version".to_string())
 }
 
-/// Production entry point: env + real cache path + clock + npm.
+/// Production entry point: real cache path + clock + npm.
 pub(crate) async fn resolve_client_version() -> String {
-    let env = std::env::var(env_override_name()).ok();
     resolve_with(
-        env.as_deref(),
+        None,
         cache_path().as_deref(),
         now_secs(),
         fetch_latest_from_npm,

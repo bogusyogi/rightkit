@@ -13,7 +13,7 @@ pub(crate) fn configured_provider_api_key_without_fallback(
     route: &rightkit_agent_config::ProviderRouteConfig,
 ) -> String {
     // Providers R4: on a host with no OS credential store, a route's `api-key-env` that is a
-    // `CODERIGHT_<NAME>_API_KEY` name is read (environment, then `.env`); otherwise the key
+    // `<PREFIX>_<NAME>_API_KEY` name is read (environment, then `.env`); otherwise the key
     // saved under the route id. The same resolution the CLI path uses.
     crate::main_runtime::route_api_key(provider_id, route).unwrap_or_default()
 }
@@ -1244,10 +1244,10 @@ pub(crate) fn open_subagent_worktree_pool(
     parent_workspace: &std::path::Path,
 ) -> Result<rightkit_agent_coding_tools::worktree_pool::WorktreePool, String> {
     let pool_dir = parent_workspace
-        .join(crate::host_identity::home_dir())
+        .join(rightkit_agent_config::state_dir_name())
         .join("subagent-worktree-pool");
     let state_dir = parent_workspace
-        .join(crate::host_identity::home_dir())
+        .join(rightkit_agent_config::state_dir_name())
         .join("subagent-worktree-pool-state");
     rightkit_agent_coding_tools::worktree_pool::WorktreePool::open(
         parent_workspace,
@@ -1383,7 +1383,7 @@ fn default_subagent_worktree_path(parent_workspace: &str, role: &str, sub_id: &s
         })
         .collect();
     let base = PathBuf::from(parent_workspace)
-        .join(crate::host_identity::home_dir())
+        .join(rightkit_agent_config::state_dir_name())
         .join("worktrees");
     if std::fs::create_dir_all(&base).is_ok() {
         let ignore = base.join(".gitignore");
@@ -1415,32 +1415,6 @@ pub(crate) fn interrupted_session_note(
         ),
         pinned: true,
     }
-}
-
-async fn interrupted_journal_markers(
-    journal_dir: &FsPath,
-    session_id: &str,
-) -> Vec<TranscriptMessage> {
-    crate::journal::ExecutionJournal::interrupted_runs(journal_dir, session_id)
-        .await
-        .into_iter()
-        .map(|run| {
-            let mut content = format!(
-                "Recovery note: the previous agent turn was interrupted before a clean run_end. turn_id={} started_at={}. Review the workspace, transcript, and tool side effects before retrying; do not assume partial side effects were rolled back.",
-                run.turn_id, run.started_at
-            );
-            if let Some(preview) = run.user_message_preview.as_deref().filter(|s| !s.is_empty()) {
-                content.push_str("\nInterrupted prompt preview: ");
-                content.push_str(preview);
-            }
-            TranscriptMessage::System {
-                id: format!("journal-interrupted-{}", run.turn_id),
-                created_at: now_iso(),
-                content,
-                pinned: true,
-            }
-        })
-        .collect()
 }
 
 // ── B3 / C3 run-budget ledger ───────────────────────────────────────────────────

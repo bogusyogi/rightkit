@@ -622,9 +622,10 @@ async fn deliver_trigger(
         SessionRuntimeOptions {
             disallowed_tools: vec!["schedule_cron".to_string()],
             mcp_channel: "webhook".to_string(),
-            // R41: a webhook turn is unattended: `auto-safe`, so a gated call is denied at once
-            // as `unattended` instead of waiting for a reviewer who is not there.
-            permission_mode: Some(rightkit_agent_policy::PermissionMode::AutoSafe),
+            // R41: a webhook turn is unattended, so a call that needs approval is denied at once
+            // as `unattended` instead of waiting for a reviewer who is not there. The mode is
+            // `auto-safe` where the host sets `unattended_turns_auto_safe`, else `ask`.
+            permission_mode: Some(crate::unattended_guard::unattended_permission_mode()),
             ..SessionRuntimeOptions::default()
         },
     );
@@ -883,7 +884,7 @@ fn trigger_json(entry: &StoredTrigger) -> Value {
         "workspaceRoot": entry.workspace_root,
         "prompt": entry.prompt,
         "mode": entry.mode,
-        "permissionMode": "auto-safe",
+        "permissionMode": crate::unattended_guard::unattended_permission_mode_label(),
         "title": entry.title,
         "enabled": entry.enabled,
         "secretConfigured": configured_secret(&entry.secret_env).is_some(),
@@ -1109,7 +1110,7 @@ pub(crate) fn trigger_openapi_components() -> Map<String, Value> {
                     "workspaceRoot": {"type": "string"},
                     "prompt": {"type": "string"},
                     "mode": {"type": "string", "const": "agent"},
-                    "permissionMode": {"type": "string", "const": "auto-safe"},
+                    "permissionMode": {"type": "string", "const": crate::unattended_guard::unattended_permission_mode_label()},
                     "title": {"type": "string"},
                     "enabled": {"type": "boolean"},
                     "secretConfigured": {"type": "boolean"},

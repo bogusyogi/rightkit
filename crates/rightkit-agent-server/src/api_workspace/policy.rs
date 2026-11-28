@@ -72,7 +72,7 @@ pub(crate) fn derive_trust_root(workspace_root: &str) -> Result<PathBuf, PolicyE
     // The root must be a workspace this engine knows: one with a recorded trust decision (or one
     // of its subfolders, rule 60). Any other absolute path a client sends (a home directory, `/`)
     // is refused, so the file API cannot be pointed at a folder nobody opened (API-04).
-    if !rightkit_agent_config::is_workspace_registered(&canonical) {
+    if !crate::api_stores::is_workspace_registered(&canonical) {
         return Err(PolicyError::Forbidden(
             "workspaceRoot is not a registered workspace of this engine; open and trust the folder first"
                 .into(),

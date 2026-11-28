@@ -392,11 +392,20 @@ fn output_schema(row: &Row) -> Value {
 /// Whether this host offers the command. The commands of an optional feature are in the grammar
 /// of every host and refuse where their option is off, so the manifest leaves them out there.
 fn offered(path: &str) -> bool {
+    // A subcommand a host option removes (`removed_subcommands` in `cli_definitions`).
+    match path {
+        "mcp status" => return crate::host_options::mcp_public_server(),
+        "plugin marketplace" | "plugin install-marketplace" | "plugin marketplace-sync" => {
+            return crate::host_options::plugin_marketplace()
+        }
+        _ => {}
+    }
     match path.split(' ').next().unwrap_or(path) {
         "rpc" => crate::host_options::rpc_mode(),
         "share" => crate::host_options::guest_shares(),
         "ssh" => crate::host_options::remote_ssh(),
         "discover" => crate::host_options::lan_listener(),
+        "acp-server" => crate::host_options::acp_server(),
         "web" => crate::api_web::web_client_enabled(),
         _ => true,
     }
@@ -486,9 +495,7 @@ pub(crate) fn manifest() -> Value {
 /// arguments of a parsed invocation, derived from clap so aliases resolve to
 /// the canonical name.
 pub(crate) fn invoked_path(raw_args: &[String]) -> Option<(String, Map<String, Value>)> {
-    let matches = crate::cli::localized_command()
-        .try_get_matches_from(raw_args.iter())
-        .ok()?;
+    let matches = crate::cli::try_cli_matches(raw_args.iter()).ok()?;
     let mut path = Vec::new();
     let mut command = crate::cli::localized_command();
     let mut current = &matches;

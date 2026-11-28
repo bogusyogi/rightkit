@@ -163,7 +163,7 @@ pub(crate) fn roots_for(
         ));
         roots.push((
             workspace
-                .join(crate::host_identity::home_dir())
+                .join(rightkit_agent_config::state_dir_name())
                 .join("commands"),
             CommandScope::Project,
         ));

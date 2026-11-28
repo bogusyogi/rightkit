@@ -281,7 +281,7 @@ fn write_script_output_artifact(
     output: &ScriptOnlyOutput,
 ) -> Result<PathBuf, String> {
     let dir = root
-        .join(crate::host_identity::home_dir())
+        .join(rightkit_agent_config::state_dir_name())
         .join("schedule-artifacts");
     std::fs::create_dir_all(&dir).map_err(|e| {
         format!(

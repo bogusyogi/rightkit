@@ -624,7 +624,7 @@ impl DaemonState {
             let candidate = if base.is_empty() || base == "/" {
                 std::env::temp_dir().join(format!("{app}-isolated-{}", id, app = crate::host_identity::app()))
             } else {
-                std::path::PathBuf::from(base).join(crate::host_identity::home_dir()).join("worktrees").join(id)
+                std::path::PathBuf::from(base).join(rightkit_agent_config::state_dir_name()).join("worktrees").join(id)
             };
             if let Err(e) = std::fs::create_dir_all(&candidate) {
                 tracing::warn!(session_id = %id, error = %e, path = %candidate.display(), "failed to create forced worktree directory");
@@ -990,7 +990,6 @@ impl DaemonState {
             workspace_config.tools.model_interface(),
         );
         let catalog_memory = self.memory_backend.clone();
-        let catalog_memory_provenance = self.memory_provenance.clone();
         // `[features] advisor` (off by default): the `advisor` tool exists only when it is on, an
         // advisor model is named and the session is not in safe mode.
         let advisor_model = workspace_config.orchestration.advisor_model.trim().to_string();
@@ -1028,11 +1027,7 @@ impl DaemonState {
                     requested_disallowed_tools: &catalog_requested_disallowed_tools,
                     lazy_tool_loading: catalog_lazy_tool_loading,
                     model_interface: catalog_model_interface,
-                    memory: Some((
-                        catalog_memory.clone(),
-                        catalog_memory_provenance.clone(),
-                        catalog_workspace.as_str(),
-                    )),
+                    memory: Some((catalog_memory.clone(), catalog_workspace.as_str())),
                 },
             );
             if !catalog_eager_tools.is_empty() {
@@ -1616,7 +1611,6 @@ impl DaemonState {
         let requested_toolset = options.toolset.clone();
         let requested_web_search_config = web_search_config.clone();
         let active_skills = options.active_skills.clone();
-        let journal_dir_for_engine = self.journal_dir.clone();
         let storage_for_marker = self.storage.clone();
         // Lane-C native transcript export: the engine task fires a bounded
         // export at every turn boundary and once at session end. The durable
@@ -1714,10 +1708,6 @@ impl DaemonState {
         if !zero_context {
             let _ = environment_runtime.turn_zero(std::path::Path::new(&workspace));
         }
-        // Membrane is the single memory authority: no turn-0 generic memory
-        // block is injected into the system prompt (federation delivers
-        // context per request; context off means no injection at all).
-        let memory_block: Option<String> = None;
         let tools = initial_tools_for_engine;
         // Tell a delegating session its sub-agent caps up front (W2-02/W2-04).
         let spawn_budget_note = tools.get("spawn_subagent").is_some().then(|| {
@@ -1777,63 +1767,6 @@ impl DaemonState {
         // wrapper the engine puts around its own client; the raw client would send secrets unredacted.
         let self_review_llm: Arc<dyn rightkit_agent_engine_core::llm::LlmClient> = Arc::new(rightkit_agent_engine_core::secret_redaction::RedactingLlm::new(llm.clone(), Arc::new(rightkit_agent_engine_core::secret_redaction::SecretRedactor::new())));
         let self_review_fork = crate::daemon_self_review::DaemonSelfReviewFork::new(self_review_llm, conduit_clone.clone());
-        // H9 is published only by the canonical host-retention callback. Keep
-        // its full observed identity as the change key, then expose a
-        // session-local monotonic revision; callback absence clears H9.
-        let h9_observed = Arc::new(std::sync::Mutex::new(None::<String>));
-        let h9_revision = Arc::new(std::sync::atomic::AtomicU64::new(0));
-        let h9_feed = compaction_snapshot_feed_for_engine.clone();
-        let h9_wake_notify = compaction_wake_notify.clone();
-        request_authority_for_engine.set_retention_callback(Arc::new(move |observation| {
-            let changed = {
-                let Ok(mut feed) = h9_feed.write() else { return; };
-                let Ok(mut previous) = h9_observed.lock() else { return; };
-                let Some(observation) = observation else {
-                    let changed = previous.is_some() || feed.h9_revision.is_some();
-                    feed.h9_revision = None;
-                    *previous = None;
-                    drop(previous);
-                    drop(feed);
-                    if changed {
-                        h9_wake_notify.notify_one();
-                    }
-                    return;
-                };
-                let key = match serde_json::to_string(&(
-                    &observation.session_id,
-                    &observation.task_id,
-                    &observation.representation_handle,
-                    &observation.source_ref,
-                    &observation.source_digest,
-                    &observation.serialized_digest,
-                    observation.context_epoch,
-                )) {
-                    Ok(key) => key,
-                    Err(_) => return,
-                };
-                if previous.as_deref() == Some(key.as_str()) {
-                    false
-                } else {
-                    let Some(revision) = h9_revision
-                        .try_update(
-                            std::sync::atomic::Ordering::Relaxed,
-                            std::sync::atomic::Ordering::Relaxed,
-                            |current| current.checked_add(1),
-                        )
-                        .ok()
-                        .and_then(|previous| previous.checked_add(1))
-                    else {
-                        return;
-                    };
-                    *previous = Some(key);
-                    feed.h9_revision = Some(revision);
-                    true
-                }
-            };
-            if changed {
-                h9_wake_notify.notify_one();
-            }
-        }));
         let mut engine = SessionEngine::new(llm.clone(), tools, conduit_clone.clone(), engine_cfg);
         if let Ok(Ok(Some(token))) = tokio::task::spawn_blocking(
             crate::github_signin::resolve_access_token,
@@ -1869,26 +1802,13 @@ impl DaemonState {
         // CLI gains a federation command (Orthic-Labs/pulse#129); its
         // binding is this host issuer, stable for the session.
         engine.observe_host_revision("binding", Some(HOST_LOCAL_COMPACTION_BINDING));
-        if !daemon_state_for_provider.uses_direct_context() {
-            if let (Some(window), Some(reserve)) = (
-                active_compaction_policy.context_window_tokens,
-                active_compaction_policy.reserve_tokens,
-            ) {
-                engine.set_compaction_decision_provider(Arc::new(
-                    crate::provider_client::CompactionDecisionProvider::new(
-                        request_authority_for_engine.clone(),
-                        rightkit_llm::agent_providers::client::CapacityProfileV1::new(
-                            window,
-                            reserve,
-                            agent_model_id.clone(),
-                            agent_base_url.clone(),
-                            None,
-                        ),
-                        session_id.clone(),
-                        workspace.clone(),
-                    ),
-                ));
-            }
+        if !daemon_state_for_provider.uses_direct_context()
+            && active_compaction_policy.context_window_tokens.is_some()
+            && active_compaction_policy.reserve_tokens.is_some()
+        {
+            engine.set_compaction_decision_provider(Arc::new(
+                crate::provider_client::CompactionDecisionProvider::new(workspace.clone()),
+            ));
         }
         // Bind run-change undo to this engine-owned authority, then make all
         // later engines adopt the same process authority before execution.
@@ -1916,16 +1836,6 @@ impl DaemonState {
         } else {
             usize::MAX
         });
-        // Post-compaction memory re-injection: the provider is inert because
-        // Membrane federation is the only memory authority (no generic
-        // memory block exists to re-inject).
-        if !zero_context {
-            engine.set_memory_block_provider(
-                crate::api::api_session_context::daemon_memory_block_provider(
-                    daemon_state_for_provider,
-                ),
-            );
-        }
         if let Some(config) = requested_web_search_config {
             engine.set_web_search_config(config);
         }
@@ -2032,7 +1942,7 @@ impl DaemonState {
         let combined_system = if user_system_prompt.is_some() {
             crate::main_runtime::compose_cli_system_prompt(instruction_context.as_deref(), user_system_prompt, None)
         } else {
-            compose_session_system_prompt( SessionPromptParts { instruction_context: instruction_context.as_deref(), skill_context: skill_context_for_engine.as_deref(), plugin_prompt_context: plugin_prompt_context_for_engine.as_deref(), agent_persona: agent_persona.as_deref(), role_prompt: system_prompt, instinct_block: instinct_block.as_deref(), environment_snapshot: environment_snapshot.as_deref(), memory_block: memory_block.as_deref(), mcp_servers: mcp_manager.server_names(), },)
+            compose_session_system_prompt( SessionPromptParts { instruction_context: instruction_context.as_deref(), skill_context: skill_context_for_engine.as_deref(), plugin_prompt_context: plugin_prompt_context_for_engine.as_deref(), agent_persona: agent_persona.as_deref(), role_prompt: system_prompt, instinct_block: instinct_block.as_deref(), environment_snapshot: environment_snapshot.as_deref(), mcp_servers: mcp_manager.server_names(), },)
         };
         let combined_system = crate::main_runtime::compose_cli_system_prompt(
             combined_system.as_deref(),
@@ -2358,22 +2268,9 @@ impl DaemonState {
         }
         }
         let turn_id = format!("turn-{}", now_millis());
-        let mut journal = if let Some(jdir) = journal_dir_for_engine.as_deref() {
-        let mut j = crate::journal::ExecutionJournal::open(jdir, &session_id).await;
-        j.append(crate::journal::entry( "run_start", &session_id, &turn_id, serde_json::json!({
-        "user_message_preview": crate::journal::text_preview(&text, 1000) })
-        )).await;
-        // Mid-life crash: stamp the persistent recovery marker on the
-        // session row now, so the UI can badge "recoverable" before the
-        // daemon restarts (the resume-time transcript note is independent).
-        if let Some(store) = storage_for_marker.as_ref() {
-        crate::journal::reconcile_persistent_marker(store, jdir, &session_id).await;
-        }
-        Some(j) } else {
-        None };
         let reminder = if learned_lessons.is_empty() {
         None } else {
-        Some(dynamic_user_turn_reminder(None, &learned_lessons)) };
+        Some(dynamic_user_turn_reminder(&learned_lessons)) };
         let engine_text = reminder
             .as_deref()
             .map(|block| decorate_user_payload_with_system_reminder(&text, block))
@@ -2516,14 +2413,6 @@ impl DaemonState {
         &routing_state_for_engine,
         &session_id,
         );
-        if let Some(ref mut j) = journal {
-        let success = result.is_ok();
-        j.append(crate::journal::entry("run_end", &session_id, &turn_id, serde_json::json!({ "success": success }))).await;
-        j.close().await;
-        if let (Some(store), Some(jdir)) = (storage_for_marker.as_ref(), journal_dir_for_engine.as_deref()) {
-        crate::journal::reconcile_persistent_marker(store, jdir, &session_id).await;
-        }
-        }
         let persisted_status = if is_subagent {
             match &result {
                 Ok(_) => "completed",
@@ -2918,7 +2807,7 @@ fn fail_closed_abac_pdp(
 /// tool call's `path` argument may name them.
 fn inline_abac_recovery_paths(workspace_root: &str) -> (String, Vec<String>) {
     let workspace_config = std::path::Path::new(workspace_root.trim())
-        .join(crate::host_identity::home_dir())
+        .join(rightkit_agent_config::state_dir_name())
         .join("config.toml");
     let mut files = Vec::new();
     if let Some(root) = rightkit_agent_config::state_root() {
@@ -2926,10 +2815,13 @@ fn inline_abac_recovery_paths(workspace_root: &str) -> (String, Vec<String>) {
     }
     files.push(workspace_config.display().to_string());
     let fix_target = format!("permissions.abac_yaml in {}", files.join(" or "));
-    files.push(format!("{}/config.toml", crate::host_identity::home_dir()));
+    files.push(format!(
+        "{}/config.toml",
+        rightkit_agent_config::state_dir_name()
+    ));
     files.push(format!(
         "./{}/config.toml",
-        crate::host_identity::home_dir()
+        rightkit_agent_config::state_dir_name()
     ));
     (fix_target, files)
 }
@@ -2956,7 +2848,7 @@ fn load_session_abac_pdp(
         ));
     }
     let path = std::path::Path::new(workspace_root.trim())
-        .join(crate::host_identity::home_dir())
+        .join(rightkit_agent_config::state_dir_name())
         .join("policy.abac.yaml");
     // Round 2 L1: `Path::exists` is false on any stat error (EACCES on
     // the state folder, a dangling symlink), which dropped the policy. Only a
@@ -2976,8 +2868,14 @@ fn load_session_abac_pdp(
     let source = path.display().to_string();
     let recovery = vec![
         source.clone(),
-        format!("{}/policy.abac.yaml", crate::host_identity::home_dir()),
-        format!("./{}/policy.abac.yaml", crate::host_identity::home_dir()),
+        format!(
+            "{}/policy.abac.yaml",
+            rightkit_agent_config::state_dir_name()
+        ),
+        format!(
+            "./{}/policy.abac.yaml",
+            rightkit_agent_config::state_dir_name()
+        ),
     ];
     let pdp = match std::fs::read_to_string(&path) {
         Ok(text) => match rightkit_agent_policy::PolicyDecisionPoint::from_yaml_like(&text) {
@@ -3026,9 +2924,9 @@ mod abac_load_tests {
     const BROKEN_POLICY: &str = "rules:\n  - id: block-shell\n    effect: denny\n    tool: shell\n";
 
     fn write_policy(dir: &std::path::Path, text: &str) {
-        std::fs::create_dir_all(dir.join(crate::host_identity::home_dir())).unwrap();
+        std::fs::create_dir_all(dir.join(rightkit_agent_config::state_dir_name())).unwrap();
         std::fs::write(
-            dir.join(crate::host_identity::home_dir())
+            dir.join(rightkit_agent_config::state_dir_name())
                 .join("policy.abac.yaml"),
             text,
         )
@@ -3094,11 +2992,14 @@ mod abac_load_tests {
         assert!(shell.reason.contains("atribute"), "{}", shell.reason);
         let file = dir
             .path()
-            .join(crate::host_identity::home_dir())
+            .join(rightkit_agent_config::state_dir_name())
             .join("policy.abac.yaml");
         for path in [
             file.display().to_string(),
-            format!("{}/policy.abac.yaml", crate::host_identity::home_dir()),
+            format!(
+                "{}/policy.abac.yaml",
+                rightkit_agent_config::state_dir_name()
+            ),
         ] {
             let mut engine = PermissionEngine::new();
             engine.set_pdp((*pdp).clone());
@@ -3126,11 +3027,11 @@ mod abac_load_tests {
     #[test]
     fn dangling_policy_symlink_fails_closed() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join(crate::host_identity::home_dir())).unwrap();
+        std::fs::create_dir_all(dir.path().join(rightkit_agent_config::state_dir_name())).unwrap();
         std::os::unix::fs::symlink(
             dir.path().join("missing-target.yaml"),
             dir.path()
-                .join(crate::host_identity::home_dir())
+                .join(rightkit_agent_config::state_dir_name())
                 .join("policy.abac.yaml"),
         )
         .unwrap();

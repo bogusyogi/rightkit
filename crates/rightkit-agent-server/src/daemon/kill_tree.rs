@@ -1,4 +1,4 @@
-//! Forced-kill backstop & descendant containment for the RightKit daemon
+//! Forced-kill backstop & descendant containment for the host's daemon
 //! (DL-012).
 //!
 //! Termination is RightKit's identity-pinned sweep (`rightkit_child_process::sweep_descendants`
@@ -23,7 +23,7 @@ const TERMINATION_CONFIRM: Duration = Duration::from_secs(1);
 /// Allowed gap between a recorded start epoch and the live process's start time.
 pub(super) const PIN_TOLERANCE: Duration = Duration::from_millis(2_000);
 
-/// Terminate `pid` with an exact-identity re-check against `boot_epoch_ms`
+/// [`terminate_pid`] with an exact-identity re-check against `boot_epoch_ms`
 /// immediately before signaling, so a pid recycled between pin and signal is
 /// never touched. Used by `takeover.rs`'s stale-owner escalation.
 pub(crate) fn terminate_pid_pinned(

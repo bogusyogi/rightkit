@@ -367,19 +367,15 @@ pub enum HooksCommand {
     List,
     /// Dry-run matching hooks against a synthetic event. Does NOT mutate state.
     Test {
-        /// Hook event to dry-run (any event `{app} hooks list` names): PreToolUse | PostToolUse |
-        /// UserPromptSubmit | Notification | SubagentStop | Stop.
+        /// Hook event to dry-run (any event `{app} hooks list` names).
         event: String,
-        /// Optional filter: a tool name tested against each hook's own matcher (e.g. "shell"), or a
-        /// substring of an environment-variable hook's name (e.g. "PRE").
+        /// Optional tool name tested against each hook's own matcher (e.g. "shell").
         #[arg(long)]
         matcher: Option<String>,
     },
-    /// Revoke a hook id (`<Event>#<n>`, or an environment-variable hook's name) for this daemon
-    /// session/restore it.
+    /// Revoke a hook id (`<Event>#<n>`) for this daemon session/restore it.
     Revoke {
-        /// Hook id as `{app} hooks list` prints it (e.g. `PreToolUse#0`, or an
-        /// environment-variable hook such as `{ENV_PREFIX}_HOOK_PRE_TOOL_USE`).
+        /// Hook id as `{app} hooks list` prints it (e.g. `PreToolUse#0`).
         id: String,
         /// Restore a previously-revoked hook instead of revoking it.
         #[arg(long)]

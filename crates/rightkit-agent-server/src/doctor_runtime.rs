@@ -39,7 +39,7 @@ pub fn run(json: bool, verbose: bool, clipboard: bool, network_only: bool) -> i3
     } else if json {
         cli_json(&report, verbose)
     } else {
-        report.render_text(crate::host_identity::app())
+        report.render_text(rightkit_agent_config::app_name())
     };
     if clipboard {
         match try_copy_to_clipboard(&rendered) {

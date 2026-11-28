@@ -562,8 +562,6 @@ pub struct DaemonState {
     /// Optional only while Hub Diagnostics binding is unavailable; engine
     /// fails closed at its pre-effect mutation seam when this is absent.
     pub mutation_diagnostics: Option<Arc<dyn rightkit_agent_engine_core::MutationDiagnostics>>,
-    /// RightKit-owned causal labels paired with the pinned MemRight content store.
-    pub(crate) memory_provenance: rightkit_memory_client::memory_provenance::MemoryProvenanceStore,
     /// Write-once, hash-chained governance audit log.
     pub audit: crate::audit::AuditLog,
     /// Observation layer: per-agent execution records feeding TasteScore.
@@ -626,8 +624,6 @@ pub struct DaemonState {
     /// Durable per-project trust choices used by new session policy.
     pub workspace_trust_store: Arc<Mutex<WorkspaceTrustStore>>,
     pub workspace_trust_store_path: PathBuf,
-    /// Durable execution-journal directory used to detect interrupted turns.
-    pub journal_dir: Option<PathBuf>,
     /// Operator-visible runtime middleware registry and local span store.
     pub runtime_middleware:
         Arc<Mutex<rightkit_agent_engine_runtime_middleware::RuntimeMiddlewareRegistry>>,

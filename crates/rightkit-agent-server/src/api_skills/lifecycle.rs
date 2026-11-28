@@ -209,7 +209,7 @@ fn append_skill_audit_log(dir: &FsPath, entry: SkillAuditEntry) -> Result<(), St
     std::fs::create_dir_all(dir).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let path = dir.join(format!(
         "{home}-skill-audit-log.json",
-        home = crate::host_identity::home_dir()
+        home = rightkit_agent_config::state_dir_name()
     ));
     let mut rows = if path.is_file() {
         std::fs::read_to_string(&path)
@@ -236,7 +236,7 @@ fn managed_skill_dir(dirs: &[PathBuf]) -> Result<PathBuf, StatusCode> {
 fn skill_governance_store_path(dirs: &[PathBuf]) -> Result<PathBuf, StatusCode> {
     Ok(managed_skill_dir(dirs)?.join(format!(
         "{home}-skill-governance.json",
-        home = crate::host_identity::home_dir()
+        home = rightkit_agent_config::state_dir_name()
     )))
 }
 

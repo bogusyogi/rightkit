@@ -6,8 +6,9 @@
 //!   turn goes on;
 //! * a plan card is denied and the turn is interrupted: the run ends as `interaction_required`.
 //!
-//! An approval request needs nothing here: the session runs under `auto-safe` and the engine
-//! denies a gated call at once as `unattended`.
+//! An approval request needs nothing here: the session runs under [`unattended_permission_mode`]
+//! (`auto-safe` where the host sets `host_options::unattended_turns_auto_safe`, else `ask`) and
+//! the engine denies a call that needs approval at once as `unattended`.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -15,6 +16,27 @@ use std::sync::Arc;
 use crate::api::{lock_recover, DaemonState};
 use rightkit_agent_engine_core::conduit::ConduitReceive;
 use rightkit_agent_engine_protocol::ProtocolEvent;
+
+/// The permission mode of an unattended (webhook or scheduled) turn: `auto-safe` on a host that
+/// sets `unattended_turns_auto_safe`, `ask` otherwise. With `ask` a call that needs approval is
+/// denied at once as `unattended`, the same as under `auto-safe`, but every call the policy would
+/// allow without asking under `auto-safe` is asked instead.
+pub(crate) fn unattended_permission_mode() -> rightkit_agent_policy::PermissionMode {
+    if crate::host_options::unattended_turns_auto_safe() {
+        rightkit_agent_policy::PermissionMode::AutoSafe
+    } else {
+        rightkit_agent_policy::PermissionMode::Ask
+    }
+}
+
+/// [`unattended_permission_mode`] as the wire label.
+pub(crate) fn unattended_permission_mode_label() -> &'static str {
+    if crate::host_options::unattended_turns_auto_safe() {
+        "auto-safe"
+    } else {
+        "ask"
+    }
+}
 
 /// Watch one unattended session until its first turn finishes. Call it after the session exists
 /// and before the prompt is submitted. The returned flag turns true when a plan card ended the

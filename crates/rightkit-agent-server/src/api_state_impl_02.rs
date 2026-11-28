@@ -204,15 +204,6 @@ impl DaemonState {
         self
     }
 
-    /// Attach causal provenance backed by the selected Hub memory binding.
-    pub(crate) fn with_memory_provenance(
-        mut self,
-        provenance: rightkit_memory_client::memory_provenance::MemoryProvenanceStore,
-    ) -> Self {
-        self.memory_provenance = provenance;
-        self
-    }
-
     /// Inject the already-selected sticky backend used by production startup.
     pub(crate) fn with_memory_backend(
         mut self,
@@ -513,11 +504,6 @@ impl DaemonState {
         None
     }
 
-    pub(crate) fn agent_registry_for_workspace(&self, workspace_root: &str) -> AgentRegistry {
-        let workspace_config = load_workspace_config_with_env(FsPath::new(workspace_root.trim()));
-        self.agent_registry_with_workspace_config(&workspace_config)
-    }
-
     pub(crate) fn agent_registry_with_workspace_config(
         &self,
         workspace_config: &rightkit_agent_config::HostConfig,
@@ -616,9 +602,15 @@ impl rightkit_agents::driver_host::cli_runtime::AttestationStore for StorageAtte
             )
         })?;
         let isolation_mode = match row.isolation_mode.as_str() {
-            // `HarnessIsolationMode::label()` writes `exclusive_rightkit_gateway`; rows stored
-            // before the rename carry the legacy `exclusive_{app}_gateway`.
-            mode if mode == "exclusive_rightkit_gateway" || mode == format!("exclusive_{}_gateway", crate::host_identity::app()) => rightkit_agents::driver_host::cli_runtime::HarnessIsolationMode::ExclusiveHostGateway,
+            // The label `HarnessIsolationMode::label()` writes for this host
+            // (`exclusive_<host slug>_gateway`) and no other: a row naming another host's
+            // gateway is not this host's attestation.
+            mode if mode
+                == rightkit_agents::driver_host::cli_runtime::HarnessIsolationMode::ExclusiveHostGateway
+                    .label() =>
+            {
+                rightkit_agents::driver_host::cli_runtime::HarnessIsolationMode::ExclusiveHostGateway
+            }
             "native_read_only_compatibility" => rightkit_agents::driver_host::cli_runtime::HarnessIsolationMode::NativeReadOnlyCompatibility,
             _ => return Err(rightkit_agents::driver_host::cli_runtime::AttestationStoreError::Backend(
                 "invalid attestation isolation_mode".into(),

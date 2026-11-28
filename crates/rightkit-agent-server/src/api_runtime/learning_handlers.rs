@@ -23,9 +23,10 @@ async fn approve_learning_proposal(
                 if edited_rule.is_none() && is_generated_failure_text(&proposal) {
                     // "[daily-analyzer] <session>: Session failed" says what went wrong, not
                     // what to do; it never becomes a system-prompt instruction unedited.
-                    note = Some(
-                        "this proposal's text is generated from a failed session and was not stored as an instruction; approve again with a rule to store one",
-                    );
+                    note = Some(format!(
+                        "this proposal's text is generated from a failed session and was not stored as an instruction; approve again with a rule ({}) to store one",
+                        crate::host_identity::command("learning approve <id> --rule \"...\"")
+                    ));
                     false
                 } else {
                     write_approved_proposal_instinct(&state, &proposal, edited_rule.as_deref())

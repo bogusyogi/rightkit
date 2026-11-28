@@ -122,7 +122,7 @@ pub(crate) struct RemoteArgs {
 /// Why `ssh` must not be handed this destination or option, if it must not: an option-like
 /// destination, a blank or whitespace or control character in a destination, a `-o` option that
 /// is blank, starts with `-` or carries a control character (a newline would start a second
-/// directive).
+/// directive), and a remote binary name that is not a plain name or path.
 fn refused_argument(args: &RemoteArgs) -> Option<String> {
     let destination = args.destination.as_str();
     if destination.starts_with('-') {
@@ -134,6 +134,18 @@ fn refused_argument(args: &RemoteArgs) -> Option<String> {
             .any(|c| c.is_whitespace() || c.is_control())
     {
         return Some("the destination must be a host name or address".to_string());
+    }
+    // The remote binary name is typed into the remote shell (`<bin> web`): a path or a plain name.
+    if args.remote_bin.is_empty()
+        || !args
+            .remote_bin
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '/' | '~' | '-'))
+    {
+        return Some(
+            "--remote-bin must be a command name or path of letters, digits, `.`, `_`, `/`, `~` and `-`"
+                .to_string(),
+        );
     }
     args.ssh_options
         .iter()
@@ -180,9 +192,9 @@ pub(crate) async fn run(args: RemoteArgs) -> i32 {
         eprintln!(
             "error: {} did not print a {} web URL (is `{}` the {} binary there?)",
             args.destination,
-            crate::host_identity::app(),
+            rightkit_agent_config::app_name(),
             args.remote_bin,
-            crate::host_identity::app()
+            rightkit_agent_config::app_name()
         );
         return 1;
     };
@@ -240,7 +252,7 @@ pub(crate) async fn run(args: RemoteArgs) -> i32 {
         if std::time::Instant::now() > deadline {
             eprintln!(
                 "error: the SSH forward did not come up on 127.0.0.1:{local_port} (nothing there answers as the {} daemon)",
-                crate::host_identity::app()
+                rightkit_agent_config::app_name()
             );
             stop_forward(&mut forward).await;
             return 1;

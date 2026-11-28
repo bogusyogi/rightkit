@@ -10,7 +10,7 @@
 /// home and depend on that, and AppDirs ignores `XDG_DATA_HOME` in release builds.
 /// There is no fallback (clean port, #406): when the per-user
 /// data dir does not resolve, or the private directory cannot be created, this fails.
-/// A database left in the old `<data>/<app name>` folder is moved once (see
+/// A database left in the old `<data>/<app name>` or `<data>/RightKit` folder is moved once (see
 /// [`move_legacy_database_folder`]); any failure of that move fails this call too.
 pub(crate) fn default_db_path() -> Result<String, String> {
     // A QA/test build with an isolated state root keeps the database inside it; a release
@@ -27,7 +27,9 @@ pub(crate) fn default_db_path() -> Result<String, String> {
     })?;
     if !isolated {
         if let Some(user_data) = user_data {
-            move_legacy_database_folder(&user_data.join(legacy_folder_name()), &dir)?;
+            for legacy in legacy_folder_names() {
+                move_legacy_database_folder(&user_data.join(legacy), &dir)?;
+            }
         }
     }
     rightkit_fs::ensure_private_dir(&dir).map_err(|error| {
@@ -61,9 +63,20 @@ fn default_db_dir(
     }
 }
 
-/// Name of the folder that held the database before it moved under `Orthic Labs`.
-fn legacy_folder_name() -> &'static str {
-    rightkit_agent_config::app_name()
+/// The folder this server's own earlier releases kept the database in: `<data>/RightKit`, a
+/// stored location (the name of a folder on the user's disk), not a product name.
+const SERVER_LEGACY_FOLDER_NAME: &str = "RightKit";
+
+/// Names of the folders (under the per-user data directory) that may still hold the database from
+/// before it moved under `Orthic Labs`: the host's own `<data>/<app name>` and this server's
+/// earlier `<data>/RightKit`, each once. A database found in more than one is refused (the
+/// move reports both folders).
+fn legacy_folder_names() -> Vec<&'static str> {
+    let mut names = vec![rightkit_agent_config::app_name()];
+    if SERVER_LEGACY_FOLDER_NAME != rightkit_agent_config::app_name() {
+        names.push(SERVER_LEGACY_FOLDER_NAME);
+    }
+    names
 }
 
 /// File name of the database inside its folder: `<app>.db`.
@@ -1041,7 +1054,7 @@ pub(crate) fn load_cli_instruction_context_granted(
     );
     base_loader.add_root(
         rightkit_agent_config::InstructionScope::Local,
-        workspace_root.join(crate::host_identity::home_dir()),
+        workspace_root.join(rightkit_agent_config::state_dir_name()),
     );
 
     // Rules 13 and 67: project and local instruction files load only in a trusted workspace.

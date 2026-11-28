@@ -60,21 +60,6 @@ mod workspace_memory;
 /// Upper bound on one Membrane CLI context call. A turn never waits longer.
 const CONTEXT_PULL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
 
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-pub(crate) struct RetainedContextRevisionObservationV1 {
-    pub session_id: String,
-    pub task_id: String,
-    pub representation_handle: serde_json::Value,
-    pub source_ref: String,
-    pub source_digest: String,
-    pub serialized_digest: String,
-    pub context_epoch: u64,
-}
-
-pub(crate) type RetainedContextRevisionCallback =
-    Arc<dyn Fn(Option<RetainedContextRevisionObservationV1>) + Send + Sync>;
-
 /// Host-owned synchronous authority. It pulls task context through Pulse's
 /// Membrane CLI (`{app}-membrane-cli`) and injects it into the final user
 /// message. Pulse absent or any CLI failure means no context for the request,
@@ -86,15 +71,9 @@ pub(crate) struct HostRequestAuthority {
     /// authorization id -> sha256 of the exact context envelope serialized
     /// into that authorized request; joins H9/H10 evidence to delivered bytes.
     delivered: Arc<Mutex<BTreeMap<String, String>>>,
-    #[allow(dead_code)]
-    retention_callback: Arc<Mutex<Option<RetainedContextRevisionCallback>>>,
 }
 
-#[allow(dead_code)]
 pub(crate) struct CompactionDecisionProvider {
-    authority: Arc<HostRequestAuthority>,
-    capacity: rightkit_llm::agent_providers::client::CapacityProfileV1,
-    task_id: String,
     repository_id: String,
 }
 
@@ -154,16 +133,8 @@ fn validate_compaction_federation_decision(
 }
 
 impl CompactionDecisionProvider {
-    pub(crate) fn new(
-        authority: Arc<HostRequestAuthority>,
-        capacity: rightkit_llm::agent_providers::client::CapacityProfileV1,
-        task_id: impl Into<String>,
-        repository_id: impl Into<String>,
-    ) -> Self {
+    pub(crate) fn new(repository_id: impl Into<String>) -> Self {
         Self {
-            authority,
-            capacity,
-            task_id: task_id.into(),
             repository_id: repository_id.into(),
         }
     }
@@ -245,16 +216,11 @@ impl HostRequestAuthority {
             state,
             pulled: Arc::new(Mutex::new(BTreeMap::new())),
             delivered: Arc::new(Mutex::new(BTreeMap::new())),
-            retention_callback: Arc::new(Mutex::new(None)),
         }
     }
 
     fn direct_context(&self) -> bool {
         self.state.uses_direct_context()
-    }
-
-    pub(crate) fn set_retention_callback(&self, callback: RetainedContextRevisionCallback) {
-        *lock_recover(&self.retention_callback, "retained context callback") = Some(callback);
     }
 
     /// Kept for host wiring; the MCP bridge no longer takes part in context.
@@ -2601,7 +2567,7 @@ async fn build_checked_client(
         }
         public_headers.insert(
             "X-Title".to_string(),
-            crate::host_identity::app().to_string(),
+            rightkit_agent_config::app_name().to_string(),
         );
     }
     public_headers.extend(auth_headers);

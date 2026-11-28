@@ -1,5 +1,5 @@
 // RIGHTKIT-SERIOUS: rightkit-daemon 0.3.0 is a user-only pipe/socket service with no TCP, token or port record, so the loopback-HTTP daemon that the window, CLI, iOS and SSH clients connect to cannot move onto it (report O-2)
-//! Runtime binding for `rightkit_agent_daemon::LifecycleAuthority`.
+//! Runtime binding for `rightkit_agent_daemon::lifecycle::LifecycleAuthority`.
 //!
 //! This module deliberately delegates to existing daemon launch, client
 //! presence, schedule, and session APIs. It does not create another process
@@ -10,12 +10,13 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use super::launch::DaemonLaunchSpec;
-use super::reload::{ReloadHooks, ReloadRequest, ReloadStore};
+use super::reload::ReloadRequest;
 use async_trait::async_trait;
-use rightkit_agent_daemon::{
+use rightkit_agent_daemon::lifecycle::{
     BackendOutcome, LaunchMode, LifecycleAuthority, LifecycleBackend, ProcessEntry,
 };
 use serde_json::{json, Value};
+use std::path::PathBuf;
 
 /// Shared runtime authority. Every in-process surface obtains this handle,
 /// preserving `LifecycleAuthority`'s serialized transition boundary.
@@ -43,7 +44,7 @@ pub(crate) fn authority() -> &'static LifecycleAuthority<DaemonLifecycleBackend>
 /// helper falls back to `resolve_daemon_or_autostart()` directly so callers
 /// still get a working endpoint rather than a spurious failure.
 pub(crate) async fn resolve_daemon_endpoint_via_authority() -> Option<(String, String)> {
-    use rightkit_agent_daemon::{LifecycleCommand, LifecycleSurface};
+    use rightkit_agent_daemon::lifecycle::{LifecycleCommand, LifecycleSurface};
 
     match authority()
         .execute(
@@ -88,7 +89,7 @@ fn tui_presence_allowed(service_host_selected: bool) -> bool {
 /// authority (mirrors the previous `Option<PresenceGuard>::is_some()`
 /// check at the call site).
 pub(crate) async fn attach_tui_presence(client_id: &str) -> bool {
-    use rightkit_agent_daemon::{LifecycleCommand, LifecycleSurface};
+    use rightkit_agent_daemon::lifecycle::{LifecycleCommand, LifecycleSurface};
 
     if !tui_presence_allowed(crate::main_runtime::service_host_explicitly_selected()) {
         return false;
@@ -124,7 +125,7 @@ pub(crate) async fn attach_tui_presence(client_id: &str) -> bool {
 /// authority-owned guard rather than calling `PresenceGuard::detach`
 /// directly, since the authority's backend now owns that guard.
 pub(crate) async fn detach_tui_presence(client_id: &str) {
-    use rightkit_agent_daemon::{LifecycleCommand, LifecycleSurface};
+    use rightkit_agent_daemon::lifecycle::{LifecycleCommand, LifecycleSurface};
 
     let _ = authority()
         .execute(
@@ -151,8 +152,7 @@ impl LifecycleBackend for DaemonLifecycleBackend {
                 detail: format!(
                     "foreground selected; caller owns `{app} serve` process",
                     app = crate::host_identity::app()
-                )
-                .to_string(),
+                ),
                 ..Default::default()
             });
         }
@@ -291,9 +291,9 @@ impl LifecycleBackend for DaemonLifecycleBackend {
     }
 }
 
-/// Existing lifecycle authority producer for the shared reload saga. The
-/// daemon remains the authenticated caller; `ReloadCoordinator` owns only
-/// ordering, durable phases, activation, & rollback.
+/// Existing lifecycle authority producer for the shared reload saga. The daemon remains the
+/// authenticated caller; RightKit's `ReloadCoordinator` owns ordering, the durable marker and
+/// rollback, and [`LifecycleReloadHost`] supplies the host's launch and activation.
 async fn run_reload(artifact: Option<&str>) -> Result<BackendOutcome, String> {
     let executable =
         std::env::current_exe().map_err(|e| format!("resolve daemon executable: {e}"))?;
@@ -314,146 +314,123 @@ async fn run_reload(artifact: Option<&str>) -> Result<BackendOutcome, String> {
             .map(|p| p.display().to_string())
             .unwrap_or_default(),
     };
-    let request_id = format!("lifecycle-{}", std::process::id());
-    let hash = artifact.unwrap_or("restart").to_string();
-    let mut request = ReloadRequest::new(request_id, hash, launch);
-    if let Some(staged) = artifact {
-        request = request.with_activation(staged, executable);
-    }
-    let store = ReloadStore::default_for_user()
+    let request = ReloadRequest {
+        request_id: format!("lifecycle-{}", std::process::id()),
+        hash: artifact.unwrap_or("restart").to_string(),
+        endpoint: launch.socket_path.clone(),
+    };
+    let dir = crate::daemon::reload::marker_dir()
         .ok_or_else(|| "reload state directory unavailable".to_string())?;
-    let coordinator = crate::daemon::reload::ReloadCoordinator::new(
-        LifecycleReloadHooks::new(store.clone()),
-        store,
-    );
-    let report = coordinator.run(request).await.map_err(|e| e.to_string())?;
+    let host = LifecycleReloadHost {
+        launch,
+        activation: artifact.map(|staged| (PathBuf::from(staged), executable)),
+        fence: std::sync::Mutex::new(None),
+    };
+    let request_id = request.request_id.clone();
+    // The saga and its hooks block (marker writes, readiness polling), so they run off the
+    // async runtime.
+    tokio::task::spawn_blocking(move || {
+        crate::daemon::reload::ReloadCoordinator::new(dir)
+            .ready_timeout(REPLACEMENT_READY_TIMEOUT)
+            .run(&host, &request, None)
+    })
+    .await
+    .map_err(|e| format!("reload task: {e}"))?
+    .map_err(|e| e.to_string())?;
     Ok(BackendOutcome {
-        detail: format!("reload {} completed", report.request_id),
+        detail: format!("reload {request_id} completed"),
         ..Default::default()
     })
 }
 
-/// ra-002: previously every stage below (`fence_intake`/`drain`/
-/// `wait_ready`/`resume`/`rollback`) was an unconditional `Ok(())`, so
-/// `ReloadCoordinator::run` always returned `SocketReady` immediately after
-/// `launch_replacement` spawned the child process — whether or not that
-/// child ever bound the endpoint, or even survived past spawn.
+/// The host's half of the reload saga.
 ///
-/// `wait_ready` now polls the same durable [`ReloadStore`] marker the
-/// replacement daemon itself publishes through
-/// (`ReloadStore::publish_socket_ready`, called by the replacement once it
-/// has rebound the endpoint) and, in parallel, watches the spawned pid via
-/// `reload::process_alive`. Success requires the marker to reach
-/// `ReloadPhase::SocketReady` *for this exact request id/hash* before a
-/// bounded deadline; the replacement exiting early or the deadline elapsing
-/// is now a real hard failure instead of a false success, and `rollback`
-/// terminates a replacement that failed to become ready (`reload::
-/// terminate_pid_best_effort`) so a stuck/broken child does not linger
-/// alongside the still-running original.
+/// `launch_replacement` first activates a staged artifact through `daemon::migrate` (a durable
+/// `rightkit-fs` transaction that keeps a backup; startup recovers an interrupted one), then
+/// spawns the replacement with the reload identity stamped. `wait_ready` polls the marker the
+/// replacement publishes and the replacement pid: the replacement exiting early or the deadline
+/// passing is a failure, and `rollback` stops a replacement that never became ready and restores
+/// the previous binary.
 ///
-/// `fence_intake`/`drain`/`persist_recovery`/`resume` remain no-ops: making
-/// those real requires plumbing this hook into the live `DaemonState`
-/// mutation-admission fence (`main_runtime_server.rs`/`api_clients.rs`),
-/// which this struct — a free-standing `ReloadHooks` impl with no reference
-/// to that state — does not have access to. That remains open.
-struct LifecycleReloadHooks {
-    store: ReloadStore,
-    replacement_pid: std::sync::Mutex<Option<u32>>,
+/// `persist_recovery`, `fence_intake`, `drain` and `resume` remain no-ops: making those real
+/// requires plumbing into the live `DaemonState` mutation-admission fence
+/// (`main_runtime_server.rs`/`api_clients.rs`), which this host has no reference to. That remains
+/// open.
+struct LifecycleReloadHost {
+    launch: DaemonLaunchSpec,
+    /// Staged artifact and the executable it replaces.
+    activation: Option<(PathBuf, PathBuf)>,
+    fence: std::sync::Mutex<Option<crate::daemon::migrate::ActivationFence>>,
 }
 
-impl LifecycleReloadHooks {
-    fn new(store: ReloadStore) -> Self {
-        Self {
-            store,
-            replacement_pid: std::sync::Mutex::new(None),
-        }
-    }
-}
-
-/// Bound on how long a replacement gets to publish `SocketReady` before
-/// `wait_ready` gives up and the coordinator rolls back. Generous enough for
-/// normal daemon startup (model/index warmup) while still failing a truly
-/// stuck replacement in finite time instead of hanging the reload forever.
+/// Bound on how long a replacement gets to publish `socket_ready` before the coordinator rolls
+/// back. Generous enough for normal daemon startup (model/index warmup) while still failing a
+/// truly stuck replacement in finite time.
 const REPLACEMENT_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
 const REPLACEMENT_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(150);
 
-#[async_trait]
-impl ReloadHooks for LifecycleReloadHooks {
-    async fn persist_recovery(&mut self, _: &ReloadRequest) -> Result<(), String> {
+impl crate::daemon::reload::ReloadHost for LifecycleReloadHost {
+    fn persist_recovery(&self, _: &ReloadRequest) -> Result<(), String> {
         Ok(())
     }
-    async fn fence_intake(&mut self) -> Result<(), String> {
+    fn fence_intake(&self, _: &ReloadRequest) -> Result<(), String> {
         Ok(())
     }
-    async fn drain(&mut self) -> Result<(), String> {
+    fn drain(&self, _: &ReloadRequest) -> Result<(), String> {
         Ok(())
     }
-    async fn launch_replacement(&mut self, request: &ReloadRequest) -> Result<(), String> {
-        // Stamp the reload identity onto the replacement so it can publish its
-        // own `SocketReady`; without it `wait_ready` below can never observe
-        // readiness and would roll back a healthy replacement at the deadline.
+    fn launch_replacement(&self, request: &ReloadRequest) -> Result<u32, String> {
+        if let Some((staged, target)) = &self.activation {
+            let fence =
+                crate::daemon::migrate::activate_staged_path(staged, target, &request.request_id)?;
+            *self.fence.lock().unwrap_or_else(|p| p.into_inner()) = Some(fence);
+        }
         let child = crate::daemon::reload::spawn_replacement_for_request(
-            &request.launch,
+            &self.launch,
             Some((request.request_id.as_str(), request.hash.as_str())),
         )
         .map_err(|e| format!("launch replacement: {e}"))?;
-        *self
-            .replacement_pid
-            .lock()
-            .unwrap_or_else(|p| p.into_inner()) = Some(child.id());
-        Ok(())
+        Ok(child.id())
     }
-    async fn wait_ready(&mut self, request: &ReloadRequest) -> Result<(), String> {
-        let pid = *self
-            .replacement_pid
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        let deadline = tokio::time::Instant::now() + REPLACEMENT_READY_TIMEOUT;
+    fn wait_ready(
+        &self,
+        request: &ReloadRequest,
+        replacement_pid: u32,
+        timeout: std::time::Duration,
+    ) -> Result<(), String> {
+        let dir = crate::daemon::reload::marker_dir()
+            .ok_or_else(|| "reload state directory unavailable".to_string())?;
+        let deadline = std::time::Instant::now() + timeout;
         loop {
-            if let Some(state) = self.store.load() {
-                if state.request_id == request.request_id && state.hash == request.hash {
-                    match state.phase {
-                        crate::daemon::reload::ReloadPhase::SocketReady => return Ok(()),
-                        crate::daemon::reload::ReloadPhase::Failed => {
-                            return Err(state
-                                .detail
-                                .unwrap_or_else(|| "replacement reported failure".to_string()));
-                        }
-                        _ => {}
-                    }
-                }
+            if crate::daemon::reload::poll_ready(&dir, request) {
+                return Ok(());
             }
-            if let Some(pid) = pid {
-                if !crate::daemon::reload::process_alive(pid) {
-                    return Err(format!(
-                        "replacement process {pid} exited before publishing readiness"
-                    ));
-                }
-            }
-            if tokio::time::Instant::now() >= deadline {
+            if !crate::daemon::reload::process_alive(replacement_pid) {
                 return Err(format!(
-                    "timed out after {:?} waiting for replacement readiness",
-                    REPLACEMENT_READY_TIMEOUT
+                    "replacement process {replacement_pid} exited before publishing readiness"
                 ));
             }
-            tokio::time::sleep(REPLACEMENT_POLL_INTERVAL).await;
+            if std::time::Instant::now() >= deadline {
+                return Err(format!(
+                    "timed out after {timeout:?} waiting for replacement readiness"
+                ));
+            }
+            std::thread::sleep(REPLACEMENT_POLL_INTERVAL);
         }
     }
-    async fn resume(&mut self, _: &ReloadRequest) -> Result<(), String> {
+    fn resume(&self, _: &ReloadRequest) -> Result<(), String> {
         Ok(())
     }
-    async fn rollback(&mut self, _: &ReloadRequest) -> Result<(), String> {
-        if let Some(pid) = self
-            .replacement_pid
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .take()
-        {
+    fn rollback(&self, _: &ReloadRequest, replacement_pid: Option<u32>) -> Result<(), String> {
+        if let Some(pid) = replacement_pid {
             if crate::daemon::reload::process_alive(pid) {
                 crate::daemon::reload::terminate_pid_best_effort(pid);
             }
         }
-        Ok(())
+        match self.fence.lock().unwrap_or_else(|p| p.into_inner()).take() {
+            Some(fence) => crate::daemon::migrate::rollback_activation(&fence),
+            None => Ok(()),
+        }
     }
 }
 

@@ -70,31 +70,8 @@ fn resolve_configured_telegram_token() -> Option<String> {
 }
 
 fn telegram_api_base_url() -> Result<url::Url, String> {
-    let raw = std::env::var(rightkit_agent_config::env_name("TELEGRAM_API_BASE"))
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "https://api.telegram.org".to_string());
-    let url =
-        url::Url::parse(raw.trim()).map_err(|e| format!("invalid Telegram API base URL: {e}"))?;
-    match url.scheme() {
-        "https" => Ok(url),
-        // The bot token travels in the URL path: plain http is accepted only to a loopback host
-        // (a local test double), never across a network.
-        "http" if is_loopback_host(&url) => Ok(url),
-        "http" => Err("a Telegram API base URL over http must be a loopback host".to_string()),
-        other => Err(format!(
-            "unsupported Telegram API base URL scheme '{other}'"
-        )),
-    }
-}
-
-fn is_loopback_host(url: &url::Url) -> bool {
-    match url.host() {
-        Some(url::Host::Domain(domain)) => domain.eq_ignore_ascii_case("localhost"),
-        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
-        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
-        None => false,
-    }
+    url::Url::parse("https://api.telegram.org")
+        .map_err(|e| format!("invalid Telegram API base URL: {e}"))
 }
 
 fn telegram_schedule_message(
@@ -109,7 +86,7 @@ fn telegram_schedule_message(
         .unwrap_or_default();
     truncate_telegram_text(&format!(
         "{} schedule `{}` finished with `{}`.\nSession: `{}`{}\n\n{}",
-        crate::host_identity::app(),
+        rightkit_agent_config::app_name(),
         entry.id,
         result_status,
         session_id,
@@ -129,7 +106,7 @@ pub(super) fn truncate_telegram_text(text: &str) -> String {
         .collect::<String>();
     truncated.push_str(&format!(
         "\n...[truncated by {}]",
-        crate::host_identity::app()
+        rightkit_agent_config::app_name()
     ));
     truncated
 }

@@ -3508,10 +3508,11 @@ fn run_changes_store(_state: &DaemonState) -> Arc<RunChangeStore> {
 }
 
 /// Resolve the run_changes root with the same state-root rule as the rest of the app: the AppRoot
-/// state root. The host's `RUN_CHANGES_DIR` variable remains an explicit override.
+/// state root. With `host_options::state_store_paths_from_environment` on, the host's
+/// `RUN_CHANGES_DIR` variable remains an explicit override.
 fn resolve_run_changes_root() -> PathBuf {
-    if let Some(dir) = std::env::var_os(rightkit_agent_config::env_name("RUN_CHANGES_DIR")) {
-        return PathBuf::from(dir);
+    if let Some(dir) = crate::api_stores::state_store_override("RUN_CHANGES_DIR") {
+        return dir;
     }
     dirs_default_home().join("run_changes")
 }

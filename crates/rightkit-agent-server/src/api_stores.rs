@@ -6,11 +6,21 @@ fn host_state_file(name: &str) -> PathBuf {
     rightkit_agent_config::state_root_required().join(name)
 }
 
-/// The store file for `name`, or the file the host's `<env prefix>_<env_suffix>` variable names.
-fn store_path(env_suffix: &str, name: &str) -> PathBuf {
+/// The file the host's `<env prefix>_<env_suffix>` variable names, when the host lets the
+/// environment move its state stores (`host_options::state_store_paths_from_environment`) and the
+/// variable is set.
+pub(crate) fn state_store_override(env_suffix: &str) -> Option<PathBuf> {
+    if !crate::host_options::state_store_paths_from_environment() {
+        return None;
+    }
     std::env::var_os(rightkit_agent_config::env_name(env_suffix))
+        .filter(|value| !value.is_empty())
         .map(PathBuf::from)
-        .unwrap_or_else(|| host_state_file(name))
+}
+
+/// The store file for `name`, or the override file (see [`state_store_override`]).
+fn store_path(env_suffix: &str, name: &str) -> PathBuf {
+    state_store_override(env_suffix).unwrap_or_else(|| host_state_file(name))
 }
 
 pub(crate) fn default_team_store_path() -> PathBuf {
@@ -35,6 +45,64 @@ pub(crate) fn default_permission_denial_store_path() -> PathBuf {
 
 pub(crate) fn default_workspace_trust_store_path() -> PathBuf {
     store_path("WORKSPACE_TRUST_STORE", "workspace-trust.json")
+}
+
+// The workspace trust store has one resolver. The file the API writes
+// (`default_workspace_trust_store_path`) and every check in this crate read the same file:
+// `rightkit_agent_config` reads `<state root>/workspace-trust.json` and knows no override, so
+// when the override is in effect `install_workspace_trust_rule` makes its `is_workspace_trusted`
+// read the override file (a trust granted for this process alone, which that crate keeps
+// privately, then does not apply), and the two functions below cover what that rule does not:
+// the file name and `is_workspace_registered`.
+
+/// The workspace trust store file every reader uses: the override file when
+/// `state_store_paths_from_environment` is on and the variable is set, else
+/// `<state root>/workspace-trust.json` (`None` when there is no state root).
+pub(crate) fn workspace_trust_store_file() -> Option<PathBuf> {
+    state_store_override("WORKSPACE_TRUST_STORE")
+        .or_else(rightkit_agent_config::workspace_trust_store_file)
+}
+
+/// [`rightkit_agent_config::is_workspace_registered`] against the one trust store file: whether
+/// a trust decision (trusted or not) is recorded for the folder or an ancestor of it.
+pub(crate) fn is_workspace_registered(workspace_root: &FsPath) -> bool {
+    let Some(store) = state_store_override("WORKSPACE_TRUST_STORE") else {
+        return rightkit_agent_config::is_workspace_registered(workspace_root);
+    };
+    let text = workspace_root.to_string_lossy();
+    let Ok(raw) = std::fs::read_to_string(&store) else {
+        return false;
+    };
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return false;
+    };
+    let Some(projects) = parsed.get("projects").and_then(|p| p.as_object()) else {
+        return false;
+    };
+    let fold_case = cfg!(windows);
+    rightkit_agent_config::nearest_trust_record(&text, |candidate| {
+        projects
+            .iter()
+            .find(|(stored, _)| {
+                rightkit_agent_config::normalize_trust_key(stored, fold_case) == candidate
+            })
+            .map(|(_, record)| record)
+    })
+    .is_some()
+}
+
+/// With an override in effect, make the configuration crate's own trust checks read the override
+/// file: the rule it is given replaces its persisted-store lookup. The rule fails closed. Without
+/// an override the configuration crate keeps its default lookup. Run once at start-up, before
+/// any thread. A host that installed a rule of its own keeps it.
+pub(crate) fn install_workspace_trust_rule() {
+    if state_store_override("WORKSPACE_TRUST_STORE").is_some() {
+        rightkit_agent_config::set_workspace_trust_rule(|root| {
+            state_store_override("WORKSPACE_TRUST_STORE").is_some_and(|store| {
+                rightkit_agent_config::is_workspace_trusted_in(&store, &root.to_string_lossy())
+            })
+        });
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

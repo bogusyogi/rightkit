@@ -711,7 +711,7 @@ fn settings_response(state: &DaemonState, q: &WorkspaceQuery) -> serde_json::Val
         })
         .collect();
 
-    serde_json::json!({
+    let mut body = serde_json::json!({
         "workspaceRoot": workspace_root_string(q),
         "defaultModel": store.primary_orchestrator_model_id,
         "primaryOrchestratorModelId": store.primary_orchestrator_model_id,
@@ -770,7 +770,34 @@ fn settings_response(state: &DaemonState, q: &WorkspaceQuery) -> serde_json::Val
             },
         },
         "keepDaemonResident": store.keep_daemon_resident,
-    })
+    });
+    // A budget key the host retired is not reported.
+    if let Some(budget) = body
+        .get_mut("budget")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        budget.retain(|field, _| !budget_field_retired(field));
+    }
+    body
+}
+
+/// Whether the host retired the budget key `field` (spelled in camelCase on the wire): its
+/// `orchestration.budget.<kebab-case>` config key is in `rightkit_agent_config::retired_config_keys`.
+/// A retired key is not reported, not accepted in a patch, not written to the config and not in the
+/// schema.
+pub(crate) fn budget_field_retired(field: &str) -> bool {
+    let mut path = String::from("orchestration.budget.");
+    for ch in field.chars() {
+        if ch.is_ascii_uppercase() {
+            path.push('-');
+            path.push(ch.to_ascii_lowercase());
+        } else {
+            path.push(ch);
+        }
+    }
+    rightkit_agent_config::retired_config_keys()
+        .iter()
+        .any(|key| *key == path)
 }
 
 /// Rejects a present budget/turn value of the wrong type or range before anything is mutated:
@@ -794,7 +821,11 @@ fn validate_budget_patch(patch: &serde_json::Value) -> Result<(), StatusCode> {
         "maxJuryCallsPerRun",
         "maxEscalationDepth",
     ];
-    let present = |k: &&str| patch.get(*k).filter(|v| !v.is_null());
+    let present = |k: &&str| {
+        patch
+            .get(*k)
+            .filter(|v| !v.is_null() && !budget_field_retired(k))
+    };
     let usd_ok = USD
         .iter()
         .all(|k| present(k).is_none_or(|v| v.as_f64().is_some_and(|n| n >= 0.0)));
@@ -811,10 +842,17 @@ fn validate_budget_patch(patch: &serde_json::Value) -> Result<(), StatusCode> {
 /// Applies only the budget fields present in `patch` onto the freshly loaded config, so a save
 /// that names one field cannot overwrite the others with a stale in-memory copy.
 fn apply_budget_patch(patch: &serde_json::Value, budget: &mut rightkit_agent_config::BudgetConfig) {
-    let f = |k: &str| patch.get(k).and_then(|v| v.as_f64());
+    // A key the host retired is skipped, so a patch that names one changes nothing.
+    let f = |k: &str| {
+        patch
+            .get(k)
+            .filter(|_| !budget_field_retired(k))
+            .and_then(|v| v.as_f64())
+    };
     let u = |k: &str| {
         patch
             .get(k)
+            .filter(|_| !budget_field_retired(k))
             .and_then(|v| v.as_u64())
             .and_then(|v| u32::try_from(v).ok())
     };

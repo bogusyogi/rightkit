@@ -14,7 +14,7 @@ use crate::api_permissions::enforce_trusted_source_authority;
 use crate::api_stores::default_instincts_store_path;
 
 pub fn runtime_routes() -> Router<DaemonState> {
-    Router::new()
+    let mut router = Router::new()
         .route("/runtime/learning", get(get_learning))
         .route(
             "/runtime/skillopt/runs",
@@ -92,25 +92,7 @@ pub fn runtime_routes() -> Router<DaemonState> {
             post(post_qualification_matrix_run),
         )
         .route("/runtime/context/status", get(get_context_status))
-        .route("/runtime/context/adapt/status", get(get_adapt_status))
-        .route(
-            "/runtime/context/adapt/review-taste",
-            post(post_adapt_review_taste),
-        )
-        .route(
-            "/runtime/context/adapt/adjudicate-taste",
-            post(post_adapt_adjudicate_taste),
-        )
-        .route(
-            "/runtime/context/adapt/apply-insights",
-            post(post_adapt_apply_insights),
-        )
         .route("/runtime/context/adapt/insights", post(post_adapt_insights))
-        .route(
-            "/runtime/context/adapt/apply-taste",
-            post(post_adapt_apply_taste),
-        )
-        .route("/runtime/context/adapt/recall", post(post_adapt_recall))
         .route("/runtime/taste", get(get_taste))
         .route("/runtime/proposals", get(get_proposals))
         .route("/runtime/rollouts", get(get_rollouts))
@@ -134,7 +116,31 @@ pub fn runtime_routes() -> Router<DaemonState> {
         )
         .route("/runtime/spans", get(get_runtime_spans))
         .route("/runtime/spans/{id}", get(get_runtime_span))
-        .route("/runtime/observations", get(get_runtime_observations))
+        .route("/runtime/observations", get(get_runtime_observations));
+    // The other six Adapt routes exist only on a host whose `adapt_routes` option is on; `insights`
+    // is on every host.
+    if crate::host_options::adapt_routes() {
+        router = router
+            .route("/runtime/context/adapt/status", get(get_adapt_status))
+            .route(
+                "/runtime/context/adapt/review-taste",
+                post(post_adapt_review_taste),
+            )
+            .route(
+                "/runtime/context/adapt/adjudicate-taste",
+                post(post_adapt_adjudicate_taste),
+            )
+            .route(
+                "/runtime/context/adapt/apply-insights",
+                post(post_adapt_apply_insights),
+            )
+            .route(
+                "/runtime/context/adapt/apply-taste",
+                post(post_adapt_apply_taste),
+            )
+            .route("/runtime/context/adapt/recall", post(post_adapt_recall));
+    }
+    router
 }
 
 #[derive(Deserialize)]

@@ -267,7 +267,10 @@ pub(crate) fn probe_learning(verbose: bool) -> Dimension {
     use rightkit_agent_learning::InstinctStore;
 
     let Some(home) = host_home() else {
-        let detail = "learning: no state directory — cannot locate the state directory".to_string();
+        let detail = format!(
+            "learning: no state directory — cannot locate the {} state directory",
+            rightkit_agent_config::app_name()
+        );
         return if verbose {
             dim_with_evidence("unknown", detail, Vec::new())
         } else {
@@ -278,8 +281,10 @@ pub(crate) fn probe_learning(verbose: bool) -> Dimension {
     let path = home.join("instincts.json");
     match std::fs::read_to_string(&path) {
         Err(_) => {
-            let detail =
-                "learning: no instincts.json in the state directory — no live learning surface reachable from this CLI".to_string();
+            let detail = format!(
+                "learning: no instincts.json in the {} state directory — no live learning surface reachable from this CLI",
+                rightkit_agent_config::app_name()
+            );
             if verbose {
                 dim_with_evidence("unknown", detail, Vec::new())
             } else {
@@ -320,7 +325,10 @@ pub(crate) fn probe_learning(verbose: bool) -> Dimension {
                         path.display()
                     )
                 } else {
-                    "learning: instincts.json in the state directory present but invalid InstinctStore JSON".to_string()
+                    format!(
+                        "learning: instincts.json in the {} state directory present but invalid InstinctStore JSON",
+                        rightkit_agent_config::app_name()
+                    )
                 };
                 let status = if arr_count > 0 { "warn" } else { "block" };
                 let evidence = vec![Evidence {
@@ -362,7 +370,7 @@ pub(crate) fn hook_config_probe_paths() -> Vec<PathBuf> {
                 .join("destructive-guard.toml"),
         );
         paths.push(
-            cwd.join(crate::host_identity::home_dir())
+            cwd.join(rightkit_agent_config::state_dir_name())
                 .join("hooks")
                 .join("destructive-guard.toml"),
         );

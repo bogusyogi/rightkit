@@ -408,68 +408,39 @@ pub(crate) async fn memory_recall(
         .and_then(Value::as_u64)
         .unwrap_or(5)
         .clamp(1, 10) as usize;
-    if crate::host_options::memory_recall_unverified_items() {
-        // An explicit driver recall, not an injection: ask the memory service for the exact
-        // bounded result set and return it verbatim. The host keeps no provenance of its own,
-        // so every item is labelled unverified.
-        let context = rightkit_memory_client::api_memright::current_memory_call_context();
-        let workspace_scope =
-            rightkit_memory_client::backend::path_to_scope(live.workspace_root.trim());
-        let scopes = state
-            .memory_backend
-            .scopes(&context)
-            .await
-            .unwrap_or_default();
-        let scope_chain = rightkit_memory_client::backend::scope_chain(&workspace_scope, &scopes);
-        let items = match state
-            .memory_backend
-            .recall_scored(&context, query, limit, &scope_chain)
-            .await
-        {
-            Ok(items) => items,
-            Err(error) => return Ok(ToolResult::error(format!("memory recall failed: {error}"))),
-        };
-        return Ok(ToolResult::ok(
-            json!({
-                "source": "membrane",
-                "items": items.into_iter().map(|(entry, score)| json!({
-                    "id": entry.id,
-                    "scope": entry.scope_id,
-                    "score": score,
-                    "content": entry.content,
-                    "verified": false,
-                })).collect::<Vec<_>>(),
-            })
-            .to_string(),
-        ));
-    }
-    let injection = crate::api::retrieve_session_memory(
-        state,
-        session_id,
-        &live.workspace_root,
-        query,
-        limit,
-        "driver_gateway",
-    )
-    .await;
-    Ok(ToolResult::ok(match injection {
-        Some(value) => json!({
-            "context": value.context,
-            "receipt": {
-                "source": value.receipt.source,
-                "workspaceScope": value.receipt.workspace_scope,
-                "scopeChain": value.receipt.scope_chain,
-                "items": value.receipt.items.into_iter().map(|item| json!({
-                    "id": item.id,
-                    "scope": item.scope,
-                    "score": item.score,
-                    "provenance": item.provenance,
-                })).collect::<Vec<_>>(),
-            }
+    // An explicit driver recall, not an injection: ask the memory service for the exact bounded
+    // result set and return it verbatim. The host keeps no provenance of its own, so every item
+    // is labelled unverified.
+    let context = rightkit_memory_client::api_memright::current_memory_call_context();
+    let workspace_scope =
+        rightkit_memory_client::backend::path_to_scope(live.workspace_root.trim());
+    let scopes = state
+        .memory_backend
+        .scopes(&context)
+        .await
+        .unwrap_or_default();
+    let scope_chain = rightkit_memory_client::backend::scope_chain(&workspace_scope, &scopes);
+    let items = match state
+        .memory_backend
+        .recall_scored(&context, query, limit, &scope_chain)
+        .await
+    {
+        Ok(items) => items,
+        Err(error) => return Ok(ToolResult::error(format!("memory recall failed: {error}"))),
+    };
+    Ok(ToolResult::ok(
+        json!({
+            "source": "membrane",
+            "items": items.into_iter().map(|(entry, score)| json!({
+                "id": entry.id,
+                "scope": entry.scope_id,
+                "score": score,
+                "content": entry.content,
+                "verified": false,
+            })).collect::<Vec<_>>(),
         })
         .to_string(),
-        None => json!({"context": "", "receipt": {"source": "memright", "items": []}}).to_string(),
-    }))
+    ))
 }
 
 pub(crate) async fn delegate_task(
@@ -798,11 +769,7 @@ pub(crate) fn capability_schema(registry: &ToolRegistry, name: &str) -> Option<V
     match name {
         "memory_recall" => Some(json!({
             "name": name,
-            "description": if crate::host_options::memory_recall_unverified_items() {
-                "Recall durable memory from Membrane for this workspace. Every item is unverified: Membrane stores no memory provenance yet.".to_string()
-            } else {
-                format!("Recall session-scoped MemRight context with {} provenance.", crate::host_identity::app())
-            },
+            "description": "Recall durable memory from Membrane for this workspace. Every item is unverified: Membrane stores no memory provenance yet.",
             "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 10}}, "required": ["query"]},
             "annotations": capability_annotations(true),
         })),

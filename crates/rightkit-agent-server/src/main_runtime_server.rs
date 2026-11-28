@@ -51,12 +51,14 @@ async fn serve(
     // this process, so `stop`/crash can never orphan a child.
     crate::daemon::kill_tree::contain_descendants_in_job();
 
-    rightkit_onnx::agent_ort::configure_ort_dylib();
-    rightkit_onnx::agent_ort::configure_embed_model_dir();
-    if cfg!(feature = "fastembed") {
-        if let Err(diagnostic) = crate::startup::validate_ort_dylib_path() {
-            eprintln!("fatal: {diagnostic}");
-            std::process::exit(1);
+    if crate::host_options::embedder_runtime_setup() {
+        rightkit_onnx::agent_ort::configure_ort_dylib();
+        rightkit_onnx::agent_ort::configure_embed_model_dir();
+        if cfg!(feature = "fastembed") {
+            if let Err(diagnostic) = crate::startup::validate_ort_dylib_path() {
+                eprintln!("fatal: {diagnostic}");
+                std::process::exit(1);
+            }
         }
     }
 
@@ -65,11 +67,11 @@ async fn serve(
     let _ = rightkit_agent_config::state_root_required();
     let db_path = db.unwrap_or_else(default_db_path_required);
     // A daemon on the default per-user DB is the machine's primary daemon and
-    // owns the shared `~/.{app}` surfaces (daemon.port, journals). A
+    // owns the shared `~/.{app}` surfaces (daemon.port, worker journal). A
     // daemon started with an explicit `--db` elsewhere (QA, dev snapshots) is
     // auxiliary: it must not clobber the primary's port file — the installed
-    // app's CLI/attach discovery breaks mid-session — and must not share the
-    // primary's journal dir, or its startup recovery scan replays the
+    // app's CLI/attach discovery breaks mid-session — and must not sweep the
+    // primary's worker journal, or its startup recovery would replay the
     // primary's interrupted sessions against the wrong database.
     let primary_daemon = crate::daemon::ownership::same_db_path(
         std::path::Path::new(&db_path),
@@ -336,7 +338,7 @@ async fn serve(
         // config never sees, lands here too.
         let route_count = config.provider_routes.len();
         let reason = if route_count == 0 {
-            format!("no provider API key and no local provider route are configured (checked ~/{home}/config.toml). Add a key in Settings, or register a local OpenAI-compatible route, then restart {app}.", home = crate::host_identity::home_dir(), app = rightkit_agent_config::app_name())
+            format!("no provider API key and no local provider route are configured (checked ~/{home}/config.toml). Add a key in Settings, or register a local OpenAI-compatible route, then restart {app}.", home = rightkit_agent_config::state_dir_name(), app = rightkit_agent_config::app_name())
         } else {
             let names = config
                 .provider_routes
@@ -392,54 +394,42 @@ async fn serve(
     // the adapter-backed backend; Pulse absent yields a typed unavailable backend
     // with context off (OFF_REASON). No resident holder, no loopback transport.
     let mut serve_context_degraded: Option<String> = None;
-    let (memory_backend, memory_provenance) =
-        match rightkit_memory_client::backend::native::connect_from_environment() {
-            Ok(backend) => {
-                // Pulse absent connects to the typed unavailable backend; the
-                // context is still off and must be reported degraded.
-                if rightkit_memory_client::backend::native::context_is_off() {
-                    use std::io::Write as _;
-                    let _ = writeln!(
-                        std::io::stderr(),
-                        "[serve] Membrane context unavailable (context off): {}",
-                        rightkit_memory_client::membrane::OFF_REASON
-                    );
-                    serve_context_degraded =
-                        Some(rightkit_memory_client::membrane::OFF_REASON.to_string());
-                }
-                let provenance =
-                    rightkit_memory_client::memory_provenance::MemoryProvenanceStore::from_backend(
-                        backend.clone(),
-                    );
-                (backend, provenance)
-            }
-            Err(error) => {
-                // Keep diagnostics off startup-contract stdout, regardless of
-                // tracing subscriber configuration.
+    let memory_backend = match rightkit_memory_client::backend::native::connect_from_environment() {
+        Ok(backend) => {
+            // Pulse absent connects to the typed unavailable backend; the
+            // context is still off and must be reported degraded.
+            if rightkit_memory_client::backend::native::context_is_off() {
                 use std::io::Write as _;
                 let _ = writeln!(
                     std::io::stderr(),
-                    "[serve] Membrane context unavailable (context off): {error}"
+                    "[serve] Membrane context unavailable (context off): {}",
+                    rightkit_memory_client::membrane::OFF_REASON
                 );
-                // D18: context failure never prevents local execution. Keep the
-                // daemon alive with typed-unavailable memory and a visible reason;
-                // no local context store is created as a fallback.
                 serve_context_degraded =
                     Some(rightkit_memory_client::membrane::OFF_REASON.to_string());
-                let backend: std::sync::Arc<dyn rightkit_memory_client::backend::MemoryBackend> =
-                    std::sync::Arc::new(
-                        rightkit_memory_client::backend::unavailable::UnavailableMemoryBackend::new(
-                            error.code(),
-                            error.message(),
-                        ),
-                    );
-                let provenance =
-                    rightkit_memory_client::memory_provenance::MemoryProvenanceStore::unavailable(
-                        rightkit_memory_client::membrane::OFF_REASON.to_string(),
-                    );
-                (backend, provenance)
             }
-        };
+            backend
+        }
+        Err(error) => {
+            // Keep diagnostics off startup-contract stdout, regardless of
+            // tracing subscriber configuration.
+            use std::io::Write as _;
+            let _ = writeln!(
+                std::io::stderr(),
+                "[serve] Membrane context unavailable (context off): {error}"
+            );
+            // D18: context failure never prevents local execution. Keep the
+            // daemon alive with typed-unavailable memory and a visible reason;
+            // no local context store is created as a fallback.
+            serve_context_degraded = Some(rightkit_memory_client::membrane::OFF_REASON.to_string());
+            std::sync::Arc::new(
+                rightkit_memory_client::backend::unavailable::UnavailableMemoryBackend::new(
+                    error.code(),
+                    error.message(),
+                ),
+            ) as std::sync::Arc<dyn rightkit_memory_client::backend::MemoryBackend>
+        }
+    };
     let (learning, audit, observations, trajectories) = match evo_db {
         Some(db) => (
             learning::LearningHarness::open(db.clone()),
@@ -467,7 +457,6 @@ async fn serve(
         .with_skillopt_store_path(skillopt_store_path(&db_path))
         .with_spec_store_path(spec_store_path(&db_path))
         .with_learning(learning)
-        .with_memory_provenance(memory_provenance)
         .with_memory_backend(memory_backend)
         .with_membrane(crate::native_transcript_exporter::membrane_backend())
         .with_transcript_exporter(Some(std::sync::Arc::new(
@@ -568,11 +557,6 @@ async fn serve(
             );
         }
     }
-    if !primary_daemon {
-        if let Some(dir) = std::path::Path::new(&db_path).parent() {
-            state = state.with_journal_dir(dir.join("journals"));
-        }
-    }
 
     // Seed the in-memory settings store from persisted config so budgets and
     // iteration limits saved in a previous session take effect on startup.
@@ -608,13 +592,11 @@ async fn serve(
         state.agent_registry = Arc::new(effective_registry);
     }
 
-    // Startup housekeeping (marking interrupted sessions + journal scan +
-    // persistent recovery-marker reconciliation) runs in the BACKGROUND so it
-    // never delays the HTTP listener bind: with accumulated journals/sessions
+    // Startup housekeeping (marking interrupted sessions) runs in the BACKGROUND so it
+    // never delays the HTTP listener bind: with accumulated sessions
     // and a loaded machine the serial version pushed readiness past 30s
     // (e2e readiness deadline, and a bad first-run feel). Nothing below is
     // required to serve requests.
-    let journal_dir_for_startup = state.journal_dir.clone();
     let recovery_live_generations = state.cli_recovery_live_generations.clone();
     let recovery_live_epoch_state = state.cli_recovery_live_epoch.clone();
     {
@@ -669,17 +651,6 @@ async fn serve(
                     &scan_started,
                     &now_iso(),
                 );
-            }
-            if let Some(jdir) = journal_dir_for_startup.as_deref() {
-                journal::detect_interrupted_journals(jdir).await;
-            }
-            // Reconcile persistent recovery markers (P1 J1): for each
-            // persisted session, set or clear `recovery_marker` based on
-            // whether a `.journal` file still exists. Picks up journals
-            // created or closed in previous daemons without losing the UI
-            // badge for sessions that crashed mid-flight.
-            if let (Some(store), Some(jdir)) = (&storage, journal_dir_for_startup.as_deref()) {
-                journal::persist_recovery_markers(store, jdir).await;
             }
         });
     }
@@ -948,7 +919,7 @@ async fn serve(
     } else {
         eprintln!(
             "[serve] auxiliary daemon (--db): not writing ~/{home}/daemon.port",
-            home = crate::host_identity::home_dir()
+            home = rightkit_agent_config::state_dir_name()
         );
     }
 
@@ -958,7 +929,9 @@ async fn serve(
     // that request; the coordinator's `wait_ready` is blocked on exactly this
     // and would otherwise hit its deadline and roll us back. No-op for an
     // ordinary start (the identity env vars are absent).
-    if crate::daemon::reload::publish_socket_ready_if_replacement() {
+    if crate::daemon::reload::publish_socket_ready_if_replacement(&format!(
+        "127.0.0.1:{actual_port}"
+    )) {
         eprintln!("[serve] published reload socket-ready for replacement");
     }
 

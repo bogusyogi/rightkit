@@ -31,6 +31,9 @@ use std::time::Duration;
 
 const MIN_HEARTBEAT_SECONDS: u64 = 1;
 const MAX_HEARTBEAT_SECONDS: u64 = 60;
+/// The cadence used until the daemon has granted one: ten seconds, as the shared presence client
+/// uses.
+const DEFAULT_HEARTBEAT_SECONDS: u64 = 10;
 const AUTOSTART_LOG_MAX_BYTES: u64 = 1_048_576;
 const AUTOSTART_LOG_HISTORY: u8 = 3;
 
@@ -132,7 +135,7 @@ fn spawn_heartbeat_thread(
         .spawn(move || loop {
             let granted = client
                 .heartbeat_interval()
-                .map_or(MAX_HEARTBEAT_SECONDS, |every| every.as_secs());
+                .map_or(DEFAULT_HEARTBEAT_SECONDS, |every| every.as_secs());
             if stop
                 .wait(Duration::from_secs(clamp_heartbeat_seconds(granted)))
                 .is_some()

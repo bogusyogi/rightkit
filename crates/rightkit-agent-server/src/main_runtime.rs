@@ -8,8 +8,8 @@ use crate::cli::{
 };
 use crate::startup::generate_token;
 use crate::{
-    api_recipes, api_specs, api_toolsets, audit, doctor, evo_db, journal, learning, mcp_server,
-    observation, scheduler, telegram_task, trajectory,
+    api_recipes, api_specs, api_toolsets, audit, doctor, evo_db, learning, mcp_server, observation,
+    scheduler, telegram_task, trajectory,
 };
 use clap::Parser;
 use rightkit_agent_orchestration::coding::registry::AgentRegistry;

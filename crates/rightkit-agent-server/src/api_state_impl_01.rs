@@ -16,10 +16,6 @@ impl DaemonState {
                 rightkit_memory_client::membrane::OFF_REASON,
             ),
         );
-        let memory_provenance =
-            rightkit_memory_client::memory_provenance::MemoryProvenanceStore::from_backend(
-                memory_backend.clone(),
-            );
         let instincts = crate::store_write::load_instincts(&default_instincts_store_path());
         let driver_host = match rightkit_agent_coding_tools::process_resource_authority::process_resource_governor() {
             Some(governor) => crate::driver_host_runtime::DriverHostRuntime::new().with_process_launch(
@@ -107,7 +103,6 @@ impl DaemonState {
             membrane: Arc::new(rightkit_memory_client::membrane::Unavailable),
             transcript_exporter: None,
             mutation_diagnostics: None,
-            memory_provenance,
             instincts: Arc::new(Mutex::new(instincts)),
             audit: crate::audit::AuditLog::new(),
             observations: crate::observation::ObservationStore::new(),
@@ -143,7 +138,6 @@ impl DaemonState {
             denial_tracker: Arc::new(Mutex::new(rightkit_agent_policy::DenialTracker::new())),
             workspace_trust_store: Arc::new(Mutex::new(workspace_trust_store)),
             workspace_trust_store_path,
-            journal_dir: crate::journal::ExecutionJournal::journals_dir(),
             runtime_middleware: Arc::new(Mutex::new(
                 rightkit_agent_engine_runtime_middleware::RuntimeMiddlewareRegistry::default(),
             )),
@@ -262,11 +256,6 @@ impl DaemonState {
         let specs = crate::api_specs::load_spec_store(&path);
         self.spec_store_path = Some(path);
         self.specs = Arc::new(Mutex::new(specs));
-        self
-    }
-
-    pub fn with_journal_dir(mut self, path: impl Into<PathBuf>) -> Self {
-        self.journal_dir = Some(path.into());
         self
     }
 
@@ -542,7 +531,7 @@ fn default_execution_registry() -> rightkit_sandbox::execution::ExecutionBackend
         if backend.id == "local" {
             backend.workspace_layout.root = format!(
                 "{}/workspaces/{{workspaceId}}",
-                crate::host_identity::home_dir()
+                rightkit_agent_config::state_dir_name()
             );
         }
     }

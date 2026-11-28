@@ -221,7 +221,7 @@ async fn create_schedule(
             serde_json::to_string_pretty(&raw).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         rightkit_fs::atomic_write_with(
             &root
-                .join(crate::host_identity::home_dir())
+                .join(rightkit_agent_config::state_dir_name())
                 .join("schedules.json"),
             rightkit_fs::AtomicOptions {
                 create_parents: true,
@@ -232,10 +232,14 @@ async fn create_schedule(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }
     let runtime_entry = entry.scheduler_entry();
-    crate::scheduler::ensure_workflow_schedule_mapping(&state, &root, &runtime_entry)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    crate::scheduler::sync_workflow_schedule_compat(&state, &root, &runtime_entry);
+    // An untrusted workspace gets no workflow mapping (scheduler R41): the schedule is stored and
+    // its occurrences fail visibly with `untrusted_workspace` until the workspace is trusted.
+    if rightkit_agent_config::is_workspace_trusted(&root) {
+        crate::scheduler::ensure_workflow_schedule_mapping(&state, &root, &runtime_entry)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        crate::scheduler::sync_workflow_schedule_compat(&state, &root, &runtime_entry);
+    }
     record_schedule_admin_audit(
         &root,
         &id,

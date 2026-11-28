@@ -57,7 +57,7 @@ where
     T: Into<std::ffi::OsString> + Clone,
 {
     use clap::FromArgMatches;
-    let matches = crate::cli::localized_command().get_matches_from(args);
+    let matches = crate::cli::try_cli_matches(args).unwrap_or_else(|error| error.exit());
     Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit())
 }
 
@@ -80,7 +80,7 @@ where
     T: Into<std::ffi::OsString> + Clone,
 {
     use clap::FromArgMatches;
-    let matches = crate::cli::localized_command().try_get_matches_from(args)?;
+    let matches = crate::cli::try_cli_matches(args)?;
     Cli::from_arg_matches(&matches)
 }
 
@@ -215,8 +215,10 @@ fn run_main() {
     {
         eprintln!("[runtime] {}", nofile.detail);
     }
-    rightkit_onnx::agent_ort::configure_ort_dylib();
-    rightkit_onnx::agent_ort::configure_embed_model_dir();
+    if crate::host_options::embedder_runtime_setup() {
+        rightkit_onnx::agent_ort::configure_ort_dylib();
+        rightkit_onnx::agent_ort::configure_embed_model_dir();
+    }
     let raw_args = lossy_args();
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -697,6 +699,13 @@ async fn run_print_launch(launch: LaunchCli, prompt: String) {
 /// commands, not start a session with the word as the prompt.
 const DELETED_COMMANDS: &[&str] = &["cli-runtime", "__dogfood-inventory"];
 
+/// [`DELETED_COMMANDS`] plus the commands this host's options removed (`acp-server` and its alias
+/// `acp` when `host_options::acp_server` is off).
+fn deleted_command(name: &str) -> bool {
+    DELETED_COMMANDS.contains(&name)
+        || (!crate::host_options::acp_server() && matches!(name, "acp-server" | "acp"))
+}
+
 fn interactive_layout_invocation(args: &[String]) -> bool {
     if args.is_empty() || args.len() == 1 {
         return true;
@@ -795,7 +804,7 @@ fn interactive_layout_invocation(args: &[String]) -> bool {
             "install" | "uninstall" if !positional_seen => return false,
             // A deleted command name is an unknown command (exit 2), never a
             // prompt (headless R22, R36).
-            name if !positional_seen && DELETED_COMMANDS.contains(&name) => return false,
+            name if !positional_seen && deleted_command(name) => return false,
             // After the root flags (`-c KEY=VALUE config`), the first word that names a command is the
             // command, not the start of a prompt.
             value
@@ -1665,7 +1674,7 @@ async fn async_main(mut cli: Cli) {
             cli_exit(code);
         }
         Command::Plugin { command } => {
-            let code = cli_plugin(command).await;
+            let code = cli_plugin(command, yes).await;
             cli_exit(code);
         }
         Command::Permission { command } => {
@@ -1701,6 +1710,9 @@ async fn async_main(mut cli: Cli) {
             cli_exit(code);
         }
         Command::AcpServer { port, token } => {
+            if !crate::host_options::acp_server() {
+                cli_exit(host_only_command_unavailable("acp-server"));
+            }
             let presence = crate::cli_presence::attach_cli_presence("acp-server").await;
             let code =
                 crate::acp::run_stdio(crate::acp::config::AcpServerOptions { port, token }).await;

@@ -1,91 +1,31 @@
-//! Safe stale-owner takeover & PID-reuse defense for the RightKit daemon
-//! (DL-002).
+//! Safe stale-owner takeover for the host's daemon (DL-002).
 //!
-//! Ported from `grok-build`
-//! `crates/codegen/xai-grok-workspace-daemon/src/daemonize.rs`
-//! (`PidFile::acquire_or_take_over` + `PredecessorTarget`), adapted to the
-//! RightKit seam:
-//! - `ownership::OwnershipLock` replaces `PidFile`.
-//! - Exact-process pinning is `rightkit_child_process::AdoptedIdentity` (pid plus
-//!   the host's start token, re-verified before every signal), plus a local
-//!   `identity_matches_current_binary` executable-path check (this file) to
-//!   close the residual pid+start-time collision gap. Any unresolved
-//!   identity is ambiguous ownership & refuses takeover.
-//! - Termination is delegated to `kill_tree::terminate_pid_pinned` (DL-012)
-//!   rather than reimplemented here, since exact-process pinning plus
-//!   graceful→forceful escalation is exactly the forced-kill-backstop
-//!   contract that module owns.
+//! Termination and identity pinning are `rightkit_daemon::stop_identity`: the
+//! predecessor's identity is captured once (`rightkit_child_process::AdoptedIdentity`:
+//! pid plus the host's start token) before any signal, and `stop_identity`
+//! re-verifies that identity and the executable path immediately before each
+//! signal. Success is the ownership lock being released and now held by this
+//! process, never pid death alone; the lock is never bypassed. Any unresolved
+//! identity is ambiguous ownership and refuses takeover.
 
 use std::num::NonZeroU32;
 use std::path::Path;
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use rightkit_child_process::{AdoptedIdentity, IdentityCheck};
+use rightkit_child_process::AdoptedIdentity;
+use rightkit_daemon::{stop_identity, IncumbentError, StopOptions};
 
-use super::kill_tree;
 use super::ownership::{read_lockfile_pid, OwnershipLock};
 
-/// How long a takeover waits for the gracefully-terminated predecessor to
-/// release the lockfile lock before escalating to a forceful kill.
+/// How long a takeover waits at each stage (ask, graceful signal, forced stop)
+/// for the predecessor to release the lockfile lock.
 pub(crate) const TAKEOVER_GRACE: Duration = Duration::from_secs(2);
 
-/// How long a takeover waits for the lock after the forceful kill (process
-/// death releases the flock) before declining.
-const TAKEOVER_KILL_GRACE: Duration = Duration::from_secs(1);
-
-/// Poll interval while waiting for the predecessor to release the lock.
-const TAKEOVER_POLL: Duration = Duration::from_millis(50);
-
-/// Stable identity captured for a predecessor before any signal is sent.
-/// PID alone is reusable; RightKit's start-time identity plus the canonical
-/// executable path make the target explicit and allow each later signal to be
-/// revalidated.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct PredecessorTarget {
-    identity: AdoptedIdentity,
-    pid: u32,
-    boot_epoch: u128,
-    executable: std::path::PathBuf,
-}
-
-/// Start time of `identity`'s process as Unix epoch milliseconds.
-fn identity_start_epoch_ms(identity: &AdoptedIdentity) -> Option<u128> {
-    identity
-        .start_time()?
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()
-        .map(|elapsed| elapsed.as_millis())
-}
-
-impl PredecessorTarget {
-    fn capture(pid: u32) -> Option<Self> {
-        let identity = AdoptedIdentity::capture(NonZeroU32::new(pid)?).ok()??;
-        let boot_epoch = identity_start_epoch_ms(&identity)?;
-        let executable = std::fs::canonicalize(identity.exe()?).ok()?;
-        Some(Self {
-            identity,
-            pid,
-            boot_epoch,
-            executable,
-        })
-    }
-
-    /// Re-resolve every identity component immediately before signaling.
-    fn still_exact(&self) -> bool {
-        let Some(path) = process_exe_path(self.pid) else {
-            return false;
-        };
-        matches!(self.identity.verify(), Ok(IdentityCheck::Same))
-            && std::fs::canonicalize(path).ok() == Some(self.executable.clone())
-    }
-}
-
-/// Acquire the ownership lock, taking over from a live predecessor RightKit
-/// daemon if one holds it: graceful termination (its normal shutdown runs
-/// per `shutdown.rs`), `grace` to release the lock, then a forceful kill via
-/// `kill_tree::terminate_pid_pinned` (process death releases the flock). The lock is
-/// never bypassed — a guard is returned only with the flock held.
+/// Acquire the ownership lock, taking over from a live predecessor daemon of this host
+/// if one holds it: a cooperative shutdown request, a graceful signal,
+/// then a forced stop, each bounded by `grace`, through
+/// `rightkit_daemon::stop_identity`. The lock is never bypassed: a guard is
+/// returned only with the lock held.
 ///
 /// `Ok(None)` means the caller should exit quietly: the holder's identity
 /// could not be pinned (pid recycled or process gone), or the lock could not
@@ -104,78 +44,80 @@ pub fn acquire_or_take_over(
     if pid == std::process::id() {
         return Ok(None);
     }
-    // Audit 2026-11-05 daemon H1: `daemon.lock` is also held by an inline `{app} run` and by a
-    // `serve` that has not yet published its discovery record. Only a holder that is the live
-    // process the published `daemon.port` names is a daemon this takeover may stop; any other
-    // holder is refused untouched. This check and the executable-identity check below both
-    // have to pass.
+    // Audit 2026-11-05 daemon H1: `daemon.lock` is also held by an inline `run`
+    // (R13) and by a `serve` that has not yet published its discovery record. Only a
+    // holder that is the live process the published `daemon.port` names is a daemon this
+    // takeover may stop; any other holder is refused untouched.
     if !holder_is_published_daemon(path, pid) {
         eprintln!(
-            "lock holder pid {pid} is not the daemon named in daemon.port (a `{app} run` or a daemon still starting); declining takeover",
-            app = crate::host_identity::app()
+            "lock holder pid {pid} is not the daemon named in daemon.port (a `{run}` or a daemon still starting); declining takeover",
+            run = crate::host_identity::command("run")
         );
         return Ok(None);
     }
 
-    // Pin all predecessor identity before signaling anything. Any unresolved
-    // component is ambiguous ownership & must refuse takeover.
-    let Some(target) = PredecessorTarget::capture(pid) else {
+    // Pin the predecessor identity once, before any signal. An unresolved
+    // identity is ambiguous ownership and refuses takeover.
+    let Some(pid_nz) = NonZeroU32::new(pid) else {
         return Ok(None);
     };
-    match identity_matches_current_binary(pid) {
-        Some(false) => {
-            eprintln!(
-                "lockfile pid {pid} does not resolve to a {app} executable; declining takeover (likely pid reuse)", app = crate::host_identity::app()
-            );
-            return Ok(None);
-        }
-        Some(true) => {}
-        None => {
-            eprintln!(
-                "could not verify executable identity for pid {pid}; declining ambiguous takeover"
-            );
-            return Ok(None);
-        }
-    }
+    let Some(identity) = AdoptedIdentity::capture(pid_nz).ok().flatten() else {
+        return Ok(None);
+    };
 
     eprintln!(
         "taking over from predecessor {app} daemon (pid {pid})",
         app = crate::host_identity::app()
     );
-    if request_cooperative_shutdown(path, pid) {
-        if let Some(guard) = poll_acquire(path, grace)? {
-            return Ok(Some(guard));
+    let mut acquired = None;
+    let exe = std::env::current_exe()?;
+    let options = StopOptions::new(grace).expected_exe(exe);
+    match stop_identity(
+        &identity,
+        &options,
+        || {
+            if request_cooperative_shutdown(path, pid) {
+                Ok(())
+            } else {
+                Err(std::io::Error::other("no cooperative shutdown"))
+            }
+        },
+        || match OwnershipLock::acquire(path) {
+            Ok(Some(guard)) => {
+                acquired = Some(guard);
+                true
+            }
+            _ => false,
+        },
+    ) {
+        Ok(_) => Ok(acquired),
+        Err(IncumbentError::OwnProcess) => Ok(None),
+        Err(IncumbentError::ExecutableMismatch { .. }) => {
+            eprintln!(
+                "lockfile pid {pid} does not resolve to a {app} executable; declining takeover (likely pid reuse)",
+                app = crate::host_identity::app()
+            );
+            Ok(None)
+        }
+        Err(IncumbentError::NotIncumbent { .. } | IncumbentError::NoIdentity { .. }) => {
+            eprintln!("predecessor identity changed before the signal; declining takeover");
+            Ok(None)
+        }
+        Err(IncumbentError::NotReleased { .. } | IncumbentError::Survived { .. }) => {
+            eprintln!(
+                "predecessor (pid {pid}) did not release the lock in time; lock is still held after killing it; exiting"
+            );
+            Ok(None)
+        }
+        Err(IncumbentError::Io(error)) => {
+            eprintln!("failed to stop predecessor (pid {pid}): {error}");
+            Ok(None)
+        }
+        Err(error) => {
+            eprintln!("failed to stop predecessor (pid {pid}): {error}");
+            Ok(None)
         }
     }
-    if target.still_exact() {
-        if let Err(e) = kill_tree::terminate_pid_pinned(target.pid, target.boot_epoch, false) {
-            eprintln!("failed to signal predecessor (pid {pid}): {e}");
-        }
-    } else {
-        eprintln!("predecessor identity changed before graceful signal; declining takeover");
-        return Ok(None);
-    }
-    if let Some(guard) = poll_acquire(path, grace)? {
-        return Ok(Some(guard));
-    }
-
-    eprintln!("predecessor (pid {pid}) did not release the lock in time; killing it");
-    if target.still_exact() {
-        if let Err(e) = kill_tree::terminate_pid_pinned(target.pid, target.boot_epoch, true) {
-            eprintln!("failed to kill predecessor (pid {pid}): {e}");
-        }
-    } else {
-        eprintln!("predecessor identity changed before forceful signal; declining takeover");
-        return Ok(None);
-    }
-    if let Some(guard) = poll_acquire(path, TAKEOVER_KILL_GRACE)? {
-        return Ok(Some(guard));
-    }
-
-    // The holder we signaled is dead yet the lock is still owned — a
-    // concurrent newer spawn won it. Decline rather than double-run.
-    eprintln!("lock is still held after killing pid {pid}; exiting");
-    Ok(None)
 }
 
 /// Whether `pid`, the current lock holder, is the live process recorded in the discovery file
@@ -232,38 +174,6 @@ fn request_cooperative_shutdown(lock_path: &Path, pid: u32) -> bool {
         .is_ok_and(|response| (200..300).contains(&response.status))
 }
 
-/// Exact executable-identity check: does `pid` resolve to this binary's
-/// canonical path? `None` means identity could not be determined
-/// (unsupported platform, permissions, or a mid-check exit); callers must
-/// refuse takeover rather than signal an ambiguous owner.
-fn identity_matches_current_binary(pid: u32) -> Option<bool> {
-    let candidate = std::fs::canonicalize(process_exe_path(pid)?).ok()?;
-    let current = std::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
-    Some(candidate == current)
-}
-
-/// Resolve `pid`'s executable path, best-effort, through RightKit's process
-/// identity read. `None` on any failure (process gone, permission denied,
-/// unsupported platform) - never panics.
-fn process_exe_path(pid: u32) -> Option<std::path::PathBuf> {
-    let identity = AdoptedIdentity::capture(NonZeroU32::new(pid)?).ok()??;
-    identity.exe().map(Path::to_path_buf)
-}
-
-/// Retry [`OwnershipLock::acquire`] until it succeeds or `budget` elapses.
-fn poll_acquire(path: &Path, budget: Duration) -> std::io::Result<Option<OwnershipLock>> {
-    let deadline = Instant::now() + budget;
-    loop {
-        if let Some(guard) = OwnershipLock::acquire(path)? {
-            return Ok(Some(guard));
-        }
-        if Instant::now() >= deadline {
-            return Ok(None);
-        }
-        thread::sleep(TAKEOVER_POLL);
-    }
-}
-
 #[cfg(test)]
 mod published_holder_tests {
     use super::{holder_is_published_daemon, record_names_live_holder};
@@ -284,7 +194,7 @@ mod published_holder_tests {
 
     #[test]
     fn holder_not_named_by_record_is_refused() {
-        // A stale record names a dead daemon while a an inline run (another pid) holds the lock.
+        // A stale record names a dead daemon while a `run` (another pid) holds the lock.
         let record = own_record();
         assert!(!record_names_live_holder(
             &record.to_line(),

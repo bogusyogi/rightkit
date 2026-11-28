@@ -525,11 +525,6 @@ impl RestrictedCapabilitiesV1 {
     }
 }
 
-/// Alias retained for callers that describe the same configured route as a
-/// provider identity.  The canonical fields live in
-/// [`LiveProviderAuthorityV1`] and are shared with the existing review seam.
-pub type BackgroundProviderIdentityV1 = LiveProviderAuthorityV1;
-
 /// Background semantic review request.  The event window is complete input
 /// supplied by RightKit; the model receives no tools, no context re-entry,
 /// and no durable-store handle.

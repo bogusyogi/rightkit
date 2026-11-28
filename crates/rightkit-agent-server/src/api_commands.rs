@@ -313,7 +313,10 @@ async fn dispatch_command_action(
         }
         CommandAction::DreamNow(_) => action_error(
             "memory dream",
-            "no memory-dream command consumer is available",
+            &format!(
+                "no {} memory-dream command consumer is available",
+                rightkit_agent_config::app_name()
+            ),
         ),
         _ => result,
     }

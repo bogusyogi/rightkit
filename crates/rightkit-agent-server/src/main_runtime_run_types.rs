@@ -99,7 +99,9 @@ const MCP_GATEWAY_TOOLS: [&str; 5] = [
 
 /// Non-matching allowlist entry that keeps a fully-excluded allowlist
 /// non-empty (an empty allowlist would mean "allow everything").
-const CLI_NO_TOOLS_SENTINEL: &str = "__host_no_tools__";
+fn cli_no_tools_sentinel() -> String {
+    format!("__{}_no_tools__", crate::host_identity::app())
+}
 
 #[cfg(test)] // used only by the #[cfg(test)] tool_delta_tests module (clippy sweep)
 fn resolve_cli_tool_filters(
@@ -180,7 +182,7 @@ fn resolve_cli_tool_filters_with_mcp(
             })
         });
         if allowed_tools.is_empty() {
-            allowed_tools.push(CLI_NO_TOOLS_SENTINEL.to_string());
+            allowed_tools.push(cli_no_tools_sentinel());
         }
     }
     let profile = match toolset.map(str::trim).filter(|value| !value.is_empty()) {

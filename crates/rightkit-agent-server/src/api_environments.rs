@@ -288,7 +288,7 @@ struct CancelRerunSetupScriptRequest {
 
 fn environments_dir(workspace_root: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(workspace_root)
-        .join(crate::host_identity::home_dir())
+        .join(rightkit_agent_config::state_dir_name())
         .join("environments")
 }
 

@@ -74,14 +74,14 @@ async fn health_diagnostics(
         rightkit_agent_policy::SandboxPolicySource::Workspace => {
             crate::host_identity::interned(format!(
                 "{home}/sandbox-settings.json",
-                home = crate::host_identity::home_dir()
+                home = rightkit_agent_config::state_dir_name()
             ))
         }
         rightkit_agent_policy::SandboxPolicySource::OperatorAndWorkspace => {
             crate::host_identity::interned(format!(
                 "{} + {home}/sandbox-settings.json",
                 rightkit_agent_config::env_name("SANDBOX_TIER"),
-                home = crate::host_identity::home_dir()
+                home = rightkit_agent_config::state_dir_name()
             ))
         }
     };

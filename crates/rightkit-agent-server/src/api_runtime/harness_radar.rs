@@ -130,7 +130,10 @@ async fn schedule_harness_radar_refresh(
 }
 
 fn harness_radar_refresh_prompt() -> String {
-    "Harness Radar refresh: read the workspace's harness-radar sources (sources.toml), fetch the configured public watchlist sources when network is available, compare them with the current project snapshot (projects.snapshot.yaml), validate required capabilities/categories, summarize new or changed agent-harness projects, and propose only backlog updates relevant to this workspace, with source evidence. Do not auto-promote proposals without operator approval.".to_string()
+    format!(
+        "Harness Radar refresh: read assets/harness-radar/sources.toml, fetch the configured public watchlist sources when network is available, compare them with assets/harness-radar/projects.snapshot.yaml, validate required capabilities/categories, summarize new or changed agent-harness projects, and propose only {}-relevant backlog updates with source evidence. Do not auto-promote proposals without operator approval.",
+        rightkit_agent_config::app_name()
+    )
 }
 
 struct RuntimeHarnessRadarSnapshot {

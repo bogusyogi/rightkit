@@ -267,10 +267,9 @@ pub(crate) fn web_search_config_from_config(
         .filter(|value| !value.is_empty())
         .map(str::to_string)
         .or_else(|| {
-            let tinyfish_available = rightkit_llm::agent_providers::load_api_key("tinyfish")
+            rightkit_llm::agent_providers::load_api_key("tinyfish")
                 .is_some()
-                || std::env::var("TINYFISH_API_KEY").is_ok();
-            tinyfish_available.then(|| "tinyfish".to_string())
+                .then(|| "tinyfish".to_string())
         })?;
     let api_key = config
         .tools

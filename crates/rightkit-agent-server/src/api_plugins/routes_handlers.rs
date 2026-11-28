@@ -1,23 +1,10 @@
 pub(crate) fn plugin_routes() -> Router<DaemonState> {
-    Router::new()
+    let mut router = Router::new()
         .route(
             "/provider-extensions",
             get(list_provider_extensions_handler),
         )
         .route("/plugins", get(list_plugins_handler))
-        .route("/plugins/marketplace", get(list_plugin_marketplace_handler))
-        .route(
-            "/plugins/marketplace/categories",
-            get(list_plugin_marketplace_categories_handler),
-        )
-        .route(
-            "/plugins/marketplace/sync",
-            post(sync_plugin_marketplace_handler),
-        )
-        .route(
-            "/plugins/marketplace/{id}/install",
-            post(install_marketplace_plugin_handler),
-        )
         .route("/plugins/install", post(install_plugin_handler))
         .route("/plugins/reload", post(reload_plugins_handler))
         .route(
@@ -26,8 +13,6 @@ pub(crate) fn plugin_routes() -> Router<DaemonState> {
         )
         .route("/plugins/{id}/enable", post(enable_plugin_handler))
         .route("/plugins/{id}/disable", post(disable_plugin_handler))
-        .route("/plugins/{id}/rollback", post(rollback_plugin_handler))
-        .route("/plugins/{id}/versions", get(list_plugin_versions_handler))
         .route(
             "/sessions/{id}/plugins/{pluginId}/enable",
             post(enable_session_plugin_handler),
@@ -39,7 +24,41 @@ pub(crate) fn plugin_routes() -> Router<DaemonState> {
         .route(
             "/sessions/{id}/plugins",
             get(list_session_plugins_handler).delete(clear_session_plugins_handler),
-        )
+        );
+    // The marketplace, the rollback and the version listing exist only on a host whose
+    // `plugin_marketplace` option is on.
+    if crate::host_options::plugin_marketplace() {
+        router = router
+            .route("/plugins/marketplace", get(list_plugin_marketplace_handler))
+            .route(
+                "/plugins/marketplace/categories",
+                get(list_plugin_marketplace_categories_handler),
+            )
+            .route(
+                "/plugins/marketplace/sync",
+                post(sync_plugin_marketplace_handler),
+            )
+            .route(
+                "/plugins/marketplace/{id}/install",
+                post(install_marketplace_plugin_handler),
+            )
+            .route("/plugins/{id}/rollback", post(rollback_plugin_handler))
+            .route("/plugins/{id}/versions", get(list_plugin_versions_handler));
+    }
+    router
+}
+
+/// The JSON of one installed plugin in a listing: with the signature provenance of its install
+/// folder on a host with a plugin marketplace, the plain manifest otherwise.
+fn listed_plugin_json(
+    state: &DaemonState,
+    manifest: &rightkit_agent_plugins::PluginManifest,
+) -> serde_json::Value {
+    if crate::host_options::plugin_marketplace() {
+        plugin_manifest_json_with_provenance(manifest, &state.plugin_dir.join(&manifest.id))
+    } else {
+        plugin_manifest_json(manifest)
+    }
 }
 
 /// A plugin route refusal: the status plus a body whose `message` says why in plain words
@@ -149,21 +168,23 @@ async fn list_plugins_handler(
     let plugins_json = plugins
         .iter()
         .map(|p| {
-            let install_dir = state.plugin_dir.join(&p.id);
-            let mut json = plugin_manifest_json_with_provenance(p, &install_dir);
-            // Attach rollback versions for UI chip: installed vs update vs rollback available
-            let loader = rightkit_agent_plugins::PluginLoader::new(state.plugin_dir.clone());
-            let rollback_versions = loader.available_rollback_versions(&p.id);
+            let mut json = listed_plugin_json(&state, p);
             if let Some(obj) = json.as_object_mut() {
-                obj.insert(
-                    "rollbackVersions".into(),
-                    serde_json::Value::Array(
-                        rollback_versions
-                            .into_iter()
-                            .map(serde_json::Value::String)
-                            .collect(),
-                    ),
-                );
+                if crate::host_options::plugin_marketplace() {
+                    // Rollback versions for the UI chip: installed vs update vs rollback available.
+                    let loader =
+                        rightkit_agent_plugins::PluginLoader::new(state.plugin_dir.clone());
+                    obj.insert(
+                        "rollbackVersions".into(),
+                        serde_json::Value::Array(
+                            loader
+                                .available_rollback_versions(&p.id)
+                                .into_iter()
+                                .map(serde_json::Value::String)
+                                .collect(),
+                        ),
+                    );
+                }
                 // Include per-session activation hint: if any session has overrides, expose count
                 // The UI can query per-session endpoint for details; this is a lightweight hint.
                 let has_session_overrides = {
@@ -217,10 +238,7 @@ async fn reload_plugins_handler(
     refresh_live_session_catalogs(&state);
     let plugins_json = plugins
         .iter()
-        .map(|p| {
-            let install_dir = state.plugin_dir.join(&p.id);
-            plugin_manifest_json_with_provenance(p, &install_dir)
-        })
+        .map(|p| listed_plugin_json(&state, p))
         .collect::<Vec<_>>();
     let extension_execution = extension_execution_diagnostics_json()["extension_execution"].clone();
     Ok(Json(serde_json::json!({
@@ -499,18 +517,20 @@ async fn install_plugin_handler(
         outcome = "ok",
         "plugin lifecycle"
     );
-    // A local install has no publisher signature block, so the provenance defaults to
-    // `unsigned` (audit A-8 SPEC 4). The UI badges this state and the user has explicitly
-    // accepted the install via `trustAccepted: true`.
-    let record = PluginSignatureRecord::unsigned("local".into(), now_iso());
-    write_record(&installed.path, &record);
+    // On a host with a plugin marketplace a local install has no publisher signature block, so
+    // the provenance defaults to `unsigned` (audit A-8 SPEC 4). The UI badges this state and the
+    // user has explicitly accepted the install via `trustAccepted: true`.
+    let signature_status = crate::host_options::plugin_marketplace().then(|| {
+        let record = PluginSignatureRecord::unsigned("local".into(), now_iso());
+        write_record(&installed.path, &record);
+        match record.status {
+            SignatureStatus::Signed => "signed",
+            SignatureStatus::Unsigned => "unsigned",
+            SignatureStatus::Unknown => "unknown",
+        }
+    });
     let middleware_count = refresh_runtime_plugins(&state);
     refresh_live_session_catalogs(&state);
-    let status_str = match record.status {
-        SignatureStatus::Signed => "signed",
-        SignatureStatus::Unsigned => "unsigned",
-        SignatureStatus::Unknown => "unknown",
-    };
     // An install that replaced a plugin says what changed between the two versions.
     let replaced = installed.replaced.as_ref().map(|replaced| {
         serde_json::json!({
@@ -520,16 +540,19 @@ async fn install_plugin_handler(
             "removed": {"commands": replaced.removed_commands, "tools": replaced.removed_tools},
         })
     });
-    Ok(Json(serde_json::json!({
+    let mut body = serde_json::json!({
         "installed": true,
         "overwritten": installed.overwritten,
         "replaced": replaced,
         "pluginDir": state.plugin_dir,
         "installedPath": installed.path,
         "middlewareCount": middleware_count,
-        "signatureStatus": status_str,
-        "plugin": plugin_manifest_json_with_provenance(&installed.manifest, state.plugin_dir.join(&installed.manifest.id).as_path()),
-    })))
+        "plugin": listed_plugin_json(&state, &installed.manifest),
+    });
+    if let (Some(status), Some(object)) = (signature_status, body.as_object_mut()) {
+        object.insert("signatureStatus".into(), serde_json::Value::from(status));
+    }
+    Ok(Json(body))
 }
 
 /// `DELETE /plugins/{id}`: remove an installed plugin (its folder and enabled record). Its
@@ -735,7 +758,19 @@ async fn rollback_plugin_handler(
     Json(req): Json<RollbackPluginRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     enforce_trusted_source_authority(&headers)?;
-    if req.target_version.trim().is_empty() {
+    // A rollback replaces code that runs on this machine: it needs the same explicit trust
+    // acceptance as an install, whichever source the version comes from.
+    if !req.trust_accepted {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let req = RollbackPluginRequest {
+        target_version: req.target_version.trim().to_string(),
+        trust_accepted: req.trust_accepted,
+    };
+    // The id and the version each name a folder under the plugin directory and the temp
+    // directory: they get the plugin-id character set before anything joins them to a path
+    // (the loader joins `target_version` into a snapshot path without a check of its own).
+    if !validate_plugin_id(&id) || !validate_plugin_id(&req.target_version) {
         return Err(StatusCode::BAD_REQUEST);
     }
     // Prefer marketplace versioned entry if catalog contains the target version;
@@ -748,6 +783,19 @@ async fn rollback_plugin_handler(
         .find(|e| e.manifest.id == id && e.manifest.version == req.target_version)
         .cloned();
     if let Some(entry) = catalog_entry {
+        // The catalog is a file a sync can replace: its id and version get the same check as
+        // the ones the caller sent.
+        if !validate_plugin_id(&entry.manifest.id) || !validate_plugin_id(&entry.manifest.version) {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        // An entry that carries any signature field must verify, as on install, before the
+        // rollback installs it or records it as signed.
+        let carries_signature = !entry.signature.trim().is_empty()
+            || !entry.signing_public_key.trim().is_empty()
+            || !entry.signed_by.trim().is_empty();
+        if carries_signature {
+            verify_marketplace_entry_signature(&entry).map_err(|_| StatusCode::BAD_REQUEST)?;
+        }
         // Install from catalog entry (with snapshot preservation)
         let temp_root = std::env::temp_dir().join(format!(
             "{app}-plugin-rollback-{}-{}-{}",
@@ -790,18 +838,21 @@ async fn rollback_plugin_handler(
         } else {
             entry.source_path.clone()
         };
-        // Verify checksum if present
-        if !entry.checksum_sha256.trim().is_empty() {
-            let actual = plugin_source_sha256(&source_path).map_err(|_| StatusCode::BAD_REQUEST)?;
-            if !actual.eq_ignore_ascii_case(&entry.checksum_sha256) {
-                let _ = std::fs::remove_dir_all(&temp_root);
-                return Err(StatusCode::BAD_REQUEST);
-            }
+        // The source must match the checksum the entry names; an entry with none is refused,
+        // as on install.
+        let actual = plugin_source_sha256(&source_path).map_err(|_| StatusCode::BAD_REQUEST)?;
+        if !actual.eq_ignore_ascii_case(&entry.checksum_sha256) {
+            let _ = std::fs::remove_dir_all(&temp_root);
+            return Err(StatusCode::BAD_REQUEST);
         }
         let (manifest, installed_path, _) =
             install_local_plugin(&state.plugin_dir, &source_path, true)?;
         let _ = std::fs::remove_dir_all(&temp_root);
-        let record = if !entry.signature.trim().is_empty() {
+        // Signed only when the entry carried all three fields and its signature verified above.
+        let record = if !entry.signature.trim().is_empty()
+            && !entry.signing_public_key.trim().is_empty()
+            && !entry.signed_by.trim().is_empty()
+        {
             PluginSignatureRecord::signed(
                 entry.signed_by.clone(),
                 entry.signing_public_key.clone(),
@@ -919,7 +970,7 @@ async fn list_session_plugins_handler(
         .iter()
         .map(|p| {
             let active = activations.is_active(&p.id, &id, p.enabled);
-            let mut json = plugin_manifest_json(p);
+            let mut json = listed_plugin_json(&state, p);
             if let Some(obj) = json.as_object_mut() {
                 obj.insert("activeForSession".into(), serde_json::Value::Bool(active));
             }

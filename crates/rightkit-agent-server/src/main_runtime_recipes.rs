@@ -1,4 +1,4 @@
-/// `yes`: the global `--yes`, read as `--auto-approve` on a host that sets
+/// `yes`: the global `--yes`, read as auto-approve on a host that sets
 /// `host_options::yes_flag_is_auto_approve` (see `cli::effective_auto_approve`).
 async fn cli_recipe(command: RecipeCommand, yes: bool) -> i32 {
     match command {
@@ -121,7 +121,6 @@ async fn cli_recipe(command: RecipeCommand, yes: bool) -> i32 {
             model,
             provider,
             workspace,
-            auto_approve,
             permission_mode,
             stream_json,
             max_turns,
@@ -133,10 +132,10 @@ async fn cli_recipe(command: RecipeCommand, yes: bool) -> i32 {
                 eprintln!("`--permission-mode bypass` is available on `run` only");
                 return 2;
             }
-            // `--auto-approve` (or the global `--yes` where a host reads it so) is accept-edits
-            // unless a mode is named.
+            // The global `--yes`, on a host that reads it as auto-approve, is accept-edits unless
+            // a mode is named.
             let permission_mode = permission_mode.or_else(|| {
-                crate::cli::effective_auto_approve(auto_approve, yes)
+                crate::cli::effective_auto_approve(false, yes)
                     .then_some(rightkit_agent_policy::PermissionMode::AcceptEdits)
             });
             let store_path = cli_recipe_store_path(store.as_deref());

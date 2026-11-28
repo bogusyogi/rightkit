@@ -10,12 +10,12 @@ use super::model::{ScheduleEntry, ScheduleLifecycleState, ScheduleRuntimeMetadat
 use super::time::cron_matches_in_time_zone;
 
 pub(super) fn schedules_path(root: &Path) -> PathBuf {
-    root.join(crate::host_identity::home_dir())
+    root.join(rightkit_agent_config::state_dir_name())
         .join("schedules.json")
 }
 
 pub(super) fn runs_path(root: &Path) -> PathBuf {
-    root.join(crate::host_identity::home_dir())
+    root.join(rightkit_agent_config::state_dir_name())
         .join("schedule-runs.json")
 }
 
@@ -121,13 +121,6 @@ pub(super) fn release_queued_occurrence(root: &Path, schedule_id: &str) -> Resul
     state.last_claimed_minute.remove(schedule_id);
     save_run_state(root, &state)?;
     Ok(true)
-}
-
-/// Store causal execution evidence in existing schedule-run history.  The
-/// legacy event envelope stays unchanged, while newer readers can replay the
-/// validated trigger -> run -> child task -> result chain from its message.
-pub(super) fn causal_message(message: &str, chain: &[CausalReceipt]) -> String {
-    serde_json::json!({"message": message, "causalReceipts": chain}).to_string()
 }
 
 pub(super) fn causal_message_with_isolation(

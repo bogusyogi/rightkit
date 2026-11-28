@@ -181,7 +181,7 @@ fn load_constitution_sources(workspace_root: &str) -> Vec<ConstitutionSource> {
     candidates.push((
         "workspace".to_string(),
         workspace_path
-            .join(crate::host_identity::home_dir())
+            .join(rightkit_agent_config::state_dir_name())
             .join("constitution.md"),
     ));
 

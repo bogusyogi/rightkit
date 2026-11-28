@@ -1,14 +1,12 @@
-//! Process ownership & single-instance enforcement for the RightKit daemon (DL-001).
+//! Process ownership & single-instance enforcement for the host's daemon (DL-001).
 //!
-//! Ported from `grok-build` `crates/codegen/xai-grok-workspace-daemon/src/daemonize.rs`
-//! (`PidFile::acquire`), adapted to the RightKit seam: lock lives beside
-//! RightKit's existing `~/.{app}/daemon.port` discovery file rather than
-//! `/tmp`. This module supplies secure exclusive acquisition, held-lock
-//! lifetime, & advisory PID diagnostics. Exact-process pinning
-//! (`process_start_epoch_ms`) remains owned by `main_runtime_daemon_resolve.rs`
-//! for host-level takeover. Production `serve` acquires and holds this lock
-//! before startup becomes observable; see `takeover.rs` for stale-owner
-//! escalation.
+//! The exclusive lock, the symlink refusal and the owner record are
+//! `rightkit_fs::FileLock` and `rightkit_fs::probe_owner`. Stale-owner takeover
+//! is `rightkit_daemon::stop_identity` (see `takeover.rs`). This file only
+//! derives the host's lock and discovery paths (the lock lives beside
+//! the host's `~/.{app}/daemon.port` discovery file) and holds the shared
+//! in-process lock. Production `serve` acquires and holds the lock before
+//! startup becomes observable.
 //!
 //! Hostile-owner tests: a directory path, a symlinked path, and a contended
 //! second acquire must all behave per the doc comments below — see the test

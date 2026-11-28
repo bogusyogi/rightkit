@@ -16,8 +16,9 @@ pub mod command_registry;
 pub(crate) use cli_definitions_command_run::RunArgs as CliRunArgs;
 pub(crate) use cli_definitions_command_run::{CliColor, CliPermissionMode, OutputFormat};
 
-/// Whether `run`, `review` and `recipe run` auto-approve edit-class actions: their own
-/// `--auto-approve`, or the global `--yes` on a host that sets
+/// Whether `run`, `review` and `recipe run` auto-approve edit-class actions: the `--auto-approve`
+/// flag of `run` and `review` (a host whose `legacy_auto_approve_flags` is off has none, and
+/// `recipe run` never had one), or the global `--yes` on a host that sets
 /// `host_options::yes_flag_is_auto_approve` (the twin's `--yes` was an alias of `--auto-approve`;
 /// a host whose `--yes` only completes a dry run leaves it unset).
 pub(crate) fn effective_auto_approve(auto_approve: bool, yes: bool) -> bool {
@@ -32,8 +33,141 @@ pub(crate) fn effective_auto_approve(auto_approve: bool, yes: bool) -> bool {
 /// strings at use, so no product's name is compiled into the library. Parse through this
 /// command (`Cli::from_arg_matches`), not through the bare derive, so the help names the host.
 pub(crate) fn localized_command() -> clap::Command {
-    localize_command(<Cli as clap::CommandFactory>::command())
+    hide_removed_items(localize_command(<Cli as clap::CommandFactory>::command()))
         .version(crate::host_identity::version())
+}
+
+/// The subcommands a host option removes from the command line, as paths from the root
+/// (`["plugin", "marketplace"]`). The derive grammar carries them for every host; clap cannot drop
+/// a subcommand from a built command, so a removed one is hidden from the help and refused as an
+/// unrecognised subcommand by [`reject_removed_items`], which is what a host that never had it
+/// answers.
+fn removed_subcommands() -> Vec<&'static [&'static str]> {
+    let mut removed: Vec<&'static [&'static str]> = Vec::new();
+    if !crate::host_options::acp_server() {
+        removed.push(&["acp-server"]);
+    }
+    if !crate::host_options::plugin_marketplace() {
+        removed.push(&["plugin", "marketplace"]);
+        removed.push(&["plugin", "install-marketplace"]);
+        removed.push(&["plugin", "marketplace-sync"]);
+    }
+    if !crate::host_options::mcp_public_server() {
+        removed.push(&["mcp", "status"]);
+    }
+    removed
+}
+
+/// The flags a host option removes from the command line: the command path and the argument id.
+fn removed_flags() -> Vec<(&'static [&'static str], &'static str)> {
+    let mut removed: Vec<(&'static [&'static str], &'static str)> = Vec::new();
+    if !crate::host_options::legacy_auto_approve_flags() {
+        removed.push((&["run"], "auto_approve"));
+        removed.push((&["review"], "auto_approve"));
+    }
+    removed
+}
+
+fn hide_removed_items(mut command: clap::Command) -> clap::Command {
+    fn hide_at(command: clap::Command, path: &[&str]) -> clap::Command {
+        match path {
+            [] => command,
+            [last] => command.mut_subcommand(*last, |sub| sub.hide(true)),
+            [first, rest @ ..] => command.mut_subcommand(*first, |sub| hide_at(sub, rest)),
+        }
+    }
+    for path in removed_subcommands() {
+        command = hide_at(command, path);
+    }
+    for (path, id) in removed_flags() {
+        fn hide_flag(command: clap::Command, path: &[&str], id: &str) -> clap::Command {
+            match path {
+                [] => command.mut_arg(id.to_string(), |arg| arg.hide(true)),
+                [first, rest @ ..] => {
+                    command.mut_subcommand(*first, |sub| hide_flag(sub, rest, id))
+                }
+            }
+        }
+        command = hide_flag(command, path, id);
+    }
+    if !crate::host_options::mcp_public_server() {
+        // On this host `mcp-server` is the session-bound driver helper, not a command a person runs.
+        command = command.mut_subcommand("mcp-server", |sub| {
+            sub.hide(true).about(
+                "Internal driver helper: the stdio MCP gateway bound to one live session (`--session-id`). Not a public MCP server (contract R32); hidden from help.",
+            )
+        });
+    }
+    command
+}
+
+/// Refuse what a host option removed ([`removed_subcommands`], [`removed_flags`]) the way clap
+/// refuses an item that is not in the grammar. `command` is the command `matches` came from.
+pub(crate) fn reject_removed_items(
+    matches: &clap::ArgMatches,
+    command: &clap::Command,
+) -> Result<(), clap::Error> {
+    let refuse = |kind: clap::error::ErrorKind, text: String| {
+        let mut command = command.clone();
+        Err(command.error(kind, text))
+    };
+    for path in removed_subcommands() {
+        let mut current = matches;
+        let mut present = true;
+        for segment in path {
+            match current.subcommand() {
+                Some((name, sub)) if name == *segment => current = sub,
+                _ => {
+                    present = false;
+                    break;
+                }
+            }
+        }
+        if present {
+            return refuse(
+                clap::error::ErrorKind::InvalidSubcommand,
+                format!(
+                    "unrecognized subcommand '{}'",
+                    path.last().copied().unwrap_or_default()
+                ),
+            );
+        }
+    }
+    for (path, id) in removed_flags() {
+        let mut current = matches;
+        let mut present = true;
+        for segment in path {
+            match current.subcommand() {
+                Some((name, sub)) if name == *segment => current = sub,
+                _ => {
+                    present = false;
+                    break;
+                }
+            }
+        }
+        if present
+            && matches!(current.try_contains_id(id), Ok(true))
+            && current.value_source(id) == Some(clap::parser::ValueSource::CommandLine)
+        {
+            return refuse(
+                clap::error::ErrorKind::UnknownArgument,
+                format!("unexpected argument '--{}' found", id.replace('_', "-")),
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Parse `args` through [`localized_command`] and refuse what the host's options removed.
+pub(crate) fn try_cli_matches<I, T>(args: I) -> Result<clap::ArgMatches, clap::Error>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    let command = localized_command();
+    let matches = command.clone().try_get_matches_from(args)?;
+    reject_removed_items(&matches, &command)?;
+    Ok(matches)
 }
 
 /// The command line of a bare launch (flags only, no subcommand), localized like

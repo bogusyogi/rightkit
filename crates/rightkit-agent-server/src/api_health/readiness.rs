@@ -37,7 +37,11 @@ fn row_provider_key(state: &DaemonState) -> ReadinessRow {
             "provider-key",
             "Provider API key",
             "no provider API key configured",
-            "Set OPENROUTER_API_KEY or add an OpenRouter key in Settings > Providers",
+            if crate::host_options::provider_keys_from_environment() {
+                "Set OPENROUTER_API_KEY or add an OpenRouter key in Settings > Providers"
+            } else {
+                "Add an OpenRouter key in Settings > Providers"
+            },
         )
     }
 }

@@ -112,11 +112,6 @@ pub enum RecipeCommand {
         /// Workspace root directory. Defaults to recipe settings, then current directory.
         #[arg(long)]
         workspace: Option<String>,
-        /// Allow all mutating tools without prompting.
-        // The twin's `--yes` alias of this flag is the global `--yes` now (`Cli::yes`); a host that
-        // sets `host_options::yes_flag_is_auto_approve` reads it as this flag.
-        #[arg(long)]
-        auto_approve: bool,
         /// Permission mode of the recipe run: plan, ask, accept-edits or
         /// auto-safe (`bypass` is `run` only).
         #[arg(long = "permission-mode", value_enum)]

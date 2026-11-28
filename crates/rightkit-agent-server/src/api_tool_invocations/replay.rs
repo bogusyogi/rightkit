@@ -193,21 +193,17 @@ fn builders_from_events(
                         "denied".to_string()
                     };
                     builder.approval_id = Some(tool_call_id.clone());
-                    let mut payload = serde_json::json!({
-                        "toolCallId": tool_call_id,
-                        "approved": approved,
-                    });
-                    // Same shape as the wire: `reason` is present only on a denial that carries one.
-                    if let Some(reason) = reason {
-                        payload["reason"] = serde_json::json!(reason);
-                    }
                     builder.events.push(invocation_event_row(
                         &session_id,
                         &tool_call_id,
                         seq,
                         "toolApprovalResolved",
                         &created_at,
-                        payload,
+                        serde_json::json!({
+                            "toolCallId": tool_call_id,
+                            "approved": approved,
+                            "reason": reason,
+                        }),
                     ));
                 }
             }

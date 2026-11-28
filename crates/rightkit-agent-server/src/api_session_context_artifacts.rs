@@ -160,7 +160,7 @@ pub(crate) fn discover_instruction_files(
         );
         loader.add_root(
             rightkit_agent_config::InstructionScope::Local,
-            workspace.join(crate::host_identity::home_dir()),
+            workspace.join(rightkit_agent_config::state_dir_name()),
         );
     }
 
@@ -327,7 +327,7 @@ fn discover_capability_index(
         rightkit_agent_skills::manifest::SkillSourceScope::Workspace,
         workspace.join(format!(
             "{home}/skills",
-            home = crate::host_identity::home_dir()
+            home = rightkit_agent_config::state_dir_name()
         )),
     ));
     for skill in rightkit_agent_skills::manifest::discover_skill_roots(&skill_roots) {
@@ -394,7 +394,7 @@ fn discover_hook_and_command_files(
             "hook",
             workspace.join(format!(
                 "{home}/hooks",
-                home = crate::host_identity::home_dir()
+                home = rightkit_agent_config::state_dir_name()
             )),
             "execute",
         ),
@@ -402,7 +402,7 @@ fn discover_hook_and_command_files(
             "command",
             workspace.join(format!(
                 "{home}/commands",
-                home = crate::host_identity::home_dir()
+                home = rightkit_agent_config::state_dir_name()
             )),
             "guidance",
         ),
@@ -543,7 +543,7 @@ fn discover_plugin_entries(
 ) {
     for (plugin, root) in plugin_manifests_with_roots(&workspace.join(format!(
         "{home}/plugins",
-        home = crate::host_identity::home_dir()
+        home = rightkit_agent_config::state_dir_name()
     ))) {
         let mut risks = vec!["executable"];
         if plugin.sandbox.inherit_env {

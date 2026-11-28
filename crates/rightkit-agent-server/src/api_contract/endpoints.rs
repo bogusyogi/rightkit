@@ -125,8 +125,21 @@ pub(crate) fn daemon_api_endpoints() -> &'static [ApiEndpoint] {
         if crate::host_options::cloud_workspaces() {
             list.extend_from_slice(&group_15::ENDPOINT_GROUP_15_CLOUD);
         }
+        list.retain(|endpoint| !removed_by_options(endpoint));
         list
     })
+}
+
+/// Whether a host option removes this endpoint from the contract: the routes of a feature that
+/// is on by default and that a host can turn off. [`crate::api_router::build_router`] does not
+/// mount them there either.
+fn removed_by_options(endpoint: &ApiEndpoint) -> bool {
+    let path = endpoint.path;
+    (!crate::host_options::mcp_public_server() && path == "/mcp/server/status")
+        || (!crate::host_options::plugin_marketplace() && path.starts_with("/plugins/marketplace"))
+        || (!crate::host_options::adapt_routes()
+            && path.starts_with("/runtime/context/adapt/")
+            && path != "/runtime/context/adapt/insights")
 }
 
 const fn copy_endpoint_group<const N: usize, const M: usize>(

@@ -221,10 +221,9 @@ pub(crate) use api_session_context::{
     execute_daemon_command, get_instructions_handler, goal_state_from_row, instinct_guidance_block,
     instinct_rules_within_cap, load_stored_artifacts, now_iso, now_millis,
     persist_artifacts_snapshot, plugin_prompt_context, push_session_artifact,
-    remote_channel_engine_payload, retrieve_session_memory, session_posture_block,
-    session_state_note, session_state_text, shipping_prompt_digest, trust_envelope,
-    user_turn_reminder_at, user_turn_reminder_with_state_at, SessionPromptParts,
-    MAX_INSTINCT_BYTES,
+    remote_channel_engine_payload, session_posture_block, session_state_note, session_state_text,
+    shipping_prompt_digest, trust_envelope, user_turn_reminder_at,
+    user_turn_reminder_with_state_at, SessionPromptParts, MAX_INSTINCT_BYTES,
 };
 pub(crate) use api_session_contract::{
     answer_question_request_schema, answer_question_response_schema, clear_goal_response_schema,

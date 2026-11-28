@@ -172,9 +172,10 @@ async fn fire_schedule_inner(
     {
         options.disallowed_tools.push("schedule_cron".to_string());
     }
-    // Unattended turn: `auto-safe`, so what it may do needs no approval and anything gated is denied at
-    // once as `unattended`, instead of the session defaulting to `ask`.
-    options.permission_mode = Some(rightkit_agent_policy::PermissionMode::AutoSafe);
+    // Unattended turn: anything that needs approval is denied at once as `unattended`. The mode is
+    // `auto-safe` where the host sets `unattended_turns_auto_safe` (what it may do then needs no
+    // approval), else `ask`.
+    options.permission_mode = Some(crate::unattended_guard::unattended_permission_mode());
     options.active_skills = clean_skill_ids(&entry.skills);
     options.execution_backend = clean_optional_string(entry.execution_backend.as_deref());
     options.mcp_channel = "schedule".to_string();

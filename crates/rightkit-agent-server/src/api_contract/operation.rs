@@ -189,20 +189,30 @@ fn unavailable_response_schema(method: &str, path: &str) -> Option<Value> {
     }
 }
 
-/// A header name of the host's namespace as the contract writes it (`X-<App>-<Name>`): the name
-/// [`crate::host_identity::header`] gives, each dash-separated word capitalised.
+/// A header name of the host's namespace as the contract writes it (`X-<App>-<Name>`): the app
+/// part in the casing of the display name (`rightkit_agent_config::app_name()`, for example
+/// `X-CodeRight-Signature-256`) when that is a valid header token, else the name
+/// [`crate::host_identity::header`] gives with each dash-separated word capitalised. Header names
+/// are matched case-insensitively; this is the spelling the documentation shows.
 fn host_header_title(name: &str) -> String {
-    crate::host_identity::header(name)
-        .split('-')
-        .map(|word| {
-            let mut chars = word.chars();
-            chars
-                .next()
-                .map(|first| first.to_ascii_uppercase().to_string() + chars.as_str())
-                .unwrap_or_default()
-        })
-        .collect::<Vec<_>>()
-        .join("-")
+    fn capitalised(text: &str) -> String {
+        text.split('-')
+            .map(|word| {
+                let mut chars = word.chars();
+                chars
+                    .next()
+                    .map(|first| first.to_ascii_uppercase().to_string() + chars.as_str())
+                    .unwrap_or_default()
+            })
+            .collect::<Vec<_>>()
+            .join("-")
+    }
+    let app = rightkit_agent_config::app_name();
+    if !app.is_empty() && app.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        format!("X-{app}-{}", capitalised(name))
+    } else {
+        capitalised(&crate::host_identity::header(name))
+    }
 }
 
 fn trigger_delivery_header_parameters(path: &str) -> Vec<Value> {

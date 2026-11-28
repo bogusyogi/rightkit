@@ -1894,21 +1894,7 @@ impl DaemonState {
             // Tools rule 58 `SubagentStart`: the child session exists and is about
             // to receive its task. Observing only; a failing hook never blocks it.
             run_subagent_start_hooks(&live.hook_bus, &sub_id, &role).await;
-            let memory_injection = crate::api::retrieve_session_memory(
-                &state,
-                &live.id,
-                &live.workspace_root,
-                &task_text,
-                5,
-                "subagent",
-            )
-            .await;
-            let reminder = dynamic_user_turn_reminder(
-                memory_injection
-                    .as_ref()
-                    .map(|injection| injection.context.as_str()),
-                &[],
-            );
+            let reminder = dynamic_user_turn_reminder(&[]);
             let briefing = decorate_user_payload_with_system_reminder(&task_text, &reminder);
             // A224: siblings that share a prompt prefix start one after the other, so the later
             // ones read the cache the first wrote. The first starts now; the others wait for its

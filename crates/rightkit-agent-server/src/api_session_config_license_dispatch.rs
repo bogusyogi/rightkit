@@ -50,7 +50,11 @@ where
     } else {
         DispatchDecision::direct(
             1.0,
-            "Automatic dispatch routing is off (`orchestration.conductor-routing`, or the `routing` Pro feature is missing); running direct.",
+            if crate::host_options::license_enforced() {
+                "Automatic dispatch routing is off (`orchestration.conductor-routing`, or the `routing` Pro feature is missing); running direct."
+            } else {
+                "Automatic dispatch routing is off (orchestration.conductor-routing); running direct."
+            },
             JudgeSource::Heuristic,
         )
     };

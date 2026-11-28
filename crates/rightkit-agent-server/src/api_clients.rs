@@ -242,8 +242,7 @@ pub(crate) fn startup_guard_decision(
     };
     if normalize_db_path(other_db) == normalize_db_path(own_db_path) {
         Err(format!(
-            "daemon already running at {existing_url} on the same database; refusing to start a second (set {force}=1 to override)",
-            force = rightkit_agent_config::env_name("SERVE_FORCE")
+            "daemon already running at {existing_url} on the same database; refusing to start a second"
         ))
     } else {
         Ok(())

@@ -335,27 +335,13 @@ impl DaemonState {
             }
         }
 
-        // 1. Plan (informed by memory). With the host's `context pull` path and Membrane
-        // absent, the run goes on and the report says "context off" with the reason
-        // (orchestration rules 36, 47).
-        let (memory_text, memory_off_reason) = if crate::host_options::conductor_context_pull() {
-            let ConductorMemory { text, off_reason } =
-                pull_conductor_memory(&session.workspace_root, goal).await;
-            (text, off_reason)
-        } else {
-            // Retrieve relevant past experience through the workspace memory backend.
-            let injection = crate::api::retrieve_session_memory(
-                self,
-                session_id,
-                &session.workspace_root,
-                goal,
-                5,
-                "conductor",
-            )
-            .await;
-            (injection.map(|injection| injection.context), None)
-        };
-        let memory_ctx = memory_text;
+        // 1. Plan (informed by memory): the conductor keeps its memory path and
+        // calls `context pull`. With Membrane absent the run goes on and the
+        // report says "context off" with the reason (orchestration rules 36, 47).
+        let ConductorMemory {
+            text: memory_ctx,
+            off_reason: memory_off_reason,
+        } = pull_conductor_memory(&session.workspace_root, goal).await;
         // Tell the planner the sub-agent caps up front (W2-04); same wording as the session note.
         let budget = crate::daemon_state::effective_run_budget(self, session_id);
         let budget_note = format!(
@@ -590,15 +576,11 @@ impl DaemonState {
         // sub-agent transcripts or the handoff-results files on disk. Backend
         // success is not UI success — the work has to land where the human is
         // looking.
-        let memory_note = if crate::host_options::conductor_context_pull() {
-            match (memory_off_reason.as_deref(), memory_error.as_deref()) {
-                (Some(off), Some(error)) => Some(format!("{off}; memory write failed: {error}")),
-                (Some(off), None) => Some(off.to_string()),
-                (None, Some(error)) => Some(format!("memory write failed: {error}")),
-                (None, None) => None,
-            }
-        } else {
-            None
+        let memory_note = match (memory_off_reason.as_deref(), memory_error.as_deref()) {
+            (Some(off), Some(error)) => Some(format!("{off}; memory write failed: {error}")),
+            (Some(off), None) => Some(off.to_string()),
+            (None, Some(error)) => Some(format!("memory write failed: {error}")),
+            (None, None) => None,
         };
         let mut content = report_with_memory_note(
             compose_run_report(&summary, &outcome.results),

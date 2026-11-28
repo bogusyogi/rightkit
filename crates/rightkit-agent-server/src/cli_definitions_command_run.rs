@@ -48,9 +48,6 @@ pub struct RunArgs {
     // sets `host_options::yes_flag_is_auto_approve` reads it as this flag (`effective_auto_approve`).
     #[arg(long)]
     pub auto_approve: bool,
-    /// Allow all tools without prompting. Intended for disposable/sandboxed harness runs.
-    #[arg(long)]
-    pub bypass_approvals: bool,
     /// Permission mode for the tool calls inside the run. The default is
     /// `auto-safe` under the workspace sandbox: file writes and routine
     /// commands run, a destructive or unclassified command is denied at once

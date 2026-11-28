@@ -124,7 +124,9 @@ impl HostIdentity {
         &self.app
     }
 
-    /// The state folder name.
+    /// The state folder name this identity declares. [`crate::run`] refuses to start when it is not
+    /// the name the host gave `rightkit_agent_config::ensure_host_names`, which is the one source
+    /// every path in this crate is built from (`rightkit_agent_config::state_dir_name()`).
     pub fn home_dir(&self) -> &str {
         &self.home_dir
     }
@@ -189,11 +191,6 @@ pub(crate) fn host() -> &'static HostIdentity {
 /// The app name: the CLI name in messages, log tags, the MCP server name.
 pub(crate) fn app() -> &'static str {
     host().app()
-}
-
-/// The state folder name (`.{app}` by default).
-pub(crate) fn home_dir() -> &'static str {
-    host().home_dir()
 }
 
 /// The `~/.config` folder name.

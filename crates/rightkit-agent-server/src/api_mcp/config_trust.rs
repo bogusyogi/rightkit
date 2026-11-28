@@ -290,7 +290,7 @@ fn mcp_trust_store_home_dir() -> Option<PathBuf> {
 /// contacted from a trusted workspace; an unknown, blank or non-`trusted`
 /// workspace fails closed (A203).
 pub(crate) fn workspace_project_config_trusted(workspace_root: &str) -> bool {
-    rightkit_agent_config::workspace_trust_store_file()
+    crate::api_stores::workspace_trust_store_file()
         .is_some_and(|store| rightkit_agent_config::is_workspace_trusted_in(&store, workspace_root))
 }
 

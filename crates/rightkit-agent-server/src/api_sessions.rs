@@ -23,9 +23,6 @@ pub(crate) mod test_summary;
 pub(crate) mod transcript_steps;
 pub mod validation;
 
-#[path = "blueprint_init.rs"]
-pub(crate) mod blueprint_init;
-
 pub(crate) use router::sessions_routes;
 
 // Re-export handler types for external callers that imported via `api_sessions::*`

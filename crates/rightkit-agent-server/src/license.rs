@@ -215,8 +215,9 @@ impl<C: TrustedClock> TrustedClock for SharedClock<C> {
 ///   credential-store clock) is checked whenever the snapshot carried one, and also when there is
 ///   no ledger file to read, where a missing ledger of an initialised install refuses.
 /// * The owner's ledger file (`OwnerLedgerReader`, an owner on the file clock) is checked whenever
-///   the licence directory is known. While a delivered mark proves the ledger exists, a missing
-///   file is not a refusal, but a file that exists is still held to.
+///   the licence directory is known (`host_options::license_file_clock` on; with it off the
+///   directory is ignored and only the mark applies). A missing file of an initialised install is
+///   a refusal, a mark delivered or not.
 ///
 /// When both apply, the time served is the later of the two and either refusal refuses.
 struct OwnerClocks {
@@ -251,7 +252,9 @@ impl TrustedClock for OwnerClocks {
             served = Some(self.mark.trusted_now(wall_now, clock_was_initialized)?);
         }
         if let Some(file) = &self.file {
-            let now = file.trusted_now(wall_now, clock_was_initialized && !mark_delivered)?;
+            // The "initialised" fact is passed unchanged: an initialised install whose ledger
+            // file is missing is refused, whether or not a mark was delivered with the snapshot.
+            let now = file.trusted_now(wall_now, clock_was_initialized)?;
             served = Some(served.map_or(now, |earlier| earlier.max(now)));
         }
         served.ok_or(ClockRefusal::Missing)
@@ -327,8 +330,9 @@ pub struct LicenseGate {
 }
 
 impl LicenseGate {
-    /// A gate over the launch locators ([`launch_locators`]): the owner's ledger file when the
-    /// licence directory was given, the mark in the snapshot otherwise. It holds no snapshot, so
+    /// A gate over the launch locators ([`launch_locators`]): with `host_options::license_file_clock`
+    /// on, the owner's ledger file (closed when no licence directory was given); with it off, the
+    /// mark in the snapshot alone. It holds no snapshot, so
     /// it is Free until the owner's first accepted delivery. Opens nothing for writing and no
     /// credential store. When the wall clock cannot be read the gate stays Free.
     pub fn new() -> Self {
@@ -345,6 +349,18 @@ impl LicenseGate {
     fn build(license_dir: Option<&Path>) -> Result<Self, String> {
         let cell = EngineSnapshotCell::new();
         let now = system_now_unix().map_err(|error| format!("no wall clock: {error}"))?;
+        // `host_options::license_file_clock`: with it on, the owner's ledger file is part of the
+        // clock, so an owner that names no licence directory has no ledger to hold the clock to
+        // and the gate is closed (Free). With it off the directory is ignored and the mark
+        // delivered in the snapshot is the whole clock.
+        let license_dir = if crate::host_options::license_file_clock() {
+            match license_dir {
+                Some(dir) => Some(dir),
+                None => return Ok(Self::closed()),
+            }
+        } else {
+            None
+        };
         let clock = OwnerClocks::new(&cell, license_dir, now);
         let config = EngineEntitlementsConfig::suite_snapshot(expected_app(), &cell);
         Ok(Self::with_config(

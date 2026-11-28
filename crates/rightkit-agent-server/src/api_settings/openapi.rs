@@ -381,6 +381,18 @@ pub(crate) fn settings_openapi_components() -> Map<String, Value> {
     }));
     schemas.insert("SaveDirectInferenceSecret".to_string(), json!({"type":"object","required":["secret"],"properties":{"secret":{"type":"string","minLength":1,"maxLength":16384}},"additionalProperties":false}));
     schemas.insert("InferenceProbeResponse".to_string(), json!({"type":"object","required":["authority","connectionId","state","qualified","models"],"properties":{"authority":{"type":"string","enum":["direct"]},"connectionId":{"type":"string"},"state":{"type":"string","enum":["ready"]},"qualified":{"type":"boolean"},"models":{"type":"array","items":{"type":"object"}}},"additionalProperties":false}));
+    // A budget key the host retired is not in the schema.
+    if let Some(budget) = schemas
+        .get_mut("SettingsBudget")
+        .and_then(Value::as_object_mut)
+    {
+        if let Some(required) = budget.get_mut("required").and_then(Value::as_array_mut) {
+            required.retain(|field| !field.as_str().is_some_and(budget_field_retired));
+        }
+        if let Some(properties) = budget.get_mut("properties").and_then(Value::as_object_mut) {
+            properties.retain(|field, _| !budget_field_retired(field));
+        }
+    }
     schemas
 }
 
