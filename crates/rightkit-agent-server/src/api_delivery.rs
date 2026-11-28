@@ -111,7 +111,40 @@ pub struct DeliverySnapshot {
     pub gh_binary: Option<String>,
     pub git_version: Option<String>,
     pub gh_version: Option<String>,
+    /// Push state of the workspace's branch against its last known upstream
+    /// (no fetch, no network). Null when git could not be run.
+    pub push: Option<PushStatus>,
+    /// Working tree against HEAD. Null when git could not be run or the
+    /// folder is not a repository.
+    pub changes: Option<ChangeSummary>,
     pub checked_at: String,
+}
+
+/// Where the branch stands against its upstream. `state` is one of
+/// `not_pushed` (reserved, not emitted today), `pushed`, `ahead`, `behind`,
+/// `diverged`, `no_upstream` (also when the remote branch is gone),
+/// `detached`, `not_a_repository`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PushStatus {
+    pub branch: Option<String>,
+    pub upstream: Option<String>,
+    pub ahead: u32,
+    pub behind: u32,
+    pub state: String,
+    pub words: String,
+}
+
+/// Files changed in the working tree against HEAD. Untracked files count as
+/// files; their lines are not counted in `additions`. `approximate` is true
+/// when the untracked list was too long to count in full.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeSummary {
+    pub files: u32,
+    pub additions: u32,
+    pub deletions: u32,
+    pub approximate: bool,
 }
 
 /// Honest `BackendKind`-equivalent: the runtime only supports `Local`.
@@ -325,6 +358,13 @@ async fn get_delivery_status_handler(
     let (glab_binary, _glab_version) = probe_binary("glab", &["--version"]).await;
     let forge_cli_available = gh_binary.is_some() || glab_binary.is_some();
 
+    let (push_status, change_summary) = if host_kind.is_runtime_supported() && git_binary.is_some()
+    {
+        read_push_and_changes(&workspace_root).await
+    } else {
+        (None, None)
+    };
+
     let mut capabilities = Vec::new();
     capabilities.push(DeliveryCapability {
         kind: DeliveryCapabilityKind::Git,
@@ -408,6 +448,8 @@ async fn get_delivery_status_handler(
         gh_binary,
         git_version,
         gh_version,
+        push: push_status,
+        changes: change_summary,
         checked_at: now_iso(),
     };
     Ok(Json(snapshot))
@@ -763,6 +805,9 @@ async fn get_pr_handler(
     Path(id): Path<String>,
     Query(query): Query<DeliveryWorkspaceQuery>,
 ) -> Result<Json<Value>, StatusCode> {
+    if !is_plain_id(&id, true) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
     let _ = state;
     let workspace_root = query
         .workspace_root
@@ -795,6 +840,9 @@ async fn list_pr_checks_handler(
     Path(id): Path<String>,
     Query(query): Query<DeliveryWorkspaceQuery>,
 ) -> Result<Json<Value>, StatusCode> {
+    if !is_plain_id(&id, true) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
     let _ = state;
     let workspace_root = query
         .workspace_root
@@ -835,6 +883,9 @@ async fn rerun_check_handler(
     headers: HeaderMap,
 ) -> Result<Json<Value>, StatusCode> {
     enforce_trusted_source_authority(&headers).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    if !is_plain_id(&check_id, false) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
     let _ = state;
     let workspace_root = query
         .workspace_root
@@ -868,6 +919,9 @@ async fn get_check_logs_handler(
     Path((_id, check_id)): Path<(String, String)>,
     Query(query): Query<DeliveryWorkspaceQuery>,
 ) -> Result<Json<Value>, StatusCode> {
+    if !is_plain_id(&check_id, false) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
     let _ = state;
     let workspace_root = query
         .workspace_root
@@ -899,6 +953,9 @@ async fn list_pr_threads_handler(
     Path(id): Path<String>,
     Query(query): Query<DeliveryWorkspaceQuery>,
 ) -> Result<Json<Value>, StatusCode> {
+    if !is_plain_id(&id, true) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
     let _ = state;
     let workspace_root = query
         .workspace_root
@@ -1057,6 +1114,30 @@ pub(crate) fn delivery_openapi_components() -> Map<String, Value> {
                 "ghBinary": {"type": ["string", "null"]},
                 "gitVersion": {"type": ["string", "null"]},
                 "ghVersion": {"type": ["string", "null"]},
+                "push": {
+                    "type": ["object", "null"],
+                    "required": ["ahead", "behind", "state", "words"],
+                    "properties": {
+                        "branch": {"type": ["string", "null"]},
+                        "upstream": {"type": ["string", "null"]},
+                        "ahead": {"type": "integer"},
+                        "behind": {"type": "integer"},
+                        "state": {"type": "string", "enum": ["not_pushed", "pushed", "ahead", "behind", "diverged", "no_upstream", "detached", "not_a_repository"]},
+                        "words": {"type": "string"}
+                    },
+                    "additionalProperties": false
+                },
+                "changes": {
+                    "type": ["object", "null"],
+                    "required": ["files", "additions", "deletions", "approximate"],
+                    "properties": {
+                        "files": {"type": "integer"},
+                        "additions": {"type": "integer"},
+                        "deletions": {"type": "integer"},
+                        "approximate": {"type": "boolean"}
+                    },
+                    "additionalProperties": false
+                },
                 "checkedAt": {"type": "string"}
             },
             "additionalProperties": false
@@ -1183,6 +1264,270 @@ pub(crate) fn delivery_openapi_response_schema(method: &str, path: &str) -> Opti
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
+
+fn plural_commits(n: u32) -> String {
+    if n == 1 {
+        "1 commit".to_string()
+    } else {
+        format!("{n} commits")
+    }
+}
+
+/// Parse the header lines of `git status --porcelain=v2 --branch` into the
+/// push state. Pure: no git, no network; counts are against the last known
+/// upstream. Lines used: `# branch.head`, `# branch.upstream`, `# branch.ab`.
+pub(crate) fn parse_push_status(porcelain_v2: &str) -> PushStatus {
+    let mut head: Option<&str> = None;
+    let mut upstream: Option<&str> = None;
+    let mut ab: Option<(u32, u32)> = None;
+    for line in porcelain_v2.lines() {
+        if let Some(v) = line.strip_prefix("# branch.head ") {
+            head = Some(v.trim());
+        } else if let Some(v) = line.strip_prefix("# branch.upstream ") {
+            upstream = Some(v.trim());
+        } else if let Some(v) = line.strip_prefix("# branch.ab ") {
+            let mut parts = v.split_whitespace();
+            let ahead = parts
+                .next()
+                .and_then(|p| p.strip_prefix('+'))
+                .and_then(|p| p.parse().ok());
+            let behind = parts
+                .next()
+                .and_then(|p| p.strip_prefix('-'))
+                .and_then(|p| p.parse().ok());
+            if let (Some(a), Some(b)) = (ahead, behind) {
+                ab = Some((a, b));
+            }
+        }
+    }
+    let make = |branch: Option<&str>,
+                upstream: Option<&str>,
+                ahead: u32,
+                behind: u32,
+                state: &str,
+                words: String| PushStatus {
+        branch: branch.map(str::to_string),
+        upstream: upstream.map(str::to_string),
+        ahead,
+        behind,
+        state: state.to_string(),
+        words,
+    };
+    let Some(head) = head else {
+        return make(
+            None,
+            None,
+            0,
+            0,
+            "not_a_repository",
+            "Not a git repository".into(),
+        );
+    };
+    if head == "(detached)" {
+        return make(None, None, 0, 0, "detached", "Not on any branch".into());
+    }
+    let Some(up) = upstream else {
+        return make(
+            Some(head),
+            None,
+            0,
+            0,
+            "no_upstream",
+            "This branch has never been pushed".into(),
+        );
+    };
+    let Some((ahead, behind)) = ab else {
+        // An upstream is configured but its remote branch no longer exists.
+        return make(
+            Some(head),
+            Some(up),
+            0,
+            0,
+            "no_upstream",
+            "The remote copy of this branch is gone".into(),
+        );
+    };
+    let (state, words) = match (ahead, behind) {
+        (0, 0) => ("pushed", "Everything is pushed".to_string()),
+        (a, 0) => ("ahead", format!("{} not pushed", plural_commits(a))),
+        (0, b) => ("behind", format!("{} behind", plural_commits(b))),
+        (a, b) => (
+            "diverged",
+            format!(
+                "{} not pushed, {} behind",
+                plural_commits(a),
+                plural_commits(b)
+            ),
+        ),
+    };
+    make(Some(head), Some(up), ahead, behind, state, words)
+}
+
+/// Parse `git diff --shortstat` (" 5 files changed, 61 insertions(+), 9 deletions(-)")
+/// into (files, additions, deletions). Empty output is no changes.
+pub(crate) fn parse_shortstat(text: &str) -> (u32, u32, u32) {
+    let mut files = 0;
+    let mut add = 0;
+    let mut del = 0;
+    for part in text.split(',') {
+        let part = part.trim();
+        let number: u32 = part
+            .split_whitespace()
+            .next()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(0);
+        if part.contains("file") {
+            files = number;
+        } else if part.contains("insertion") {
+            add = number;
+        } else if part.contains("deletion") {
+            del = number;
+        }
+    }
+    (files, add, del)
+}
+
+/// Run the read-only git queries for the snapshot's `push` and `changes`.
+/// Every call goes through the managed process launcher via `run_git`.
+async fn read_push_and_changes(root: &str) -> (Option<PushStatus>, Option<ChangeSummary>) {
+    // The pathspec matches nothing, so only the header lines (branch, upstream,
+    // ahead/behind) come back and the output can never be cut short.
+    let status = run_git(
+        root,
+        &[
+            "status",
+            "--porcelain=v2",
+            "--branch",
+            "--untracked-files=no",
+            "--",
+            ":(exclude)*",
+        ],
+    )
+    .await;
+    if !matches!(status.status, CommandStatus::Exited) {
+        return (None, None);
+    }
+    if status.exit_code != Some(0) {
+        return (parse_push_status("").into(), None);
+    }
+    let push = parse_push_status(&status.stdout_tail);
+
+    let diff_head = run_git(root, &["diff", "--shortstat", "HEAD"]).await;
+    let tracked = if diff_head.exit_code == Some(0) {
+        Some(diff_head)
+    } else {
+        // No commit yet: compare what is staged.
+        let cached = run_git(root, &["diff", "--shortstat", "--cached"]).await;
+        (cached.exit_code == Some(0)).then_some(cached)
+    };
+    let Some(tracked) = tracked else {
+        return (Some(push), None);
+    };
+    let (files, additions, deletions) = parse_shortstat(&tracked.stdout_tail);
+    let untracked = run_git(root, &["ls-files", "--others", "--exclude-standard"]).await;
+    let (untracked_files, approximate) = if untracked.exit_code == Some(0) {
+        (
+            untracked
+                .stdout_tail
+                .lines()
+                .filter(|l| !l.is_empty() && !l.starts_with("[truncated]"))
+                .count() as u32,
+            untracked.stdout_tail.starts_with("[truncated]"),
+        )
+    } else {
+        (0, true)
+    };
+    (
+        Some(push),
+        Some(ChangeSummary {
+            files: files + untracked_files,
+            additions,
+            deletions,
+            approximate,
+        }),
+    )
+}
+
+#[cfg(test)]
+mod push_status_tests {
+    use super::{parse_push_status, parse_shortstat};
+
+    // Real `git status --porcelain=v2 --branch` header output (git 2.43).
+    const AHEAD2_BEHIND1: &str = "# branch.oid 5d9370c9d698f771186c47d9607927b40eda7847\n# branch.head add-priorities\n# branch.upstream origin/add-priorities\n# branch.ab +2 -1\n";
+    const IN_SYNC: &str = "# branch.oid 5d9370c9d698f771186c47d9607927b40eda7847\n# branch.head main\n# branch.upstream origin/main\n# branch.ab +0 -0\n";
+    const NO_UPSTREAM: &str =
+        "# branch.oid 5d9370c9d698f771186c47d9607927b40eda7847\n# branch.head main\n";
+    const DETACHED: &str =
+        "# branch.oid 5d9370c9d698f771186c47d9607927b40eda7847\n# branch.head (detached)\n";
+    const INITIAL: &str = "# branch.oid (initial)\n# branch.head main\n";
+    const GONE: &str = "# branch.oid 5d9370c9d698f771186c47d9607927b40eda7847\n# branch.head topic\n# branch.upstream origin/topic\n";
+
+    #[test]
+    fn diverged_when_ahead_and_behind() {
+        let p = parse_push_status(AHEAD2_BEHIND1);
+        assert_eq!((p.state.as_str(), p.ahead, p.behind), ("diverged", 2, 1));
+        assert_eq!(p.branch.as_deref(), Some("add-priorities"));
+        assert_eq!(p.upstream.as_deref(), Some("origin/add-priorities"));
+        assert_eq!(p.words, "2 commits not pushed, 1 commit behind");
+    }
+
+    #[test]
+    fn ahead_only_behind_only_and_in_sync() {
+        let ahead = parse_push_status(&AHEAD2_BEHIND1.replace("-1", "-0"));
+        assert_eq!((ahead.state.as_str(), ahead.ahead), ("ahead", 2));
+        assert_eq!(ahead.words, "2 commits not pushed");
+        let one = parse_push_status(&AHEAD2_BEHIND1.replace("+2 -1", "+1 -0"));
+        assert_eq!(one.words, "1 commit not pushed");
+        let behind = parse_push_status(&AHEAD2_BEHIND1.replace("+2 -1", "+0 -1"));
+        assert_eq!((behind.state.as_str(), behind.behind), ("behind", 1));
+        assert_eq!(behind.words, "1 commit behind");
+        let synced = parse_push_status(IN_SYNC);
+        assert_eq!(synced.state, "pushed");
+        assert_eq!(synced.words, "Everything is pushed");
+    }
+
+    #[test]
+    fn no_upstream_detached_initial_and_gone() {
+        let none = parse_push_status(NO_UPSTREAM);
+        assert_eq!(none.state, "no_upstream");
+        assert_eq!(none.upstream, None);
+        assert_eq!(none.words, "This branch has never been pushed");
+        let detached = parse_push_status(DETACHED);
+        assert_eq!(
+            (detached.state.as_str(), detached.branch),
+            ("detached", None)
+        );
+        assert_eq!(detached.words, "Not on any branch");
+        let initial = parse_push_status(INITIAL);
+        assert_eq!(initial.state, "no_upstream");
+        assert_eq!(initial.branch.as_deref(), Some("main"));
+        let gone = parse_push_status(GONE);
+        assert_eq!(gone.state, "no_upstream");
+        assert_eq!(gone.upstream.as_deref(), Some("origin/topic"));
+    }
+
+    #[test]
+    fn empty_output_is_not_a_repository() {
+        assert_eq!(parse_push_status("").state, "not_a_repository");
+    }
+
+    #[test]
+    fn shortstat_parses_files_and_lines() {
+        assert_eq!(
+            parse_shortstat(" 5 files changed, 61 insertions(+), 9 deletions(-)\n"),
+            (5, 61, 9)
+        );
+        assert_eq!(
+            parse_shortstat(" 1 file changed, 2 insertions(+)\n"),
+            (1, 2, 0)
+        );
+        assert_eq!(
+            parse_shortstat(" 1 file changed, 3 deletions(-)\n"),
+            (1, 0, 3)
+        );
+        assert_eq!(parse_shortstat(""), (0, 0, 0));
+    }
+}
 
 fn parse_host_kind(input: Option<&str>) -> DeliveryHostKind {
     match input.unwrap_or("local").to_ascii_lowercase().as_str() {
@@ -1327,8 +1672,32 @@ async fn run_worktree_git(
     }
     #[cfg(not(windows))]
     {
-        let _ = (path, create);
-        Ok(run_git(workspace_root, args).await)
+        // A worktree the person asked for may live outside the workspace, which the
+        // workspace sandbox cannot write. The call comes from a trusted source; the
+        // repository's own code (hooks) is what must not run, so hooks are off and
+        // the target is validated the way the Windows lease path validates it.
+        let requested = std::path::PathBuf::from(path);
+        let target = if requested.is_absolute() {
+            requested
+        } else {
+            std::path::Path::new(workspace_root).join(requested)
+        };
+        if target.parent().is_none()
+            || target
+                .components()
+                .any(|part| part == std::path::Component::ParentDir)
+            || rightkit_agent_coding_tools::sandbox::path_is_protected_secret(&target)
+        {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        let inside_workspace = target.starts_with(workspace_root);
+        if inside_workspace {
+            return Ok(run_git(workspace_root, args).await);
+        }
+        let _ = create;
+        let mut hookless: Vec<String> = vec!["-c".into(), "core.hooksPath=/dev/null".into()];
+        hookless.extend(args.iter().cloned());
+        Ok(run_local_command_in("git", &hookless, workspace_root, 60_000, false).await)
     }
 }
 
@@ -1364,6 +1733,18 @@ fn parse_delivery_forge(input: Option<&str>) -> Result<Forge, StatusCode> {
     }
 }
 
+/// An id from a URL path that may reach a forge CLI argument or a file name: letters, digits,
+/// `.`, `_`, `-` (and `/` when `allow_slash`, for a branch name), never starting with `-` or `.`
+/// and never holding `..`. Anything else would be read by `gh`/`glab` as a flag or climb a path.
+pub(crate) fn is_plain_id(id: &str, allow_slash: bool) -> bool {
+    id.len() <= 200
+        && id.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
+        && !id.contains("..")
+        && id.chars().all(|c| {
+            c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') || (allow_slash && c == '/')
+        })
+}
+
 fn ensure_pr_ci_forge(forge: Forge) -> Result<(), StatusCode> {
     if forge.supports_pr_ci() {
         Ok(())
@@ -1384,13 +1765,23 @@ async fn run_local_command<S: AsRef<str>>(
     workspace_root: &str,
     timeout_ms: u64,
 ) -> CommandRecord {
+    run_local_command_in(command, args, workspace_root, timeout_ms, true).await
+}
+
+async fn run_local_command_in<S: AsRef<str>>(
+    command: &str,
+    args: &[S],
+    workspace_root: &str,
+    timeout_ms: u64,
+    sandboxed: bool,
+) -> CommandRecord {
     let command_id = format!("delivery-cmd-{}", now_iso());
     let started_at = now_iso();
     let argv: Vec<String> = args.iter().map(|s| s.as_ref().to_string()).collect();
     let launch_context = rightkit_sandbox::execution::ProcessLaunchContext {
         workspace_root: workspace_root.to_string(),
-        sandbox_profile: Some("delivery".to_string()),
-        sandbox_required: true,
+        sandbox_profile: sandboxed.then(|| "delivery".to_string()),
+        sandbox_required: sandboxed,
         network_required: false,
     };
     let adapter = match crate::main_runtime::governed_child_process_launcher() {
@@ -1425,30 +1816,19 @@ async fn run_local_command<S: AsRef<str>>(
     .await;
     let finished_at = now_iso();
     match result {
-        Ok(out) if out.status.success() => CommandRecord {
+        // The raw code is kept as reported: a signal death (-1) or a Windows crash
+        // (negative NTSTATUS) is a failure, never 0.
+        Ok((code, stdout, stderr)) => CommandRecord {
             command_id,
             command: command.to_string(),
             args: args.iter().map(|s| s.as_ref().to_string()).collect(),
             cwd: workspace_root.to_string(),
             started_at,
             finished_at: Some(finished_at),
-            exit_code: out.status.code(),
+            exit_code: Some(code),
             status: CommandStatus::Exited,
-            stdout_tail: truncate(&String::from_utf8_lossy(&out.stdout), 4_000),
-            stderr_tail: truncate(&String::from_utf8_lossy(&out.stderr), 4_000),
-            host_kind: DeliveryHostKind::Local,
-        },
-        Ok(out) => CommandRecord {
-            command_id,
-            command: command.to_string(),
-            args: args.iter().map(|s| s.as_ref().to_string()).collect(),
-            cwd: workspace_root.to_string(),
-            started_at,
-            finished_at: Some(finished_at),
-            exit_code: out.status.code(),
-            status: CommandStatus::Exited,
-            stdout_tail: truncate(&String::from_utf8_lossy(&out.stdout), 4_000),
-            stderr_tail: truncate(&String::from_utf8_lossy(&out.stderr), 4_000),
+            stdout_tail: truncate(&String::from_utf8_lossy(&stdout), 4_000),
+            stderr_tail: truncate(&String::from_utf8_lossy(&stderr), 4_000),
             host_kind: DeliveryHostKind::Local,
         },
         Err(TimedCommandError::Spawn(e)) => CommandRecord {
@@ -1484,8 +1864,7 @@ async fn managed_output_with_timeout(
     adapter: &dyn rightkit_sandbox::execution::ProcessLaunchAdapter,
     spec: rightkit_sandbox::execution::CommandLaunchSpec,
     timeout: std::time::Duration,
-) -> Result<std::process::Output, TimedCommandError> {
-    use tokio::io::AsyncReadExt;
+) -> Result<(i32, Vec<u8>, Vec<u8>), TimedCommandError> {
     let mut child = adapter
         .spawn(spec)
         .await
@@ -1499,11 +1878,11 @@ async fn managed_output_with_timeout(
         .take_stderr()
         .ok_or_else(|| TimedCommandError::Spawn(std::io::Error::other("stderr unavailable")))?;
     let read = async {
-        let mut out = Vec::new();
-        let mut err = Vec::new();
-        let (_, _, code) = tokio::join!(
-            stdout.read_to_end(&mut out),
-            stderr.read_to_end(&mut err),
+        // Drain both pipes to EOF so the child never blocks, but keep only the last
+        // `COMMAND_CAPTURE_TAIL_BYTES` of each: callers only report the tail.
+        let (out, err, code) = tokio::join!(
+            read_tail(&mut stdout, COMMAND_CAPTURE_TAIL_BYTES),
+            read_tail(&mut stderr, COMMAND_CAPTURE_TAIL_BYTES),
             child.wait()
         );
         let code =
@@ -1511,20 +1890,7 @@ async fn managed_output_with_timeout(
         Ok::<_, TimedCommandError>((out, err, code))
     };
     match tokio::time::timeout(timeout, read).await {
-        Ok(Ok((stdout, stderr, code))) => {
-            #[cfg(unix)]
-            use std::os::unix::process::ExitStatusExt;
-            #[cfg(windows)]
-            use std::os::windows::process::ExitStatusExt;
-            Ok(std::process::Output {
-                #[cfg(unix)]
-                status: std::process::ExitStatus::from_raw(code.max(0) << 8),
-                #[cfg(windows)]
-                status: std::process::ExitStatus::from_raw(code.max(0) as u32),
-                stdout,
-                stderr,
-            })
-        }
+        Ok(Ok((stdout, stderr, code))) => Ok((code, stdout, stderr)),
         Ok(Err(error)) => Err(error),
         Err(_) => {
             let _ = child.cancel().await;
@@ -1534,12 +1900,68 @@ async fn managed_output_with_timeout(
     }
 }
 
+/// Bytes of each child stream kept in memory; the rest is read and discarded.
+const COMMAND_CAPTURE_TAIL_BYTES: usize = 64 * 1024;
+
+/// Read `reader` to EOF, keeping only its last `cap` bytes, so a chatty command
+/// cannot grow the daemon heap without bound.
+async fn read_tail<R>(reader: &mut R, cap: usize) -> Vec<u8>
+where
+    R: tokio::io::AsyncRead + Unpin + ?Sized,
+{
+    use tokio::io::AsyncReadExt;
+    let mut kept = std::collections::VecDeque::with_capacity(cap.min(8 * 1024));
+    let mut chunk = [0u8; 8 * 1024];
+    loop {
+        match reader.read(&mut chunk).await {
+            Ok(0) | Err(_) => break,
+            Ok(n) => {
+                kept.extend(&chunk[..n]);
+                let excess = kept.len().saturating_sub(cap);
+                kept.drain(..excess);
+            }
+        }
+    }
+    kept.into_iter().collect()
+}
+
+/// Keep the last `max` chars: the `*_tail` fields carry the end of the output,
+/// where a failing step or the final error line is.
 fn truncate(value: &str, max: usize) -> String {
-    if value.chars().count() <= max {
+    let count = value.chars().count();
+    if count <= max {
         return value.to_string();
     }
-    let head: String = value.chars().take(max.saturating_sub(16)).collect();
-    format!("{head}...[truncated]")
+    let keep = max.saturating_sub(16);
+    let tail: String = value.chars().skip(count - keep).collect();
+    format!("[truncated]...{tail}")
+}
+
+#[cfg(test)]
+mod command_tail_tests {
+    use super::{read_tail, truncate};
+
+    #[test]
+    fn truncate_keeps_the_tail() {
+        let text = format!("{}FINAL ERROR LINE", "x".repeat(10_000));
+        let out = truncate(&text, 4_000);
+        assert!(out.ends_with("FINAL ERROR LINE"), "{out}");
+        assert!(out.starts_with("[truncated]..."));
+        assert_eq!(out.chars().count(), "[truncated]...".len() + 4_000 - 16);
+        assert_eq!(truncate("short", 4_000), "short");
+    }
+
+    #[tokio::test]
+    async fn read_tail_bounds_memory_and_keeps_last_bytes() {
+        let mut data = vec![b'a'; 300_000];
+        data.extend_from_slice(b"END");
+        let mut reader: &[u8] = &data;
+        let tail = read_tail(&mut reader, 1024).await;
+        assert_eq!(tail.len(), 1024);
+        assert!(tail.ends_with(b"END"));
+        let mut small: &[u8] = b"hello";
+        assert_eq!(read_tail(&mut small, 1024).await, b"hello".to_vec());
+    }
 }
 
 fn now_iso() -> String {

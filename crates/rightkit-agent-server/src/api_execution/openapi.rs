@@ -148,7 +148,11 @@ pub(crate) fn execution_openapi_components() -> Map<String, Value> {
         json!({
             "type": "object",
             "required": ["process"],
-            "properties": {"process": {"$ref": "#/components/schemas/ExecutionProcessRow"}},
+            "properties": {
+                "process": {"$ref": "#/components/schemas/ExecutionProcessRow"},
+                "stopped": {"type": "boolean", "description": "Kill route only: true once the process and its children have ended."},
+                "detail": {"type": "string", "description": "Kill route only: plain-words result."}
+            },
             "additionalProperties": false
         }),
     );
@@ -196,17 +200,30 @@ pub(crate) fn execution_openapi_components() -> Map<String, Value> {
                 "executionChannel": {"type": "string", "enum": ["pipe", "pty"]},
                 "ptySize": {"type": "object", "properties": {"rows": {"type": "integer"}, "cols": {"type": "integer"}, "pixelWidth": {"type": "integer"}, "pixelHeight": {"type": "integer"}}},
                 "persistence": {"type": "string", "enum": ["inline", "service"]},
-                "attachment": {"type": "string", "enum": ["attached", "detached"]},
-                "leaseEpoch": {"type": "integer"},
-                "nextInputSequence": {"type": "integer"},
-                "lastAckedInputSequence": {"type": "integer"},
+                "attachment": {"type": ["string", "null"], "enum": ["attached", "detached", null], "description": "null for the instant an input flush holds the process lease."},
+                "leaseEpoch": {"type": ["integer", "null"]},
+                "nextInputSequence": {"type": ["integer", "null"]},
+                "lastAckedInputSequence": {"type": ["integer", "null"]},
                 "status": {"type": "string"},
                 "statusLabel": {"type": "string"},
                 "live": {"type": "boolean"},
                 "controlMode": {"type": "string"},
                 "controlUnavailableReason": {"type": ["string", "null"]},
                 "lastSeenAt": {"type": "string"},
-                "output": {"type": "string"}
+                "output": {"type": "string"},
+                "lastOutputLine": {"type": "string"},
+                "startedAtNs": {"type": "integer"},
+                "startedBy": {"type": "object", "required": ["sessionId", "role", "parentSessionId", "label"], "properties": {
+                    "sessionId": {"type": "string"},
+                    "role": {"type": ["string", "null"]},
+                    "parentSessionId": {"type": ["string", "null"]},
+                    "label": {"type": "string"}
+                }},
+                "startedAt": {"type": "string", "format": "date-time"},
+                "runningSeconds": {"type": "integer", "minimum": 0},
+                "lastOutputAt": {"type": ["string", "null"], "format": "date-time"},
+                "quietSeconds": {"type": "integer", "minimum": 0},
+                "lastLine": {"type": "string", "maxLength": 200}
             },
             "additionalProperties": false
         }),

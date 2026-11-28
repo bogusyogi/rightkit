@@ -1,14 +1,14 @@
-//! Native RightKit session events -> Membrane context ingestion, over Pulse's
+//! Native session events -> Membrane context ingestion, over Pulse's
 //! `membrane` CLI (`transcript append`, `adapt observe`) via the adapter crate.
 //!
-//! This exporter reads the **durable** RightKit event log (already gated
+//! This exporter reads the **durable** session event log (already gated
 //! through `spawn_event_persister`), projects each durable `ProtocolEvent` into
 //! the `{app}_event_v1` normalized row and appends bounded batches with a
 //! cursor-checked `transcript append`.
 //!
 //! Ownership lines it must not cross:
 //!
-//! * RightKit owns execution and the durable session event log; this module
+//! * The host owns execution and the durable session event log; this module
 //!   only reads committed rows, never writes session truth.
 //! * Pulse's Membrane owns stream sequencing; a cursor conflict returns its
 //!   committed end, which this exporter adopts.
@@ -375,7 +375,7 @@ impl NativeTranscriptExporter {
                         }
                     }
                 }
-                let scope_id = repository_scope_id(std::path::Path::new(&workspace_root));
+                let scope_id = export_scope_id(std::path::Path::new(&workspace_root));
                 (cursor, (scope_id, decoded))
             };
             let (scope_id, decoded) = rows;
@@ -586,13 +586,14 @@ pub fn spawn_session_export(
                 if exported > 0 {
                     tracing::debug!(session_id = %session_id, exported, "session transcript exported");
                 }
-                let scope_id =
-                    {
-                        let store = storage.blocking_lock();
-                        store.get_session(&session_id).ok().flatten().map(|row| {
-                            repository_scope_id(std::path::Path::new(&row.workspace_root))
-                        })
-                    };
+                let scope_id = {
+                    let store = storage.blocking_lock();
+                    store
+                        .get_session(&session_id)
+                        .ok()
+                        .flatten()
+                        .map(|row| export_scope_id(std::path::Path::new(&row.workspace_root)))
+                };
                 if let Some(scope_id) = scope_id {
                     exporter.export_execution_observations(&storage, &session_id, &scope_id);
                 }
@@ -662,30 +663,14 @@ fn project_event(
     })
 }
 
-/// Scope id for a workspace: the path with separators and other non
-/// alphanumerics collapsed to `-` (a `D:` drive path `D:\repo` becomes
-/// `D--repo`). Local to the exporter now that the Hub canonical-repository
-/// helper is gone.
-/// Byte-identical copy of membrane_federation::canonical_repository_id
-/// (context/engine/crates/membrane-federation/src/root.rs:148) so existing
-/// memory scopes stay addressable after the Membrane CLI cutover.
-fn repository_scope_id(path: &std::path::Path) -> String {
-    let mut value = path.to_string_lossy().replace('\\', "/");
-    if let Some(rest) = value.strip_prefix("//?/") {
-        value = rest.to_owned();
-    }
-    value = value.replace([':', '/'], "-");
-    let value = value.trim_matches('-');
-    if value.is_empty() {
-        return "global".to_owned();
-    }
-    let bytes = value.as_bytes();
-    if bytes.len() > 1 && bytes[0].is_ascii_lowercase() && bytes[1] == b'-' {
-        let mut normalized = value.to_owned();
-        normalized.replace_range(..1, &value[..1].to_ascii_uppercase());
-        normalized
-    } else {
-        value.to_owned()
+/// Scope id for a workspace, read from Membrane's own enrollment registry; the host never
+/// derives a repository identity. `global` is the CLI default scope of `transcript append`.
+fn export_scope_id(root: &std::path::Path) -> String {
+    match rightkit_memory_client::backend::repository_scope::resolve_canonical_repository_scope(
+        root,
+    ) {
+        Ok(Some(binding)) => binding.scope_id,
+        Ok(None) | Err(_) => "global".to_owned(),
     }
 }
 
@@ -705,7 +690,8 @@ fn project_execution_observation(
         return None;
     }
     let mut kind = "route_selected";
-    let mut subject = None;
+    // Every non-returning arm below assigns `subject`, so no initial value is needed.
+    let subject: Option<String>;
     let mut role = None;
     let mut usage = None;
     match event {
@@ -906,7 +892,7 @@ fn normalize_event(session_id: &str, event: &ProtocolEvent, scope_id: &str) -> V
     Value::Object(obj)
 }
 
-/// Best-effort `occurredAt` conversion. RightKit `created_at` values are
+/// Best-effort `occurredAt` conversion. Session `created_at` values are
 /// ISO-8601 (`YYYY-MM-DDTHH:MM:SSZ`) or raw epoch seconds depending on the
 /// writer; anything else degrades to `0` rather than failing the row.
 fn parse_unix_ms(created_at: &str) -> u64 {
@@ -915,7 +901,7 @@ fn parse_unix_ms(created_at: &str) -> u64 {
         return secs.saturating_mul(1000);
     }
     // Fixed-shape ISO-8601 UTC: YYYY-MM-DDTHH:MM:SSZ (fractional seconds and
-    // zone offsets fall through to 0 — no RightKit writer produces them).
+    // zone offsets fall through to 0 — no writer produces them).
     let bytes = trimmed.as_bytes();
     if bytes.len() == 20 && bytes[19] == b'Z' {
         if let Some(parsed) = rightkit_time::DateTime::parse_rfc3339(trimmed) {

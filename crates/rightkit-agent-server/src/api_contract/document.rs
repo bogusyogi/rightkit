@@ -1,6 +1,6 @@
 fn openapi_document() -> Value {
     let mut paths = Map::new();
-    for endpoint in DAEMON_API_ENDPOINTS {
+    for endpoint in daemon_api_endpoints() {
         let openapi_path = openapi_path(endpoint.path);
         let method = endpoint.method.to_ascii_lowercase();
         let path_item = paths
@@ -48,6 +48,9 @@ fn openapi_document() -> Value {
     schemas.extend(crate::api_delivery::delivery_openapi_components());
     schemas.extend(crate::api_environments::environments_openapi_components());
     schemas.extend(rightkit_agent_engine_attention::attention_openapi_components());
+    if crate::host_options::cloud_workspaces() {
+        schemas.extend(crate::api_cloud_forge::cloud_openapi_components());
+    }
     let security_schemes = json!({
         "daemonBearer": {
             "type": "http",
@@ -62,7 +65,7 @@ fn openapi_document() -> Value {
     json!({
         "openapi": "3.1.0",
         "info": {
-            "title": "RightKit Daemon API",
+            "title": format!("{} Daemon API", rightkit_agent_config::app_name()),
             "version": "1",
             "description": "Generated from the daemon endpoint manifest. Response schemas are intentionally generic until schema-level contracts are promoted."
         },

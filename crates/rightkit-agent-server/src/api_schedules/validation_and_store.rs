@@ -156,17 +156,17 @@ fn schedule_workspace_root(q: &ScheduleWorkspaceQuery) -> PathBuf {
 }
 
 pub fn schedules_store_path(root: &FsPath) -> PathBuf {
-    root.join(crate::host_identity::home_dir())
+    root.join(rightkit_agent_config::state_dir_name())
         .join("schedules.json")
 }
 
 fn schedule_runs_store_path(root: &FsPath) -> PathBuf {
-    root.join(crate::host_identity::home_dir())
+    root.join(rightkit_agent_config::state_dir_name())
         .join("schedule-runs.json")
 }
 
 fn schedule_admin_audit_store_path(root: &FsPath) -> PathBuf {
-    root.join(crate::host_identity::home_dir())
+    root.join(rightkit_agent_config::state_dir_name())
         .join("schedule-admin-audit.json")
 }
 

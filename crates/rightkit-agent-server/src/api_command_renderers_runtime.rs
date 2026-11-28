@@ -18,7 +18,7 @@ pub(crate) fn command_status(
         "membraneBinding": crate::context_status::cli_binding_json(),
     }));
     let mut output = format!(
-        "**RightKit status**\n\
+        "**{app} status**\n\
 Daemon: running\n\
 Port: {}\n\
 Database: {}\n\
@@ -44,8 +44,22 @@ MCP config: {}",
         enabled_plugins,
         mcp_count,
         state.plugin_dir.display(),
-        state.mcp_user_config_path.display()
+        state.mcp_user_config_path.display(),
+        app = rightkit_agent_config::app_name()
     );
+    // A config layer that failed to parse is ignored; say so (this process loaded it above).
+    for layer in rightkit_agent_config::ConfigLoader::ignored_layers() {
+        output.push_str(&format!(
+            "\n! config  {} {} ignored: {} · permission rules and deny globs from it are not in effect",
+            layer.layer,
+            layer
+                .path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            layer.error
+        ));
+    }
     output.push_str("\n\n");
     // #347: the active auth method of the current vendor session, with any env override warning.
     if let Some(live_session) = active_session_id.and_then(|id| state.get_session(id)) {
@@ -105,7 +119,9 @@ pub(crate) fn command_doctor() -> CommandResult {
     let report = crate::doctor::gather_runtime();
     command_ok(format!(
         "```text\n{}```",
-        report.render_text("RightKit").trim_end()
+        report
+            .render_text(rightkit_agent_config::app_name())
+            .trim_end()
     ))
 }
 
@@ -302,7 +318,18 @@ pub(crate) fn host_delivery_inventory_section(
         let inventory_text = match loaded {
             Some(row) if row.loaded_context_identities.coverage == Coverage::Complete => {
                 match row.loaded_context_identities.value.as_ref() {
-                    Some(ids) => format!("{} retained context identities", ids.len()),
+                    Some(ids) => {
+                        let mut shown = ids
+                            .iter()
+                            .take(3)
+                            .map(String::as_str)
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        if ids.len() > 3 {
+                            shown.push_str(", ...");
+                        }
+                        format!("{} retained context identities ({})", ids.len(), shown)
+                    }
                     None => "inventory unavailable".to_string(),
                 }
             }

@@ -12,6 +12,7 @@ pub(super) async fn deliver_schedule_result(
     }
 
     let mut delivered = 0usize;
+    let mut suppressed = 0usize;
     let mut errors = Vec::new();
     for target in &entry.delivery {
         match target.kind.as_str() {
@@ -38,8 +39,10 @@ pub(super) async fn deliver_schedule_result(
                 state,
                 root,
                 entry,
-                session_id,
-                result_status,
+                DeliveredRun {
+                    session_id,
+                    result_status,
+                },
                 target,
                 source_artifact,
                 fallback_content,
@@ -70,23 +73,33 @@ pub(super) async fn deliver_schedule_result(
                 source_artifact,
                 fallback_content,
             ) {
-                Ok(()) => delivered += 1,
+                Ok(true) => delivered += 1,
+                // R12: quiet hours held it back; it is reported as suppressed, never delivered.
+                Ok(false) => suppressed += 1,
                 Err(e) => errors.push(format!("desktop_notification: {e}")),
             },
             other => errors.push(format!("unsupported delivery target '{other}'")),
         }
     }
 
-    let status = if errors.is_empty() {
+    let status = delivery_status(delivered, suppressed, errors.len());
+    DeliveryOutcome {
+        status: Some(status.to_string()),
+        errors,
+    }
+}
+
+/// The overall `deliveryStatus` of a run's targets (R12): `suppressed` when nothing was delivered
+/// and a target was held back by quiet hours; otherwise delivered, partial or failed.
+fn delivery_status(delivered: usize, suppressed: usize, errors: usize) -> &'static str {
+    if errors == 0 && suppressed == 0 {
         "delivered"
+    } else if errors == 0 && delivered == 0 {
+        "suppressed"
     } else if delivered > 0 {
         "partial"
     } else {
         "failed"
-    };
-    DeliveryOutcome {
-        status: Some(status.to_string()),
-        errors,
     }
 }
 
@@ -123,7 +136,7 @@ fn deliver_desktop_notification(
     result_status: &str,
     source_artifact: Option<&Path>,
     fallback_content: &str,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     crate::api_notifications::append_desktop_notification(
         root,
         "schedule",
@@ -132,7 +145,7 @@ fn deliver_desktop_notification(
         format!("Schedule {} {}", entry.id, result_status),
         desktop_notification_body(source_artifact, fallback_content),
     )
-    .map(|_| ())
+    .map(|(_, shown)| shown)
 }
 
 fn desktop_notification_body(source_artifact: Option<&Path>, fallback_content: &str) -> String {

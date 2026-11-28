@@ -167,14 +167,6 @@ impl IntakeFence {
         Self::default()
     }
 
-    /// True while a claim is held for `session_id`, at any epoch.
-    pub fn is_fenced(&self, session_id: &str) -> bool {
-        self.inflight
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .contains_key(session_id)
-    }
-
     fn claim(&self, session_id: &str, epoch: u64) -> Result<(), SagaRefusal> {
         let mut map = self
             .inflight
@@ -271,21 +263,33 @@ fn cancel<S: HandoffStore>(
     fence.release(session_id, epoch);
 }
 
+/// The handoff a new saga attempt claims: the session, the targets it moves between, and the
+/// controller epoch the attempt runs under.
+#[derive(Debug, Clone, Copy)]
+pub struct HandoffAttempt<'a> {
+    pub session_id: &'a str,
+    pub source_target: &'a str,
+    pub destination_target: &'a str,
+    pub epoch: u64,
+}
+
 /// Claim a brand-new saga attempt. Proven-quiescence gating happens before
 /// anything durable or in-process is touched: any outcome other than
 /// `ReadyToHandoff` refuses without claiming the fence or writing storage.
-#[allow(clippy::too_many_arguments)]
 pub fn start<S: HandoffStore, C: HandoffCallbacks>(
     store: &S,
     fence: &IntakeFence,
     callbacks: &C,
-    session_id: &str,
-    source_target: &str,
-    destination_target: &str,
-    epoch: u64,
+    attempt: HandoffAttempt<'_>,
     quiescence: QuiescenceOutcome,
     now: &str,
 ) -> SagaOutcome {
+    let HandoffAttempt {
+        session_id,
+        source_target,
+        destination_target,
+        epoch,
+    } = attempt;
     if quiescence != QuiescenceOutcome::ReadyToHandoff {
         return SagaOutcome::Refused(SagaRefusal::QuiescenceUnproven(quiescence));
     }

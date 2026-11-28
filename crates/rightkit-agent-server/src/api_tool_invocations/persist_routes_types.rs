@@ -105,14 +105,6 @@ pub(crate) fn persist_tool_invocation_event(
                     .upsert_tool_invocation(&row)
                     .map_err(|e| e.to_string())?;
             }
-            let mut payload = serde_json::json!({
-                "toolCallId": tool_call_id,
-                "approved": approved,
-            });
-            // Same shape as the wire: `reason` is present only on a denial that carries one.
-            if let Some(reason) = reason {
-                payload["reason"] = serde_json::json!(reason);
-            }
             store
                 .append_tool_invocation_event(&storage_event_row(
                     session_id,
@@ -120,7 +112,38 @@ pub(crate) fn persist_tool_invocation_event(
                     *seq,
                     "toolApprovalResolved",
                     created_at,
-                    payload,
+                    serde_json::json!({
+                        "toolCallId": tool_call_id,
+                        "approved": approved,
+                        "reason": reason,
+                    }),
+                ))
+                .map_err(|e| e.to_string())?;
+        }
+        // Tools rule 31: a grant install, hook block or sandbox refusal is a stored event naming
+        // the call, the policy source and the cause.
+        ProtocolEvent::ToolPolicyEvent {
+            session_id,
+            seq,
+            created_at,
+            tool_call_id,
+            policy_source,
+            kind,
+            cause,
+        } => {
+            store
+                .append_tool_invocation_event(&storage_event_row(
+                    session_id,
+                    tool_call_id,
+                    *seq,
+                    "toolPolicyEvent",
+                    created_at,
+                    serde_json::json!({
+                        "toolCallId": tool_call_id,
+                        "policySource": policy_source,
+                        "kind": kind,
+                        "cause": cause,
+                    }),
                 ))
                 .map_err(|e| e.to_string())?;
         }

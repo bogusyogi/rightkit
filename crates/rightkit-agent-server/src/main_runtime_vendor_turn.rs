@@ -4,7 +4,7 @@
 // A vendor route runs turns through the vendor's own installed CLI instead
 // of the `SessionExecutionHost` run loop: `claude` reuses the Claude harness
 // launch contract (stream-json in and out, the `--tools ""` delegation
-// policy, a run-scoped `--mcp-config` exposing the `{app}` stdio server)
+// policy, a run-scoped `--mcp-config` exposing the host's stdio server)
 // and `agy` runs through `agy_harness` (`-p` + `--output-format
 // stream-json`, `--conversation` for resume). Vendor stdout frames are
 // parsed into the shared `NormalizedEvent` vocabulary and projected into the
@@ -13,15 +13,15 @@
 //
 // Claude's MCP child proxies into this turn's parent InlineHost over a
 // run-scoped authenticated local pipe. Its official permission-prompt tool
-// uses normal RightKit approvals; the full catalog remains policy governed.
+// uses the host's normal approvals; the full catalog remains policy governed.
 // Antigravity keeps its user-level MCP registration and native permission
 // policy. Only Yolo maps to --dangerously-skip-permissions.
 //
 // Continuity: the vendor session/conversation id from the turn's
 // `SessionStarted` event is keyed `"{provider_id}:{session_id}"` and
 // replayed as `--resume` (Claude) or `--conversation` (agy) on the next
-// turn of that RightKit session. The map is in-memory — a restarted TUI
-// starts a fresh vendor conversation; RightKit's own transcript remains
+// turn of that host session. The map is in-memory — a restarted TUI
+// starts a fresh vendor conversation; the host's own transcript remains
 // the durable continuity surface.
 
 use rightkit_agents::driver_host::vendor_cli::{detect, VendorCli};
@@ -49,12 +49,17 @@ fn parse_vendor_route(route: &str) -> Option<(VendorCli, String)> {
     Some((kind, model.to_string()))
 }
 
-/// The vendor route carried by turn args (`--provider <id> --model <id>`),
+/// The vendor route carried by turn args (`--provider <id> --model <id>`, or
+/// `--model <provider>/<model>`),
 /// or `None` when the turn belongs to the native provider path.
 fn vendor_route_for_args(args: &RunArgs) -> Option<(VendorCli, Option<String>)> {
-    let provider = args.provider.as_deref()?;
-    let kind = VendorCli::from_provider_id(provider)?;
-    Some((kind, args.model.clone()))
+    if let Some(provider) = args.provider.as_deref() {
+        let kind = VendorCli::from_provider_id(provider)?;
+        return Some((kind, args.model.clone()));
+    }
+    // `--model claude-code/<model>` alone names the same route, as it does in the terminal app.
+    let (kind, model) = parse_vendor_route(args.model.as_deref()?)?;
+    Some((kind, Some(model)))
 }
 
 fn vendor_queue_push(queue: &VendorEventQueue, event: DaemonEvent) {
@@ -245,17 +250,6 @@ pub(crate) struct ResolvedClaudeAccount {
     pub identity: ClaudeAccountIdentity,
 }
 
-/// Turn one selected account id into launch inputs. `Ok(None)` when the selection belongs to
-/// another provider. A selected account whose profile or key is missing is an error: the launch
-/// must fail rather than run (and bill) under a different account.
-pub(crate) fn claude_account_for_selection(
-    account_id: &str,
-    load_key: impl Fn(&str) -> Result<Option<String>, String>,
-    load_profile: impl Fn(&str) -> Result<Option<(std::path::PathBuf, ClaudeAccountIdentity)>, String>,
-) -> Result<Option<ResolvedClaudeAccount>, String> {
-    account_for_selection("claude", account_id, load_key, load_profile)
-}
-
 /// Shared by every provider with per-account homes/keys (Claude and Codex): one code path.
 pub(crate) fn account_for_selection(
     expected_provider: &str,
@@ -303,14 +297,6 @@ pub(crate) fn resolve_claude_account(
     resolve_provider_account("claude", session_id, project)
 }
 
-/// Codex twin of [`resolve_claude_account`]: same registry, same precedence, no auto-switching.
-pub(crate) fn resolve_codex_account(
-    session_id: &str,
-    project: &str,
-) -> Result<Option<ResolvedClaudeAccount>, String> {
-    resolve_provider_account("codex", session_id, project)
-}
-
 pub(crate) fn resolve_provider_account(
     provider_name: &'static str,
     session_id: &str,
@@ -340,7 +326,26 @@ pub(crate) fn resolve_provider_account(
             let record =
                 rightkit_agents::driver_host::cli_runtime::profile::load_profile(&provider, label)
                     .map_err(|error| error.to_string())?;
-            Ok(record.map(|record| {
+            // A managed profile, else a folder the user linked (Claude only): its config home.
+            let home = match record {
+                Some(record) => Some(record.managed_home),
+                None if provider_name == "claude" => {
+                    let linked =
+                        rightkit_agents::driver_host::cli_runtime::account_identity::linked_profile_home(
+                            provider_name,
+                            label,
+                        );
+                    if let Some(folder) = linked.as_ref().filter(|folder| !folder.is_dir()) {
+                        return Err(format!(
+                            "the linked folder {} no longer exists; link it again or pick another account",
+                            folder.display()
+                        ));
+                    }
+                    linked
+                }
+                None => None,
+            };
+            Ok(home.map(|home| {
                 let identity =
                     rightkit_agents::driver_host::cli_runtime::account_identity::identity_for_profile(
                         &format!("{provider_name}/{label}"),
@@ -352,7 +357,7 @@ pub(crate) fn resolve_provider_account(
                         account_id: Some(format!("subscription/{provider_name}/{label}")),
                         ..Default::default()
                     });
-                (record.managed_home, identity)
+                (home, identity)
             }))
         },
     )?;
@@ -570,7 +575,7 @@ pub(crate) fn session_auth_report(
     }
 }
 
-/// Claude's `--permission-mode` for a RightKit policy mode. RightKit stays the approval
+/// Claude's `--permission-mode` for a host policy mode. The host stays the approval
 /// authority (permission prompts route to `mcp__{app}__permission_prompt`), so only the two
 /// modes that have a Claude equivalent change anything; `Bypass` is never forwarded because the
 /// driver host refuses `bypassPermissions`.
@@ -594,9 +599,9 @@ fn claude_launch_extras(
     }
 }
 
-/// Inputs for [`vendor_launch_spec`].
-struct VendorLaunchRequest<'a> {
-    kind: VendorCli,
+/// What one vendor child is launched with: the executable, the workspace it runs in, the model
+/// override, the conversation to resume, the permission mode, the prompt and the Claude account.
+struct VendorLaunchInputs<'a> {
     executable: &'a std::path::Path,
     workspace: &'a std::path::Path,
     model: Option<&'a str>,
@@ -609,10 +614,10 @@ struct VendorLaunchRequest<'a> {
 /// Build the vendor child's launch spec + prompt delivery for one turn.
 /// `Err` strings are already presentation-ready.
 fn vendor_launch_spec(
-    request: VendorLaunchRequest<'_>,
+    kind: VendorCli,
+    inputs: VendorLaunchInputs<'_>,
 ) -> Result<(rightkit_agents::driver_host::LaunchSpec, Option<String>), String> {
-    let VendorLaunchRequest {
-        kind,
+    let VendorLaunchInputs {
         executable,
         workspace,
         model,
@@ -620,7 +625,7 @@ fn vendor_launch_spec(
         permission_mode,
         prompt,
         account,
-    } = request;
+    } = inputs;
     match kind {
         VendorCli::ClaudeCode => {
             let current_exe = std::env::current_exe().map_err(|error| {
@@ -689,6 +694,22 @@ fn vendor_launch_spec(
             spec.args.extend(agy_harness::user_prompt_frame(prompt));
             Ok((spec, None))
         }
+    }
+}
+
+/// Where Claude Code keeps the conversations of the account a turn runs under: the account's
+/// config folder, or `default` for Claude Code's own folder (no account selected, an API-key
+/// account, or a subscription that lives in the default folder).
+fn vendor_conversation_scope(account: Option<&ClaudeAccountLaunch>) -> String {
+    match account {
+        Some(ClaudeAccountLaunch::Subscription { managed_home })
+            if !rightkit_agents::driver_host::cli_runtime::account_identity::is_default_claude_home(
+                managed_home,
+            ) =>
+        {
+            managed_home.to_string_lossy().into_owned()
+        }
+        _ => "default".to_string(),
     }
 }
 
@@ -865,34 +886,33 @@ fn preview_stderr(tail: &str) -> String {
     }
 }
 
-/// Inputs for [`run_vendor_turn`].
-struct VendorTurnRequest {
-    kind: VendorCli,
+/// What one interactive vendor turn runs: the model override, the workspace, the prompt, the
+/// host session it belongs to and the permission mode.
+struct VendorTurn {
     model: Option<String>,
     workspace: String,
     prompt: String,
     session_id: String,
     permission_mode: rightkit_agent_policy::PermissionMode,
-    events: VendorEventQueue,
-    conversations: VendorConversationMap,
-    control: std::sync::Arc<RunCancellation>,
 }
 
 /// Interactive vendor turn (TUI path): emits into the shared host event
 /// queue the renderer drains, honours `control` cancellation by killing the
 /// child, and always settles the cancellation slot so the next turn admits.
-async fn run_vendor_turn(request: VendorTurnRequest) -> i32 {
-    let VendorTurnRequest {
-        kind,
+async fn run_vendor_turn(
+    kind: VendorCli,
+    turn: VendorTurn,
+    events: VendorEventQueue,
+    conversations: VendorConversationMap,
+    control: std::sync::Arc<RunCancellation>,
+) -> i32 {
+    let VendorTurn {
         model,
         workspace,
         prompt,
         session_id,
         permission_mode,
-        events,
-        conversations,
-        control,
-    } = request;
+    } = turn;
     control
         .admission_started
         .store(true, std::sync::atomic::Ordering::Release);
@@ -911,11 +931,6 @@ async fn run_vendor_turn(request: VendorTurnRequest) -> i32 {
     }
     let executable = status.path.expect("installed status carries a path");
     let workspace_path = std::path::PathBuf::from(&workspace);
-    let conversation_key = format!("{}:{}", kind.provider_id(), session_id);
-    let stored = conversations
-        .lock()
-        .ok()
-        .and_then(|map| map.get(&conversation_key).cloned());
     let account = if kind == VendorCli::ClaudeCode {
         match resolve_claude_account(&session_id, &workspace) {
             Ok(account) => account,
@@ -928,16 +943,44 @@ async fn run_vendor_turn(request: VendorTurnRequest) -> i32 {
     } else {
         None
     };
-    let (mut spec, stdin_frame) = match vendor_launch_spec(VendorLaunchRequest {
+    // Claude Code keeps a conversation inside the config folder of the account that had it, so
+    // the conversation to resume is the one this session had under the same folder. Without the
+    // folder in the key, a switch from one account to another asked the second account to resume
+    // the first one's conversation, which it does not have, and the turn failed.
+    let scope = vendor_conversation_scope(account.as_ref().map(|resolved| &resolved.launch));
+    let conversation_key = format!("{}:{}:{}", kind.provider_id(), session_id, scope);
+    let last_scope_key = format!("{}:{}:@scope", kind.provider_id(), session_id);
+    let (stored, previous_scope) = conversations
+        .lock()
+        .map(|mut map| {
+            let previous = map.insert(last_scope_key, scope.clone());
+            (map.get(&conversation_key).cloned(), previous)
+        })
+        .unwrap_or((None, None));
+    if previous_scope.is_some_and(|previous| previous != scope) && stored.is_none() {
+        let name = account
+            .as_ref()
+            .and_then(|resolved| resolved.identity.label.clone())
+            .unwrap_or_else(|| "this account".to_string());
+        vendor_system(
+            &events,
+            format!(
+                "Switched to {name}. Claude Code keeps each account's conversation in that account, so {name} starts without the earlier messages of this chat."
+            ),
+        );
+    }
+    let (mut spec, stdin_frame) = match vendor_launch_spec(
         kind,
-        executable: &executable,
-        workspace: &workspace_path,
-        model: model.as_deref(),
-        conversation_id: stored.as_deref(),
-        permission_mode,
-        prompt: &prompt,
-        account: account.as_ref().map(|resolved| &resolved.launch),
-    }) {
+        VendorLaunchInputs {
+            executable: &executable,
+            workspace: &workspace_path,
+            model: model.as_deref(),
+            conversation_id: stored.as_deref(),
+            permission_mode,
+            prompt: &prompt,
+            account: account.as_ref().map(|resolved| &resolved.launch),
+        },
+    ) {
         Ok(launch) => launch,
         Err(message) => {
             vendor_system(&events, message);
@@ -985,7 +1028,7 @@ async fn run_vendor_turn(request: VendorTurnRequest) -> i32 {
     if cancel.is_cancelled() {
         vendor_system(&events, "Turn interrupted");
         control.settled();
-        return 130;
+        return RunExitCode::UserAbort.as_i32();
     }
     control.settled();
     code
@@ -1019,8 +1062,7 @@ static VENDOR_ACTIVE_CHILD: std::sync::Mutex<
 > = std::sync::Mutex::new(None);
 
 struct VendorToolBridge {
-    #[cfg(windows)]
-    _pipe: rightkit_agents::vendor_mcp_pipe::VendorMcpPipe,
+    _pipe: crate::vendor_mcp_pipe::VendorMcpPipe,
     events: tokio::task::JoinHandle<()>,
     live: std::sync::Arc<crate::api::LiveSession>,
     queue: Option<VendorEventQueue>,
@@ -1065,9 +1107,6 @@ async fn start_vendor_tool_bridge(
             .map_err(|error| format!("Antigravity MCP registration failed: {error}"))?;
         return Ok(None);
     }
-    #[cfg(not(windows))]
-    return Err("Claude approval transport is currently available on Windows".into());
-    #[cfg(windows)]
     {
         let (projection, mut stream) =
             InlineMcpProjection::for_vendor(workspace, session_id, mode, control).await?;
@@ -1075,10 +1114,8 @@ async fn start_vendor_tool_bridge(
             .state
             .get_session(session_id)
             .ok_or("vendor session unavailable")?;
-        let server =
-            crate::mcp_server::McpStdioServer::for_vendor(workspace.to_path_buf(), projection)
-                .await?;
-        let pipe = rightkit_agents::vendor_mcp_pipe::VendorMcpPipe::start(server)?;
+        let server = crate::mcp_server::McpStdioServer::for_vendor(projection).await?;
+        let pipe = crate::vendor_mcp_pipe::VendorMcpPipe::start(server)?;
         pipe.attach(spec);
         let control = control.clone();
         let session_id = session_id.to_string();
@@ -1171,16 +1208,18 @@ async fn run_vendor_turn_headless(
     } else {
         None
     };
-    let (mut spec, stdin_frame) = match vendor_launch_spec(VendorLaunchRequest {
+    let (mut spec, stdin_frame) = match vendor_launch_spec(
         kind,
-        executable: &executable,
-        workspace: &workspace_path,
-        model: model.as_deref(),
-        conversation_id: None,
-        permission_mode,
-        prompt: &args.prompt,
-        account: account.as_ref().map(|resolved| &resolved.launch),
-    }) {
+        VendorLaunchInputs {
+            executable: &executable,
+            workspace: &workspace_path,
+            model: model.as_deref(),
+            conversation_id: None,
+            permission_mode,
+            prompt: &args.prompt,
+            account: account.as_ref().map(|resolved| &resolved.launch),
+        },
+    ) {
         Ok(launch) => launch,
         Err(message) => {
             eprintln!("{message}");
@@ -1261,7 +1300,7 @@ async fn run_vendor_turn_headless(
     };
     if cancel.is_cancelled() {
         control.settled();
-        return 130;
+        return RunExitCode::UserAbort.as_i32();
     }
     control.settled();
     code

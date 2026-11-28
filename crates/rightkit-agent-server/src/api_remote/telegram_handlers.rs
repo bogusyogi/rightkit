@@ -29,7 +29,10 @@ async fn get_telegram_users_handler(
         return Json(serde_json::json!({
             "verdict": "block",
             "telegramTokenConfigured": false,
-            "detail": "No Telegram bot token is configured. Save the BotFather token first or set RIGHTKIT_TELEGRAM_TOKEN.",
+            "detail": format!(
+                "No Telegram bot token is configured. Save the BotFather token first or set {}.",
+                rightkit_agent_config::env_name("TELEGRAM_TOKEN")
+            ),
             "users": [],
             "userCount": 0,
         }));

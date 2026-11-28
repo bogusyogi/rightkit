@@ -232,7 +232,7 @@ async fn cli_spec(command: SpecCommand) -> i32 {
 fn cli_spec_store_path(store: Option<&str>) -> std::path::PathBuf {
     store
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| spec_store_path(&default_db_path()))
+        .unwrap_or_else(|| spec_store_path(&default_db_path_required()))
 }
 
 fn default_cli_workspace() -> String {

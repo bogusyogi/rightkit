@@ -24,7 +24,7 @@ pub(crate) use lifecycle::{
     workflow_schedule_cutover_enabled,
 };
 #[allow(unused_imports)]
-pub use model::{DeliveryTarget, ScheduleEntry, ScheduleSpec};
+pub use model::{DeliveryTarget, ScheduleEntry, ScheduleSpec, MIN_INTERVAL_SECONDS};
 #[allow(unused_imports)]
 pub use persistence::claim_due_schedules;
 pub use time::{current_epoch_minute, next_due_epoch_minute_in_time_zone, normalize_time_zone};

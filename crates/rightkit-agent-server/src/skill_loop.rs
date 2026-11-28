@@ -6,7 +6,6 @@
 
 use crate::api::EngineConfig;
 use rightkit_agent_learning::{SkillSynthesisLoop, SynthesisConfig, SynthesizeFn, VerifyFn};
-use rightkit_llm::agent_providers::OpenAiCompatClient;
 use std::sync::Arc;
 
 /// Build a `SkillSynthesisLoop` wired to the daemon's selected provider.
@@ -16,12 +15,13 @@ use std::sync::Arc;
 /// - `verify_fn`: sends the body to the LLM with a verification prompt and
 ///   parses `{"score": 0.0-1.0, "feedback": "..."}` from the response.
 pub fn build_skill_synthesis_loop(config: &EngineConfig) -> SkillSynthesisLoop {
-    let client = OpenAiCompatClient::new(&config.api_key, &config.model_id, &config.base_url);
-    let synth_client = client.clone();
-    let verify_client = client;
+    // Both calls take the checked side-call path (`complete_projection`): egress pin, native
+    // sign-in, and the Messages protocol on `api.anthropic.com`.
+    let synth_config = config.clone();
+    let verify_config = config.clone();
 
     let synthesize_fn: SynthesizeFn = Arc::new(move |prompt: String| {
-        let c = synth_client.clone();
+        let c = synth_config.clone();
         Box::pin(async move {
             let messages = vec![
                 serde_json::json!({
@@ -32,7 +32,7 @@ pub fn build_skill_synthesis_loop(config: &EngineConfig) -> SkillSynthesisLoop {
                 }),
                 serde_json::json!({ "role": "user", "content": prompt }),
             ];
-            c.complete(messages)
+            crate::provider_client::complete_projection(&c, messages)
                 .await
                 .map(|t| t.text)
                 .map_err(|e| e.to_string())
@@ -40,7 +40,7 @@ pub fn build_skill_synthesis_loop(config: &EngineConfig) -> SkillSynthesisLoop {
     });
 
     let verify_fn: VerifyFn = Arc::new(move |body: String| {
-        let c = verify_client.clone();
+        let c = verify_config.clone();
         Box::pin(async move {
             let prompt = format!(
                 "Verify this skill definition. Is it correct and useful? \
@@ -55,8 +55,7 @@ pub fn build_skill_synthesis_loop(config: &EngineConfig) -> SkillSynthesisLoop {
                 }),
                 serde_json::json!({ "role": "user", "content": prompt }),
             ];
-            let text = c
-                .complete(messages)
+            let text = crate::provider_client::complete_projection(&c, messages)
                 .await
                 .map(|t| t.text)
                 .map_err(|e| e.to_string())?;

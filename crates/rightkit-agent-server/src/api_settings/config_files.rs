@@ -35,6 +35,22 @@ fn config_status(q: &WorkspaceQuery) -> ConfigStatus {
     }
 }
 
+/// One line per configuration file the loader reads for `workspace_root`, in the order it reads them
+/// (later files override earlier ones): the scope, whether the file was found, and its path. `/debug-config`.
+pub(crate) fn config_layer_lines(workspace_root: &str) -> Vec<String> {
+    let status = config_status(&WorkspaceQuery {
+        workspace_root: workspace_root.to_string(),
+    });
+    status
+        .files
+        .iter()
+        .map(|file| match (file.exists, file.bytes) {
+            (true, Some(bytes)) => format!("- {} (read, {bytes} bytes): {}", file.scope, file.path),
+            _ => format!("- {} (not found): {}", file.scope, file.path),
+        })
+        .collect()
+}
+
 fn config_file_status(scope: &str, path: PathBuf) -> ConfigFileStatus {
     let path_string = path.display().to_string();
     match fs::metadata(&path) {
@@ -80,9 +96,11 @@ fn config_files(workspace: &FsPath) -> Vec<(&'static str, PathBuf)> {
 }
 
 /// The file `ConfigLoader::update_workspace_from` and `save_workspace` write and
-/// `load_files_for_workspace` reads (`<workspace>/.rightkit/config.toml`).
+/// `load_files_for_workspace` reads (`<workspace>/<state folder>/config.toml`).
 fn workspace_config_path(workspace: &FsPath) -> PathBuf {
-    workspace.join(".rightkit").join("config.toml")
+    workspace
+        .join(rightkit_agent_config::state_dir_name())
+        .join("config.toml")
 }
 
 fn workspace_path(q: &WorkspaceQuery) -> PathBuf {

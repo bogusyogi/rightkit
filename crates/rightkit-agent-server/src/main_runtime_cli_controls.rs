@@ -572,7 +572,10 @@ async fn cli_provider(command: ProviderCommand) -> i32 {
                 }
             }
             Some(ProviderKind::VendorCli) => {
-                eprintln!("{provider} signs in and out through its own CLI, not RightKit.");
+                eprintln!(
+                    "{provider} signs in and out through its own CLI, not {}.",
+                    rightkit_agent_config::app_name()
+                );
                 2
             }
             _ => cli_provider_key_remove(&provider),
@@ -583,6 +586,7 @@ async fn cli_provider(command: ProviderCommand) -> i32 {
             cli_provider_key_write(provider).await
         }
         ProviderCommand::Disconnect { provider } => cli_provider_key_remove(&provider),
+        ProviderCommand::SetKey { provider } => cli_provider_set_key(&provider),
         ProviderCommand::Test { provider } => {
             match provider_setup::test_connection(&provider).await {
                 Ok(message) => {
@@ -608,7 +612,7 @@ async fn cli_provider(command: ProviderCommand) -> i32 {
                 }
                 0
             }
-            _ => interactive_session::cli_models(Some(provider)).await,
+            _ => interactive_session::cli_models(Some(provider), false).await,
         },
         ProviderCommand::SetVisibility {
             provider,
@@ -635,13 +639,57 @@ async fn cli_provider(command: ProviderCommand) -> i32 {
 }
 
 fn cli_provider_key_remove(provider: &str) -> i32 {
-    match provider_setup::remove_key(provider) {
+    match rightkit_llm::agent_providers::host_credentials::remove_provider_key(provider) {
         Ok(()) => {
             println!("Key removed for {provider}.");
             0
         }
         Err(error) => {
             eprintln!("provider disconnect failed: {error}");
+            1
+        }
+    }
+}
+
+/// `{app} provider set-key <provider>` (headless R41): read the key from
+/// stdin and store it through the credential library. The key never comes from argv
+/// and is never printed.
+fn cli_provider_set_key(provider: &str) -> i32 {
+    if matches!(
+        provider_setup::screen_provider(provider).map(|screen| screen.kind),
+        Some(
+            rightkit_terminal_ui::nav::ProviderKind::OAuth
+                | rightkit_terminal_ui::nav::ProviderKind::VendorCli
+        )
+    ) {
+        eprintln!(
+            "{provider} does not use an API key; use `{app} provider login {provider}`.",
+            app = crate::host_identity::app()
+        );
+        return 2;
+    }
+    let mut input = String::new();
+    if let Err(error) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut input) {
+        eprintln!("cannot read the key from stdin: {error}");
+        return 2;
+    }
+    let key = input.lines().next().unwrap_or("").trim();
+    if key.is_empty() {
+        eprintln!(
+            "no key on stdin: pipe the key in, for example `printf %s \"$KEY\" | {app} provider set-key {provider}`",
+            app = crate::host_identity::app()
+        );
+        return 2;
+    }
+    // The credential library decides where the key goes: the OS store when
+    // the host has one, else owner-only `<state root>/.env` (providers R4, R10).
+    match rightkit_llm::agent_providers::host_credentials::store_provider_key(provider, key) {
+        Ok(()) => {
+            println!("Key saved for {provider}.");
+            0
+        }
+        Err(error) => {
+            eprintln!("provider set-key failed: {error}");
             1
         }
     }
@@ -678,10 +726,6 @@ async fn cli_provider_key_write(provider: String) -> i32 {
             1
         }
     }
-}
-
-async fn daemon_put_pretty_json(path: &str, body: serde_json::Value, label: &str) -> i32 {
-    daemon_json_request(rightkit_http::Method::Put, path, Some(body), label).await
 }
 
 async fn cli_local_model(command: LocalModelCommand) -> i32 {
@@ -757,71 +801,6 @@ async fn cli_execution(command: ExecutionCommand) -> i32 {
                 "execution doctor",
             )
             .await
-        }
-    }
-}
-
-async fn cli_runtime(command: CliRuntimeCommand) -> i32 {
-    match command {
-        CliRuntimeCommand::MatrixCell {
-            provider,
-            scenario,
-            workspace,
-            child_provider,
-            json: _,
-        } => {
-            let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
-                Some(value) => value,
-                None => {
-                    println!(
-                        "{}",
-                        serde_json::json!({
-                            "provider": provider, "scenario": scenario, "passed": false,
-                            "diagnostic": "no running daemon; matrix cells require installed daemon runtime"
-                        })
-                    );
-                    return 1;
-                }
-            };
-            let response = rightkit_agent_daemon::http_client::daemon_call(
-                rightkit_http::Method::Post,
-                &format!("{base_url}/cli-runtime/matrix-cell"),
-                &token,
-                Some(&serde_json::json!({
-                    "provider": provider, "scenario": scenario, "workspace": workspace,
-                    "childProvider": child_provider,
-                })),
-            )
-            .await;
-            match response {
-                Ok(response) => {
-                    let success = rightkit_agent_daemon::http_client::is_success(response.status);
-                    let value = response.json::<serde_json::Value>().unwrap_or_else(|_| {
-                        serde_json::json!({
-                            "provider": provider, "scenario": scenario, "passed": false,
-                            "diagnostic": "daemon returned non-JSON matrix receipt"
-                        })
-                    });
-                    println!("{}", value);
-                    if success
-                        && value.get("passed").and_then(serde_json::Value::as_bool) == Some(true)
-                    {
-                        0
-                    } else {
-                        1
-                    }
-                }
-                Err(error) => {
-                    println!(
-                        "{}",
-                        serde_json::json!({
-                            "provider": provider, "scenario": scenario, "passed": false,
-                            "diagnostic": format!("daemon matrix request failed: {error}")
-                        })
-                    );
-                    1
-                }
-            }
         }
     }
 }
@@ -909,7 +888,9 @@ pub(crate) fn render_registry_help(show_all: bool) -> String {
         };
         out.push_str(&format!(
             "  {}{:<27} {}\n",
-            marker, entry.name, entry.summary
+            marker,
+            entry.name,
+            entry.summary()
         ));
     }
     if show_all {
@@ -922,7 +903,9 @@ pub(crate) fn render_registry_help(show_all: bool) -> String {
             };
             out.push_str(&format!(
                 "  {}{:<27} {}\n",
-                marker, entry.name, entry.summary
+                marker,
+                entry.name,
+                entry.summary()
             ));
         }
     }

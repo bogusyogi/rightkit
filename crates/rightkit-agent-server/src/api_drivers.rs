@@ -11,8 +11,7 @@ use rightkit_agent_coding_tools::{
 use rightkit_agent_engine_protocol::ToolCall;
 use rightkit_agents::driver_host::cli_runtime::AgentRuntimeExecutor;
 use rightkit_agents::driver_host::{
-    ClaudeLaunchOptions, CodexLaunchOptions, DriverCursor, DriverKind, NormalizedEvent,
-    NormalizedEventKind,
+    ClaudeLaunchOptions, DriverCursor, DriverKind, NormalizedEvent, NormalizedEventKind,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -26,10 +25,9 @@ use crate::api_permissions::enforce_trusted_source_authority;
 // ra-016 decomposition: `api_drivers.rs` stays the facade — it owns
 // `driver_routes()`/`driver_capability_routes()`, the wire types, and every
 // HTTP handler's public behavior. These private feature modules own one
-// responsibility apiece (CLI profile/route resolution, the Codex model
-// catalogue protocol, and driver/capability JSON Schemas); the glob
-// re-exports below put every item back into this module's namespace so the
-// rest of this file keeps calling them
+// responsibility apiece (CLI profile/route resolution and driver/capability
+// JSON Schemas); the glob re-exports below put every item back into this
+// module's namespace so the rest of this file keeps calling them
 // unqualified exactly as before the split. Route paths, methods, JSON
 // schemas, status mapping, lease headers, and driver-host calls are
 // unchanged — only the item's source file moved.
@@ -37,13 +35,11 @@ mod agent_runtime;
 mod capability_gateway;
 mod cli_profiles;
 mod driver_lifecycle;
-mod model_catalog;
 mod schemas;
 pub(crate) use agent_runtime::*;
 pub(crate) use capability_gateway::*;
 pub(crate) use cli_profiles::*;
 pub(crate) use driver_lifecycle::*;
-pub(crate) use model_catalog::*;
 pub(crate) use schemas::*;
 
 static CAPABILITY_HEADER: std::sync::LazyLock<String> =
@@ -59,6 +55,8 @@ const SPECIAL_TOOLS: &[&str] = &[
     "verify",
 ];
 const READ_ONLY_SPECIAL_TOOLS: &[&str] = &["memory_recall"];
+/// What the harness check offers the program in its own throwaway folder.
+const HARNESS_CHECK_TOOLS: &[&str] = &["write_file", "read_file", "memory_recall"];
 const DRIVER_BLOCKED_TOOLS: &[&str] = &[
     "spawn_subagent",
     "send_message",
@@ -74,32 +72,14 @@ const DRIVER_CAPABILITIES: &[&str] = &[
     "delegate_parallel",
     "verify",
 ];
-/// Codex features whose vendor-native effect paths must never be available to
-/// a driver-hosted session. The capability gateway is the sole effect path.
-const CODEX_DISABLED_VENDOR_FEATURES: &[&str] = &[
-    "apps",
-    "plugins",
-    "computer_use",
-    "browser_use",
-    "browser_use_external",
-    "browser_use_full_cdp_access",
-    "in_app_browser",
-    "image_generation",
-    "code_mode_host",
-    "shell_tool",
-    "shell_snapshot",
-    "unified_exec",
-    "multi_agent",
-    "multi_agent_v2",
-    "external_agent_memory_import",
-];
-const DRIVER_MCP_SECRET_ENVIRONMENT: &[&str] =
-    &["RIGHTKIT_GATEWAY_TOKEN", "RIGHTKIT_DRIVER_INSTANCE_SECRET"];
-const DRIVER_MCP_FORWARDED_ENVIRONMENT: &[&str] = &[
-    "RIGHTKIT_DAEMON_URL",
-    "RIGHTKIT_GATEWAY_TOKEN",
-    "RIGHTKIT_DRIVER_INSTANCE_SECRET",
-];
+/// The variables of the MCP server's environment that carry a secret (the scoped gateway token
+/// and the driver instance secret), under the host's names.
+fn driver_mcp_secret_environment() -> [String; 2] {
+    [
+        rightkit_agent_config::env_name("GATEWAY_TOKEN"),
+        rightkit_agent_config::env_name("DRIVER_INSTANCE_SECRET"),
+    ]
+}
 pub(crate) fn driver_routes() -> Router<DaemonState> {
     Router::new()
         .route("/cli-providers", get(list_cli_providers))
@@ -127,10 +107,6 @@ pub(crate) fn driver_routes() -> Router<DaemonState> {
         )
         .route("/drivers/{kind}/discovery", get(discover_driver))
         .route("/drivers/{kind}/models", get(list_driver_models))
-        .route(
-            "/cli-runtime/matrix-cell",
-            post(run_cli_runtime_matrix_cell),
-        )
         .route(
             "/sessions/{id}/cli-delegation-policy",
             get(get_cli_delegation_policy).put(set_cli_delegation_policy),
@@ -325,20 +301,7 @@ async fn cli_provider_entry(
         };
         let discovery = adapter.discover(&profile).await.ok();
         let auth = adapter.authentication_status(&profile).await.ok();
-        let models = if provider_id.as_str() == "codex" {
-            query_codex_model_catalogue_with_profile("codex", &profile)
-                .await
-                .ok()
-                .map(|items| {
-                    json!({
-                        "source": "codex-app-server",
-                        "items": items
-                            .into_iter()
-                            .filter_map(|item| item.get("id").and_then(Value::as_str).map(str::to_string))
-                            .collect::<Vec<_>>(),
-                    })
-                })
-        } else {
+        let models = {
             adapter
                 .list_models(&profile)
                 .await
@@ -419,16 +382,6 @@ async fn cli_provider_models(
         .adapter(&provider_id)
         .ok_or(StatusCode::NOT_FOUND)?;
     let profile = persisted_cli_profile(&state, provider_id.clone()).await?;
-    if provider_id.as_str() == "codex" {
-        let models = query_codex_model_catalogue_with_profile("codex", &profile)
-            .await
-            .map_err(|_| StatusCode::BAD_GATEWAY)?;
-        return Ok(Json(json!({
-            "models": models,
-            "source": "codex-app-server",
-            "fetchedAt": now_iso(),
-        })));
-    }
     let value = adapter
         .list_models(&profile)
         .await
@@ -538,29 +491,55 @@ async fn cli_harness_snapshot(
     })
 }
 
+/// The login route answers with a typed body so the person sees why a sign-in failed (providers
+/// R13, D3): the vendor's own stderr summary on a failed or timed-out login, never a bare status.
+fn login_error_response(
+    status: StatusCode,
+    code: &str,
+    message: String,
+) -> (StatusCode, Json<Value>) {
+    (
+        status,
+        Json(json!({"error": {"code": code, "message": message}})),
+    )
+}
+
 async fn cli_provider_login(
     State(state): State<DaemonState>,
     Path(provider): Path<String>,
-) -> Result<Json<Value>, StatusCode> {
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    use rightkit_agents::driver_host::cli_runtime::LoginError;
+    let bare = |status: StatusCode| {
+        login_error_response(status, "cli_provider_login_failed", status.to_string())
+    };
     let provider_id = rightkit_agents::driver_host::cli_runtime::CliProviderId::new(provider);
     if state.cli_registry.adapter(&provider_id).is_none() {
-        return Err(StatusCode::NOT_FOUND);
+        return Err(bare(StatusCode::NOT_FOUND));
     }
     let login_provider = provider_id.clone();
-    tokio::task::spawn_blocking(move || {
+    let login_result = tokio::task::spawn_blocking(move || {
         rightkit_agents::driver_host::cli_runtime::login(&login_provider, "default")
     })
     .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .map_err(|_| StatusCode::BAD_GATEWAY)?;
-    let mut profile = persisted_cli_profile(&state, provider_id.clone()).await?;
+    .map_err(|_| bare(StatusCode::INTERNAL_SERVER_ERROR))?;
+    if let Err(error) = login_result {
+        let (status, code) = match &error {
+            LoginError::NotRegistered(_) => (StatusCode::NOT_FOUND, "login_not_available"),
+            LoginError::TimedOut { .. } => (StatusCode::GATEWAY_TIMEOUT, "login_timed_out"),
+            _ => (StatusCode::BAD_GATEWAY, "login_failed"),
+        };
+        return Err(login_error_response(status, code, error.to_string()));
+    }
+    let mut profile = persisted_cli_profile(&state, provider_id.clone())
+        .await
+        .map_err(bare)?;
     let status = rightkit_agents::driver_host::cli_runtime::login_status(&provider_id, "default")
-        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+        .map_err(|_| bare(StatusCode::BAD_GATEWAY))?;
     profile.signed_in = status.signed_in;
     profile.auth_mode = status.auth_mode;
     profile.account_fingerprint = status.account_fingerprint;
     profile.last_verified_at = Some(status.observed_at);
-    persist_cli_profile(&state, &profile).await?;
+    persist_cli_profile(&state, &profile).await.map_err(bare)?;
     Ok(Json(
         json!({"providerId": provider_id.as_str(), "profile": profile}),
     ))
@@ -680,7 +659,10 @@ impl rightkit_agents::driver_host::cli_runtime::QualificationObserver
             }
         }
         let host_mcp_discovered = gateway_ready || !rows.is_empty();
-        let expected_host_effect_observed = if probe.id == "pos.rightkit_mcp_discovery" {
+        // Probe ids carry the provider's name (`claude_mcp_discovery`). This compared against an
+        // older fixed id that no probe has, so finding the tool server was never enough and the
+        // discovery check also demanded a completed effect.
+        let expected_host_effect_observed = if probe.id.ends_with("mcp_discovery") {
             host_mcp_discovered
         } else {
             !durable_effect_ids.is_empty()
@@ -729,12 +711,25 @@ async fn cli_provider_verify_harness(
     let session_id = format!("qualification-{}", crate::startup::generate_token());
     let binding_id = format!("binding-{session_id}");
     let agent_id = format!("agent-{session_id}");
-    let live = state.create_session(
+    // The check's folder is the engine's own: made a moment ago, empty, removed afterwards. The
+    // session is trusted in that folder only and may write files there without a person, so the
+    // "governed write" check is a real write through the host and the check does not depend on
+    // Membrane being installed (memory recall was the only tool it used to offer).
+    let live = state.create_session_with_options(
         &session_id,
         Some("qualification"),
         &workspace.to_string_lossy(),
         "CLI harness qualification",
         None,
+        crate::api::SessionRuntimeOptions {
+            trust_workspace: true,
+            permission_mode: Some(rightkit_agent_policy::PermissionMode::AcceptEdits),
+            allowed_tools: HARNESS_CHECK_TOOLS
+                .iter()
+                .map(|name| (*name).to_string())
+                .collect(),
+            ..Default::default()
+        },
     );
     *lock_recover(&live.driver_kind, "session.driver_kind") = provider_id.as_str().to_string();
     let lease_id = format!("lease-{}", crate::startup::generate_token());
@@ -751,7 +746,7 @@ async fn cli_provider_verify_harness(
     );
     let current_exe = std::env::current_exe().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let mcp_server = rightkit_agents::driver_host::cli_runtime::CliMcpServerSpec {
-        name: rightkit_agents::driver_host::agy_harness::HOST_MCP_SERVER_NAME.to_string(),
+        name: rightkit_agents::driver_host::host_names::mcp_server_name(),
         command: current_exe,
         args: vec![
             "mcp-server".to_string(),
@@ -760,20 +755,20 @@ async fn cli_provider_verify_harness(
         ],
         env: vec![
             (
-                "RIGHTKIT_DAEMON_URL".to_string(),
+                rightkit_agent_config::env_name("DAEMON_URL"),
                 format!("http://127.0.0.1:{}", state.bound_port),
             ),
             (
-                "RIGHTKIT_GATEWAY_TOKEN".to_string(),
+                rightkit_agent_config::env_name("GATEWAY_TOKEN"),
                 capability_token.clone(),
             ),
             (
-                "RIGHTKIT_DRIVER_INSTANCE_SECRET".to_string(),
+                rightkit_agent_config::env_name("DRIVER_INSTANCE_SECRET"),
                 process_instance_secret.clone(),
             ),
         ],
     };
-    let policy = rightkit_agents::driver_host::RUN_SCOPED_POLICY.to_string();
+    let policy = rightkit_agents::driver_host::run_scoped_policy();
     let profile_hash = resolved.effective_profile_hash.clone();
     let policy_hash = rightkit_fs::digest::sha256_bytes(policy.as_bytes());
     let tool_schema_hash =
@@ -828,8 +823,14 @@ async fn cli_provider_verify_harness(
         nonce,
         session_id: session_id.clone(),
         canonical_workspace: workspace.to_string_lossy().into_owned(),
-        tool_ceiling_json: serde_json::to_string(&effective_ceiling(&live, &[])?)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+        tool_ceiling_json: serde_json::to_string(&effective_ceiling(
+            &live,
+            &HARNESS_CHECK_TOOLS
+                .iter()
+                .map(|name| (*name).to_string())
+                .collect::<Vec<_>>(),
+        )?)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
         created_at: created_at.clone(),
         expires_at: unix_key(MAX_LEASE_TTL_SECONDS),
         revoked_at: None,
@@ -857,33 +858,43 @@ async fn cli_provider_verify_harness(
         probes: adapter.qualification_suite().to_vec(),
         ..rightkit_agents::driver_host::cli_runtime::QualificationConfig::default()
     };
-    let run = rightkit_agents::driver_host::cli_runtime::run_qualification(
-        &state.cli_registry,
-        &rightkit_agents::driver_host::cli_runtime::QualificationInputs {
-            provider_id: provider_id.clone(),
-            executable,
-            protocol_version,
-            profile_hash,
-            policy_hash,
-            tool_schema_hash,
-            operating_system: std::env::consts::OS.to_string(),
-            architecture: std::env::consts::ARCH.to_string(),
-            isolation_mode: adapter.capabilities().isolation_mode,
-            context: rightkit_agents::driver_host::cli_runtime::QualificationContext {
-                binding_id: binding_id.clone(),
-                agent_id,
-                profile,
-                mcp_server,
-                policy,
-                isolated_workspace: workspace.clone(),
-                session_id: session_id.clone(),
-                model_id: None,
-            },
+    let inputs = rightkit_agents::driver_host::cli_runtime::QualificationInputs {
+        provider_id: provider_id.clone(),
+        executable,
+        protocol_version,
+        profile_hash,
+        policy_hash,
+        tool_schema_hash,
+        operating_system: std::env::consts::OS.to_string(),
+        architecture: std::env::consts::ARCH.to_string(),
+        isolation_mode: adapter.capabilities().isolation_mode,
+        context: rightkit_agents::driver_host::cli_runtime::QualificationContext {
+            binding_id: binding_id.clone(),
+            agent_id,
+            profile,
+            mcp_server,
+            policy,
+            isolated_workspace: workspace.clone(),
+            session_id: session_id.clone(),
+            model_id: None,
         },
-        &config,
-        &observer,
-    )
-    .await;
+    };
+    // The check reads the program's output with blocking calls. Run it on a blocking thread:
+    // on a server worker it stopped the engine from answering any request while it waited, and
+    // the program's own tool server (which calls back into this engine) could never get through,
+    // so every check that needs a tool call ran out its time.
+    let registry = state.cli_registry.clone();
+    let runtime = tokio::runtime::Handle::current();
+    let probes = config.probes.clone();
+    let run = tokio::task::spawn_blocking(move || {
+        runtime.block_on(
+            rightkit_agents::driver_host::cli_runtime::run_qualification(
+                &registry, &inputs, &config, &observer,
+            ),
+        )
+    })
+    .await
+    .unwrap_or_else(|error| Err(std::io::Error::other(error.to_string())));
     if let Ok(mut bindings) = state.qualification_bindings.write() {
         bindings.remove(&binding_id);
     }
@@ -899,7 +910,7 @@ async fn cli_provider_verify_harness(
         tracing::warn!(provider = %provider_id, %error, "CLI qualification failed");
         StatusCode::BAD_GATEWAY
     })?;
-    let failed_mandatory = outcome.mandatory_failures(&config.probes);
+    let failed_mandatory = outcome.mandatory_failures(&probes);
     let evidence_json = json!({
         "probes": outcome.results.iter().map(|result| json!({
             "probeId": result.probe_id,
@@ -942,864 +953,6 @@ async fn cli_provider_verify_harness(
         "passed": failed_mandatory.is_empty(),
         "failedMandatoryProbes": failed_mandatory,
     })))
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CliRuntimeMatrixCellRequest {
-    provider: String,
-    scenario: String,
-    workspace: String,
-    child_provider: Option<String>,
-}
-
-/// Installed-matrix control surface. Every passing receipt comes from a real
-/// authenticated executor turn plus daemon-owned normalized events/effects.
-async fn run_cli_runtime_matrix_cell(
-    State(state): State<DaemonState>,
-    Json(body): Json<CliRuntimeMatrixCellRequest>,
-) -> Json<Value> {
-    let provider_id =
-        rightkit_agents::driver_host::cli_runtime::CliProviderId::new(body.provider.clone());
-    let Some(adapter) = state.cli_registry.adapter(&provider_id) else {
-        return Json(matrix_cell_receipt(
-            &body,
-            false,
-            "provider_not_registered",
-            json!([]),
-        ));
-    };
-    if !std::path::Path::new(&body.workspace).is_dir() {
-        return Json(matrix_cell_receipt(
-            &body,
-            false,
-            "workspace_not_found",
-            json!([]),
-        ));
-    }
-    let profile = rightkit_agents::driver_host::cli_runtime::CliAccountProfile {
-        id: rightkit_agents::driver_host::cli_runtime::CliAccountProfileId::new(format!(
-            "{}/default",
-            body.provider
-        )),
-        provider_id: provider_id.clone(),
-        label: "default".to_string(),
-        managed_home: rightkit_agents::driver_host::cli_runtime::profile::managed_home(
-            &provider_id,
-            "default",
-        ),
-        auth_mode: rightkit_agents::driver_host::cli_runtime::CliAuthMode::Unknown,
-        signed_in: false,
-        account_fingerprint: None,
-        last_verified_at: None,
-    };
-    let discovery = match adapter.discover(&profile).await {
-        Ok(value) => value,
-        Err(error) => {
-            return Json(matrix_cell_receipt(
-                &body,
-                false,
-                &error.to_string(),
-                json!([]),
-            ))
-        }
-    };
-    if !discovery.installed {
-        return Json(matrix_cell_receipt(
-            &body,
-            false,
-            "provider_binary_not_installed",
-            json!([]),
-        ));
-    }
-    let session_id = format!("matrix-{}", crate::startup::generate_token());
-    let agent_id = format!("matrix-agent-{}", crate::startup::generate_token());
-    let role = if body.scenario == "child" {
-        "child"
-    } else {
-        "root"
-    };
-    let parent_agent_id = (body.scenario == "child").then(|| "matrix-parent".to_string());
-    let live = state.create_session(
-        &session_id,
-        Some(role),
-        &body.workspace,
-        "CLI runtime matrix",
-        None,
-    );
-    *lock_recover(&live.driver_kind, "session.driver_kind") = body.provider.clone();
-    let open = open_agent_runtime(
-        State(state.clone()),
-        Path((session_id.clone(), agent_id.clone())),
-        HeaderMap::new(),
-        Json(OpenAgentRuntimeRequest {
-            runtime: OpenAgentRuntimeSelection {
-                kind: "authenticated_cli".to_string(),
-                provider_id: body.provider.clone(),
-                model_id: None,
-                account_profile_id: format!("{}/default", body.provider),
-            },
-            role: role.to_string(),
-            parent_agent_id,
-            worktree_id: Some(body.workspace.clone()),
-            tool_ceiling: Vec::new(),
-        }),
-    )
-    .await;
-    let open = match open {
-        Ok(Json(value)) => value,
-        Err(status) => {
-            lock_recover(&state.sessions, "sessions").remove(&session_id);
-            return Json(matrix_cell_receipt(
-                &body,
-                false,
-                &format!("runtime_open_failed:{}", status.as_u16()),
-                json!([]),
-            ));
-        }
-    };
-    let binding_id = open
-        .get("bindingId")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let prompt = matrix_scenario_prompt(&body);
-    // CRA-08 response-loss proof state is collected before vendor termination
-    // and consumed by the post-kill assertions below.
-    let mut response_request_accepted = false;
-    let mut response_call_id: Option<String> = None;
-    let mut response_pre_kill_terminal = false;
-    let mut response_kill_succeeded = false;
-    let turn = if body.scenario == "response_loss" {
-        // Submit request, then terminate vendor process before response.
-        match state.cli_executor.as_ref() {
-            Some(executor) => match executor.handle_for(&agent_id) {
-                Ok(handle) => {
-                    let running_executor = executor.clone();
-                    let running_handle = handle.clone();
-                    let task = tokio::spawn(async move {
-                        running_executor
-                            .run_turn(
-                                &running_handle,
-                                rightkit_agents::driver_host::cli_runtime::AgentTurnRequest {
-                                    agent_kind: running_handle.backend.agent_kind(),
-                                    prompt,
-                                    continuation_token: None,
-                                },
-                            )
-                            .await
-                    });
-                    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
-                    while tokio::time::Instant::now() < deadline {
-                        if let Ok(trace) = executor.trace_for(&binding_id) {
-                            response_pre_kill_terminal = trace.iter().any(|event| {
-                                matches!(
-                                    event.kind,
-                                    NormalizedEventKind::TurnCompleted
-                                        | NormalizedEventKind::TurnCompletedWithUsage { .. }
-                                        | NormalizedEventKind::TurnFailed { .. }
-                                        | NormalizedEventKind::TurnInterrupted
-                                )
-                            });
-                            response_call_id = trace.iter().find_map(|event| match &event.kind {
-                                NormalizedEventKind::ToolResult {
-                                    call_id,
-                                    is_error: false,
-                                    ..
-                                } => Some(call_id.clone()),
-                                _ => None,
-                            });
-                            response_request_accepted =
-                                response_call_id.is_some() && !response_pre_kill_terminal;
-                        }
-                        if response_request_accepted {
-                            break;
-                        }
-                        tokio::time::sleep(Duration::from_millis(25)).await;
-                    }
-                    response_kill_succeeded = executor.shutdown_agent(&agent_id).await.is_ok();
-                    let mut task = task;
-                    let outcome = tokio::time::timeout(Duration::from_secs(5), &mut task).await;
-                    if outcome.is_err() {
-                        task.abort();
-                        let _ = task.await;
-                    }
-                    Err(StatusCode::GATEWAY_TIMEOUT)
-                }
-                Err(_) => Err(StatusCode::BAD_GATEWAY),
-            },
-            None => Err(StatusCode::SERVICE_UNAVAILABLE),
-        }
-    } else if body.scenario == "interrupt" {
-        match state.cli_executor.as_ref() {
-            Some(executor) => match executor.handle_for(&agent_id) {
-                Ok(handle) => {
-                    let running_executor = executor.clone();
-                    let running_handle = handle.clone();
-                    let task = tokio::spawn(async move {
-                        running_executor
-                            .run_turn(
-                                &running_handle,
-                                rightkit_agents::driver_host::cli_runtime::AgentTurnRequest {
-                                    agent_kind: running_handle.backend.agent_kind(),
-                                    prompt,
-                                    continuation_token: None,
-                                },
-                            )
-                            .await
-                    });
-                    tokio::time::sleep(Duration::from_millis(150)).await;
-                    let interrupt = executor.interrupt(&handle).await;
-                    match tokio::time::timeout(Duration::from_secs(15), task).await {
-                        Ok(Ok(Ok(result))) if interrupt.is_ok() => Ok(Json(json!({
-                            "status": result.status,
-                            "finalText": result.final_text,
-                        }))),
-                        _ => Err(StatusCode::BAD_GATEWAY),
-                    }
-                }
-                Err(_) => Err(StatusCode::CONFLICT),
-            },
-            None => Err(StatusCode::SERVICE_UNAVAILABLE),
-        }
-    } else {
-        prompt_agent_runtime(
-            State(state.clone()),
-            Path((session_id.clone(), agent_id.clone())),
-            HeaderMap::new(),
-            Json(DriverPromptRequest {
-                binding_id: String::new(),
-                vendor_session_id: String::new(),
-                text: prompt,
-                request_label: Some(format!("matrix:{}", body.scenario)),
-            }),
-        )
-        .await
-    };
-    let mut events = state
-        .cli_executor
-        .as_ref()
-        .and_then(|executor| executor.trace_for(&binding_id).ok())
-        .unwrap_or_default();
-    let mut control_events = Vec::new();
-    let mut continuity_proved = false;
-    let mut binary_invalidation_proved = false;
-    let mut exact_once_proved = false;
-    let mut login_expiry_proved = false;
-    let mut fault_proved = false;
-    let mut fault_disposition: Option<String> = None;
-    if matches!(body.scenario.as_str(), "process_kill" | "app_restart") {
-        if let Some(executor) = state.cli_executor.as_ref() {
-            if let Ok(before) = executor.handle_for(&agent_id) {
-                let before_id = before.vendor_session_id.clone();
-                let restarted =
-                    if body.scenario == "app_restart" {
-                        let vendor_session_id = before_id.clone().unwrap_or_default();
-                        match executor.shutdown_agent(&agent_id).await {
-                            Ok(()) => executor
-                                .recover_agent(
-                                    rightkit_agents::driver_host::cli_runtime::OpenAgentRequest {
-                                        session_id: session_id.clone(),
-                                        agent_id: agent_id.clone(),
-                                        role: role.to_string(),
-                                        parent_agent_id: None,
-                                        backend: before.backend.clone(),
-                                        tool_ceiling: effective_ceiling(&live, &[])
-                                            .unwrap_or_default(),
-                                        worktree_id: Some(body.workspace.clone()),
-                                    },
-                                    &vendor_session_id,
-                                )
-                                .await,
-                            Err(error) => Err(error),
-                        }
-                    } else {
-                        executor.restart_agent(&before).await
-                    };
-                if let Ok(restarted) = restarted {
-                    if let Some(storage) = state.storage.as_ref() {
-                        let persisted = {
-                            let store = storage.lock().await;
-                            store.get_driver_binding(&binding_id)
-                        };
-                        if let Ok(Some(mut binding)) = persisted {
-                            binding.process_generation =
-                                binding.process_generation.saturating_add(1);
-                            binding.status = "resuming".to_string();
-                            binding.updated_at = unix_key(0);
-                            if storage.lock().await.upsert_driver_binding(&binding).is_ok() {
-                                state
-                                    .cli_recovery_live_generations
-                                    .set(&binding_id, binding.process_generation);
-                            }
-                        }
-                    }
-                    let follow_up = prompt_agent_runtime(
-                        State(state.clone()),
-                        Path((session_id.clone(), agent_id.clone())),
-                        HeaderMap::new(),
-                        Json(DriverPromptRequest {
-                            binding_id: String::new(),
-                            vendor_session_id: String::new(),
-                            text: "Continue the same native provider session with one read-only RightKit MCP action.".to_string(),
-                            request_label: Some(format!("matrix:{}:resume", body.scenario)),
-                        }),
-                    )
-                    .await;
-                    let after = executor.handle_for(&agent_id).ok();
-                    continuity_proved = follow_up.is_ok()
-                        && before_id.is_some()
-                        && before_id
-                            == after
-                                .as_ref()
-                                .and_then(|value| value.vendor_session_id.clone())
-                        && restarted.vendor_session_id == before_id;
-                    if let Ok(second_trace) = executor.trace_for(&binding_id) {
-                        events.extend(second_trace);
-                    }
-                    if continuity_proved {
-                        control_events.push(json!({
-                            "kind": "continuity_proved",
-                            "vendorSessionId": before_id,
-                            "mode": body.scenario,
-                        }));
-                    }
-                }
-            }
-        }
-    } else if body.scenario == "binary_update" {
-        if let (Some(executor), Some(storage)) =
-            (state.cli_executor.as_ref(), state.storage.as_ref())
-        {
-            if let Ok(handle) = executor.handle_for(&agent_id) {
-                let original = storage
-                    .lock()
-                    .await
-                    .get_driver_binding(&binding_id)
-                    .ok()
-                    .flatten();
-                if let Some(mut drifted) = original.clone() {
-                    drifted.executable_sha256 = Some("0".repeat(64));
-                    if storage.lock().await.upsert_driver_binding(&drifted).is_ok() {
-                        binary_invalidation_proved = executor.restart_agent(&handle).await.is_err();
-                    }
-                    if let Some(original) = original {
-                        let _ = storage.lock().await.upsert_driver_binding(&original);
-                    }
-                    if binary_invalidation_proved {
-                        control_events.push(json!({
-                            "kind": "binary_update_invalidated",
-                            "bindingId": binding_id,
-                        }));
-                    }
-                }
-            }
-        }
-    } else if body.scenario == "exact_once" {
-        if let Some((capability, instance)) = state
-            .cli_launch_contexts
-            .as_ref()
-            .and_then(|contexts| contexts.gateway_credentials(&binding_id))
-        {
-            let mut headers = HeaderMap::new();
-            if let (Ok(capability), Ok(instance)) = (
-                capability.parse::<axum::http::HeaderValue>(),
-                instance.parse::<axum::http::HeaderValue>(),
-            ) {
-                headers.insert(CAPABILITY_HEADER.as_str(), capability);
-                headers.insert(DRIVER_INSTANCE_HEADER.as_str(), instance);
-                let request = CapabilityCallRequest {
-                    call_id: json!("matrix-exact-once"),
-                    name: "memory_recall".to_string(),
-                    arguments: json!({"query": "matrix exact-once probe", "limit": 1}),
-                };
-                let first = call_capability(
-                    State(state.clone()),
-                    Path(session_id.clone()),
-                    headers.clone(),
-                    Json(request),
-                )
-                .await;
-                let second = call_capability(
-                    State(state.clone()),
-                    Path(session_id.clone()),
-                    headers,
-                    Json(CapabilityCallRequest {
-                        call_id: json!("matrix-exact-once"),
-                        name: "memory_recall".to_string(),
-                        arguments: json!({"query": "matrix exact-once probe", "limit": 1}),
-                    }),
-                )
-                .await;
-                exact_once_proved =
-                    matches!((&first, &second), (Ok(Json(a)), Ok(Json(b))) if a == b);
-                if exact_once_proved {
-                    control_events.push(json!({
-                        "kind": "exact_once_proved",
-                        "callId": "matrix-exact-once",
-                    }));
-                }
-            }
-        }
-    } else if body.scenario == "login_expiry" {
-        if let (Some(executor), Some(storage)) =
-            (state.cli_executor.as_ref(), state.storage.as_ref())
-        {
-            let profile_id = format!("{}/default", body.provider);
-            let original = {
-                let store = storage.lock().await;
-                store.get_cli_account_profile(&profile_id).ok().flatten()
-            };
-            if let (Some(mut expired), Ok(handle)) =
-                (original.clone(), executor.handle_for(&agent_id))
-            {
-                expired.signed_in = false;
-                expired.updated_at = unix_key(0);
-                if storage
-                    .lock()
-                    .await
-                    .upsert_cli_account_profile(&expired)
-                    .is_ok()
-                {
-                    login_expiry_proved = executor.restart_agent(&handle).await.is_err();
-                }
-                if let Some(original) = original {
-                    let _ = storage.lock().await.upsert_cli_account_profile(&original);
-                }
-                if login_expiry_proved {
-                    control_events.extend([
-                        json!({"kind": "login_required", "providerId": body.provider}),
-                        json!({"kind": "turn_failed", "reason": "native_login_expired"}),
-                    ]);
-                }
-            }
-        }
-    } else if matches!(
-        body.scenario.as_str(),
-        "revoked_authority" | "wrong_scope" | "ambiguous_evidence" | "stale_evidence"
-    ) {
-        // Drive gateway admission with the real lease credentials created by
-        // open_agent_runtime. The probe must observe a typed refusal and prove
-        // that no capability effect was admitted.
-        if let (Some((capability, instance)), Some(storage)) = (
-            state
-                .cli_launch_contexts
-                .as_ref()
-                .and_then(|contexts| contexts.gateway_credentials(&binding_id)),
-            state.storage.as_ref(),
-        ) {
-            let lease = storage
-                .lock()
-                .await
-                .get_latest_session_capability_lease_for_binding(&binding_id)
-                .ok()
-                .flatten();
-            let before = lease.as_ref().map(|row| row.revoked_at.clone());
-            let mut headers = HeaderMap::new();
-            if let (Ok(capability), Ok(instance)) = (
-                capability.parse::<axum::http::HeaderValue>(),
-                instance.parse::<axum::http::HeaderValue>(),
-            ) {
-                headers.insert(CAPABILITY_HEADER.as_str(), capability);
-                headers.insert(DRIVER_INSTANCE_HEADER.as_str(), instance);
-                if body.scenario == "revoked_authority" {
-                    if let Some(lease) = lease.as_ref() {
-                        let _ = storage
-                            .lock()
-                            .await
-                            .revoke_session_capability_lease(&lease.id, &unix_key(0));
-                    }
-                    let refused = call_capability(
-                        State(state.clone()),
-                        Path(session_id.clone()),
-                        headers,
-                        Json(CapabilityCallRequest {
-                            call_id: json!("cra08-revoked-authority"),
-                            name: "memory_recall".into(),
-                            arguments: json!({"query":"CRA08 revoked authority"}),
-                        }),
-                    )
-                    .await
-                    .is_err();
-                    fault_proved =
-                        refused && before.as_ref().and_then(|value| value.as_ref()).is_none();
-                    fault_disposition = Some("authority_revoked".into());
-                } else if body.scenario == "wrong_scope" {
-                    let refused = call_capability(
-                        State(state.clone()),
-                        Path(format!("{session_id}-wrong-scope")),
-                        headers,
-                        Json(CapabilityCallRequest {
-                            call_id: json!("cra08-wrong-scope"),
-                            name: "memory_recall".into(),
-                            arguments: json!({"query":"CRA08 wrong scope"}),
-                        }),
-                    )
-                    .await
-                    .is_err();
-                    fault_proved = refused;
-                    fault_disposition = Some("scope_mismatch".into());
-                } else if body.scenario == "ambiguous_evidence" {
-                    let original = storage
-                        .lock()
-                        .await
-                        .get_driver_binding(&binding_id)
-                        .ok()
-                        .flatten();
-                    let ambiguous = original.clone().map(|mut binding| {
-                        binding.profile_hash = Some("conflicting-profile-evidence".into());
-                        binding
-                    });
-                    let written = if let Some(binding) = ambiguous.as_ref() {
-                        storage.lock().await.upsert_driver_binding(binding).is_ok()
-                    } else {
-                        false
-                    };
-                    let refused = if written {
-                        if let Some(executor) = state.cli_executor.as_ref() {
-                            if let Ok(handle) = executor.handle_for(&agent_id) {
-                                // The conflicting profile hash is rejected
-                                // by the existing restart identity check.
-                                executor.restart_agent(&handle).await.is_err()
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    };
-                    if let Some(original) = original {
-                        let _ = storage.lock().await.upsert_driver_binding(&original);
-                    }
-                    fault_proved = refused;
-                    fault_disposition = Some("evidence_conflict".into());
-                } else {
-                    let stale_rejected = if let Some(executor) = state.cli_executor.as_ref() {
-                        if let Ok(handle) = executor.handle_for(&agent_id) {
-                            let original = storage
-                                .lock()
-                                .await
-                                .get_driver_binding(&binding_id)
-                                .ok()
-                                .flatten();
-                            if let Some(mut stale) = original.clone() {
-                                stale.executable_sha256 = Some("0".repeat(64));
-                                let written =
-                                    storage.lock().await.upsert_driver_binding(&stale).is_ok();
-                                let rejected = if written {
-                                    executor.restart_agent(&handle).await.err().is_some_and(
-                                        |error| {
-                                            let text = error.to_string().to_ascii_lowercase();
-                                            text.contains("binary")
-                                                || text.contains("executable")
-                                                || text.contains("digest")
-                                        },
-                                    )
-                                } else {
-                                    false
-                                };
-                                if let Some(original) = original {
-                                    let _ = storage.lock().await.upsert_driver_binding(&original);
-                                }
-                                rejected
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    };
-                    fault_proved = stale_rejected;
-                    fault_disposition = Some("evidence_stale".into());
-                }
-            }
-        }
-    } else if body.scenario == "response_loss" {
-        // A transport that closes before terminal output is surfaced by the
-        // executor as an error; a successful turn cannot be accepted as loss.
-        fault_proved = turn.is_err();
-        fault_disposition = Some("response_lost".into());
-    } else if body.scenario == "resource_exhaustion" {
-        // Saturate the single process-backed capacity slot through the
-        // composition-owned governor, reject the next allocation, then prove
-        // release permits recovery. This is a typed admission error path.
-        if let Some(executor) = state.cli_executor.as_ref() {
-            let _ = executor.shutdown_agent(&agent_id).await;
-        }
-        if let Ok(governor) =
-            rightkit_agent_coding_tools::process_resource_authority::require_process_resource_governor()
-        {
-            let scope =
-                rightkit_agent_engine_runtime_resources::ServiceScope::Workspace(body.workspace.clone());
-            let mut permits = Vec::new();
-            let mut rejected = false;
-            for _ in 0..governor
-                .limits()
-                .daemon_background
-                .max(governor.limits().daemon_children)
-                .saturating_add(2)
-            {
-                match rightkit_agent_coding_tools::process_resource_authority::reserve_with_governor(
-                    &governor,
-                    rightkit_agent_coding_tools::process_resource_authority::ResourceKind::BackgroundProcess,
-                    scope.clone(),
-                    true,
-                ) {
-                    Ok(permit) => permits.push(permit),
-                    Err(error) => {
-                        rejected = error.kind == rightkit_agent_coding_tools::process_resource_authority::ResourceKind::ExternalExecution
-                            || error.kind == rightkit_agent_coding_tools::process_resource_authority::ResourceKind::BackgroundProcess;
-                        break;
-                    }
-                }
-            }
-            let filled_capacity = !permits.is_empty() && rejected;
-            drop(permits);
-            let recovered = rightkit_agent_coding_tools::process_resource_authority::reserve_with_governor(
-                &governor,
-                rightkit_agent_coding_tools::process_resource_authority::ResourceKind::BackgroundProcess,
-                scope,
-                true,
-            )
-            .is_ok();
-            fault_proved = filled_capacity && recovered;
-        }
-        fault_disposition = Some("resource_limit_exhausted".into());
-    }
-    if fault_disposition.is_none() {
-        fault_disposition = match body.scenario.as_str() {
-            "binary_update" if binary_invalidation_proved => Some("evidence_stale".into()),
-            "process_kill" if continuity_proved => Some("crash_recovered".into()),
-            "app_restart" if continuity_proved => Some("state_recovered".into()),
-            "interrupt"
-                if events
-                    .iter()
-                    .any(|event| matches!(event.kind, NormalizedEventKind::TurnInterrupted)) =>
-            {
-                Some("cancelled".into())
-            }
-            _ => None,
-        };
-    }
-    let effects = match state.storage.as_ref() {
-        Some(storage) => storage
-            .lock()
-            .await
-            .list_driver_events(&binding_id)
-            .unwrap_or_default(),
-        None => Vec::new(),
-    };
-    if body.scenario == "response_loss" {
-        let accepted_effect = response_call_id.as_ref().is_some_and(|call_id| {
-            effects
-                .iter()
-                .any(|effect| effect.status == "processed" && effect.payload_json.contains(call_id))
-        });
-        let no_completion = !events.iter().any(|event| {
-            matches!(
-                event.kind,
-                NormalizedEventKind::TurnCompleted
-                    | NormalizedEventKind::TurnCompletedWithUsage { .. }
-            )
-        });
-        fault_proved = response_request_accepted
-            && response_kill_succeeded
-            && !response_pre_kill_terminal
-            && turn.is_err()
-            && accepted_effect
-            && no_completion;
-    }
-    let current = state
-        .cli_executor
-        .as_ref()
-        .and_then(|executor| executor.handle_for(&agent_id).ok());
-    let vendor_session_id = current
-        .as_ref()
-        .and_then(|handle| handle.vendor_session_id.clone())
-        .or_else(|| {
-            open.get("vendorSessionId")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        });
-    let (child_agent_id, child_vendor_session_id) = matrix_child_identity(&effects);
-    let passed = (body.scenario == "response_loss" || turn.is_ok())
-        && match body.scenario.as_str() {
-            "process_kill" | "app_restart" => continuity_proved,
-            "binary_update" => binary_invalidation_proved,
-            "exact_once" => exact_once_proved,
-            "login_expiry" => login_expiry_proved,
-            "revoked_authority" | "wrong_scope" | "ambiguous_evidence" | "stale_evidence" => {
-                fault_proved
-            }
-            "response_loss" | "resource_exhaustion" => fault_proved,
-            "cross_provider" => {
-                matrix_scenario_evidence(&body.scenario, &events, &effects)
-                    && child_agent_id.is_some()
-                    && child_vendor_session_id.is_some()
-                    && child_vendor_session_id != vendor_session_id
-            }
-            _ => matrix_scenario_evidence(&body.scenario, &events, &effects),
-        };
-    let stop_status = stop_agent_runtime(
-        State(state.clone()),
-        Path((session_id.clone(), agent_id.clone())),
-        HeaderMap::new(),
-        Json(DriverBindingRequest {
-            binding_id: String::new(),
-            vendor_session_id: None,
-        }),
-    )
-    .await
-    .err();
-    if let Some(status) = stop_status {
-        tracing::warn!(
-            session_id = %session_id,
-            agent_id = %agent_id,
-            status = status.as_u16(),
-            "driver matrix: agent runtime stop failed; the driver process may still be running"
-        );
-    }
-    lock_recover(&state.sessions, "sessions").remove(&session_id);
-    Json(json!({
-        "provider": body.provider,
-        "childProvider": body.child_provider,
-        "scenario": body.scenario,
-        "passed": passed,
-        "stopped": stop_status.is_none(),
-        "stopError": stop_status.map(|status| format!("agent runtime stop failed with HTTP {}", status.as_u16())),
-        "bindingId": binding_id,
-        "vendorSessionId": vendor_session_id,
-        "parentVendorSessionId": vendor_session_id,
-        "childAgentId": child_agent_id,
-        "childVendorSessionId": child_vendor_session_id,
-        "events": events.into_iter().map(|event| serde_json::to_value(event).unwrap_or_else(|_| json!({"kind":"serialization_failed"}))).chain(control_events).collect::<Vec<_>>(),
-        "effects": effects.iter().map(|effect| json!({
-            "id": effect.event_key,
-            "kind": effect.event_kind,
-            "status": effect.status,
-            "result": effect.result_json.as_deref().and_then(|value| serde_json::from_str::<Value>(value).ok()),
-        })).collect::<Vec<_>>(),
-        "diagnostic": if passed { Value::Null } else { json!("required live scenario evidence was not observed") },
-        "faultDisposition": fault_disposition,
-    }))
-}
-
-fn matrix_child_identity(
-    effects: &[rightkit_agent_engine_storage::DriverEventInboxRow],
-) -> (Option<String>, Option<String>) {
-    effects
-        .iter()
-        .rev()
-        .filter(|effect| {
-            effect.event_kind == "tool.call.delegate_task" && effect.status == "processed"
-        })
-        .filter_map(|effect| effect.result_json.as_deref())
-        .filter_map(|raw| serde_json::from_str::<Value>(raw).ok())
-        .filter_map(|result| {
-            result
-                .pointer("/content/0/text")
-                .and_then(Value::as_str)
-                .and_then(|text| serde_json::from_str::<Value>(text).ok())
-        })
-        .find_map(|child| {
-            let agent_id = child.get("agentId")?.as_str()?.to_string();
-            let vendor_session_id = child.get("vendorSessionId")?.as_str()?.to_string();
-            Some((Some(agent_id), Some(vendor_session_id)))
-        })
-        .unwrap_or((None, None))
-}
-
-fn matrix_scenario_prompt(body: &CliRuntimeMatrixCellRequest) -> String {
-    match body.scenario.as_str() {
-        "cross_provider" => format!(
-            "Use RightKit delegate_task exactly once with providerHint={} for a bounded child task, wait for its structured result, then summarize it.",
-            body.child_provider.as_deref().unwrap_or("none")
-        ),
-        "approval" => "Use RightKit MCP to request one governed write that requires approval, then report its tool result.".to_string(),
-        "mutation" => "Use RightKit MCP to write a small matrix marker inside the bound workspace, then read it back.".to_string(),
-        "exact_once" => "Issue the same RightKit MCP governed write twice with one stable call identity, then report both results.".to_string(),
-        "interrupt" => "Begin a multi-step read-only RightKit MCP task and keep the turn active until interrupted.".to_string(),
-        "process_kill" | "app_restart" => "Perform a read-only RightKit MCP turn, preserve native session identity, and report continuity after resume.".to_string(),
-        "login_expiry" => "Perform one provider turn and surface native login expiry as a typed failure without falling back to API credentials.".to_string(),
-        "stale_evidence" => "Attempt one turn after the qualified executable identity changes; refuse stale evidence and report the typed stale disposition without applying effects.".to_string(),
-        "ambiguous_evidence" => "Present conflicting evidence for one stable capability identity; refuse the conflict without selecting a candidate or applying effects.".to_string(),
-        "revoked_authority" => "Attempt one RightKit capability call after its lease is revoked; report typed authority revocation with no effect.".to_string(),
-        "wrong_scope" => "Attempt one RightKit capability call through a different session scope; report typed scope mismatch with no effect.".to_string(),
-        "response_loss" => "Run one bounded read-only turn whose response is unavailable; report typed loss without fabricating completion.".to_string(),
-        "resource_exhaustion" => "Run one bounded turn at its resource ceiling; report typed resource exhaustion without a partial effect.".to_string(),
-        "binary_update" => "Report current executable identity and refuse continuity if it differs from the qualified digest.".to_string(),
-        "no_session_leakage" => "Use only the managed profile and RightKit MCP; report any unrelated environment variable as a failure.".to_string(),
-        _ => "Complete one bounded read-only turn through RightKit MCP and return a terminal result.".to_string(),
-    }
-}
-
-fn matrix_scenario_evidence(
-    scenario: &str,
-    events: &[NormalizedEvent],
-    effects: &[rightkit_agent_engine_storage::DriverEventInboxRow],
-) -> bool {
-    let terminal = events.iter().any(|event| {
-        matches!(
-            event.kind,
-            NormalizedEventKind::TurnCompleted
-                | NormalizedEventKind::TurnInterrupted
-                | NormalizedEventKind::TurnFailed { .. }
-        )
-    });
-    let processed = effects.iter().any(|effect| effect.status == "processed");
-    match scenario {
-        "root" | "child" => terminal,
-        "cross_provider" => terminal
-            && effects.iter().any(|effect| {
-                effect.event_kind == "tool.call.delegate_task" && effect.status == "processed"
-            }),
-        "approval" => {
-            terminal
-                && processed
-                && events.iter().any(|event| {
-                    matches!(event.kind, NormalizedEventKind::ApprovalRequested { .. })
-                })
-        }
-        "mutation" | "exact_once" => terminal && processed,
-        "interrupt" => events
-            .iter()
-            .any(|event| matches!(event.kind, NormalizedEventKind::TurnInterrupted)),
-        "login_expiry" => events.iter().any(|event| {
-            matches!(event.kind, NormalizedEventKind::TurnFailed { .. })
-        }),
-        "stale_evidence" | "ambiguous_evidence" | "revoked_authority" | "wrong_scope"
-        | "response_loss" | "resource_exhaustion" => false,
-        "no_session_leakage" => terminal && !events.iter().any(|event| {
-            matches!(&event.kind, NormalizedEventKind::TurnFailed { message } if message.to_ascii_lowercase().contains("environment"))
-        }),
-        "process_kill" | "app_restart" | "binary_update" => false,
-        _ => terminal,
-    }
-}
-
-fn matrix_cell_receipt(
-    body: &CliRuntimeMatrixCellRequest,
-    passed: bool,
-    diagnostic: &str,
-    events: Value,
-) -> Value {
-    json!({
-        "provider": body.provider,
-        "childProvider": body.child_provider,
-        "scenario": body.scenario,
-        "passed": passed,
-        "bindingId": Value::Null,
-        "vendorSessionId": Value::Null,
-        "parentVendorSessionId": Value::Null,
-        "childVendorSessionId": Value::Null,
-        "events": events,
-        "effects": [],
-        "diagnostic": diagnostic,
-    })
 }
 
 #[derive(Deserialize)]

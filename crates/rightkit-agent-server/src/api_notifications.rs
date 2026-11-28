@@ -71,6 +71,16 @@ pub(crate) fn notifications_openapi_components() -> Map<String, Value> {
             "additionalProperties": false
         }),
     );
+    if crate::host_options::notifications_dropped_in_quiet_hours() {
+        // Quiet hours drop a notification, so no row is ever held with a release time.
+        if let Some(properties) = schemas
+            .get_mut("NotificationRow")
+            .and_then(|schema| schema.get_mut("properties"))
+            .and_then(Value::as_object_mut)
+        {
+            properties.remove("releaseAt");
+        }
+    }
     schemas.insert(
         "NotificationsResponse".to_string(),
         json!({
@@ -129,7 +139,7 @@ pub fn append_desktop_notification(
     session_id: Option<&str>,
     title: impl Into<String>,
     body: impl Into<String>,
-) -> Result<NotificationRow, String> {
+) -> Result<(NotificationRow, bool), String> {
     let now_seconds = current_unix_seconds();
     append_desktop_notification_at(
         workspace_root,
@@ -142,11 +152,14 @@ pub fn append_desktop_notification(
     )
 }
 
-/// Live attention-routing gate: while the project's quiet hours are in force a desktop
-/// notification is HELD, not dropped. It is persisted at once with `release_at` set to the
-/// Unix second the quiet hours end (each window read in its own zone, the inbox's rules), the
-/// list route and the attention list leave it out until then, and it appears when the time
-/// passes. Quiet hours that never end hold nothing (deliver at once). `now_seconds` is
+/// Live attention-routing gate. Where the host sets `notifications_dropped_in_quiet_hours`, a
+/// desktop notification is suppressed (not persisted) while the project's quiet hours are
+/// active, so the operator is not interrupted, and the result says so (`false`). Otherwise the
+/// notification is HELD, not dropped: it is persisted at once with `release_at` set to the Unix
+/// second the quiet hours end (each window read in its own zone, the inbox's rules), the list
+/// route and the attention list leave it out until then, and it appears when the time passes.
+/// Quiet hours that never end hold nothing (deliver at once). The flag says whether the
+/// notification is shown now (`true`) or held for later or dropped (`false`). `now_seconds` is
 /// injected so the routing decision is deterministic.
 fn append_desktop_notification_at(
     workspace_root: &FsPath,
@@ -156,7 +169,7 @@ fn append_desktop_notification_at(
     title: String,
     body: String,
     now_seconds: u64,
-) -> Result<NotificationRow, String> {
+) -> Result<(NotificationRow, bool), String> {
     let row = NotificationRow {
         id: format!("notification-{}", current_epoch_nanos()),
         kind: "desktopNotification".to_string(),
@@ -170,19 +183,32 @@ fn append_desktop_notification_at(
         release_at: None,
     };
     let root_str = workspace_root.to_string_lossy();
-    let row = NotificationRow {
-        release_at: rightkit_agent_engine_attention::quiet_hours_release_for_workspace(
+    let row = if crate::host_options::notifications_dropped_in_quiet_hours() {
+        if rightkit_agent_engine_attention::quiet_hours_active_in_zones(
             root_str.as_ref(),
             now_seconds,
-        ),
-        ..row
+            &rightkit_agent_engine_attention::zone_offset_secs,
+        ) {
+            // Quiet hours active: the notification is suppressed, and the caller is told so (R12).
+            return Ok((row, false));
+        }
+        row
+    } else {
+        NotificationRow {
+            release_at: rightkit_agent_engine_attention::quiet_hours_release_for_workspace(
+                root_str.as_ref(),
+                now_seconds,
+            ),
+            ..row
+        }
     };
     let _guard = rightkit_agent_engine_attention::lock_attention_state();
     let path = notifications_store_path(workspace_root);
     let mut rows = load_notifications(workspace_root)?;
     rows.push(row.clone());
     save_notifications(&path, &rows)?;
-    Ok(row)
+    let shown = row.release_at.is_none();
+    Ok((row, shown))
 }
 
 async fn list_notifications_handler(
@@ -234,7 +260,7 @@ fn notification_workspace_root(query: &NotificationWorkspaceQuery) -> PathBuf {
 
 pub fn notifications_store_path(workspace_root: &FsPath) -> PathBuf {
     workspace_root
-        .join(crate::host_identity::home_dir())
+        .join(rightkit_agent_config::state_dir_name())
         .join("notifications.json")
 }
 
@@ -245,8 +271,17 @@ fn load_notifications(workspace_root: &FsPath) -> Result<Vec<NotificationRow>, S
     }
     let raw = std::fs::read_to_string(&path)
         .map_err(|e| format!("failed to read notifications '{}': {e}", path.display()))?;
-    serde_json::from_str(&raw)
-        .map_err(|e| format!("failed to parse notifications '{}': {e}", path.display()))
+    serde_json::from_str(&raw).map_err(|e| {
+        // A file that does not parse is kept aside, so the next write cannot
+        // replace the only copy from an empty default (orchestration rule 23).
+        let kept = crate::store_write::set_aside_damaged(&path)
+            .map(|to| format!("; kept as '{}'", to.display()))
+            .unwrap_or_default();
+        format!(
+            "failed to parse notifications '{}': {e}{kept}",
+            path.display()
+        )
+    })
 }
 
 fn save_notifications(path: &FsPath, rows: &[NotificationRow]) -> Result<(), String> {

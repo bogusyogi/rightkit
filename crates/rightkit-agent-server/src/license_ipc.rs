@@ -32,7 +32,7 @@ use rightkit_daemon::{
 };
 use serde_json::{json, Value};
 
-use crate::license::{expected_app, DeliveryError, LicenseGate, LicenseLocators};
+use crate::license::{expected_app, launch_locators, DeliveryError, LicenseGate, LicenseLocators};
 
 /// The rank the licence service publishes. It is unique per daemon, so no takeover contest
 /// between daemons ever happens; the value only has to be valid.
@@ -46,12 +46,27 @@ pub fn service_name(port: u16) -> String {
     format!("engine-license-{port}")
 }
 
-/// Host the licence snapshot service for this daemon, or `Ok(None)` when the launch gave no owner
-/// identity (the daemon then accepts no delivery). The returned [`Service`] keeps the endpoint
-/// published until it is dropped: hold it for the daemon's lifetime.
-// `rightkit_daemon::ServiceError` is the dependency's fixed method-handler error type (rightkit-daemon
-// itself allows this lint for it); the handler closure below cannot return a boxed one.
-#[allow(clippy::result_large_err)]
+/// Host the licence snapshot service for this daemon over the launch locators
+/// ([`launch_locators`]), or `Ok(None)` when the launch gave no complete owner identity. See
+/// [`host_license_service`].
+pub fn host_launch_license_service(
+    gate: Arc<LicenseGate>,
+    port: u16,
+) -> Result<Option<Service>, String> {
+    match launch_locators() {
+        Some(locators) => host_license_service(gate, locators, port),
+        None => Ok(None),
+    }
+}
+
+/// Host the licence snapshot service for this daemon, or `Ok(None)` when the launch gave no complete
+/// owner identity (the daemon then accepts no delivery and stays Free). The returned [`Service`]
+/// keeps the endpoint `engine-license-<port>` published until it is dropped: hold it for the
+/// daemon's lifetime.
+#[expect(
+    clippy::result_large_err,
+    reason = "Registration::method fixes the handler's error type as rightkit_daemon::ServiceError, which is 128 bytes in this build; the closure cannot box it (bogusyogi/rightkit#1854)"
+)]
 pub fn host_license_service(
     gate: Arc<LicenseGate>,
     locators: &LicenseLocators,
@@ -67,14 +82,15 @@ pub fn host_license_service(
         &service_name(port),
         "engine-license",
         SERVICE_RANK,
-        env!("CARGO_PKG_VERSION"),
+        crate::host_identity::version(),
     )
     .map_err(|error| error.to_string())?;
     let registration = Registration::new(identity)
         .method(
             MethodDescriptor::local(LICENSE_SNAPSHOT_METHOD, [expected_app()]),
             move |cx, params, _emit| {
-                let frame = decode_frame(params)?;
+                let frame = decode_frame(params)
+                    .map_err(|message| ServiceError::new("invalid_params", message))?;
                 let ack = gate
                     .deliver_from_owner(cx, &policy.host_expectation(), &frame)
                     .map_err(delivery_error)?;
@@ -92,18 +108,13 @@ pub fn host_license_service(
 }
 
 /// The `frame` parameter, base64-decoded, within [`MAX_FRAME_B64`].
-// `rightkit_daemon::ServiceError` is the dependency's fixed method-handler error type (rightkit-daemon
-// itself allows this lint for it); a handler helper cannot return a boxed one.
-#[allow(clippy::result_large_err)]
-fn decode_frame(params: &Value) -> Result<Vec<u8>, ServiceError> {
+fn decode_frame(params: &Value) -> Result<Vec<u8>, &'static str> {
     let encoded = params
         .get("frame")
         .and_then(Value::as_str)
         .filter(|text| !text.is_empty() && text.len() <= MAX_FRAME_B64)
-        .ok_or_else(|| ServiceError::new("invalid_params", "frame is required"))?;
-    STANDARD
-        .decode(encoded)
-        .map_err(|_| ServiceError::new("invalid_params", "frame is not base64"))
+        .ok_or("frame is required")?;
+    STANDARD.decode(encoded).map_err(|_| "frame is not base64")
 }
 
 /// The wire error for a refused delivery. The message names no process and no path.

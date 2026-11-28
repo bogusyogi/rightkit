@@ -90,49 +90,15 @@ pub(crate) async fn start_driver(
     if runtime_contains_binding(&state, &binding.id).await {
         return Err(StatusCode::CONFLICT);
     }
-    // Explicit account selection only (session, else project default); a selected account that
-    // cannot be honoured fails the launch rather than falling back to another login.
-    let mut codex_account: Option<crate::main_runtime::ResolvedClaudeAccount> = None;
-    let codex_home = if binding.driver_kind == "codex" {
-        codex_account = match crate::main_runtime::resolve_codex_account(
-            &session_id,
-            &live.workspace_root,
-        ) {
-            Ok(resolved) => resolved,
-            Err(error) => {
-                tracing::warn!(session_id, error = %error, "selected Codex account unavailable; launch refused");
-                return Err(StatusCode::CONFLICT);
-            }
-        };
-        Some(
-            prepare_codex_home_for_account(
-                &state,
-                &binding.id,
-                codex_account.as_ref().map(|resolved| &resolved.launch),
-            )
-            .map_err(|error| {
-                tracing::warn!(session_id, error = %error, "isolated Codex home setup failed closed");
-                StatusCode::BAD_GATEWAY
-            })?,
-        )
-    } else {
-        None
-    };
     let current_exe = std::env::current_exe().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    // Codex's startup status must name exactly the host MCP server
-    // (`rightkit_agents::driver_host` rejects any other name).
-    const HOST_MCP_SERVER_NAME: &str =
-        rightkit_agents::driver_host::agy_harness::HOST_MCP_SERVER_NAME;
     let mcp_args = vec![
         "mcp-server".to_string(),
         "--session-id".to_string(),
         session_id.clone(),
     ];
-    // Claude's launch policy pins `--allowedTools` to `mcp__rightkit`
-    // (`claude_harness::HOST_MCP_TOOL_SCOPE`), so the Claude config names the server `rightkit`.
     let mcp_config = json!({
         "mcpServers": {
-            "rightkit": {
+            (rightkit_agent_config::host_slug()): {
                 "type": "stdio",
                 "command": current_exe,
                 "args": mcp_args,
@@ -143,63 +109,6 @@ pub(crate) async fn start_driver(
     let mut claude_account_identity: Option<rightkit_agents::driver_host::ClaudeAccountIdentity> =
         None;
     let mut spec = match binding.driver_kind.as_str() {
-        "codex" => {
-            let mut spec = CodexLaunchOptions {
-                executable: executable.clone().into(),
-                cwd: PathBuf::from(&live.workspace_root),
-                strict_config: true,
-                model: body.model.clone(),
-            }
-            .launch_spec()
-            .map_err(|_| StatusCode::BAD_REQUEST)?;
-            let command_toml = serde_json::to_string(&current_exe.to_string_lossy())
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-            let args_toml =
-                serde_json::to_string(&mcp_args).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-            let env_vars_toml = serde_json::to_string(DRIVER_MCP_FORWARDED_ENVIRONMENT)
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-            for feature in CODEX_DISABLED_VENDOR_FEATURES {
-                spec.args
-                    .extend(["--disable".to_string(), (*feature).to_string()]);
-            }
-            spec.args.extend([
-                "-c".to_string(),
-                format!("mcp_servers.{HOST_MCP_SERVER_NAME}.command={command_toml}"),
-                "-c".to_string(),
-                format!("mcp_servers.{HOST_MCP_SERVER_NAME}.args={args_toml}"),
-                "-c".to_string(),
-                format!("mcp_servers.{HOST_MCP_SERVER_NAME}.env_vars={env_vars_toml}"),
-                "-c".to_string(),
-                format!("mcp_servers.{HOST_MCP_SERVER_NAME}.enabled=true"),
-                "-c".to_string(),
-                format!("mcp_servers.{HOST_MCP_SERVER_NAME}.required=true"),
-                "-c".to_string(),
-                format!(
-                    "mcp_servers.{HOST_MCP_SERVER_NAME}.default_tools_approval_mode=\"approve\""
-                ),
-            ]);
-            spec.env.insert(
-                "CODEX_HOME".to_string(),
-                codex_home
-                    .as_ref()
-                    .expect("Codex home is prepared for Codex bindings")
-                    .to_string_lossy()
-                    .into_owned(),
-            );
-            rightkit_agents::driver_host::apply_codex_account_env(
-                &mut spec,
-                codex_account.as_ref().map(|resolved| &resolved.launch),
-            );
-            // #344: a managed Codex subscription must not be overridden by an ambient key.
-            crate::main_runtime::apply_credential_precedence_guard(
-                &mut spec,
-                "codex",
-                codex_account.as_ref().map(|resolved| &resolved.launch),
-                &|name| std::env::var_os(name).is_some_and(|value| !value.is_empty()),
-            );
-            claude_account_identity = codex_account.take().map(|resolved| resolved.identity);
-            spec
-        }
         "claude" => {
             let options = ClaudeLaunchOptions {
                 executable: executable.clone().into(),
@@ -211,13 +120,13 @@ pub(crate) async fn start_driver(
             };
             // PL-005: enforce Claude-root delegation at the live daemon
             // launch seam, before the process can be admitted. This keeps
-            // the real Claude CLI bound to RightKit MCP/policy controls.
+            // the real Claude CLI bound to host MCP/policy controls.
             rightkit_agents::driver_host::claude_harness::enforce_delegation_launch_policy_for_legacy(
                 &options,
             )
             .map_err(|_| StatusCode::CONFLICT)?;
             let mut spec = options.launch_spec().map_err(|_| StatusCode::BAD_REQUEST)?;
-            // #336: persistent host answers can_use_tool over stdio through RightKit approvals.
+            // #336: persistent host answers can_use_tool over stdio through host approvals.
             rightkit_agents::driver_host::enable_stdio_permission_prompt_for_spec(&mut spec);
             // Explicit account selection only (session, else project default). A selected
             // account that cannot be honoured fails the launch rather than falling back.
@@ -247,7 +156,7 @@ pub(crate) async fn start_driver(
         _ => return Err(StatusCode::BAD_REQUEST),
     };
     spec.env.insert(
-        "RIGHTKIT_DAEMON_URL".into(),
+        rightkit_agent_config::env_name("DAEMON_URL"),
         format!("http://127.0.0.1:{}", state.bound_port),
     );
     let capability_token = headers
@@ -255,7 +164,7 @@ pub(crate) async fn start_driver(
         .and_then(|value| value.to_str().ok())
         .ok_or(StatusCode::UNAUTHORIZED)?;
     spec.env.insert(
-        "RIGHTKIT_GATEWAY_TOKEN".into(),
+        rightkit_agent_config::env_name("GATEWAY_TOKEN"),
         capability_token.to_string(),
     );
     let process_instance_secret = format!(
@@ -273,18 +182,14 @@ pub(crate) async fn start_driver(
         return Err(StatusCode::UNAUTHORIZED);
     }
     spec.env.insert(
-        "RIGHTKIT_DRIVER_INSTANCE_SECRET".into(),
+        rightkit_agent_config::env_name("DRIVER_INSTANCE_SECRET"),
         process_instance_secret,
     );
 
-    let driver_kind = if binding.driver_kind == "codex" {
-        DriverKind::Codex
-    } else {
-        DriverKind::Claude
-    };
+    let driver_kind = DriverKind::Claude;
     // Return the launch policy as evidence from the actual process spec, not
     // merely from the requested driver kind. QA can therefore prove that the
-    // driver was given exactly one RightKit MCP server and no native shell
+    // driver was given exactly one host MCP server and no native shell
     // route before it sends a conductor prompt.
     let disabled_features = spec
         .args
@@ -292,22 +197,12 @@ pub(crate) async fn start_driver(
         .filter(|pair| pair[0] == "--disable")
         .map(|pair| pair[1].clone())
         .collect::<Vec<_>>();
-    let native_mutation_routes_disabled = CODEX_DISABLED_VENDOR_FEATURES
-        .iter()
-        .all(|feature| disabled_features.iter().any(|disabled| disabled == feature));
-    if driver_kind == DriverKind::Codex {
-        binding.schema_hash = match generate_codex_schema_hash(&executable).await {
-            Ok(schema_hash) => schema_hash,
-            Err(error) => {
-                let _ = storage
-                    .lock()
-                    .await
-                    .set_session_capability_lease_process_instance(&lease.id, None);
-                tracing::warn!(session_id, error = %error, "Codex schema generation failed closed");
-                return Err(StatusCode::BAD_GATEWAY);
-            }
-        };
-    }
+    // Claude Code's own tools are switched off with `--tools ""`; the host's MCP server is then
+    // the only route to any effect.
+    let native_mutation_routes_disabled = spec
+        .args
+        .windows(2)
+        .any(|pair| pair[0] == "--tools" && pair[1].is_empty());
     let started = match state
         .driver_host
         .start_with_spec_for_account(
@@ -349,7 +244,9 @@ pub(crate) async fn start_driver(
         .upsert_driver_binding(&binding)
         .is_err()
     {
-        let _ = state.driver_host.shutdown(&binding.id).await;
+        if let Err(error) = state.driver_host.shutdown(&binding.id).await {
+            tracing::warn!(binding_id = %binding.id, %error, "driver stop failed after a rejected binding upsert; the driver process may still be running");
+        }
         let _ = storage
             .lock()
             .await
@@ -357,33 +254,7 @@ pub(crate) async fn start_driver(
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
     let info = started.info.clone();
-    let resume_vendor_session_id = binding.vendor_session_id.clone();
     spawn_driver_event_consumer(state.clone(), binding, started.events);
-
-    if driver_kind == DriverKind::Codex {
-        let lifecycle = if let Some(vendor_session_id) = resume_vendor_session_id {
-            state
-                .driver_host
-                .resume(&body.binding_id, &vendor_session_id)
-                .await
-                .map(|_| ())
-        } else {
-            state
-                .driver_host
-                .start_codex_thread(&body.binding_id, &live.workspace_root)
-                .await
-                .map(|_| ())
-        };
-        if lifecycle.is_err() {
-            let _ = state.driver_host.shutdown(&body.binding_id).await;
-            let _ = storage
-                .lock()
-                .await
-                .set_session_capability_lease_process_instance(&lease.id, None);
-            mark_driver_failed(&state, &body.binding_id).await;
-            return Err(StatusCode::BAD_GATEWAY);
-        }
-    }
     Ok(Json(json!({
         "started": true,
         "bindingId": info.binding_id,
@@ -420,9 +291,14 @@ pub(crate) async fn prompt_driver(
         .ok_or(StatusCode::NOT_FOUND)?;
     // Claude emits system/init only after its first stream-json user message;
     // that first governed prompt is its observed readiness handshake.
+    // An interrupted or failed turn leaves the vendor process alive; only a
+    // dead process makes those statuses final.
+    let turn_ended_alive = matches!(binding.status.as_str(), "interrupted" | "failed")
+        && state.driver_host.contains(&body.binding_id).await;
     if binding.status != "ready"
         && binding.status != "running"
         && binding.status != "completed"
+        && !turn_ended_alive
         && !(binding.driver_kind == "claude" && binding.status == "starting")
     {
         return Err(StatusCode::CONFLICT);
@@ -475,7 +351,7 @@ pub(crate) async fn interrupt_driver(
 ) -> Result<Json<Value>, StatusCode> {
     let _authority = state.driver_authority_lock.lock().await;
     authorize_binding_request(&state, &session_id, &body.binding_id, &headers).await?;
-    // Break RightKit-side approval/tool waits as well as the vendor turn.
+    // Break host-side approval/tool waits as well as the vendor turn.
     if let Some(live) = state.get_session(&session_id) {
         if let Some(interrupt) = &live.interrupt_tx {
             let _ = interrupt.send(true);
@@ -493,7 +369,10 @@ pub(crate) async fn interrupt_driver(
             body.vendor_turn_id.as_deref(),
         )
         .await
-        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+        .map_err(|error| {
+            tracing::warn!(session_id, %error, "driver interrupt failed");
+            StatusCode::BAD_GATEWAY
+        })?;
     Ok(Json(json!({"interrupted": true, "requestId": request_id})))
 }
 
@@ -505,11 +384,27 @@ pub(crate) async fn resume_driver(
 ) -> Result<Json<Value>, StatusCode> {
     authorize_binding_request(&state, &session_id, &body.binding_id, &headers).await?;
     let vendor_session_id = body.vendor_session_id.ok_or(StatusCode::BAD_REQUEST)?;
+    // A live process is attached to exactly one vendor session: resuming another is a conflict.
+    if let Some(storage) = state.storage.as_ref() {
+        let binding = storage
+            .lock()
+            .await
+            .get_driver_binding(&body.binding_id)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        if let Some(stored) = binding.and_then(|binding| binding.vendor_session_id) {
+            if !stored.is_empty() && stored != vendor_session_id {
+                return Err(StatusCode::CONFLICT);
+            }
+        }
+    }
     let request_id = state
         .driver_host
         .resume(&body.binding_id, &vendor_session_id)
         .await
-        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+        .map_err(|error| {
+            tracing::warn!(session_id, %error, "driver resume failed");
+            StatusCode::BAD_GATEWAY
+        })?;
     Ok(Json(json!({"resumed": true, "requestId": request_id})))
 }
 
@@ -528,7 +423,10 @@ pub(crate) async fn stop_driver(
         .driver_host
         .shutdown(&body.binding_id)
         .await
-        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+        .map_err(|error| {
+            tracing::warn!(session_id, %error, "driver shutdown failed");
+            StatusCode::BAD_GATEWAY
+        })?;
     let storage = state
         .storage
         .as_ref()
@@ -594,7 +492,7 @@ fn driver_rate_limits() -> std::sync::MutexGuard<
 /// Whether a driver kind ever reports usage windows. Antigravity does not, so probing it is
 /// pointless and its state is `Unsupported` rather than `NoData`.
 fn driver_reports_rate_limits(driver_kind: &str) -> bool {
-    matches!(driver_kind, "claude" | "codex")
+    driver_kind == "claude"
 }
 
 /// Fold a normalized event into the binding's rate-limit state; returns whether it was one.
@@ -719,11 +617,6 @@ pub(crate) async fn driver_status(
                 &session_id,
                 &live.workspace_root,
             )),
-            "codex" => Some(crate::main_runtime::session_auth_report(
-                "codex",
-                &session_id,
-                &live.workspace_root,
-            )),
             _ => None,
         };
         return Ok(Json(json!({
@@ -758,27 +651,18 @@ pub(crate) async fn driver_status(
 
 pub(crate) async fn discover_driver(Path(kind): Path<String>) -> Result<Json<Value>, StatusCode> {
     let driver_kind = kind.trim().to_ascii_lowercase();
-    if !matches!(driver_kind.as_str(), "codex" | "claude") {
+    if driver_kind != "claude" {
         return Err(StatusCode::BAD_REQUEST);
     }
     let executable = driver_kind.clone();
     let version = capture_driver_version(&executable).await;
     let installed = version.is_ok();
-    let schema_hash = if driver_kind == "codex" && installed {
-        generate_codex_schema_hash(&executable).await.ok()
-    } else {
-        version
-            .as_ref()
-            .ok()
-            .map(|version| protocol_schema_hash(&driver_kind, version))
-    };
+    let schema_hash = version
+        .as_ref()
+        .ok()
+        .map(|version| protocol_schema_hash(&driver_kind, version));
     let auth_required = driver_auth_required(&executable).await;
-    let diagnostic = version.as_ref().err().cloned().or_else(|| {
-        (driver_kind == "codex" && schema_hash.is_none()).then(|| {
-            "Codex is installed but its app-server schema fingerprint could not be generated"
-                .to_string()
-        })
-    });
+    let diagnostic = version.as_ref().err().cloned();
     Ok(Json(json!({
         "driverKind": driver_kind,
         "installed": installed,
@@ -797,8 +681,8 @@ pub(crate) async fn discover_driver(Path(kind): Path<String>) -> Result<Json<Val
 }
 
 /// `GET /drivers/{kind}/models` — the model catalogue offered when picking a model for a
-/// driver-hosted session. Codex answers from its own `model/list` app-server method; Claude Code
-/// has no such introspection command, so its list is a static marker for the frontend to fill in
+/// driver-hosted session. Claude Code
+/// has no introspection command for this, so its list is a static marker for the frontend to fill in
 /// from documentation rather than a fabricated catalogue.
 pub(crate) async fn list_driver_models(
     Path(kind): Path<String>,
@@ -806,18 +690,6 @@ pub(crate) async fn list_driver_models(
     let driver_kind = kind.trim().to_ascii_lowercase();
     match driver_kind.as_str() {
         "claude" => Ok(Json(json!({ "models": [], "source": "static" }))),
-        "codex" => match query_codex_model_catalogue("codex").await {
-            Ok(models) => Ok(Json(
-                json!({ "models": models, "source": "codex-app-server" }),
-            )),
-            // The vendor's own message is the whole diagnosis here — a bodyless
-            // 502 left "app-server rejected the method" indistinguishable from
-            // "codex is not installed", and cost a debugging session.
-            Err(error) => {
-                tracing::warn!(error = %error, "Codex model/list query failed closed");
-                Err(driver_models_error(StatusCode::BAD_GATEWAY, error))
-            }
-        },
         _ => Err(driver_models_error(
             StatusCode::BAD_REQUEST,
             format!("unknown driver kind: {driver_kind}"),
@@ -870,12 +742,14 @@ pub(crate) fn spawn_driver_event_consumer(
                         &state,
                         &binding.id,
                         &binding.session_id,
-                        *event,
+                        event,
                     )
                     .await
                     {
                         tracing::warn!(binding_id = %binding.id, error = %error, "driver event rejected");
-                        let _ = state.driver_host.shutdown(&binding.id).await;
+                        if let Err(error) = state.driver_host.shutdown(&binding.id).await {
+                            tracing::warn!(binding_id = %binding.id, %error, "driver stop failed after a rejected event; the driver process may still be running");
+                        }
                         break;
                     }
                 }
@@ -885,7 +759,7 @@ pub(crate) fn spawn_driver_event_consumer(
                     params,
                 } => {
                     if method == "can_use_tool" {
-                        // #336: answer through RightKit's own approval flow. The wait can
+                        // #336: answer through the host's own approval flow. The wait can
                         // last minutes, so it runs on its own task and never blocks this loop.
                         let state = state.clone();
                         let binding_id = binding.id.clone();
@@ -905,11 +779,11 @@ pub(crate) fn spawn_driver_event_consumer(
                     tracing::warn!(binding_id = %binding.id, method, params = %params, "driver server request denied by native-effect policy");
                     // Native effects are disabled. A vendor request here is a
                     // policy violation, so decline it explicitly and keep the
-                    // RightKit gateway as the only effect path.
+                    // host gateway as the only effect path.
                     let _ = state.driver_host.respond_server_request(
                         &binding.id,
                         id,
-                        json!({"decision": "decline", "reason": format!("{method} must use the RightKit capability gateway")}),
+                        json!({"decision": "decline", "reason": format!("{method} must use the {} capability gateway", crate::host_identity::app())}),
                     ).await;
                 }
                 crate::driver_host_runtime::DriverRuntimeEvent::ProtocolError { message } => {
@@ -956,6 +830,149 @@ pub(super) async fn answer_can_use_tool_request(
     {
         tracing::warn!(binding_id = %binding_id, error = %error, "can_use_tool answer could not be written");
     }
+}
+
+/// Put one driver event on the chat's own event stream: text as it arrives, the finished
+/// message, the end of the turn, a failure, and account telemetry. No storage is touched, so
+/// both launch paths can call it: the driver routes through `apply_normalized_driver_event`,
+/// and the agent-runtime routes through the bridge's event tap (`ensure_runtime_session_events`).
+pub(crate) fn publish_driver_event_to_session(
+    state: &DaemonState,
+    binding_id: &str,
+    session_id: &str,
+    live: &crate::api::LiveSession,
+    kind: NormalizedEventKind,
+    event_key: &str,
+    now: String,
+) {
+    match kind {
+        NormalizedEventKind::AssistantDelta { text } => {
+            live.conduit.emit(|seq| {
+                rightkit_agent_engine_protocol::ProtocolEvent::AssistantDelta {
+                    session_id: session_id.to_string(),
+                    seq,
+                    created_at: now,
+                    text,
+                    is_reasoning: false,
+                }
+            });
+        }
+        NormalizedEventKind::AssistantCompleted { text } => {
+            if text.trim().is_empty() {
+                return;
+            }
+            let seq = live.conduit.next_seq();
+            let message = rightkit_agent_engine_protocol::TranscriptMessage::Assistant {
+                id: format!("driver-{seq}"),
+                created_at: now.clone(),
+                content: text,
+                reasoning_content: None,
+                tool_calls: vec![],
+                pinned: false,
+                origin: None,
+            };
+            live.conduit.publish(
+                rightkit_agent_engine_protocol::ProtocolEvent::AssistantMessageCompleted {
+                    session_id: session_id.to_string(),
+                    seq,
+                    created_at: now.clone(),
+                    message,
+                    phase: rightkit_agent_engine_protocol::AssistantMessagePhase::Final,
+                },
+            );
+        }
+        NormalizedEventKind::TurnCompleted | NormalizedEventKind::TurnCompletedWithUsage { .. } => {
+            // Issue 450 (W9T-03): a vendor driver's turn ends on `sessionTurnFinished`,
+            // which clients wait for; the driver's own completion carries no engine publish.
+            crate::api_sessions::messages::publish_turn_finished(
+                &live.conduit,
+                session_id,
+                &format!("driver-turn-{event_key}"),
+                "completed",
+            );
+        }
+        NormalizedEventKind::TurnInterrupted => {
+            let seq = live.conduit.next_seq();
+            live.conduit.publish(
+                rightkit_agent_engine_protocol::ProtocolEvent::RunInterrupted {
+                    session_id: session_id.to_string(),
+                    seq,
+                    created_at: now,
+                    reason: Some("vendor driver interrupted".into()),
+                },
+            );
+        }
+        NormalizedEventKind::TurnFailed { message } => {
+            publish_driver_failure(state, session_id, message)
+        }
+        NormalizedEventKind::ToolResult {
+            call_id,
+            is_error,
+            content,
+        } => {
+            tracing::warn!(binding_id, call_id, is_error, content = %content, "driver MCP tool call completed");
+        }
+        // Account telemetry becomes a durable session stream event so the UI can show
+        // "account X capped until T" and offer a manual continue-on-another-account.
+        kind @ (NormalizedEventKind::RateLimit { .. }
+        | NormalizedEventKind::TurnCostReported { .. }) => {
+            observe_driver_rate_limit(binding_id, &kind);
+            let seq = live.conduit.next_seq();
+            if let Some(protocol_event) = account_protocol_event(session_id, seq, &now, &kind) {
+                live.conduit.publish(protocol_event);
+            }
+        }
+        // Gateway execution emits the canonical host tool lifecycle.
+        // Vendor tool echoes are retained in the driver inbox only.
+        _ => {}
+    }
+}
+
+/// Send the agent-runtime path's driver events to the chats they belong to. That path's events
+/// were only read by the executor to work out the final answer, so nothing reached the chat's
+/// event stream: a desktop chat on Claude Code showed the question and no reply. Installed once.
+pub(crate) fn ensure_runtime_session_events(state: &DaemonState) {
+    let Some(bridge) = state.cli_bridge.as_ref() else {
+        return;
+    };
+    bridge.session_events().get_or_init(|| {
+        let (sender, mut receiver) =
+            tokio::sync::mpsc::unbounded_channel::<(String, NormalizedEvent)>();
+        let state = state.clone();
+        tokio::spawn(async move {
+            let mut sessions: HashMap<String, String> = HashMap::new();
+            while let Some((binding_id, event)) = receiver.recv().await {
+                let session_id = match sessions.get(&binding_id) {
+                    Some(session_id) => session_id.clone(),
+                    None => {
+                        let Some(storage) = state.storage.as_ref() else {
+                            continue;
+                        };
+                        let Ok(Some(binding)) =
+                            storage.lock().await.get_driver_binding(&binding_id)
+                        else {
+                            continue;
+                        };
+                        sessions.insert(binding_id.clone(), binding.session_id.clone());
+                        binding.session_id
+                    }
+                };
+                let Some(live) = state.get_session(&session_id) else {
+                    continue;
+                };
+                publish_driver_event_to_session(
+                    &state,
+                    &binding_id,
+                    &session_id,
+                    &live,
+                    event.kind,
+                    &event.event_key,
+                    crate::api::now_iso(),
+                );
+            }
+        });
+        sender
+    });
 }
 
 pub(crate) async fn mark_driver_failed(state: &DaemonState, binding_id: &str) {
@@ -1046,77 +1063,15 @@ pub(crate) async fn apply_normalized_driver_event(
             )
             .map_err(|error| error.to_string())?;
     }
-    match event.kind {
-        NormalizedEventKind::AssistantDelta { text } => {
-            live.conduit.emit(|seq| {
-                rightkit_agent_engine_protocol::ProtocolEvent::AssistantDelta {
-                    session_id: session_id.to_string(),
-                    seq,
-                    created_at: now,
-                    text,
-                    is_reasoning: false,
-                }
-            });
-        }
-        NormalizedEventKind::AssistantCompleted { text } => {
-            if text.trim().is_empty() {
-                return Ok(());
-            }
-            let seq = live.conduit.next_seq();
-            let message = rightkit_agent_engine_protocol::TranscriptMessage::Assistant {
-                id: format!("driver-{seq}"),
-                created_at: now.clone(),
-                content: text,
-                reasoning_content: None,
-                tool_calls: vec![],
-                pinned: false,
-                origin: None,
-            };
-            live.conduit.publish(
-                rightkit_agent_engine_protocol::ProtocolEvent::AssistantMessageCompleted {
-                    session_id: session_id.to_string(),
-                    seq,
-                    created_at: now.clone(),
-                    message,
-                    phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
-                },
-            );
-        }
-        NormalizedEventKind::TurnInterrupted => {
-            let seq = live.conduit.next_seq();
-            live.conduit.publish(
-                rightkit_agent_engine_protocol::ProtocolEvent::RunInterrupted {
-                    session_id: session_id.to_string(),
-                    seq,
-                    created_at: now,
-                    reason: Some("vendor driver interrupted".into()),
-                },
-            );
-        }
-        NormalizedEventKind::TurnFailed { message } => {
-            publish_driver_failure(state, session_id, message)
-        }
-        NormalizedEventKind::ToolResult {
-            call_id,
-            is_error,
-            content,
-        } => {
-            tracing::warn!(binding_id, call_id, is_error, content = %content, "driver MCP tool call completed");
-        }
-        // Account telemetry becomes a durable session stream event so the UI can show
-        // "account X capped until T" and offer a manual continue-on-another-account.
-        kind @ (NormalizedEventKind::RateLimit { .. }
-        | NormalizedEventKind::TurnCostReported { .. }) => {
-            observe_driver_rate_limit(binding_id, &kind);
-            let seq = live.conduit.next_seq();
-            if let Some(protocol_event) = account_protocol_event(session_id, seq, &now, &kind) {
-                live.conduit.publish(protocol_event);
-            }
-        }
-        // Gateway execution emits the canonical RightKit tool lifecycle.
-        // Vendor tool echoes are retained in the driver inbox only.
-        _ => {}
-    }
+    publish_driver_event_to_session(
+        state,
+        binding_id,
+        session_id,
+        &live,
+        event.kind,
+        &event.event_key,
+        now,
+    );
     storage
         .lock()
         .await
@@ -1254,18 +1209,22 @@ pub(crate) fn driver_status_after_event(
         }
         NormalizedEventKind::TurnFailed { .. } => "failed",
         NormalizedEventKind::TurnInterrupted => "interrupted",
-        NormalizedEventKind::TurnCompleted => "completed",
+        NormalizedEventKind::TurnCompleted | NormalizedEventKind::TurnCompletedWithUsage { .. } => {
+            "completed"
+        }
         NormalizedEventKind::GatewayReady => "ready",
         NormalizedEventKind::SessionStarted { .. } if driver == DriverKind::Claude => "starting",
         NormalizedEventKind::SessionStarted { .. } => "ready",
         NormalizedEventKind::ToolCallStarted { tool_name, .. }
-            if driver == DriverKind::Claude && tool_name.starts_with("mcp__rightkit") =>
+            if driver == DriverKind::Claude
+                && tool_name
+                    .starts_with(&rightkit_agents::driver_host::host_names::mcp_tool_scope()) =>
         {
             "ready"
         }
         // Claude --print cannot expose its stream-json init until its first
         // controlled input arrives. Keep every pre-gateway echo non-ready so
-        // a second prompt cannot bypass the RightKit MCP confirmation.
+        // a second prompt cannot bypass the host MCP confirmation.
         _ if driver == DriverKind::Claude && previous == "starting" => "starting",
         NormalizedEventKind::TurnStarted { .. } => "running",
         NormalizedEventKind::ApprovalRequested { .. } => "waiting_for_approval",
@@ -1314,15 +1273,15 @@ pub(crate) fn publish_verification_result(
 
 pub(crate) fn binding_driver_label(driver: DriverKind) -> &'static str {
     match driver {
-        DriverKind::Codex => "codex",
         DriverKind::Claude => "claude",
         DriverKind::Antigravity => "agy",
+        // Not a driver the host runs; the label is the one the driver host gives its events.
+        DriverKind::Codex => "codex",
     }
 }
 
 pub(crate) fn driver_protocol_version(driver_kind: &str) -> &'static str {
     match driver_kind {
-        "codex" => "app-server-jsonrpc",
         "claude" => "stream-json",
         _ => "native",
     }
@@ -1351,6 +1310,9 @@ pub(crate) fn driver_lifecycle(status: &str) -> &'static str {
         "recovery_required" => "recovery_required",
         "failed" => "failed",
         "stopped" => "stopped",
+        "connected" => "ready",
+        "resuming" => "starting",
+        "waiting_for_child" => "running",
         _ => "failed",
     }
 }
@@ -1362,20 +1324,12 @@ pub(crate) fn driver_lifecycle(status: &str) -> &'static str {
 /// a mismatch means exactly one thing: the session was bound under a protocol
 /// this build no longer emits, so resuming it would talk past the driver. The
 /// desktop strip needs that distinguished from a generic failure to name it.
-///
-/// Codex is deliberately `None`, not `false`: its hash comes from probing the
-/// binary (`generate_codex_schema_hash`), so recomputing the protocol-derived
-/// hash would mismatch on every healthy binding. Unknown is reported as unknown
-/// rather than guessed.
 pub(crate) fn binding_schema_drifted(
     driver_kind: &str,
     binary_version: &str,
     stored: &str,
 ) -> Option<bool> {
-    match driver_kind {
-        "codex" => None,
-        kind => Some(protocol_schema_hash(kind, binary_version) != stored),
-    }
+    Some(protocol_schema_hash(driver_kind, binary_version) != stored)
 }
 
 pub(crate) fn driver_diagnostic(status: &str) -> Option<&'static str> {
@@ -1401,39 +1355,20 @@ pub(crate) fn driver_capabilities_json() -> Value {
     })
 }
 
+/// Upper bound for a vendor `--version` probe (providers contract R19).
+const DRIVER_VERSION_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+/// Upper bound for the other vendor probes (`auth status`, `login status`, schema generation).
+const DRIVER_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 pub(crate) async fn capture_driver_version(executable: &str) -> Result<String, String> {
-    let adapter = rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter;
-    let context = rightkit_sandbox::execution::ProcessLaunchContext {
-        workspace_root: std::env::current_dir()
-            .map_err(|error| error.to_string())?
-            .display()
-            .to_string(),
-        sandbox_profile: Some("driver-version-probe".into()),
-        sandbox_required: true,
-        network_required: false,
-    };
-    let spec = rightkit_sandbox::execution::CommandLaunchSpec {
-        program: executable.into(),
-        argv: vec!["--version".into()],
-        cwd: context.workspace_root.clone(),
-        context,
-        env: Vec::new(),
-    };
-    let mut child = rightkit_sandbox::execution::ProcessLaunchAdapter::spawn(&adapter, spec)
-        .await
-        .map_err(|error| format!("{executable} is unavailable: {error:?}"))?;
-    let mut stdout = child
-        .take_stdout()
-        .ok_or_else(|| format!("{executable} stdout unavailable"))?;
-    let mut bytes = Vec::new();
-    tokio::io::AsyncReadExt::read_to_end(&mut stdout, &mut bytes)
-        .await
-        .map_err(|error| error.to_string())?;
-    let status = child.wait().await.map_err(|error| format!("{error:?}"))?;
+    let (status, stdout, _stderr) =
+        managed_driver_probe_within(executable, &["--version"], DRIVER_VERSION_PROBE_TIMEOUT)
+            .await
+            .map_err(|error| format!("{executable} --version: {error}"))?;
     if status != 0 {
         return Err(format!("{executable} --version exited {status}"));
     }
-    let version = String::from_utf8_lossy(&bytes).trim().to_string();
+    let version = stdout.trim().to_string();
     if version.is_empty() {
         return Err(format!("{executable} --version returned no version"));
     }
@@ -1442,17 +1377,6 @@ pub(crate) async fn capture_driver_version(executable: &str) -> Result<String, S
 
 pub(crate) async fn driver_auth_required(executable: &str) -> bool {
     match executable {
-        // auth.json merely proves a file exists. It can be expired, revoked,
-        // corrupt, or belong to another provider, so the CLI is the authority
-        // for discovery readiness. Use the executable argument so a configured
-        // driver binary is checked rather than an unrelated hard-coded path.
-        "codex" => {
-            let output = managed_driver_probe(executable, &["login", "status"]).await;
-            let Ok((status, stdout, stderr)) = output else {
-                return true;
-            };
-            !codex_login_status_is_authenticated(status == 0, &stdout, &stderr)
-        }
         "claude" => {
             let Ok((status, stdout, _stderr)) =
                 managed_driver_probe("claude", &["auth", "status"]).await
@@ -1475,6 +1399,17 @@ pub(crate) async fn managed_driver_probe(
     executable: &str,
     args: &[&str],
 ) -> Result<(i32, String, String), String> {
+    managed_driver_probe_within(executable, args, DRIVER_PROBE_TIMEOUT).await
+}
+
+/// One sandboxed vendor probe whose spawn, read and wait together fit in `timeout`; on expiry the
+/// child is cancelled (killed and reaped). A hung CLI can never stall discovery or the readiness
+/// paths that share this probe (providers contract R19: no unbounded read of child output).
+pub(crate) async fn managed_driver_probe_within(
+    executable: &str,
+    args: &[&str],
+    timeout: std::time::Duration,
+) -> Result<(i32, String, String), String> {
     let adapter = rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter;
     let root = std::env::current_dir().map_err(|e| e.to_string())?;
     let context = rightkit_sandbox::execution::ProcessLaunchContext {
@@ -1490,9 +1425,14 @@ pub(crate) async fn managed_driver_probe(
         context,
         env: Vec::new(),
     };
-    let mut child = rightkit_sandbox::execution::ProcessLaunchAdapter::spawn(&adapter, spec)
-        .await
-        .map_err(|e| format!("{e:?}"))?;
+    let started = std::time::Instant::now();
+    let mut child = tokio::time::timeout(
+        timeout,
+        rightkit_sandbox::execution::ProcessLaunchAdapter::spawn(&adapter, spec),
+    )
+    .await
+    .map_err(|_| "driver probe timed out".to_string())?
+    .map_err(|e| format!("{e:?}"))?;
     let mut stdout = child
         .take_stdout()
         .ok_or_else(|| "driver stdout unavailable".to_string())?;
@@ -1500,7 +1440,7 @@ pub(crate) async fn managed_driver_probe(
     // The vendor probe must answer inside the request budget; a hung CLI
     // cannot stall `driver/status` (or the readiness paths that share this
     // probe) indefinitely.
-    let probed = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+    let probed = tokio::time::timeout(timeout.saturating_sub(started.elapsed()), async {
         let read = tokio::io::AsyncReadExt::read_to_end(&mut stdout, &mut bytes)
             .await
             .map_err(|e| e.to_string())?;
@@ -1520,216 +1460,4 @@ pub(crate) async fn managed_driver_probe(
             Err("driver probe timed out".to_string())
         }
     }
-}
-
-pub(crate) fn codex_login_status_is_authenticated(
-    success: bool,
-    stdout: &str,
-    stderr: &str,
-) -> bool {
-    if !success {
-        return false;
-    }
-    // Codex currently prints e.g. "Logged in using ChatGPT". Match that
-    // affirmative state rather than inferring it from a successful command:
-    // future versions may use a zero exit for a diagnostic/no-login state.
-    let output = format!("{stdout}\n{stderr}").to_ascii_lowercase();
-    !output.contains("not logged in")
-        && !output.contains("unauthenticated")
-        && (output.contains("logged in") || output.contains("authenticated"))
-}
-
-pub(crate) async fn generate_codex_schema_hash(executable: &str) -> Result<String, String> {
-    let output_dir = std::env::temp_dir().join(format!(
-        "{app}-codex-schema-{}",
-        crate::startup::generate_token(),
-        app = crate::host_identity::app()
-    ));
-    std::fs::create_dir_all(&output_dir).map_err(|error| error.to_string())?;
-    let output_arg = output_dir.to_string_lossy().into_owned();
-    let args = [
-        "app-server",
-        "generate-json-schema",
-        "--out",
-        output_arg.as_str(),
-    ];
-    let hash = match managed_driver_probe(executable, &args).await {
-        Ok((0, _, _)) => hash_schema_directory(&output_dir),
-        Ok((status, _, stderr)) => Err(format!("schema generator exited {status}: {stderr}")),
-        Err(error) => Err(error),
-    };
-    if let Err(error) = std::fs::remove_dir_all(&output_dir) {
-        tracing::warn!(path = %output_dir.display(), error = %error, "failed to remove Codex schema cache directory");
-    }
-    hash
-}
-
-pub(crate) fn prepare_codex_home(state: &DaemonState, binding_id: &str) -> Result<PathBuf, String> {
-    prepare_codex_home_for_account(state, binding_id, None)
-}
-
-/// Run-scoped Codex home for one binding. A selected subscription account seeds `auth.json` from
-/// that account's managed `CODEX_HOME` (created by the official `codex login`); a selected API-key
-/// account gets a home with no `auth.json` at all; no selection keeps the ambient login.
-pub(crate) fn prepare_codex_home_for_account(
-    state: &DaemonState,
-    binding_id: &str,
-    account: Option<&rightkit_agents::driver_host::ClaudeAccountLaunch>,
-) -> Result<PathBuf, String> {
-    let database = PathBuf::from(&state.database_path);
-    let data_root = database
-        .parent()
-        .filter(|path| !path.as_os_str().is_empty())
-        .ok_or_else(|| "daemon database path has no parent".to_string())?;
-    match account {
-        Some(rightkit_agents::driver_host::ClaudeAccountLaunch::Subscription { managed_home }) => {
-            prepare_codex_home_at(data_root, managed_home, binding_id)
-        }
-        Some(rightkit_agents::driver_host::ClaudeAccountLaunch::ApiKey { .. }) => {
-            prepare_codex_home_inner(data_root, None, binding_id)
-        }
-        None => {
-            let source_home = std::env::var_os("CODEX_HOME")
-                .map(PathBuf::from)
-                .or_else(|| {
-                    std::env::var_os("HOME").map(|value| PathBuf::from(value).join(".codex"))
-                })
-                .ok_or_else(|| "cannot locate the authenticated Codex home".to_string())?;
-            prepare_codex_home_at(data_root, &source_home, binding_id)
-        }
-    }
-}
-
-pub(crate) fn prepare_codex_home_at(
-    data_root: &std::path::Path,
-    source_home: &std::path::Path,
-    binding_id: &str,
-) -> Result<PathBuf, String> {
-    prepare_codex_home_inner(data_root, Some(source_home), binding_id)
-}
-
-pub(crate) fn prepare_codex_home_inner(
-    data_root: &std::path::Path,
-    source_home: Option<&std::path::Path>,
-    binding_id: &str,
-) -> Result<PathBuf, String> {
-    let binding_hash = token_hash(binding_id);
-    let home = data_root
-        .join("driver-homes")
-        .join("codex")
-        .join(binding_hash);
-    std::fs::create_dir_all(&home).map_err(|error| error.to_string())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700))
-            .map_err(|error| error.to_string())?;
-    }
-
-    let target_auth = home.join("auth.json");
-    // Always drop any prior link first: the home is reused per binding, so a stale link from a
-    // different account must never survive into this launch.
-    if std::fs::symlink_metadata(&target_auth).is_ok() {
-        std::fs::remove_file(&target_auth).map_err(|error| error.to_string())?;
-    }
-    if let Some(source_home) = source_home {
-        let source_auth = source_home.join("auth.json");
-        if !source_auth.is_file() {
-            return Err("authenticated Codex auth.json is unavailable".to_string());
-        }
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&source_auth, &target_auth)
-            .map_err(|error| error.to_string())?;
-        #[cfg(windows)]
-        std::fs::hard_link(&source_auth, &target_auth).map_err(|error| error.to_string())?;
-    }
-    let config = home.join("config.toml");
-    if std::fs::symlink_metadata(&config).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
-        return Err("RightKit Codex config path must not be a symlink".to_string());
-    }
-    std::fs::write(&config, "# RightKit run-scoped Codex configuration.\n")
-        .map_err(|error| error.to_string())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600))
-            .map_err(|error| error.to_string())?;
-    }
-    Ok(home)
-}
-
-pub(crate) fn hash_schema_directory(root: &std::path::Path) -> Result<String, String> {
-    fn hash_json_canonical(value: &Value, hasher: &mut rightkit_fs::digest::Sha256Hasher) {
-        match value {
-            Value::Null => hasher.update(b"null"),
-            Value::Bool(value) => hasher.update(if *value { &b"true"[..] } else { &b"false"[..] }),
-            Value::Number(value) => hasher.update(value.to_string().as_bytes()),
-            Value::String(value) => {
-                hasher.update(&serde_json::to_vec(value).unwrap_or_default());
-            }
-            Value::Array(values) => {
-                hasher.update(b"[");
-                for value in values {
-                    hash_json_canonical(value, hasher);
-                    hasher.update(&[0]);
-                }
-                hasher.update(b"]");
-            }
-            Value::Object(values) => {
-                hasher.update(b"{");
-                let mut keys = values.keys().collect::<Vec<_>>();
-                keys.sort();
-                for key in keys {
-                    hasher.update(key.as_bytes());
-                    hasher.update(&[0]);
-                    hash_json_canonical(&values[key], hasher);
-                    hasher.update(&[0]);
-                }
-                hasher.update(b"}");
-            }
-        }
-    }
-
-    fn visit(
-        root: &std::path::Path,
-        path: &std::path::Path,
-        files: &mut Vec<PathBuf>,
-    ) -> Result<(), String> {
-        for entry in std::fs::read_dir(path).map_err(|error| error.to_string())? {
-            let entry = entry.map_err(|error| error.to_string())?;
-            let path = entry.path();
-            if path.is_dir() {
-                visit(root, &path, files)?;
-            } else if path.is_file() {
-                files.push(
-                    path.strip_prefix(root)
-                        .map_err(|error| error.to_string())?
-                        .to_path_buf(),
-                );
-            }
-        }
-        Ok(())
-    }
-    let mut files = Vec::new();
-    visit(root, root, &mut files)?;
-    files.sort();
-    if files.is_empty() {
-        return Err("Codex schema generator produced no files".into());
-    }
-    let mut hasher = rightkit_fs::digest::Sha256Hasher::new();
-    for relative in files {
-        hasher.update(relative.to_string_lossy().as_bytes());
-        hasher.update(&[0]);
-        let bytes = std::fs::read(root.join(&relative)).map_err(|error| error.to_string())?;
-        if relative.extension().and_then(|value| value.to_str()) == Some("json") {
-            let value: Value = serde_json::from_slice(&bytes).map_err(|error| {
-                format!("invalid generated schema {}: {error}", relative.display())
-            })?;
-            hash_json_canonical(&value, &mut hasher);
-        } else {
-            hasher.update(AsRef::<[u8]>::as_ref(&bytes));
-        }
-        hasher.update(&[0]);
-    }
-    Ok(format!("sha256:{}", hasher.finalize()))
 }

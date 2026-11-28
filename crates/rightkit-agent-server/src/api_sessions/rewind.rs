@@ -8,11 +8,10 @@
 //!   The durable event journal is append-only and is never edited: a
 //!   `humanSteeringInjected` event with `injectedBy = "rewind"` is appended as
 //!   the rewind marker.
-//! - **files**: every not-yet-reverted workspace change this session's runs
-//!   captured at or after that prompt is undone newest-first through the
-//!   run-change store's `undo`, which is an ordinary FileService mutation
-//!   guarded by EFF-008 fingerprints: bytes that changed since the agent wrote
-//!   them are never overwritten and are reported as conflicts.
+//! - **files**: every file the rewound turns changed is restored from the
+//!   `crates/history` snapshots the engine's write path wrote (sessions rules
+//!   40 and 41) to its content before the first rewound turn. A file another
+//!   process changed since is left alone and reported as a conflict.
 //! - **both**.
 
 use std::collections::HashMap;
@@ -20,12 +19,15 @@ use std::collections::HashMap;
 use rightkit_agent_engine_protocol::{ProtocolEvent, TranscriptMessage};
 
 use crate::api::{lock_recover, now_iso, touch_session, DaemonState};
-use crate::api_run_changes::{shared_run_changes_store, UndoRequest};
 
-/// A rewind command for the engine task (which owns the engine transcript).
+/// A rewind (or redo) command for the engine task (which owns the engine transcript).
 pub(crate) struct RewindRequest {
     target: Option<RewindTarget>,
     resp: tokio::sync::oneshot::Sender<Option<String>>,
+    /// Rewind to a point: where the removed messages go, kept for redo.
+    tail: Option<tokio::sync::oneshot::Sender<Vec<TranscriptMessage>>>,
+    /// Redo: the messages to put back (the command then removes nothing).
+    restore: Option<Vec<TranscriptMessage>>,
 }
 
 #[derive(Clone)]
@@ -37,30 +39,87 @@ struct RewindTarget {
 impl RewindRequest {
     /// Legacy `POST /sessions/{id}/rewind`: drop the last user message.
     pub(crate) fn last_user(resp: tokio::sync::oneshot::Sender<Option<String>>) -> Self {
-        Self { target: None, resp }
+        Self {
+            target: None,
+            resp,
+            tail: None,
+            restore: None,
+        }
     }
 
-    fn to_point(point: &RewindPoint, resp: tokio::sync::oneshot::Sender<Option<String>>) -> Self {
+    fn to_point(
+        point: &RewindPoint,
+        resp: tokio::sync::oneshot::Sender<Option<String>>,
+        tail: tokio::sync::oneshot::Sender<Vec<TranscriptMessage>>,
+    ) -> Self {
         Self {
             target: Some(RewindTarget {
                 text: point.text.clone(),
                 nth_from_end: point.nth_from_end,
             }),
             resp,
+            tail: Some(tail),
+            restore: None,
         }
     }
 
-    /// Run on the engine task: truncate the engine transcript and answer.
+    fn redo(
+        messages: Vec<TranscriptMessage>,
+        resp: tokio::sync::oneshot::Sender<Option<String>>,
+    ) -> Self {
+        Self {
+            target: None,
+            resp,
+            tail: None,
+            restore: Some(messages),
+        }
+    }
+
+    /// Run on the engine task: truncate (or restore) the engine transcript and answer.
     pub(crate) fn apply(self, engine: &mut rightkit_agent_engine_core::SessionEngine) {
+        if let Some(messages) = self.restore {
+            engine.restore_messages(messages);
+            let _ = self.resp.send(Some(String::new()));
+            return;
+        }
         let removed = match &self.target {
             None => engine.trim_before_last_user(),
-            Some(target) => engine.trim_before_user_matching(
-                |content| clean(content) == target.text,
-                target.nth_from_end,
-            ),
+            Some(target) => {
+                let tail = engine.take_tail_before_user_matching(
+                    |content| clean(content) == target.text,
+                    target.nth_from_end,
+                );
+                let text = tail.as_ref().and_then(|tail| match tail.first() {
+                    Some(TranscriptMessage::User { content, .. }) => Some(content.clone()),
+                    _ => None,
+                });
+                if let (Some(tail), Some(sender)) = (tail, self.tail) {
+                    let _ = sender.send(tail);
+                }
+                text
+            }
         };
         let _ = self.resp.send(removed);
     }
+}
+
+/// What the most recent undo removed, so `POST /sessions/{id}/redo` can put it
+/// back. One per session; a new rewind replaces it; a new turn voids it.
+struct RedoStash {
+    /// Engine-side messages the rewind removed (the chosen prompt onward).
+    engine_tail: Vec<TranscriptMessage>,
+    /// The same removal from the shared live transcript.
+    live_tail: Vec<TranscriptMessage>,
+    /// Length of the live transcript right after the undo: a redo is only
+    /// valid while it is unchanged, i.e. while no new turn has run.
+    live_len_after: usize,
+    text: String,
+}
+
+fn redo_stashes() -> &'static std::sync::Mutex<HashMap<String, RedoStash>> {
+    static STASHES: std::sync::OnceLock<std::sync::Mutex<HashMap<String, RedoStash>>> =
+        std::sync::OnceLock::new();
+    STASHES.get_or_init(Default::default)
 }
 
 const SYSTEM_REMINDER_OPEN: &str = "<system-reminder>";
@@ -132,6 +191,9 @@ pub struct RewindReport {
     /// `(path, reason)` for files left untouched because they changed since
     /// the agent wrote them (or could not be restored).
     pub file_conflicts: Vec<(String, String)>,
+    /// `(shell id, command)` of background commands still running at a file rewind: they are left
+    /// alone and what they change is not covered by it.
+    pub background_shells_running: Vec<(String, String)>,
 }
 
 fn locate(messages: &[TranscriptMessage], text: &str, nth_from_end: usize) -> Option<usize> {
@@ -146,11 +208,20 @@ fn locate(messages: &[TranscriptMessage], text: &str, nth_from_end: usize) -> Op
         .map(|(position, _)| position)
 }
 
+/// A forked or otherwise dormant session is saved but not live; bring it back before rewinding it
+/// (the same resume a new message triggers), so `/rewind` works on a session the TUI just forked.
+async fn ensure_live(state: &DaemonState, session_id: &str) {
+    if state.get_session(session_id).is_none() {
+        let _ = state.resume_session(session_id).await;
+    }
+}
+
 /// Prior user prompts of `session_id`, oldest first.
-pub(crate) fn rewind_points(
+pub(crate) async fn rewind_points(
     state: &DaemonState,
     session_id: &str,
 ) -> Result<Vec<RewindPoint>, String> {
+    ensure_live(state, session_id).await;
     let live = state
         .get_session(session_id)
         .ok_or_else(|| format!("session '{session_id}' not found"))?;
@@ -192,6 +263,7 @@ pub(crate) async fn rewind_to_message(
     point: &RewindPoint,
     mode: RewindMode,
 ) -> Result<RewindReport, String> {
+    ensure_live(state, session_id).await;
     let live = state
         .get_session(session_id)
         .ok_or_else(|| format!("session '{session_id}' not found"))?;
@@ -204,15 +276,19 @@ pub(crate) async fn rewind_to_message(
         ..RewindReport::default()
     };
 
+    let mut engine_tail: Vec<TranscriptMessage> = Vec::new();
+    let mut live_tail: Vec<TranscriptMessage> = Vec::new();
     // Conversation first: if the prompt is no longer in context nothing else
     // has been touched yet.
     if matches!(mode, RewindMode::Conversation | RewindMode::Both) {
         let (resp_tx, resp_rx) = tokio::sync::oneshot::channel::<Option<String>>();
+        let (tail_tx, tail_rx) = tokio::sync::oneshot::channel::<Vec<TranscriptMessage>>();
         live.rewind_tx
-            .send(RewindRequest::to_point(point, resp_tx))
+            .send(RewindRequest::to_point(point, resp_tx, tail_tx))
             .await
             .map_err(|_| "The session engine is not accepting rewinds.".to_string())?;
         let removed = resp_rx.await.unwrap_or(None);
+        engine_tail = tail_rx.await.unwrap_or_default();
         if removed.is_none() {
             return Err(
                 "That message is no longer in the active context (compacted or already rewound). \
@@ -223,7 +299,7 @@ pub(crate) async fn rewind_to_message(
         {
             let mut transcript = lock_recover(&live.transcript, "session.transcript");
             if let Some(position) = locate(&transcript, &point.text, point.nth_from_end) {
-                transcript.truncate(position);
+                live_tail = transcript.split_off(position);
             }
         }
         report.conversation_rewound = true;
@@ -248,30 +324,191 @@ pub(crate) async fn rewind_to_message(
     }
 
     if matches!(mode, RewindMode::Files | RewindMode::Both) {
-        let store = shared_run_changes_store();
-        for (run_id, entry) in store.session_entries_since(session_id, &point.created_at) {
-            let response = store.undo(
-                &run_id,
-                UndoRequest {
-                    run_id: run_id.clone(),
-                    workspace_root: entry.workspace_root.clone(),
-                    mutation_id: entry.mutation_id.clone(),
-                    observed_fingerprint: entry.fingerprint.clone(),
-                },
-            );
-            if response.applied {
-                if !report.files_restored.contains(&entry.path) {
-                    report.files_restored.push(entry.path.clone());
-                }
-            } else {
-                report.file_conflicts.push((
-                    entry.path.clone(),
-                    response
-                        .conflict_reason
-                        .unwrap_or_else(|| "could not be restored".to_string()),
-                ));
-            }
+        // Sessions rule 40: restore from the history snapshots the engine's
+        // write path wrote, every file the rewound turns changed back to its
+        // content before the first rewound turn. What could not be restored is
+        // reported by name, never skipped in silence.
+        let Some(cutoff_ns) = rightkit_agent_engine_history::rfc3339_utc_to_ns(&point.created_at)
+        else {
+            return Err(format!(
+                "The rewind point has no usable timestamp ({:?}); no file was touched.",
+                point.created_at
+            ));
+        };
+        // A background command may have written after its turn ended: give what it changed so
+        // far a restore point before restoring.
+        rightkit_agent_coding_tools::shell::settle_background_file_tracking(session_id).await;
+        let workspace_root = live.workspace_root.clone();
+        let session = session_id.to_string();
+        let restored = tokio::task::spawn_blocking(move || {
+            rightkit_agent_engine_history::HistoryStore::new(
+                std::path::Path::new(&workspace_root),
+                rightkit_agent_config::state_dir_name(),
+                &session,
+            )
+            .restore_since(std::path::Path::new(&workspace_root), cutoff_ns)
+        })
+        .await
+        .map_err(|error| format!("file restore task failed: {error}"))?;
+        report.files_restored = restored.restored;
+        report.file_conflicts = restored.failed;
+        let mut running: Vec<(String, String)> =
+            lock_recover(&live.background_shells, "session.background_shells")
+                .iter()
+                .filter(|(_, shell)| {
+                    shell.status()
+                        == rightkit_agent_coding_tools::background_shell::BgStatus::Running
+                })
+                .map(|(id, shell)| (id.clone(), shell.command.clone()))
+                .collect();
+        running.sort();
+        report.background_shells_running = running;
+    } else {
+        // A conversation-only rewind must not leave an older file stash that a
+        // redo would apply to the wrong state.
+        let workspace_root = live.workspace_root.clone();
+        let session = session_id.to_string();
+        let _ = tokio::task::spawn_blocking(move || {
+            rightkit_agent_engine_history::HistoryStore::new(
+                std::path::Path::new(&workspace_root),
+                rightkit_agent_config::state_dir_name(),
+                &session,
+            )
+            .discard_redo()
+        })
+        .await;
+    }
+    // Keep what this undo removed so `redo` can put it back (one per session).
+    let live_len_after = lock_recover(&live.transcript, "session.transcript").len();
+    lock_recover(redo_stashes(), "redo stashes").insert(
+        session_id.to_string(),
+        RedoStash {
+            engine_tail,
+            live_tail,
+            live_len_after,
+            text: point.text.clone(),
+        },
+    );
+    Ok(report)
+}
+
+/// Why a redo was refused. Both map to HTTP 409 with a stable `error` code.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RedoRefusal {
+    /// No undo is waiting to be redone.
+    NothingToRedo,
+    /// A new turn has run since the undo, so it can no longer be redone.
+    TurnSinceUndo,
+    /// A turn is running right now.
+    TurnRunning,
+    /// The session or its engine is gone.
+    Unavailable(String),
+}
+
+impl RedoRefusal {
+    pub(crate) fn code(&self) -> &'static str {
+        match self {
+            Self::NothingToRedo => "nothing_to_redo",
+            Self::TurnSinceUndo => "turn_since_undo",
+            Self::TurnRunning => "turn_running",
+            Self::Unavailable(_) => "redo_unavailable",
         }
     }
+
+    pub(crate) fn message(&self) -> String {
+        match self {
+            Self::NothingToRedo => "There is no undo to redo.".to_string(),
+            Self::TurnSinceUndo => {
+                "A new turn has run since the undo, so it can no longer be redone.".to_string()
+            }
+            Self::TurnRunning => "A turn is running; stop it before redoing.".to_string(),
+            Self::Unavailable(reason) => reason.clone(),
+        }
+    }
+}
+
+/// Re-apply the most recent undo: the removed messages go back into the engine
+/// and the shared transcript, and the files return to the state the undo
+/// replaced (see `HistoryStore::redo_since`). Refused once a new turn has run.
+pub(crate) async fn redo_last_undo(
+    state: &DaemonState,
+    session_id: &str,
+) -> Result<RewindReport, RedoRefusal> {
+    ensure_live(state, session_id).await;
+    let live = state
+        .get_session(session_id)
+        .ok_or_else(|| RedoRefusal::Unavailable(format!("session '{session_id}' not found")))?;
+    if live.live_turn_handle.is_active() {
+        return Err(RedoRefusal::TurnRunning);
+    }
+    let stash = {
+        let mut stashes = lock_recover(redo_stashes(), "redo stashes");
+        let Some(stash) = stashes.remove(session_id) else {
+            return Err(RedoRefusal::NothingToRedo);
+        };
+        stash
+    };
+    let live_len = lock_recover(&live.transcript, "session.transcript").len();
+    if live_len != stash.live_len_after {
+        // The stash is spent: a later turn made the undone state unreachable.
+        let workspace_root = live.workspace_root.clone();
+        let session = session_id.to_string();
+        let _ = tokio::task::spawn_blocking(move || {
+            rightkit_agent_engine_history::HistoryStore::new(
+                std::path::Path::new(&workspace_root),
+                rightkit_agent_config::state_dir_name(),
+                &session,
+            )
+            .discard_redo()
+        })
+        .await;
+        return Err(RedoRefusal::TurnSinceUndo);
+    }
+    touch_session(&live);
+    let mut report = RewindReport {
+        text: stash.text.clone(),
+        ..RewindReport::default()
+    };
+    if !stash.engine_tail.is_empty() {
+        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel::<Option<String>>();
+        live.rewind_tx
+            .send(RewindRequest::redo(stash.engine_tail, resp_tx))
+            .await
+            .map_err(|_| {
+                RedoRefusal::Unavailable("The session engine is not accepting redo.".into())
+            })?;
+        resp_rx
+            .await
+            .map_err(|_| RedoRefusal::Unavailable("The session engine did not answer.".into()))?;
+        lock_recover(&live.transcript, "session.transcript").extend(stash.live_tail);
+        report.conversation_rewound = true;
+    }
+    let workspace_root = live.workspace_root.clone();
+    let session = session_id.to_string();
+    let redone = tokio::task::spawn_blocking(move || {
+        rightkit_agent_engine_history::HistoryStore::new(
+            std::path::Path::new(&workspace_root),
+            rightkit_agent_config::state_dir_name(),
+            &session,
+        )
+        .redo_since()
+    })
+    .await
+    .map_err(|error| RedoRefusal::Unavailable(format!("file redo task failed: {error}")))?;
+    report.files_restored = redone.restored;
+    report.file_conflicts = redone.failed;
+    let preview: String = stash.text.chars().take(80).collect();
+    live.conduit
+        .emit(|seq| ProtocolEvent::HumanSteeringInjected {
+            session_id: session_id.to_string(),
+            seq,
+            created_at: now_iso(),
+            injected_by: "redo".to_string(),
+            content_preview: format!("redo: {preview}"),
+            text: Some(
+                serde_json::json!({"redo": {"filesRestored": report.files_restored.len()}})
+                    .to_string(),
+            ),
+        });
     Ok(report)
 }

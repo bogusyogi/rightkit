@@ -1,3 +1,5 @@
+const RECIPE_FILE_LIMIT: usize = 512 * 1024;
+
 async fn list_recipes_handler(State(state): State<DaemonState>) -> Json<Vec<InstalledRecipe>> {
     Json(lock_recover(&state.recipes, "state.recipes").list())
 }
@@ -24,12 +26,29 @@ async fn install_recipe_file_handler(
 ) -> Result<(StatusCode, Json<InstalledRecipe>), RecipeApiError> {
     enforce_recipe_trusted_source(&headers)?;
     let path = validated_recipe_file_path(&body.path)?;
-    let raw = std::fs::read_to_string(&path).map_err(|e| {
+    use std::io::Read as _;
+    let read_error = |e: &dyn std::fmt::Display| {
         RecipeApiError::bad_request(serde_json::json!({
             "error": format!("failed to read recipe file: {e}")
         }))
-    })?;
-    if raw.len() > 512 * 1024 {
+    };
+    let metadata = std::fs::metadata(&path).map_err(|e| read_error(&e))?;
+    if !metadata.is_file() {
+        return Err(read_error(&"not a regular file"));
+    }
+    if metadata.len() > RECIPE_FILE_LIMIT as u64 {
+        return Err(RecipeApiError::bad_request(serde_json::json!({
+            "error": "recipe file exceeds 512 KiB"
+        })));
+    }
+    let mut raw = String::new();
+    std::fs::File::open(&path)
+        .and_then(|file| {
+            file.take(RECIPE_FILE_LIMIT as u64 + 1)
+                .read_to_string(&mut raw)
+        })
+        .map_err(|e| read_error(&e))?;
+    if raw.len() > RECIPE_FILE_LIMIT {
         return Err(RecipeApiError::bad_request(serde_json::json!({
             "error": "recipe file exceeds 512 KiB"
         })));
@@ -62,8 +81,11 @@ async fn install_recipe_url_handler(
         }))
     })?;
     let request = rightkit_http::Request::get(raw_url.as_str())
-        .header("User-Agent", "RightKit recipe installer")
-        .max_response_bytes(512 * 1024);
+        .header(
+            "User-Agent",
+            format!("{} recipe installer", rightkit_agent_config::app_name()),
+        )
+        .max_response_bytes(RECIPE_FILE_LIMIT);
     let response = client.send_any(&request).await.map_err(|e| match e {
         rightkit_http::HttpError::BodyTooLarge { .. } => RecipeApiError::bad_request(
             serde_json::json!({ "error": "recipe URL exceeds 512 KiB" }),

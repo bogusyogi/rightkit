@@ -3,7 +3,7 @@ pub(super) async fn fire_schedule(state: &DaemonState, root: &Path, entry: &Sche
     // session namespace so transcript/provider/browser/tool/budget/evidence
     // state cannot bleed between runs.
     // Provenance: adapted to Rust from OpenMausBot `server/routines.ts`
-    // `RoutineManager::newRun`; RightKit uses canonical UUIDv7 for sortable,
+    // `RoutineManager::newRun`; the runtime uses canonical UUIDv7 for sortable,
     // collision-safe isolated execution receipts.
     let session_id = format!(
         "schedule-{}-{}",
@@ -12,27 +12,31 @@ pub(super) async fn fire_schedule(state: &DaemonState, root: &Path, entry: &Sche
     );
     let start_span_id = record_scheduled_job_span(
         state,
-        MiddlewarePhase::ScheduledJobStart,
-        "started",
         &session_id,
-        None,
         root,
         entry,
-        None,
-        serde_json::json!({}),
+        ScheduledJobSpan {
+            phase: MiddlewarePhase::ScheduledJobStart,
+            status: "started",
+            parent_id: None,
+            message: None,
+            extra: serde_json::json!({}),
+        },
     );
     let metadata = load_runtime_metadata(root, entry).unwrap_or_default();
     let outcome = fire_schedule_inner(state, root, entry, &session_id, metadata).await;
     record_scheduled_job_span(
         state,
-        MiddlewarePhase::ScheduledJobEnd,
-        &outcome.status,
         &session_id,
-        start_span_id.as_deref(),
         root,
         entry,
-        Some(&outcome.message),
-        serde_json::json!({}),
+        ScheduledJobSpan {
+            phase: MiddlewarePhase::ScheduledJobEnd,
+            status: &outcome.status,
+            parent_id: start_span_id.as_deref(),
+            message: Some(&outcome.message),
+            extra: serde_json::json!({}),
+        },
     );
 }
 
@@ -49,6 +53,20 @@ async fn fire_schedule_inner(
     let isolation = TaskIsolationV1::fresh(session_id).ok();
     // S:N4 — hop 0 of the causal receipt chain, captured at fire time.
     let trigger = trigger_receipt(&entry.id, session_id, current_epoch_millis());
+    // Scheduler contract R41: a workspace with no trust record fails the run at once with
+    // `untrusted_workspace`, before any provider call and before any script runs.
+    if !rightkit_agent_config::is_workspace_trusted(root) {
+        return record_schedule_failure(
+            root,
+            entry,
+            session_id,
+            &format!(
+                "untrusted_workspace: this workspace has no trust record, so its schedules do not run; \
+                 trust it with `{}` first",
+                crate::host_identity::command("trust")
+            ),
+        );
+    }
     if entry.mode.eq_ignore_ascii_case("scriptOnly") {
         return fire_script_only_schedule(state, root, entry, session_id).await;
     }
@@ -154,6 +172,10 @@ async fn fire_schedule_inner(
     {
         options.disallowed_tools.push("schedule_cron".to_string());
     }
+    // Unattended turn: anything that needs approval is denied at once as `unattended`. The mode is
+    // `auto-safe` where the host sets `unattended_turns_auto_safe` (what it may do then needs no
+    // approval), else `ask`.
+    options.permission_mode = Some(crate::unattended_guard::unattended_permission_mode());
     options.active_skills = clean_skill_ids(&entry.skills);
     options.execution_backend = clean_optional_string(entry.execution_backend.as_deref());
     options.mcp_channel = "schedule".to_string();
@@ -184,6 +206,8 @@ async fn fire_schedule_inner(
     let mut completion = state
         .get_session(session_id)
         .map(|session| session.conduit.subscribe());
+    // R41: no human is attached. An `ask_user` is declined at once; a plan card ends the run.
+    let interaction_required = crate::unattended_guard::watch_unattended_session(state, session_id);
     match state
         .submit_text_with_trust_delivery(
             session_id,
@@ -233,6 +257,7 @@ async fn fire_schedule_inner(
                     let root = root.to_path_buf();
                     let entry = entry.clone();
                     let session_id = session_id.to_string();
+                    let interaction_required = interaction_required.clone();
                     let timeout_seconds = metadata
                         .profile
                         .as_ref()
@@ -273,9 +298,25 @@ async fn fire_schedule_inner(
                         )
                         .await
                         {
+                            Ok(Some(_))
+                                if interaction_required
+                                    .load(std::sync::atomic::Ordering::SeqCst) =>
+                            {
+                                (
+                                    "failed".to_string(),
+                                    "interaction_required: the turn presented a plan for approval and nobody can answer it in a scheduled run",
+                                )
+                            }
                             Ok(Some(status)) => (status, "scheduled prompt completed"),
                             Ok(None) => ("failed".to_string(), "scheduled prompt session closed"),
-                            Err(_) => ("failed".to_string(), "scheduled prompt timed out"),
+                            Err(_) => {
+                                // R9: a run past its timeout is cancelled, not just abandoned.
+                                interrupt_timed_out_session(&state, &session_id);
+                                (
+                                    "failed".to_string(),
+                                    "scheduled prompt timed out; session interrupted",
+                                )
+                            }
                         };
                         // S:N2 + S:N4 — execute the bound post-run verifier,
                         // build the real hop-distinct receipt chain, and gate
@@ -285,11 +326,15 @@ async fn fire_schedule_inner(
                             &root,
                             &entry,
                             &session_id,
-                            &status,
-                            message,
-                            chain,
-                            isolation.as_ref(),
-                            verifier_binding,
+                            AgentRunTerminal {
+                                status: &status,
+                                human_message: message,
+                            },
+                            AgentRunEvidence {
+                                chain,
+                                isolation: isolation.as_ref(),
+                                verifier_binding,
+                            },
                         )
                         .await;
                         let mut terminal_event = schedule_run_event(
@@ -322,21 +367,58 @@ async fn fire_schedule_inner(
     }
 }
 
+/// R9: stop the turn of a scheduled run that exceeded its timeout, so it no longer runs on after
+/// the run is recorded as failed. Returns whether a live session was signalled.
+fn interrupt_timed_out_session(state: &DaemonState, session_id: &str) -> bool {
+    let Some(live) = state.get_session(session_id) else {
+        return false;
+    };
+    let Some(interrupt) = &live.interrupt_tx else {
+        return false;
+    };
+    // A failed send means the turn already ended, which is the outcome wanted.
+    if interrupt.send(true).is_err() {
+        tracing::debug!(session_id, "timed-out scheduled turn had already ended");
+    }
+    // A parent's interrupt does not reach its children's engines.
+    state.interrupt_live_children_of(session_id);
+    true
+}
+
+/// How an agent run ended: its status and the human-readable message that goes with it.
+struct AgentRunTerminal<'a> {
+    status: &'a str,
+    human_message: &'a str,
+}
+
+/// What the terminal run event is checked against: the receipt chain so far, the task isolation
+/// the run had, and the post-run verifier bound to the schedule.
+struct AgentRunEvidence<'a> {
+    chain: Vec<CausalReceipt>,
+    isolation: Option<&'a TaskIsolationV1>,
+    verifier_binding: Option<crate::api_schedules::VerifierBinding>,
+}
+
 /// S:N2 + S:N4 — fold the run's terminal outcome, the post-run verifier
 /// verdict, and the hop-distinct causal receipt chain into the terminal run
 /// event. Returns `(terminal status, structured message JSON)`.
-#[allow(clippy::too_many_arguments)]
 async fn finalize_agent_run(
     state: &DaemonState,
     root: &Path,
     entry: &ScheduleEntry,
     session_id: &str,
-    status: &str,
-    human_message: &str,
-    mut chain: Vec<CausalReceipt>,
-    isolation: Option<&TaskIsolationV1>,
-    verifier_binding: Option<crate::api_schedules::VerifierBinding>,
+    terminal: AgentRunTerminal<'_>,
+    evidence: AgentRunEvidence<'_>,
 ) -> (String, String) {
+    let AgentRunTerminal {
+        status,
+        human_message,
+    } = terminal;
+    let AgentRunEvidence {
+        mut chain,
+        isolation,
+        verifier_binding,
+    } = evidence;
     let mut final_status = status.to_string();
     let mut display = human_message.to_string();
     let mut verdict_outcome: Option<VerifierVerdict> = None;

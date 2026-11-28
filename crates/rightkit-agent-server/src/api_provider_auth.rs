@@ -16,7 +16,7 @@ use rightkit_llm::agent_providers::credential_broker::{
 };
 use rightkit_llm::agent_providers::subscription_auth::ModelAuth;
 use rightkit_llm::agent_providers::subscription_auth::{
-    AuthError, AuthEvent, AuthInteraction, AuthPrompt, AuthSignal, BoxFuture, ProcessAuthContext,
+    AuthError, AuthEvent, AuthInteraction, AuthPrompt, AuthSignal, BoxFuture,
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -24,10 +24,13 @@ use tokio::sync::oneshot;
 
 static BROKER: OnceLock<Arc<CredentialBroker>> = OnceLock::new();
 type PendingLoginMap = Arc<Mutex<HashMap<String, Arc<PendingLogin>>>>;
+/// How long a started provider login may stay pending before it is abandoned.
+const LOGIN_TTL_MS: i64 = 10 * 60 * 1000;
 static PENDING: OnceLock<PendingLoginMap> = OnceLock::new();
 
 struct PendingLogin {
     deadline_ms: i64,
+    signal: AuthSignal,
     prompt: Mutex<Option<oneshot::Sender<String>>>,
     events: Mutex<Vec<AuthEvent>>,
 }
@@ -40,13 +43,9 @@ struct PendingDisk {
     state: String,
 }
 
+/// The pending-login metadata file lives in the state root, like every other durable file of the app.
 fn pending_path() -> std::path::PathBuf {
-    std::path::PathBuf::from(
-        rightkit_llm::agent_providers::subscription_auth::expand_tilde(&format!(
-            "~/{home}/provider-auth-pending.json",
-            home = crate::host_identity::home_dir()
-        )),
-    )
+    rightkit_agent_config::state_root_required().join("provider-auth-pending.json")
 }
 fn persist_pending(map: &HashMap<String, Arc<PendingLogin>>) {
     let rows: Vec<PendingDisk> = map
@@ -59,18 +58,17 @@ fn persist_pending(map: &HashMap<String, Arc<PendingLogin>>) {
         })
         .collect();
     if let Ok(raw) = serde_json::to_vec(&rows) {
-        if let Some(parent) = pending_path().parent() {
-            let _ = std::fs::create_dir_all(parent);
+        if let Err(error) = crate::store_write::write_store_file(&pending_path(), &raw) {
+            tracing::warn!(%error, "could not persist the pending provider login record");
         }
-        let _ = std::fs::write(pending_path(), raw);
     }
 }
 
 impl PendingLogin {
     fn new() -> Self {
         Self {
-            deadline_ms: rightkit_llm::agent_providers::subscription_auth::now_ms()
-                + 10 * 60 * 1000,
+            deadline_ms: rightkit_llm::agent_providers::subscription_auth::now_ms() + LOGIN_TTL_MS,
+            signal: AuthSignal::default(),
             prompt: Mutex::new(None),
             events: Mutex::new(Vec::new()),
         }
@@ -82,12 +80,21 @@ struct HttpInteraction {
 }
 impl AuthInteraction for HttpInteraction {
     fn signal(&self) -> AuthSignal {
-        AuthSignal::default()
+        self.pending.signal.clone()
     }
     fn prompt<'a>(&'a self, prompt: AuthPrompt) -> BoxFuture<'a, Result<String, AuthError>> {
         Box::pin(async move {
             let (tx, rx) = oneshot::channel();
-            *self.pending.prompt.lock().unwrap() = Some(tx);
+            {
+                // Check the abort flag under the prompt lock so a supersede that landed before
+                // this point cannot leave a live sender behind.
+                let mut slot = self.pending.prompt.lock().unwrap();
+                if self.pending.signal.is_aborted() {
+                    drop(slot);
+                    return Err(AuthError::cancelled());
+                }
+                *slot = Some(tx);
+            }
             self.pending.notify(AuthEvent::Progress {
                 message: format!("prompt: {prompt:?}"),
             });
@@ -116,22 +123,23 @@ fn oauth_lock_dir() -> std::path::PathBuf {
 
 fn broker() -> &'static Arc<CredentialBroker> {
     BROKER.get_or_init(|| {
+        // One resolver for the host (providers R4): the credential store when the start-up probe
+        // found one (the environment is not read), otherwise the environment, then `.env`.
         let mut broker = CredentialBroker::new(
             Arc::new(rightkit_llm::agent_providers::OsKeyStore),
-            crate::host_identity::app(),
-            Arc::new(ProcessAuthContext),
-        );
+            rightkit_llm::agent_providers::key_migration::service(),
+            // No provider here names environment variables (`with_env_vars` is never
+            // called), so the context's environment accessor is never asked: provider
+            // credentials come from the stores above only.
+            Arc::new(rightkit_llm::agent_providers::subscription_auth::ProcessAuthContext),
+        )
+        .with_host_credentials(rightkit_llm::agent_providers::host_credentials::host());
         for provider in rightkit_llm::agent_providers::PROVIDERS {
             // Native inference uses one daemon-owned precedence chain. Keep
-            // vendor CLI stores out of this broker; provider env names come
-            // from provider metadata, while literal keys/keychain entries
-            // use RightKit-owned namespaces.
+            // vendor CLI stores out of this broker.
             let mut config =
                 ProviderCredentialConfig::new(provider.id).with_secure_store_key(provider.id);
-            if !provider.api_key_env.is_empty() {
-                config = config.with_env_vars([provider.api_key_env]);
-            }
-            if matches!(provider.id, "openai" | "commandcode") {
+            if rightkit_llm::agent_providers::subscription_auth::has_subscription_leg(provider.id) {
                 // The subscription leg is RightKit's `Resolver` over the keychain token
                 // store. Store failures surface at use (status reports `unavailable`),
                 // never as a fallback credential.
@@ -247,19 +255,9 @@ fn open_in_browser(url: &str) {
     if !(url.starts_with("https://") || url.starts_with("http://")) {
         return;
     }
-    #[cfg(target_os = "windows")]
-    let mut command = rightkit_child_process::command_std("rundll32.exe");
-    #[cfg(target_os = "windows")]
-    command.arg("url.dll,FileProtocolHandler").arg(url);
-    #[cfg(target_os = "macos")]
-    let mut command = rightkit_child_process::command_std("open");
-    #[cfg(target_os = "macos")]
-    command.arg(url);
-    #[cfg(all(unix, not(target_os = "macos")))]
-    let mut command = rightkit_child_process::command_std("xdg-open");
-    #[cfg(all(unix, not(target_os = "macos")))]
-    command.arg(url);
-    let _ = command.status();
+    if let Err(error) = crate::open_url::open_url(url) {
+        tracing::warn!(%error, "could not open the browser for the provider login");
+    }
 }
 
 struct TerminalAuthInteraction {
@@ -476,7 +474,7 @@ pub(crate) async fn resolve_provider_model_auth(
 
 /// Client version sent to the ChatGPT model catalog. The backend hides
 /// models whose minimum client version exceeds it, so it tracks a current
-/// Codex CLI release rather than RightKit's own version. Resolved (env
+/// Codex CLI release rather than the app's own version. Resolved (env
 /// override, 24h cache, npm registry, fallback constant) by the module below.
 #[path = "codex_client_version.rs"]
 mod codex_client_version;
@@ -589,15 +587,8 @@ fn pending() -> &'static Arc<Mutex<HashMap<String, Arc<PendingLogin>>>> {
     PENDING.get_or_init(|| {
         // Recovery is metadata-only. Expired challenges are discarded before
         // becoming visible; no callback or credential bytes are persisted.
-        let map = HashMap::new();
-        if let Ok(raw) = std::fs::read(pending_path()) {
-            if let Ok(rows) = serde_json::from_slice::<Vec<PendingDisk>>(&raw) {
-                // Never resume an OAuth exchange after daemon restart.
-                // Orphaned authenticating records are expired/cancelled.
-                let _ = rows;
-            }
-        }
-        Arc::new(Mutex::new(map))
+        // A challenge is never resumed after a daemon restart, so nothing is read back.
+        Arc::new(Mutex::new(HashMap::new()))
     })
 }
 
@@ -655,11 +646,27 @@ async fn login_start(Path(provider): Path<String>, headers: HeaderMap) -> impl I
     // client; this endpoint advertises the provider flow and challenge id
     // without ever returning credential material.
     let challenge_id = format!(
-        "provider-auth:{}:{}",
-        provider,
-        rightkit_llm::agent_providers::subscription_auth::now_ms()
+        "provider-auth:{provider}:{}",
+        rightkit_agent_engine_protocol::uuid_v7()
     );
     let interaction = Arc::new(PendingLogin::new());
+    {
+        // A newer login for the same provider supersedes the old one cooperatively: signal it so
+        // the flow shuts down its own listener, and drop its prompt sender so a blocked `rx.await` ends.
+        let prefix = format!("provider-auth:{provider}:");
+        let mut map = pending().lock().unwrap();
+        let stale: Vec<String> = map
+            .keys()
+            .filter(|id| id.starts_with(&prefix))
+            .cloned()
+            .collect();
+        for id in stale {
+            if let Some(old) = map.remove(&id) {
+                old.signal.abort();
+                old.prompt.lock().unwrap().take();
+            }
+        }
+    }
     pending()
         .lock()
         .unwrap()
@@ -669,17 +676,22 @@ async fn login_start(Path(provider): Path<String>, headers: HeaderMap) -> impl I
     let id = challenge_id.clone();
     let login_provider = provider.clone();
     tokio::spawn(async move {
-        let result = broker
-            .login(
+        let result = tokio::time::timeout(
+            std::time::Duration::from_millis(LOGIN_TTL_MS as u64),
+            broker.login(
                 &login_provider,
                 &HttpInteraction {
                     pending: interaction.clone(),
                 },
-            )
-            .await;
+            ),
+        )
+        .await;
+        if result.is_err() {
+            interaction.signal.abort();
+        }
         interaction.notify(
             rightkit_llm::agent_providers::subscription_auth::AuthEvent::Progress {
-                message: format!("login complete: {}", result.is_ok()),
+                message: format!("login complete: {}", matches!(result, Ok(Ok(_)))),
             },
         );
         pending().lock().unwrap().remove(&id);

@@ -93,17 +93,13 @@ fn matching_team_execution_preset(
     goal: &str,
     teams: &[rightkit_agent_coding_tools::TeamDefinition],
 ) -> Option<TeamExecutionPreset> {
-    let goal = goal.to_lowercase();
-    teams.iter().find_map(|team| {
-        let name = team.name.trim();
-        if name.is_empty() || !goal.contains(&name.to_lowercase()) {
-            return None;
-        }
-        Some(TeamExecutionPreset {
-            team_name: team.name.clone(),
-            max_workers: team.max_workers.map(|n| n as usize).filter(|n| *n > 0),
-            budget_usd: team.budget_usd.filter(|n| *n > 0.0),
-        })
+    // One selector for the task-graph budget and the run budget, so the two
+    // never disagree on which preset owns the run (orchestration rule 25).
+    let team = find_team_preset_for_goal(goal, teams)?;
+    Some(TeamExecutionPreset {
+        team_name: team.name.clone(),
+        max_workers: team.max_workers.map(|n| n as usize).filter(|n| *n > 0),
+        budget_usd: team.budget_usd.filter(|n| *n > 0.0),
     })
 }
 
@@ -154,7 +150,10 @@ fn persist_agent_model(role: &str, model_id: &str) {
             AgentOverride {
                 model_id: model_id.to_string(),
                 provider_id: "openrouter".to_string(),
-                ..AgentOverride::default()
+                effort: String::new(),
+                toolset: String::new(),
+                spawnable_roles: Vec::new(),
+                ..Default::default()
             },
         );
     });
@@ -233,26 +232,57 @@ fn goal_verification_artifact(
 
 /// Parse an agent's verdict reply into `(approve/pass, confidence)`.
 ///
-/// Looks for an explicit `VERDICT:` line first (PASS/APPROVE → true,
-/// FAIL/REJECT → false), falling back to whole-text keywords. Confidence is read
-/// from a `CONFIDENCE: <0-1>` token, defaulting to 0.8. Conservative: anything
-/// ambiguous is treated as NOT approved — completion is never granted by default.
+/// The LAST `VERDICT:` line decides (a reply may quote another agent's verdict
+/// before giving its own), reading only the text after its final `VERDICT:`.
+/// With no such line the whole reply is scanned. Either way only whole words
+/// count — PASS/PASSED/APPROVE/APPROVED approve, FAIL/FAILED/REJECT/REJECTED
+/// refuse — so "bypassed" or "compass" never approve (audit 2026-11-05
+/// orchestration M4). Confidence is read from a `CONFIDENCE: <0-1>` token,
+/// defaulting to 0.8. Conservative: anything ambiguous is treated as NOT
+/// approved — completion is never granted by default.
+///
+/// A negated approve word is a refusal (audit 2026-11-05 round 2, M3): `NOT
+/// APPROVED`, `cannot approve`, `can't approve`, `did not pass`, `never
+/// passed`. A negator up to [`NEGATION_REACH`] words before an approve word
+/// counts, so a negation that may or may not apply also refuses. Confidence
+/// is read from the last `CONFIDENCE:` so it pairs with the deciding verdict.
 fn parse_verdict(text: &str) -> (bool, f64) {
+    /// Words before an approve word that a negator still reaches
+    /// ("did NOT fully PASS", "NOT YET APPROVED").
+    const NEGATION_REACH: usize = 3;
     let upper = text.to_uppercase();
-    let verdict_line = upper.lines().find(|l| l.contains("VERDICT:")).unwrap_or("");
-    let scope = if verdict_line.is_empty() {
-        upper.as_str()
-    } else {
-        verdict_line
+    let scope = match upper.lines().rev().find(|l| l.contains("VERDICT:")) {
+        Some(line) => line.rsplit("VERDICT:").next().unwrap_or(""),
+        None => upper.as_str(),
     };
-    let approve = if scope.contains("REJECT") || scope.contains("FAIL") {
-        false
-    } else {
-        scope.contains("APPROVE") || scope.contains("PASS")
-    };
+    let mut approves = false;
+    let mut refuses = false;
+    // Index (in non-empty words) of the most recent negator.
+    let mut last_negator: Option<usize> = None;
+    let words = scope
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|word| !word.is_empty());
+    for (index, word) in words.enumerate() {
+        match word {
+            "PASS" | "PASSED" | "APPROVE" | "APPROVED" => {
+                if last_negator.is_some_and(|at| index - at <= NEGATION_REACH) {
+                    refuses = true;
+                } else {
+                    approves = true;
+                }
+            }
+            "FAIL" | "FAILED" | "REJECT" | "REJECTED" => refuses = true,
+            // `T` is the tail of a split contraction: CAN'T, DIDN'T, DON'T.
+            "NOT" | "NO" | "NEVER" | "CANNOT" | "T" | "UNABLE" | "NOR" | "NEITHER" => {
+                last_negator = Some(index)
+            }
+            _ => {}
+        }
+    }
+    let approve = approves && !refuses;
 
     let confidence = upper
-        .find("CONFIDENCE:")
+        .rfind("CONFIDENCE:")
         .map(|i| &upper[i + "CONFIDENCE:".len()..])
         .and_then(|rest| {
             let token: String = rest
@@ -336,4 +366,75 @@ fn managed_git_output(
         tokio::runtime::Runtime::new().ok()?.block_on(future).ok()
     }?;
     Some(output)
+}
+
+#[cfg(test)]
+mod parse_verdict_tests {
+    //! Audit 2026-11-05 orchestration M4.
+    use super::parse_verdict;
+
+    #[test]
+    fn incidental_substrings_do_not_approve() {
+        assert!(!parse_verdict("I could not run the tests; the build step was bypassed").0);
+        assert!(!parse_verdict("Pointing the compass north").0);
+        assert!(!parse_verdict("This passes nothing useful").0);
+    }
+
+    #[test]
+    fn last_verdict_line_wins() {
+        let reply =
+            "The verifier's VERDICT: PASS is wrong.\nThe diff breaks the build.\nVERDICT: REJECT";
+        assert!(!parse_verdict(reply).0);
+        let reply = "Earlier draft said VERDICT: FAIL\nRe-checked after the fix.\nVERDICT: APPROVE";
+        assert!(parse_verdict(reply).0);
+    }
+
+    #[test]
+    fn explicit_verdicts_still_parse() {
+        assert!(parse_verdict("All good.\nVERDICT: PASS\nCONFIDENCE: 0.9").0);
+        assert!(parse_verdict("verdict: approved").0);
+        assert!(!parse_verdict("VERDICT: FAIL").0);
+        assert!(!parse_verdict("VERDICT: PASS or FAIL, unsure").0);
+        assert_eq!(parse_verdict("VERDICT: PASS\nCONFIDENCE: 0.4").1, 0.4);
+    }
+
+    #[test]
+    fn whole_reply_fallback_uses_words() {
+        assert!(parse_verdict("Checks passed. PASS").0);
+        assert!(!parse_verdict("nothing decisive here").0);
+    }
+
+    /// Round 2 M3: negated approve words are refusals.
+    #[test]
+    fn negated_verdicts_are_not_approved() {
+        for reply in [
+            "VERDICT: NOT APPROVED",
+            "VERDICT: not approved, the build is red",
+            "I cannot approve this",
+            "I can't approve this change",
+            "I can\u{2019}t approve this change",
+            "do not pass this change",
+            "the tests did not pass",
+            "The tests didn't pass",
+            "VERDICT: NOT YET APPROVED",
+            "It never passed in CI",
+            "VERDICT: NOT APPROVED. PASS once fixed",
+        ] {
+            assert!(!parse_verdict(reply).0, "{reply}");
+        }
+    }
+
+    #[test]
+    fn negation_elsewhere_does_not_flip_a_clear_pass() {
+        assert!(parse_verdict("No regressions found.\nVERDICT: PASS").0);
+        assert!(parse_verdict("VERDICT: APPROVED - not a single failing test").0);
+    }
+
+    #[test]
+    fn confidence_pairs_with_the_last_verdict() {
+        let reply = "Quoted earlier: VERDICT: FAIL CONFIDENCE: 0.1\nVERDICT: PASS\nCONFIDENCE: 0.9";
+        let (approve, confidence) = parse_verdict(reply);
+        assert!(approve);
+        assert_eq!(confidence, 0.9);
+    }
 }

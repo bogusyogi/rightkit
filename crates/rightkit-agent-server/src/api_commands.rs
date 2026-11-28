@@ -5,9 +5,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use rightkit_agent_host_traits::skill_host::{
-    CommandAction, CommandRegistry, CommandResult, SlashCommand,
-};
+use rightkit_agent_skills::{CommandAction, CommandRegistry, CommandResult, SlashCommand};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::path::{Path as FsPath, PathBuf};
@@ -54,8 +52,8 @@ fn shared_table_command_rows() -> Vec<CommandRow> {
     crate::cli::command_registry::entries_for_surface(false)
         .map(|entry| CommandRow {
             name: entry.name.trim_start_matches('/').to_string(),
-            description: entry.summary.to_string(),
-            usage: entry.usage.to_string(),
+            description: entry.summary().to_string(),
+            usage: entry.usage().to_string(),
             plugin_id: None,
         })
         .collect()
@@ -201,6 +199,11 @@ pub(crate) async fn execute_command_on_state(
     // `tbench`, …) dispatch exactly as their canonical names would. Names
     // the table does not know (plugin commands, unknown words) pass through
     // untouched.
+    // `/ps` typed as a slash command lists this chat's background terminals. The bare CLI verb `ps` still
+    // means the session list; only the slash form is intercepted here, before alias normalization.
+    if cmd.name == "ps" {
+        return crate::api::command_ps(state, session_id);
+    }
     let mut normalized = cmd.clone();
     if let Some(bare) = crate::cli::command_registry::canonical_bare_name(&cmd.name) {
         normalized.name = bare.to_string();
@@ -211,7 +214,28 @@ pub(crate) async fn execute_command_on_state(
     } else if let Some(result) = registry.execute(&normalized.name, &normalized.args) {
         dispatch_command_action(state, result, session_id).await
     } else if let Some((manifest, root)) = find_plugin_command(&state.plugin_dir, &cmd.name) {
-        execute_plugin_command(manifest, root, &cmd).await
+        // Contract R11: a plugin command runs in the session's workspace, never in the
+        // daemon's current directory.
+        let workspace = match session_id {
+            Some(id) => crate::api::session_workspace_root(state, id)
+                .await
+                .ok()
+                .flatten(),
+            None => None,
+        };
+        match workspace {
+            Some(workspace) => {
+                execute_plugin_command(manifest, root, &cmd, PathBuf::from(workspace)).await
+            }
+            None => CommandResult {
+                success: false,
+                output: format!(
+                    "Plugin command /{} runs in a session's workspace; run it from a session.",
+                    cmd.name
+                ),
+                action: CommandAction::None,
+            },
+        }
     } else {
         CommandResult {
             success: false,
@@ -224,7 +248,7 @@ pub(crate) async fn execute_command_on_state(
     }
 }
 
-/// Execute registry actions whose authority lives in RightKit's session API.
+/// Execute registry actions whose authority lives in the daemon's session API.
 /// UI-only actions remain in the result for their caller; backend actions are
 /// consumed here so CLI/TUI callers cannot report success while dropping work.
 async fn dispatch_command_action(
@@ -237,29 +261,27 @@ async fn dispatch_command_action(
             let Some(session_id) = session_id else {
                 return action_error("compact context", "no active session");
             };
-            let response = crate::api_sessions::approvals::compact_session(
-                axum::extract::State(state.clone()),
-                axum::extract::Path(session_id.to_string()),
+            let response = crate::api_sessions::approvals::compact_session_with_instructions(
+                state.clone(),
+                session_id.to_string(),
                 HeaderMap::new(),
+                None,
             )
             .await;
-            match response {
-                Ok(axum::response::Json(body)) => CommandResult {
-                    success: true,
-                    output: format!(
-                        "Context compacted: {}",
-                        body.get("summary")
-                            .and_then(Value::as_str)
-                            .filter(|summary| !summary.trim().is_empty())
-                            .unwrap_or("completed")
-                    ),
-                    action: CommandAction::None,
-                },
-                Err(status) => action_error(
-                    "compact context",
-                    &format!("session API returned HTTP {status}"),
-                ),
-            }
+            compact_response_result(response)
+        }
+        CommandAction::CompactContextWith(instructions) => {
+            let Some(session_id) = session_id else {
+                return action_error("compact context", "no active session");
+            };
+            let response = crate::api_sessions::approvals::compact_session_with_instructions(
+                state.clone(),
+                session_id.to_string(),
+                HeaderMap::new(),
+                Some(instructions),
+            )
+            .await;
+            compact_response_result(response)
         }
         CommandAction::ConductGoal(goal) => {
             let Some(session_id) = session_id else {
@@ -291,9 +313,35 @@ async fn dispatch_command_action(
         }
         CommandAction::DreamNow(_) => action_error(
             "memory dream",
-            "no RightKit memory-dream command consumer is available",
+            &format!(
+                "no {} memory-dream command consumer is available",
+                rightkit_agent_config::app_name()
+            ),
         ),
         _ => result,
+    }
+}
+
+/// The slash result for a finished compaction request (with or without the user's focus text).
+fn compact_response_result(
+    response: Result<axum::response::Json<Value>, crate::api_sessions::approvals::CompactError>,
+) -> CommandResult {
+    match response {
+        Ok(axum::response::Json(body)) => CommandResult {
+            success: true,
+            output: format!(
+                "Context compacted: {}",
+                body.get("summary")
+                    .and_then(Value::as_str)
+                    .filter(|summary| !summary.trim().is_empty())
+                    .unwrap_or("completed")
+            ),
+            action: CommandAction::None,
+        },
+        Err(status) => action_error(
+            "compact context",
+            &format!("session API returned HTTP {status}"),
+        ),
     }
 }
 
@@ -350,9 +398,9 @@ async fn execute_plugin_command(
     manifest: rightkit_agent_plugins::PluginManifest,
     root: PathBuf,
     cmd: &SlashCommand,
+    workspace_root: PathBuf,
 ) -> CommandResult {
     let entry = PathBuf::from(&manifest.entry);
-    let workspace_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let adapter = match plugin_command_adapter() {
         Ok(adapter) => adapter,
         Err(error) => {

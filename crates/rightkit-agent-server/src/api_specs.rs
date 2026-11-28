@@ -40,11 +40,11 @@ pub(crate) fn spec_routes() -> Router<DaemonState> {
         .route("/specs/{id}/trace", get(get_spec_trace_handler))
 }
 
+/// The spec store at `path`: empty when the file is missing; a file that exists but does not parse is set
+/// aside once (`feature-specs.json.damaged-<unix>`) before the empty default is used, so the next save never
+/// replaces the only copy (storage rule 14).
 pub(crate) fn load_spec_store(path: &FsPath) -> rightkit_evidence::SpecStore {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|raw| serde_json::from_str(&raw).ok())
-        .unwrap_or_default()
+    crate::store_write::load_shared_store(path).unwrap_or_default()
 }
 
 pub(crate) fn write_spec_store(
@@ -55,9 +55,10 @@ pub(crate) fn write_spec_store(
         std::fs::create_dir_all(parent)
             .map_err(|err| format!("failed to create spec store directory: {err}"))?;
     }
-    let bytes = serde_json::to_vec_pretty(store)
-        .map_err(|err| format!("failed to serialize spec store: {err}"))?;
-    std::fs::write(path, bytes).map_err(|err| format!("failed to write spec store: {err}"))?;
+    // Several processes share the file: only what this process changed is applied to what is
+    // on disk, under the cross-process lock (`write_shared_store`).
+    crate::store_write::write_shared_store(path, "feature-specs", store)
+        .map_err(|err| format!("failed to write spec store: {err}"))?;
     Ok(())
 }
 

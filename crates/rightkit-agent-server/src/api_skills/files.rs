@@ -7,7 +7,7 @@ fn skill_fires_at_session_start(
     if trigger.is_empty() {
         return false;
     }
-    let mut ctx = rightkit_agent_host_traits::skill_host::trigger::TriggerContext::new();
+    let mut ctx = rightkit_agent_skills::trigger::TriggerContext::new();
     ctx.trigger_type = Some("session".to_string());
     ctx.trigger_payload = Some(workspace_root.to_string());
     ctx.set("event", "SessionStart")
@@ -15,8 +15,7 @@ fn skill_fires_at_session_start(
         .set("workspace_root", workspace_root)
         .set("role", role.unwrap_or(""))
         .set("skill", &skill.slug);
-    rightkit_agent_host_traits::skill_host::trigger::evaluate_trigger(trigger, &ctx)
-        .unwrap_or(false)
+    rightkit_agent_skills::trigger::evaluate_trigger(trigger, &ctx).unwrap_or(false)
 }
 
 fn find_skill_item(dirs: &[PathBuf], slug: &str) -> Option<(SkillItem, String)> {
@@ -209,7 +208,7 @@ fn load_skill_item(
     dir: &FsPath,
     kind: &str,
 ) -> Option<(SkillItem, String)> {
-    let content = std::fs::read_to_string(path).ok()?;
+    let content = rightkit_agent_skills::manifest::read_bounded_skill_source(path)?;
     let (
         name,
         description,
@@ -266,7 +265,7 @@ fn load_skill_item(
             Vec::new(),
             Vec::new(),
             Vec::new(),
-            rightkit_agent_host_traits::skill_host::manifest::SkillPackageMetadata::default(),
+            rightkit_agent_skills::manifest::SkillPackageMetadata::default(),
             SkillCategory::Tool,
             100,
             false,
@@ -287,7 +286,7 @@ fn load_skill_item(
             Vec::new(),
             Vec::new(),
             Vec::new(),
-            rightkit_agent_host_traits::skill_host::manifest::SkillPackageMetadata::default(),
+            rightkit_agent_skills::manifest::SkillPackageMetadata::default(),
             SkillCategory::Tool,
             100,
             false,

@@ -27,12 +27,9 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use rightkit_agent_coding_tools::{SpawnRuntimeKind, SubagentContinuity, SubagentSpawnOptions};
+use rightkit_agent_coding_tools::{SpawnRuntimeKind, SubagentSpawnOptions};
 use rightkit_agent_engine_protocol::ProtocolEvent;
-use rightkit_agent_engine_storage::{
-    DriverBindingRow, DriverEventClaim, DriverEventInboxRow, SessionCapabilityLeaseRow, Storage,
-    StorageError,
-};
+use rightkit_agent_engine_storage::{DriverBindingRow, SessionCapabilityLeaseRow};
 use rightkit_agent_orchestration::coding::supervision::{
     enter_worktree, exit_worktree, SystemGitWorktreeExecutor, WorktreeEnterRequest,
 };
@@ -48,7 +45,7 @@ use serde_json::{json, Value};
 use crate::api::DaemonState;
 
 /// What the spawn helper returns. `child_agent_id` is the
-/// RightKit-native id used by every downstream consumer (UI rail,
+/// Host-native id used by every downstream consumer (UI rail,
 /// agent roster, follow-up `ContinueAgent` calls). `result` is the
 /// structured [`AgentResult`] so the parent turn gets evidence refs
 /// and the provider id without parsing `final_text` for hidden
@@ -66,10 +63,6 @@ pub enum CliSpawnRejection {
     /// Mirrors the resolver's [`DelegationError`] so the daemon can
     /// surface the reason in a single error envelope.
     Policy(String),
-    /// A row in storage referenced a binding or session that does not
-    /// exist. Surfaced verbatim so the caller can distinguish a
-    /// permission rejection from a stale-state rejection.
-    Storage(String),
     /// The executor returned a runtime error during `open_agent` or
     /// `run_turn`. The bridge surfaces bridge errors verbatim; the
     /// daemon does not strip their `code` field.
@@ -80,7 +73,6 @@ impl std::fmt::Display for CliSpawnRejection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CliSpawnRejection::Policy(message) => write!(f, "policy: {message}"),
-            CliSpawnRejection::Storage(message) => write!(f, "storage: {message}"),
             CliSpawnRejection::Runtime(message) => write!(f, "runtime: {message}"),
         }
     }
@@ -190,10 +182,12 @@ pub async fn dispatch_cli_spawn(
         &state,
         &parent,
         &resolution,
-        &binding_id,
-        &child_session_id,
-        &child_agent_id,
-        &parent_agent_id,
+        ChildIdentity {
+            binding_id: &binding_id,
+            session_id: &child_session_id,
+            agent_id: &child_agent_id,
+            parent_agent_id: &parent_agent_id,
+        },
         &child_runtime_options,
     )
     .await
@@ -451,17 +445,28 @@ fn enforce_child_tool_ceiling(
     Ok(allowed_tools)
 }
 
-#[allow(clippy::too_many_arguments)]
+/// The identifiers a CLI child is prepared under: its driver binding, its session and agent, and
+/// its parent's agent.
+struct ChildIdentity<'a> {
+    binding_id: &'a str,
+    session_id: &'a str,
+    agent_id: &'a str,
+    parent_agent_id: &'a str,
+}
+
 async fn prepare_child_runtime(
     state: &DaemonState,
     parent: &std::sync::Arc<crate::api::LiveSession>,
     resolution: &RuntimeResolution,
-    binding_id: &str,
-    session_id: &str,
-    agent_id: &str,
-    parent_agent_id: &str,
+    identity: ChildIdentity<'_>,
     child_options: &crate::api::SessionRuntimeOptions,
 ) -> Result<PreparedChildRuntime, String> {
+    let ChildIdentity {
+        binding_id,
+        session_id,
+        agent_id,
+        parent_agent_id,
+    } = identity;
     let AgentRuntimeBackend::AuthenticatedCli {
         provider_id,
         model_id,
@@ -629,11 +634,17 @@ async fn prepare_child_runtime(
     // Membrane is reached through Pulse's CLI; no binding identity is injected.
     let mcp_env = vec![
         (
-            "RIGHTKIT_DAEMON_URL".into(),
+            rightkit_agent_config::env_name("DAEMON_URL"),
             format!("http://127.0.0.1:{}", state.bound_port),
         ),
-        ("RIGHTKIT_GATEWAY_TOKEN".into(), capability_token),
-        ("RIGHTKIT_DRIVER_INSTANCE_SECRET".into(), process_secret),
+        (
+            rightkit_agent_config::env_name("GATEWAY_TOKEN"),
+            capability_token,
+        ),
+        (
+            rightkit_agent_config::env_name("DRIVER_INSTANCE_SECRET"),
+            process_secret,
+        ),
     ];
     Ok(PreparedChildRuntime {
         lease_id,
@@ -641,7 +652,7 @@ async fn prepare_child_runtime(
             executable,
             profile,
             mcp_server: CliMcpServerSpec {
-                name: rightkit_agents::driver_host::agy_harness::HOST_MCP_SERVER_NAME.into(),
+                name: rightkit_agents::driver_host::host_names::mcp_server_name(),
                 command,
                 args: vec![
                     "mcp-server".into(),
@@ -650,7 +661,7 @@ async fn prepare_child_runtime(
                 ],
                 env: mcp_env,
             },
-            policy: rightkit_agents::driver_host::RUN_SCOPED_POLICY.into(),
+            policy: rightkit_agents::driver_host::run_scoped_policy(),
             attestation_inputs,
         },
     })
@@ -883,162 +894,10 @@ pub fn resolve_for_session(
         .map_err(|error| CliSpawnRejection::Policy(error.to_string()))
 }
 
-/// Issue an exact-once idempotency claim against `driver_event_inbox`.
-/// Returns the existing child agent id when the same key is replayed
-/// (replay is observable by the caller through `Some(existing)`); a
-/// `None` value means the caller should proceed to spawn. A fresh
-/// claim inserts a row in `status = "pending"` so the spawned child
-/// can mark it `processed` on completion.
-pub fn claim_delegation(
-    storage: &mut Storage,
-    binding_id: &str,
-    event_key: &str,
-    received_at: &str,
-) -> Result<DelegationClaim, CliSpawnRejection> {
-    let row = DriverEventInboxRow {
-        binding_id: binding_id.to_string(),
-        event_key: event_key.to_string(),
-        event_cursor: None,
-        event_kind: "delegate_task".to_string(),
-        payload_json: "{}".to_string(),
-        status: "pending".to_string(),
-        received_at: received_at.to_string(),
-        processed_at: None,
-        result_json: None,
-    };
-    match storage.claim_driver_event(&row) {
-        Ok(DriverEventClaim::Claimed) => Ok(DelegationClaim::Proceed),
-        Ok(DriverEventClaim::Duplicate(existing)) => Ok(DelegationClaim::Duplicate(existing)),
-        Err(error) => Err(map_storage_error(error)),
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(clippy::large_enum_variant)]
-pub enum DelegationClaim {
-    /// First time this idempotency key is seen — proceed with the
-    /// spawn.
-    Proceed,
-    /// The key has already been processed; the caller should return
-    /// the previously-issued child agent id without spawning again.
-    Duplicate(DriverEventInboxRow),
-}
-
-/// Persist the child `driver_bindings` row with `parent_agent_id`
-/// set so the task graph can draw the parent → child edge straight
-/// out of storage.
-pub fn upsert_child_binding(
-    storage: &Storage,
-    binding_id: &str,
-    session_id: &str,
-    parent_agent_id: &str,
-    provider_label: &str,
-    created_at: &str,
-    updated_at: &str,
-) -> Result<(), CliSpawnRejection> {
-    let row = DriverBindingRow {
-        id: binding_id.to_string(),
-        driver_kind: provider_label.to_string(),
-        session_id: session_id.to_string(),
-        vendor_session_id: None,
-        vendor_thread_id: None,
-        vendor_turn_id: None,
-        binary_version: "pending_attestation".to_string(),
-        schema_hash: String::new(),
-        status: "starting".to_string(),
-        last_event_key: None,
-        last_event_cursor: None,
-        host_agent_id: Some(session_id.to_string()),
-        parent_agent_id: parent_agent_id.to_string(),
-        provider_id: Some(provider_label.to_string()),
-        transport_kind: None,
-        account_profile_id: None,
-        auth_mode: None,
-        account_fingerprint: None,
-        model_id: None,
-        executable_path: None,
-        executable_sha256: None,
-        protocol_version: None,
-        profile_hash: None,
-        policy_hash: None,
-        tool_schema_hash: None,
-        harness_attestation_id: None,
-        isolation_mode: None,
-        resume_strategy: None,
-        context_epoch: 0,
-        process_generation: 0,
-        created_at: created_at.to_string(),
-        updated_at: updated_at.to_string(),
-    };
-    storage
-        .upsert_driver_binding(&row)
-        .map_err(map_storage_error)
-}
-
-/// Issue a new `session_capability_leases` row tied to the child
-/// binding. The caller already generated the random token+nonce;
-/// this helper computes the token hash and persists the row.
-#[allow(clippy::too_many_arguments)]
-pub fn issue_child_lease(
-    storage: &Storage,
-    binding_id: &str,
-    session_id: &str,
-    canonical_workspace: &str,
-    tool_ceiling: &[String],
-    token: &str,
-    nonce: &str,
-    lease_id: &str,
-    created_at: &str,
-    expires_at: &str,
-) -> Result<SessionCapabilityLeaseRow, CliSpawnRejection> {
-    let row = SessionCapabilityLeaseRow {
-        id: lease_id.to_string(),
-        binding_id: binding_id.to_string(),
-        token_hash: token_hash(token),
-        nonce: nonce.to_string(),
-        session_id: session_id.to_string(),
-        canonical_workspace: canonical_workspace.to_string(),
-        tool_ceiling_json: serde_json::to_string(tool_ceiling).unwrap_or_else(|_| "[]".into()),
-        created_at: created_at.to_string(),
-        expires_at: expires_at.to_string(),
-        revoked_at: None,
-        process_instance_hash: None,
-    };
-    storage
-        .upsert_session_capability_lease(&row)
-        .map_err(map_storage_error)?;
-    Ok(row)
-}
-
 fn token_hash(token: &str) -> String {
     let mut hasher = rightkit_fs::digest::Sha256Hasher::new();
     hasher.update(token.as_bytes());
     format!("sha256:{}", hasher.finalize())
-}
-
-fn map_storage_error(error: StorageError) -> CliSpawnRejection {
-    CliSpawnRejection::Storage(error.to_string())
-}
-
-/// Resolve a [`SubagentContinuity::ContinueAgent`] request into the
-/// stored binding id the executor should re-attach to. Returns
-/// `Ok(binding_id)` when a child binding exists for
-/// `continue_agent_id`; `Err(CliSpawnRejection::Storage)` otherwise.
-pub fn resolve_continuation(
-    storage: &Storage,
-    continue_agent_id: &str,
-) -> Result<String, CliSpawnRejection> {
-    // ContinueAgent re-binds to the previously-issued child agent id,
-    // which is the binding id we minted at spawn time.
-    let binding = storage
-        .get_driver_binding(continue_agent_id)
-        .map_err(map_storage_error)?
-        .ok_or_else(|| {
-            CliSpawnRejection::Storage(format!(
-                "ContinueAgent target has no driver binding: {continue_agent_id}"
-            ))
-        })?;
-    Ok(binding.id)
 }
 
 /// Convenience constructor that emits a [`ProtocolEvent`] the
@@ -1077,73 +936,6 @@ pub fn child_completed_event(
     }
 }
 
-/// Convenience constructor for the spawn-started event. Mirrors
-/// the legacy `ProtocolEvent::SubAgentSpawned` payload the daemon
-/// already publishes.
-pub fn child_spawned_event(
-    parent_session_id: &str,
-    seq: i64,
-    created_at: &str,
-    child_agent_id: &str,
-    role: &str,
-    task_title: &str,
-) -> ProtocolEvent {
-    ProtocolEvent::SubAgentSpawned {
-        session_id: parent_session_id.to_string(),
-        seq,
-        created_at: created_at.to_string(),
-        sub_session_id: child_agent_id.to_string(),
-        role: role.to_string(),
-        task_title: task_title.to_string(),
-        tool_call_id: None,
-    }
-}
-
-/// What a follow-up spawn request resolved to. Built by the daemon
-/// from [`SubagentContinuity`] + the previously-issued child binding.
-pub enum ContinuityTarget<'a> {
-    New,
-    Existing(&'a str),
-}
-
-impl<'a> From<&'a SubagentContinuity> for ContinuityTarget<'a> {
-    fn from(value: &'a SubagentContinuity) -> Self {
-        match value {
-            SubagentContinuity::New => ContinuityTarget::New,
-            SubagentContinuity::ContinueAgent { continue_agent_id } => {
-                ContinuityTarget::Existing(continue_agent_id.as_str())
-            }
-        }
-    }
-}
-
-/// Trait extension the daemon implements to expose its already-built
-/// executor and registry to the spawn helper. The daemon's
-/// `DaemonState` already carries the bridge; this trait lets the
-/// spawn helper read it without taking a direct dependency on the
-/// concrete struct.
-pub trait CliDelegationEnvironment: Send + Sync {
-    fn cli_executor(&self) -> Option<Arc<AuthenticatedCliExecutor>>;
-    fn cli_registry_provider_ids(&self) -> BTreeSet<CliProviderId>;
-    fn cli_delegation_policy(
-        &self,
-    ) -> rightkit_agents::driver_host::cli_runtime::CliDelegationPolicy;
-}
-
-impl CliDelegationEnvironment for DaemonState {
-    fn cli_executor(&self) -> Option<Arc<AuthenticatedCliExecutor>> {
-        self.cli_executor.clone()
-    }
-    fn cli_registry_provider_ids(&self) -> BTreeSet<CliProviderId> {
-        self.cli_registry_provider_ids.clone()
-    }
-    fn cli_delegation_policy(
-        &self,
-    ) -> rightkit_agents::driver_host::cli_runtime::CliDelegationPolicy {
-        self.cli_delegation_policy.clone()
-    }
-}
-
 /// Helper: turn a `value: String` into either the value or the
 /// fallback when the trimmed value is empty. Pulled out as a
 /// `String::if_empty_then` extension so the spawn-completed event
@@ -1159,13 +951,4 @@ impl IfEmptyThenExt for String {
         }
         self
     }
-}
-
-#[doc(hidden)]
-pub fn _ensure_protocol_event_used(_event: &ProtocolEvent) -> serde_json::Value {
-    // Keep the `ProtocolEvent` import alive without an unused
-    // binding warning when no other call site references it. The
-    // protocol event types are public API; this anchor guarantees
-    // rustc sees the import even on minimal feature combinations.
-    json!({})
 }

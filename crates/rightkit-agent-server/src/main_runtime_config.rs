@@ -3,9 +3,16 @@
 /// one SQLite file and the second fails to open it ("Retry engine"), and (b)
 /// periodically cleaned — users would lose all memory/sessions. Resolves the
 /// per-user data dir (`%LOCALAPPDATA%` on Windows, `~/Library/Application
-/// Support` on macOS, `$XDG_DATA_HOME`/`~/.local/share` on Linux) under a
-/// `RightKit` subdir, creating it. Falls back to temp only if none resolve.
-pub(crate) fn default_db_path() -> String {
+/// Support` on macOS, `$XDG_DATA_HOME`/`~/.local/share` on Linux) under an
+/// `Orthic Labs/<app name>` subdir, so the folder is `<data>/Orthic Labs/<app name>`, creating it.
+/// The base is read from the environment (`user_data_dir`) and deliberately does NOT use
+/// `rightkit-fs` AppDirs: the release e2e sandboxes point `HOME`/`XDG_DATA_HOME` into a throwaway
+/// home and depend on that, and AppDirs ignores `XDG_DATA_HOME` in release builds.
+/// There is no fallback (clean port, #406): when the per-user
+/// data dir does not resolve, or the private directory cannot be created, this fails.
+/// A database left in the old `<data>/<app name>` or `<data>/RightKit` folder is moved once (see
+/// [`move_legacy_database_folder`]); any failure of that move fails this call too.
+pub(crate) fn default_db_path() -> Result<String, String> {
     // A QA/test build with an isolated state root keeps the database inside it; a release
     // build never has one.
     let isolated_root = if rightkit_agent_config::state_root_is_isolated() {
@@ -13,24 +20,216 @@ pub(crate) fn default_db_path() -> String {
     } else {
         None
     };
-    let dir = default_db_dir(isolated_root, user_data_dir(), std::env::temp_dir());
-    if rightkit_fs::ensure_private_dir(&dir).is_err() {
-        let _ = std::fs::create_dir_all(&dir);
+    let isolated = isolated_root.is_some();
+    let user_data = user_data_dir();
+    let dir = default_db_dir(isolated_root, user_data.clone()).ok_or_else(|| {
+        "the per-user data directory is unavailable, so the database has no location".to_string()
+    })?;
+    if !isolated {
+        if let Some(user_data) = user_data {
+            for legacy in legacy_folder_names() {
+                move_legacy_database_folder(&user_data.join(legacy), &dir)?;
+            }
+        }
     }
-    dir.join(format!("{}.db", crate::host_identity::app()))
-        .display()
-        .to_string()
+    rightkit_fs::ensure_private_dir(&dir).map_err(|error| {
+        format!(
+            "cannot create the private database directory {}: {error}",
+            dir.display()
+        )
+    })?;
+    Ok(dir.join(db_file_name()).display().to_string())
+}
+
+/// [`default_db_path`] for a startup path that cannot run without the database: prints the reason
+/// and exits with status 2.
+pub(crate) fn default_db_path_required() -> String {
+    default_db_path().unwrap_or_else(|error| {
+        eprintln!("{}: {error}", rightkit_agent_config::host_slug());
+        std::process::exit(2)
+    })
 }
 
 fn default_db_dir(
     isolated_root: Option<std::path::PathBuf>,
     user_data: Option<std::path::PathBuf>,
-    temp: std::path::PathBuf,
-) -> std::path::PathBuf {
+) -> Option<std::path::PathBuf> {
     match isolated_root {
-        Some(root) => root,
-        None => user_data.unwrap_or(temp).join("RightKit"),
+        Some(root) => Some(root),
+        None => user_data.map(|dir| {
+            dir.join("Orthic Labs")
+                .join(rightkit_agent_config::app_name())
+        }),
     }
+}
+
+/// The folder this server's own earlier releases kept the database in: `<data>/RightKit`, a
+/// stored location (the name of a folder on the user's disk), not a product name.
+const SERVER_LEGACY_FOLDER_NAME: &str = "RightKit";
+
+/// Names of the folders (under the per-user data directory) that may still hold the database from
+/// before it moved under `Orthic Labs`: the host's own `<data>/<app name>` and this server's
+/// earlier `<data>/RightKit`, each once. A database found in more than one is refused (the
+/// move reports both folders).
+fn legacy_folder_names() -> Vec<&'static str> {
+    let mut names = vec![rightkit_agent_config::app_name()];
+    if SERVER_LEGACY_FOLDER_NAME != rightkit_agent_config::app_name() {
+        names.push(SERVER_LEGACY_FOLDER_NAME);
+    }
+    names
+}
+
+/// File name of the database inside its folder: `<app>.db`.
+fn db_file_name() -> String {
+    format!("{}.db", crate::host_identity::app())
+}
+
+/// Files of the old folder that move with the database, besides the database and its sidecars (the
+/// D4 list): the stores that derive their path from the PARENT of the database path.
+const LEGACY_MOVE_FILES: &[&str] = &[
+    "recipes.json",
+    "feature-specs.json",
+    "skillopt-runs.json",
+    "triggers.json",
+    "runtime-middleware.json",
+    "github-app-state.json",
+];
+/// Directory of the old folder that moves with the database (raw trigger artifacts).
+const LEGACY_MOVE_DIR: &str = "workflow-trigger-artifacts";
+
+/// REMOVE THIS CODE in the release after the first one that ships it (D4, one release only). It is not a compatibility reader.
+///
+/// Moves the database and its sibling stores from `old_dir` to `new_dir` (same parent, so one
+/// volume). Nothing else is moved: on Windows the old folder is the install directory. An absent or
+/// database-less old folder is Ok and never read again. Any problem returns Err and moves nothing
+/// (or undoes what it moved); the app then refuses to start rather than pick a database.
+fn move_legacy_database_folder(
+    old_dir: &std::path::Path,
+    new_dir: &std::path::Path,
+) -> Result<(), String> {
+    // True when the old folder holds a regular database file; a symlink there is refused.
+    fn old_database_present(old_dir: &std::path::Path) -> Result<bool, String> {
+        let path = old_dir.join(db_file_name());
+        match std::fs::symlink_metadata(&path) {
+            Err(_) => Ok(false),
+            Ok(meta) if meta.file_type().is_symlink() => Err(format!(
+                "{} is a symbolic link: {} will not move it",
+                path.display(),
+                rightkit_agent_config::app_name()
+            )),
+            Ok(meta) => Ok(meta.is_file()),
+        }
+    }
+    let exists = |path: std::path::PathBuf| std::fs::symlink_metadata(path).is_ok();
+    let old = old_dir.display();
+    let new = new_dir.display();
+
+    if !old_database_present(old_dir)? {
+        return Ok(());
+    }
+    rightkit_fs::ensure_private_dir(new_dir).map_err(|error| {
+        format!(
+            "cannot create the private database directory {}: {error}",
+            new_dir.display()
+        )
+    })?;
+    let _move_lock = rightkit_fs::FileLock::acquire(
+        &new_dir.join("db-folder-move.lock"),
+        &rightkit_fs::LockOptions::default().labeled(&crate::host_identity::prefixed("db-move")),
+    )
+    .map_err(|error| format!("cannot lock the database folder move in {new}: {error}"))?;
+    // A second process may have moved the files while this one waited for the lock.
+    if !old_database_present(old_dir)? {
+        return Ok(());
+    }
+    if exists(new_dir.join(db_file_name())) {
+        let app = rightkit_agent_config::app_name();
+        return Err(format!(
+            "the database exists in both {old} and {new}: {app} will not choose between them and will not start. Keep the one you want, move or delete the other, then start {app} again."
+        ));
+    }
+    let old_daemon_lock = old_dir.join(format!("{}.daemon.lock", crate::host_identity::app()));
+    if exists(old_daemon_lock.clone()) {
+        let held = rightkit_fs::FileLock::try_acquire(&old_daemon_lock);
+        if held.is_err() {
+            let app = rightkit_agent_config::app_name();
+            return Err(format!(
+                "a {app} daemon of an earlier version is still using the database in {old}: quit {app} and start it again"
+            ));
+        }
+        drop(held);
+    }
+
+    // Entries present in the old folder, in move order: sidecars first, the database LAST.
+    let is_regular_file = |name: &str| {
+        std::fs::symlink_metadata(old_dir.join(name))
+            .map(|meta| meta.is_file())
+            .unwrap_or(false)
+    };
+    let mut names: Vec<String> = Vec::new();
+    let db_name = db_file_name();
+    let wal_name = format!("{db_name}-wal");
+    let shm_name = format!("{db_name}-shm");
+    for name in [&wal_name, &shm_name] {
+        if is_regular_file(name.as_str()) {
+            names.push(name.clone());
+        }
+    }
+    for name in LEGACY_MOVE_FILES {
+        if is_regular_file(name) {
+            names.push((*name).to_string());
+        }
+    }
+    if let Ok(entries) = std::fs::read_dir(old_dir) {
+        let mut backups: Vec<String> = entries
+            .flatten()
+            .filter(|entry| {
+                entry
+                    .file_type()
+                    .map(|kind| kind.is_file())
+                    .unwrap_or(false)
+            })
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .filter(|name| name.starts_with(&format!("{db_name}.pre-v")) && name.ends_with(".bak"))
+            .collect();
+        backups.sort();
+        names.extend(backups);
+    }
+    if std::fs::symlink_metadata(old_dir.join(LEGACY_MOVE_DIR))
+        .map(|meta| meta.is_dir())
+        .unwrap_or(false)
+    {
+        names.push(LEGACY_MOVE_DIR.to_string());
+    }
+    names.push(db_name);
+
+    for name in &names {
+        if exists(new_dir.join(name)) {
+            return Err(format!("cannot move {name}: it already exists in {new}"));
+        }
+    }
+    let mut moved: Vec<&String> = Vec::new();
+    for name in &names {
+        if let Err(error) = std::fs::rename(old_dir.join(name), new_dir.join(name)) {
+            let mut undone = true;
+            for done in moved.iter().rev() {
+                if std::fs::rename(new_dir.join(done), old_dir.join(done)).is_err() {
+                    undone = false;
+                }
+            }
+            let tail = if undone {
+                "the move was undone"
+            } else {
+                "the move could not be fully undone, look in both folders"
+            };
+            return Err(format!(
+                "could not move {name} from {old} to {new}: {error}; {tail}"
+            ));
+        }
+        moved.push(name);
+    }
+    tracing::info!("moved the database folder from {old} to {new}");
+    Ok(())
 }
 
 /// Atomic state-file write (`rightkit-fs`: temp file, flush, rename; parents created).
@@ -277,38 +476,6 @@ pub(crate) fn load_current_merged_config() -> rightkit_agent_config::HostConfig 
     load_merged_config_for_workspace(&cwd, &env_vars)
 }
 
-fn web_search_config_from_config(
-    config: &rightkit_agent_config::HostConfig,
-) -> Option<rightkit_agent_coding_tools::WebSearchConfig> {
-    let provider = config
-        .tools
-        .web_search_provider
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .or_else(|| {
-            let tinyfish_available = rightkit_llm::agent_providers::load_api_key("tinyfish")
-                .is_some()
-                || std::env::var("TINYFISH_API_KEY").is_ok();
-            tinyfish_available.then(|| "tinyfish".to_string())
-        })?;
-    let api_key = config
-        .tools
-        .web_search_api_key
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or_default();
-    if provider != "tinyfish" && api_key.is_empty() {
-        return None;
-    }
-    Some(rightkit_agent_coding_tools::WebSearchConfig {
-        provider,
-        api_key: api_key.to_string(),
-    })
-}
-
 pub(crate) fn resolve_engine_config(
     config: &rightkit_agent_config::HostConfig,
     requested_model: Option<&str>,
@@ -512,12 +679,7 @@ fn engine_config_from_configured_route(
             (!model.is_empty()).then_some(model)
         })?
         .to_string();
-    let api_key = configured_route_api_key(
-        provider_id,
-        route,
-        |env_name| std::env::var(env_name).ok(),
-        rightkit_llm::agent_providers::load_api_key,
-    );
+    let api_key = route_api_key(provider_id, route);
     let native_openai_route = rightkit_llm::agent_providers::find_provider_by_base_url(base_url)
         .map(|provider| provider.id.eq_ignore_ascii_case("openai"))
         .unwrap_or(false);
@@ -563,35 +725,271 @@ pub(crate) fn missing_required_route_key(
     if native_openai {
         return None;
     }
-    configured_route_api_key(
-        provider_id,
-        route,
-        |env_name| std::env::var(env_name).ok(),
-        rightkit_llm::agent_providers::load_api_key,
-    )
-    .is_none()
-    .then(|| format!("provider route `{provider_id}` requires an API key and none is configured"))
+    if route_api_key(provider_id, route).is_some() {
+        return None;
+    }
+    // Round 2 L11: a key that exists but is withheld by the host binding is not "missing".
+    if rightkit_llm::agent_providers::load_api_key(provider_id).is_some() {
+        if let Some(refusal) = host_binding_refusal(provider_id, base_url) {
+            return Some(format!(
+                "provider route `{provider_id}` requires an API key: {refusal}"
+            ));
+        }
+    }
+    Some(format!(
+        "provider route `{provider_id}` requires an API key and none is configured"
+    ))
 }
 
-fn configured_route_api_key<EnvLookup, SavedLookup>(
+/// A route's key (providers R4): the variable its `api-key-env` names, when that is a
+/// `<PREFIX>_<NAME>_API_KEY` and this host has no OS credential store (environment, then
+/// `<state root>/.env`); otherwise the key saved under the route id. A name outside that shape
+/// finds nothing, so a config file cannot send an arbitrary variable to an endpoint.
+pub(crate) fn route_api_key(
     provider_id: &str,
     route: &rightkit_agent_config::ProviderRouteConfig,
-    env_lookup: EnvLookup,
-    mut saved_lookup: SavedLookup,
-) -> Option<String>
-where
-    EnvLookup: FnMut(&str) -> Option<String>,
-    SavedLookup: FnMut(&str) -> Option<String>,
-{
-    route
+) -> Option<String> {
+    if let Some(name) = route
         .api_key_env
         .as_deref()
         .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .and_then(env_lookup)
+        .filter(|name| !name.is_empty())
+    {
+        let host = rightkit_llm::agent_providers::host_credentials::host();
+        if let Ok(Some(found)) = host.route_key(name) {
+            let value = found.value.trim().to_string();
+            if !value.is_empty() {
+                return Some(value);
+            }
+        }
+    }
+    if !saved_key_bound_to_route_host(provider_id, &route.base_url) {
+        return None;
+    }
+    configured_route_api_key(provider_id, rightkit_llm::agent_providers::load_api_key)
+}
+
+/// Audit 2026-11-05 platform H1: a key saved under a built-in provider id (`openrouter`,
+/// `openai`, ...) is that provider's credential. It is attached only when the route's base URL
+/// has the registry entry's scheme, host and port, so a route that reuses the id with another
+/// host (written by `POST /local-models/add-provider` or by hand) never receives it. Ids outside
+/// the registry, and the registry's host-less `custom` entry, are not restricted here.
+///
+/// Round 2 M4: keys are also saved for credential ids outside that registry (`anthropic`,
+/// `google`, `mistral`, `antigravity`, `tinyfish`). Each is bound to its vendor's API origin,
+/// and an id with no API route of its own (a vendor CLI or web-search key) is never attached to
+/// a provider route at all.
+pub(crate) fn saved_key_bound_to_route_host(provider_id: &str, route_base_url: &str) -> bool {
+    match saved_key_binding(provider_id) {
+        SavedKeyBinding::Unbound => true,
+        SavedKeyBinding::Origin(origin) => same_url_origin(&origin, route_base_url),
+        SavedKeyBinding::NoRoute => false,
+    }
+}
+
+/// Where a key saved under a provider id may be sent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SavedKeyBinding {
+    /// A route-specific id (written for that route), or the registry's host-less `custom`.
+    Unbound,
+    /// Only a route on this origin receives the key.
+    Origin(String),
+    /// A credential id with no API route of its own: never attached to a route.
+    NoRoute,
+}
+
+/// API origins of the credential ids the host store knows that the provider registry does not.
+fn non_registry_credential_origin(provider_id: &str) -> Option<&'static str> {
+    match provider_id {
+        "anthropic" => Some("https://api.anthropic.com"),
+        "google" => Some("https://generativelanguage.googleapis.com"),
+        "mistral" => Some("https://api.mistral.ai"),
+        _ => None,
+    }
+}
+
+pub(crate) fn saved_key_binding(provider_id: &str) -> SavedKeyBinding {
+    let id = provider_id.trim().to_ascii_lowercase();
+    if let Some(provider) = rightkit_llm::agent_providers::find_provider(&id) {
+        return if provider.base_url.is_empty() {
+            SavedKeyBinding::Unbound
+        } else {
+            SavedKeyBinding::Origin(provider.base_url.to_string())
+        };
+    }
+    if let Some(origin) = non_registry_credential_origin(&id) {
+        return SavedKeyBinding::Origin(origin.to_string());
+    }
+    // Any other id the credential store has fixed env names for is a well-known vendor
+    // credential (a CLI or web-search key), not a key saved for a route.
+    if !rightkit_llm::agent_providers::host_credentials::provider_env_names(&id).is_empty() {
+        return SavedKeyBinding::NoRoute;
+    }
+    SavedKeyBinding::Unbound
+}
+
+/// Round 2 L11: when a saved key exists but is withheld by the host binding, say so instead of
+/// "no key configured". `None` when the binding is not what withheld it.
+pub(crate) fn host_binding_refusal(provider_id: &str, route_base_url: &str) -> Option<String> {
+    if saved_key_bound_to_route_host(provider_id, route_base_url) {
+        return None;
+    }
+    let route_host = url::Url::parse(route_base_url.trim())
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_string))
+        .unwrap_or_else(|| route_base_url.trim().to_string());
+    Some(match saved_key_binding(provider_id) {
+        SavedKeyBinding::Origin(origin) => format!(
+            "the key saved for `{provider_id}` is only sent to {origin}, and this route points at {route_host}; \
+             save a key under a different route id for this endpoint (or set `api-key-env`)"
+        ),
+        _ => format!(
+            "the key saved for `{provider_id}` is a vendor credential and is never sent to a provider route \
+             ({route_host}); save a key under a different route id for this endpoint (or set `api-key-env`)"
+        ),
+    })
+}
+
+/// True when both URLs parse and share scheme, host (ASCII case-insensitive) and effective port.
+pub(crate) fn same_url_origin(left: &str, right: &str) -> bool {
+    let (Ok(left), Ok(right)) = (url::Url::parse(left.trim()), url::Url::parse(right.trim()))
+    else {
+        return false;
+    };
+    left.scheme().eq_ignore_ascii_case(right.scheme())
+        && match (left.host_str(), right.host_str()) {
+            (Some(l), Some(r)) => l.eq_ignore_ascii_case(r),
+            _ => false,
+        }
+        && left.port_or_known_default() == right.port_or_known_default()
+}
+
+#[cfg(test)]
+mod route_key_host_binding_tests {
+    use super::{
+        host_binding_refusal, same_url_origin, saved_key_binding, saved_key_bound_to_route_host,
+        SavedKeyBinding,
+    };
+
+    #[test]
+    fn registry_id_key_binds_to_registry_host() {
+        assert!(saved_key_bound_to_route_host(
+            "openrouter",
+            "https://openrouter.ai/api/v1"
+        ));
+        assert!(saved_key_bound_to_route_host(
+            "openrouter",
+            "https://OpenRouter.ai/api/v1/"
+        ));
+        assert!(!saved_key_bound_to_route_host(
+            "openrouter",
+            "https://attacker.example/v1"
+        ));
+        assert!(!saved_key_bound_to_route_host(
+            "openai",
+            "http://api.openai.com/v1"
+        ));
+        assert!(!saved_key_bound_to_route_host(
+            "minimax",
+            "https://api.minimax.io:8443/v1"
+        ));
+        assert!(!saved_key_bound_to_route_host("OpenAI", "not a url"));
+    }
+
+    /// Round 2 M4: keys saved for credential ids outside the registry follow their vendor's
+    /// origin, or no route at all.
+    #[test]
+    fn non_registry_credential_ids_are_host_bound() {
+        assert!(saved_key_bound_to_route_host(
+            "anthropic",
+            "https://api.anthropic.com/v1"
+        ));
+        assert!(!saved_key_bound_to_route_host(
+            "anthropic",
+            "https://attacker.example/v1"
+        ));
+        assert!(!saved_key_bound_to_route_host(
+            "Anthropic",
+            "https://attacker.example/v1"
+        ));
+        assert!(saved_key_bound_to_route_host(
+            "google",
+            "https://generativelanguage.googleapis.com/v1beta/openai"
+        ));
+        assert!(!saved_key_bound_to_route_host(
+            "google",
+            "https://attacker.example/v1"
+        ));
+        assert!(saved_key_bound_to_route_host(
+            "mistral",
+            "https://api.mistral.ai/v1"
+        ));
+        assert!(!saved_key_bound_to_route_host(
+            "mistral",
+            "http://api.mistral.ai/v1"
+        ));
+        for id in ["antigravity", "tinyfish"] {
+            assert!(
+                !saved_key_bound_to_route_host(id, "https://attacker.example/v1"),
+                "{id}"
+            );
+            assert_eq!(saved_key_binding(id), SavedKeyBinding::NoRoute, "{id}");
+        }
+    }
+
+    /// Round 2 L11: a withheld key is reported as withheld, naming both hosts.
+    #[test]
+    fn host_binding_refusal_names_the_bound_origin() {
+        let message = host_binding_refusal("openrouter", "https://litellm.internal:4000/v1")
+            .expect("openrouter is bound to openrouter.ai");
+        assert!(message.contains("openrouter.ai"), "{message}");
+        assert!(message.contains("litellm.internal"), "{message}");
+        assert!(host_binding_refusal("openrouter", "https://openrouter.ai/api/v1").is_none());
+        assert!(host_binding_refusal("my-lab", "https://lab.example/v1").is_none());
+        assert!(host_binding_refusal("tinyfish", "https://x.example/v1")
+            .is_some_and(|m| m.contains("never sent")));
+    }
+
+    #[test]
+    fn non_registry_and_custom_ids_are_not_host_bound() {
+        assert!(saved_key_bound_to_route_host(
+            "my-lab",
+            "https://lab.example/v1"
+        ));
+        assert!(saved_key_bound_to_route_host(
+            "custom",
+            "http://127.0.0.1:11434/v1"
+        ));
+    }
+
+    #[test]
+    fn origin_compare_requires_parseable_hosts() {
+        assert!(same_url_origin(
+            "https://a.example/x",
+            "https://a.example:443/y"
+        ));
+        assert!(!same_url_origin(
+            "https://a.example",
+            "https://a.example.evil"
+        ));
+        assert!(!same_url_origin("https://a.example", ""));
+    }
+}
+
+/// R41 (store branch): a route's saved API key comes from the credential store, or on a host
+/// with no store from `load_api_key`'s environment and `.env` sources. No
+/// environment variable is read for it (a caller can set any variable, and the
+/// child environment is visible to every tool the run starts).
+fn configured_route_api_key<SavedLookup>(
+    provider_id: &str,
+    mut saved_lookup: SavedLookup,
+) -> Option<String>
+where
+    SavedLookup: FnMut(&str) -> Option<String>,
+{
+    saved_lookup(provider_id)
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-        .or_else(|| saved_lookup(provider_id))
 }
 
 /// The explicit `provider-routes.*` rows that resolve to a usable engine
@@ -623,7 +1021,7 @@ fn configured_catalog_routes(config: &rightkit_agent_config::HostConfig) -> Vec<
     rows
 }
 
-fn load_merged_config_for_workspace(
+pub(crate) fn load_merged_config_for_workspace(
     workspace: &std::path::Path,
     env_vars: &std::collections::HashMap<String, String>,
 ) -> rightkit_agent_config::HostConfig {
@@ -632,9 +1030,13 @@ fn load_merged_config_for_workspace(
     loader.apply_env(base, env_vars)
 }
 
-pub(crate) fn load_cli_instruction_context(
+/// Instruction context for a daemon session. `granted`: the session carries the per-session
+/// `trustWorkspace` config grant, so project and local instruction files load although the trust
+/// store has no record (the grant is never persisted).
+pub(crate) fn load_cli_instruction_context_granted(
     workspace_root: &std::path::Path,
     add_dir: &[String],
+    granted: bool,
 ) -> Option<String> {
     let mut parts = Vec::new();
 
@@ -652,10 +1054,15 @@ pub(crate) fn load_cli_instruction_context(
     );
     base_loader.add_root(
         rightkit_agent_config::InstructionScope::Local,
-        workspace_root.join(crate::host_identity::home_dir()),
+        workspace_root.join(rightkit_agent_config::state_dir_name()),
     );
 
-    let base_files = base_loader.discover();
+    // Rules 13 and 67: project and local instruction files load only in a trusted workspace.
+    // `granted`: the session carries a per-session `trustWorkspace` grant (never persisted).
+    let trusted = granted || rightkit_agent_config::is_workspace_trusted(workspace_root);
+    // Project root down to the working directory (nested AGENTS.md, CLAUDE.md, right.md).
+    base_loader.add_project_walk(workspace_root);
+    let base_files = base_loader.discover_gated(|_| trusted);
     if !base_files.is_empty() {
         parts.push(base_loader.compose(&base_files));
     }
@@ -666,7 +1073,7 @@ pub(crate) fn load_cli_instruction_context(
             rightkit_agent_config::InstructionScope::Local,
             workspace_root.join(dir),
         );
-        let files = extra_loader.discover();
+        let files = extra_loader.discover_gated(|_| trusted);
         if !files.is_empty() {
             parts.push(extra_loader.compose(&files));
         }

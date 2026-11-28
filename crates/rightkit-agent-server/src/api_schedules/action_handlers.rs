@@ -44,16 +44,55 @@ async fn run_schedule_now_handler(
     headers: HeaderMap,
     Path(id): Path<String>,
     Query(q): Query<ScheduleWorkspaceQuery>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
-    enforce_trusted_source_authority(&headers)?;
-    require_license_feature(&state, "schedules")?;
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // R19: an unknown schedule answers 404 and a paused one 409, each with a message body.
+    let message = |status: StatusCode, text: String| (status, Json(json!({ "error": text })));
+    enforce_trusted_source_authority(&headers).map_err(|s| message(s, "not authorized".into()))?;
+    require_license_feature(&state, "schedules")
+        .map_err(|s| message(s, "schedules require a Pro license".into()))?;
     let root = schedule_workspace_root(&q);
-    if state.workflows_feature.is_enabled() && crate::scheduler::workflow_schedule_cutover_enabled()
+    let schedules = load_api_schedules(&root).map_err(|_| {
+        message(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "the schedule store could not be read".into(),
+        )
+    })?;
+    match schedules.get(&id) {
+        None => {
+            return Err(message(
+                StatusCode::NOT_FOUND,
+                format!("schedule '{id}' not found"),
+            ))
+        }
+        Some(entry) if entry.paused => {
+            return Err(message(
+                StatusCode::CONFLICT,
+                format!("schedule '{id}' is paused"),
+            ))
+        }
+        Some(_) => {}
+    }
+    run_schedule_now_inner(&state, &root, id)
+        .await
+        .map_err(|s| message(s, "the scheduled run could not be submitted".into()))
+}
+
+async fn run_schedule_now_inner(
+    state: &DaemonState,
+    root: &std::path::Path,
+    id: String,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let root = root.to_path_buf();
+    // An untrusted workspace gets no workflow mapping and no workflow admission (scheduler R41):
+    // its run goes the direct way below, where it fails visibly with `untrusted_workspace`.
+    if state.workflows_feature.is_enabled()
+        && crate::scheduler::workflow_schedule_cutover_enabled()
+        && rightkit_agent_config::is_workspace_trusted(&root)
     {
         let schedules = load_api_schedules(&root).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         let entry = schedules.get(&id).ok_or(StatusCode::NOT_FOUND)?;
         let runtime_entry = entry.scheduler_entry();
-        crate::scheduler::ensure_workflow_schedule_mapping(&state, &root, &runtime_entry)
+        crate::scheduler::ensure_workflow_schedule_mapping(state, &root, &runtime_entry)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         let trigger_id = {
@@ -87,7 +126,7 @@ async fn run_schedule_now_handler(
             "workflowOccurrence": occurrence,
         })));
     }
-    crate::scheduler::fire_schedule_by_id(&state, &root, &id)
+    crate::scheduler::fire_schedule_by_id(state, &root, &id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let runs = load_api_schedule_runs(&root).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;

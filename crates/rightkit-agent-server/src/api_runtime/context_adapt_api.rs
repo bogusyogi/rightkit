@@ -1,3 +1,10 @@
+// Adapt routes. Membrane lives in Pulse and the host is a CLI consumer (context contract rule
+// 39). `insights` is the route every host has: the `insights` command and the TUI call it, and it
+// answers a typed error until Pulse ships the Membrane CLI verb (Orthic-Labs/pulse#129). The
+// other six (`status`, `review-taste`, `adjudicate-taste`, `apply-insights`, `apply-taste`,
+// `recall`) are mounted only on a host whose `adapt_routes` option is on; the routes that name a
+// file read it only from inside a workspace the engine knows (`workspaceRoot`).
+
 use std::io::Write as _;
 
 #[derive(Deserialize)]
@@ -14,7 +21,10 @@ fn default_adapt_scope() -> String {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ReviewTasteBody {
+    /// A file inside `workspace_root`, as a path relative to it.
     input: std::path::PathBuf,
+    /// The workspace the file is in; it must be one the engine knows.
+    workspace_root: Option<String>,
     installation_id: String,
     canonical_pool_sha256: Option<String>,
     created_at: String,
@@ -32,7 +42,10 @@ struct AdjudicateTasteBody {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ApplyInsightsBody {
+    /// A file inside `workspace_root`, as a path relative to it.
     input: std::path::PathBuf,
+    /// The workspace the file is in; it must be one the engine knows.
+    workspace_root: Option<String>,
     installation_id: String,
     #[serde(default)]
     dry_run: bool,
@@ -43,6 +56,8 @@ struct ApplyInsightsBody {
 pub(crate) struct InsightsBody {
     #[serde(default)]
     pub(crate) session_ids: Vec<String>,
+    /// Sent by clients to scope the mining to one workspace; the route reports it only in its
+    /// debug line until the mining service exists (Orthic-Labs/pulse#129).
     #[serde(default)]
     pub(crate) workspace_root: Option<String>,
     #[serde(default = "default_adapt_scope")]
@@ -54,7 +69,10 @@ pub(crate) struct InsightsBody {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ApplyTasteBody {
+    /// A file inside `workspace_root`, as a path relative to it (or `manifest_value` inline).
     manifest: Option<std::path::PathBuf>,
+    /// The workspace `manifest` is in; it must be one the engine knows.
+    workspace_root: Option<String>,
     manifest_value: Option<Value>,
     #[serde(default)]
     dry_run: bool,
@@ -129,9 +147,10 @@ async fn post_adapt_review_taste(
     State(state): State<DaemonState>,
     Json(body): Json<ReviewTasteBody>,
 ) -> Result<Json<Value>, (axum::http::StatusCode, Json<Value>)> {
+    let input = confine_adapt_file(body.workspace_root.as_deref(), &body.input)?;
     run_adapt(&state, move |backend| {
         backend.adapt_taste_review(
-            &body.input,
+            &input,
             &body.installation_id,
             &body.created_at,
             body.canonical_pool_sha256.as_deref(),
@@ -150,8 +169,9 @@ async fn post_adapt_apply_insights(
     State(state): State<DaemonState>,
     Json(body): Json<ApplyInsightsBody>,
 ) -> Result<Json<Value>, (axum::http::StatusCode, Json<Value>)> {
+    let input = confine_adapt_file(body.workspace_root.as_deref(), &body.input)?;
     run_adapt(&state, move |backend| {
-        backend.adapt_apply_insights(&body.input, &body.installation_id, body.dry_run)
+        backend.adapt_apply_insights(&input, &body.installation_id, body.dry_run)
     })
     .await
 }
@@ -169,6 +189,11 @@ pub(crate) async fn post_adapt_insights(
     {
         return Err(adapt_bad_request("invalid Insights mining bounds".into()));
     }
+    tracing::debug!(
+        sessions = body.session_ids.len(),
+        workspace_scoped = body.workspace_root.is_some(),
+        "Insights mining requested; the mining service is not available"
+    );
     Err(adapt_not_available())
 }
 
@@ -177,6 +202,12 @@ async fn post_adapt_apply_taste(
     Json(body): Json<ApplyTasteBody>,
 ) -> Result<Json<Value>, (axum::http::StatusCode, Json<Value>)> {
     let manifest = manifest_input(body.manifest, body.manifest_value).map_err(adapt_bad_request)?;
+    let manifest = match manifest {
+        ManifestInput::Path(path) => {
+            ManifestInput::Path(confine_adapt_file(body.workspace_root.as_deref(), &path)?)
+        }
+        inline @ ManifestInput::Inline(_) => inline,
+    };
     run_adapt(&state, move |backend| {
         with_manifest_path(manifest, |path| {
             backend.adapt_apply_manifest(&path, body.dry_run)
@@ -264,6 +295,36 @@ fn adapt_error(
             "detail": error.to_string()
         })),
     )
+}
+
+/// A file a client names, read only from inside a workspace the engine knows: `workspaceRoot` is
+/// required, the path is relative to it, and the policy of every workspace read applies (no `..`,
+/// no symlink out, no secret file name, no read-deny glob).
+fn confine_adapt_file(
+    workspace_root: Option<&str>,
+    path: &std::path::Path,
+) -> Result<std::path::PathBuf, (axum::http::StatusCode, Json<Value>)> {
+    let Some(root) = workspace_root
+        .map(str::trim)
+        .filter(|root| !root.is_empty())
+    else {
+        return Err(adapt_bad_request(
+            "workspaceRoot is required with a file path".into(),
+        ));
+    };
+    let Some(relative) = path.to_str() else {
+        return Err(adapt_bad_request("the file path is not valid text".into()));
+    };
+    crate::api_workspace::resolve_workspace_file(root, relative).map_err(|(status, reason)| {
+        (
+            status,
+            Json(serde_json::json!({
+                "schemaVersion": crate::host_identity::schema("context-adapt.v1"),
+                "error": "adapt_path_refused",
+                "reason": reason,
+            })),
+        )
+    })
 }
 
 fn adapt_bad_request(message: String) -> (axum::http::StatusCode, Json<Value>) {

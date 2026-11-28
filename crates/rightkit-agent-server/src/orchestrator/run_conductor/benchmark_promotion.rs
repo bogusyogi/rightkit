@@ -155,14 +155,96 @@ impl DaemonState {
         role: &str,
         workspace_config: &rightkit_agent_config::HostConfig,
         selected_model: Option<&str>,
+        explicit_provider: Option<&str>,
     ) -> Result<Arc<dyn LlmClient>, String> {
         use rightkit_agent_coding_tools::ToolRegistry;
         use rightkit_llm::agent_providers::OpenAiCompatClient;
 
-        let global = self
-            .engine_cfg
-            .as_ref()
-            .ok_or("no provider configured (set an API key)")?;
+        // A workspace `[provider-routes.*]` entry is a complete endpoint (base-url, model, key
+        // resolver), so it resolves without the global engine config: an explicit provider id wins,
+        // then the role's `[orchestration.agents.<role>]` provider when it serves this model, then
+        // (only when there is no engine config to fall back on) the first route, by sorted key,
+        // that declares the model.
+        fn route_by_id<'a>(
+            config: &'a rightkit_agent_config::HostConfig,
+            id: &str,
+        ) -> Option<(String, &'a rightkit_agent_config::ProviderRouteConfig)> {
+            let id = id.trim();
+            config
+                .provider_routes
+                .get(id)
+                .map(|route| (id.to_string(), route))
+        }
+        let selected_model = selected_model
+            .map(str::trim)
+            .filter(|model| !model.is_empty());
+        let direct_route = selected_model.and_then(|model| {
+            explicit_provider
+                .filter(|provider| !provider.trim().is_empty())
+                .and_then(|provider| route_by_id(workspace_config, provider))
+                .or_else(|| {
+                    workspace_config
+                        .orchestration
+                        .agents
+                        .get(role)
+                        .filter(|agent| agent.model_id.trim() == model)
+                        .and_then(|agent| route_by_id(workspace_config, &agent.provider_id))
+                })
+                .or_else(|| {
+                    if self.engine_cfg.is_some() {
+                        return None;
+                    }
+                    let mut routes: Vec<_> = workspace_config.provider_routes.iter().collect();
+                    routes.sort_by(|a, b| a.0.cmp(b.0));
+                    routes
+                        .into_iter()
+                        .find(|(_, route)| route.model.trim().eq_ignore_ascii_case(model))
+                        .map(|(id, route)| (id.clone(), route))
+                })
+                .map(|(id, route)| (id, route, model))
+        });
+        if let Some((provider_id, route, model)) = direct_route {
+            let api_key =
+                crate::main_runtime::route_api_key(&provider_id, route).unwrap_or_default();
+            if api_key.is_empty() && route.api_key_required {
+                return Err(format!(
+                    "provider route `{provider_id}` requires an API key and none is configured"
+                ));
+            }
+            // Same client the session engine uses for a configured route: the dynamic client picks
+            // the wire protocol per request from the route (native Anthropic Messages for
+            // api.anthropic.com, OpenAI-compatible otherwise) and applies the route's egress
+            // policy. A fixed `OpenAiCompatClient` spoke the wrong protocol to Anthropic-native
+            // routes, so the planner failed (build 62, `/commit` on `anthropic-direct`).
+            let key_required = route.api_key_required;
+            let provider_route = crate::provider_client::ProviderRoute {
+                api_key,
+                model_id: rightkit_llm::agent_providers::provider_model_id(&provider_id, model),
+                base_url: route.base_url.trim().trim_end_matches('/').to_string(),
+                effort: None,
+                thinking_budget_tokens: None,
+                disable_thinking: false,
+                fallback_models: Vec::new(),
+                approved_private: route.approved_private,
+                api_key_required: key_required,
+                compat: crate::provider_client::route_compat_of(route),
+            };
+            let tools = Arc::new(ToolRegistry::new());
+            return Ok(Arc::new(ProviderLlmClient::new_dynamic(
+                Arc::new(std::sync::Mutex::new(provider_route)),
+                tools,
+            )));
+        }
+
+        // No route resolved: fall back to the global engine config. The conductor runs on its own
+        // configured model, which can differ from the chat model, so say which model needs a
+        // provider and which config would fix it.
+        let global = self.engine_cfg.as_ref().ok_or_else(|| {
+            let model = selected_model.unwrap_or("<model>");
+            format!(
+                "no provider configured for the `{role}` model `{model}`: add [provider-routes.<id>] declaring {model}, or set [orchestration.agents.{role}] provider-id (the chat model's route is not used)"
+            )
+        })?;
         let (model, base_url, api_key) = if let Some(selected_model) = selected_model
             .map(str::trim)
             .filter(|model| !model.is_empty())

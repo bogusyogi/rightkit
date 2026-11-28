@@ -10,33 +10,53 @@ use serde::Deserialize;
 
 use super::rewind::strip_system_reminders;
 use crate::api::{
-    direct_message_engine_payload, dynamic_user_turn_reminder, lock_recover, now_iso, now_millis,
-    require_license_feature, run_dispatched_session_entry, set_goal_status_field, touch_session,
-    trust_envelope, DaemonState, EditGoal, PostMessage, SetGoal,
+    direct_message_engine_payload, lock_recover, now_iso, now_millis, require_license_feature,
+    run_dispatched_session_entry, set_goal_status_field, touch_session, trust_envelope,
+    DaemonState, EditGoal, PostMessage, SetGoal,
 };
 use crate::api_permissions::{enforce_trusted_source_authority, lower_source_trust};
 
-// The mid-run steering queue (queue semantics only; see the module docs).
-// Kept beside this file, not in the shared protocol or the LiveSession shape.
+// Kept path-local so queue semantics stay out of the shared protocol and the LiveSession shape.
 #[path = "steering.rs"]
 mod steering;
 
-const EVT005_QUALIFICATION_FAULT_ENV: &str = "RIGHTKIT_QUAL_EVT005_FAULT";
-/// CQ-13: fault points only arm inside the qualification harness's isolated
-/// daemon (`tests/support/daemon_process.rs` sets this for every spawned
-/// child). An inherited point variable alone can no longer terminate an
-/// ordinary build.
-const QUALIFICATION_FAULTS_ARMED_ENV: &str = "RIGHTKIT_QUAL_FAULTS_ARMED";
+/// Issue 450 (W9T-03): clients end a turn on `sessionTurnFinished` only, so every path that
+/// answers a turn without the engine's own terminal publish (the missing-provider reply, the
+/// conductor) must publish one, or a one-shot `run` waits forever.
+pub(crate) fn publish_turn_finished(
+    conduit: &rightkit_agent_engine_core::conduit::Conduit,
+    session_id: &str,
+    turn_id: &str,
+    status: &str,
+) {
+    let seq = conduit.next_seq();
+    conduit.publish(ProtocolEvent::SessionTurnFinished {
+        session_id: session_id.to_string(),
+        seq,
+        created_at: now_iso(),
+        turn_id: turn_id.to_string(),
+        status: status.to_string(),
+    });
+}
 
+/// Compiled only into `qualification` builds (issue 500): a release build must not exit
+/// because an environment variable says so.
+#[cfg(not(feature = "qualification"))]
+fn evt005_qualification_fault(_: &str) {}
+
+/// CQ-13: fault points only arm inside the qualification harness's isolated daemon
+/// (`tests/support/daemon_process.rs` sets the armed variable for every spawned child). An
+/// inherited point variable alone can no longer terminate an ordinary build.
+#[cfg(feature = "qualification")]
 fn evt005_qualification_fault(point: &str) {
-    if std::env::var(QUALIFICATION_FAULTS_ARMED_ENV)
+    if std::env::var(rightkit_agent_config::env_name("QUAL_FAULTS_ARMED"))
         .ok()
         .as_deref()
         != Some("1")
     {
         return;
     }
-    if std::env::var(EVT005_QUALIFICATION_FAULT_ENV)
+    if std::env::var(rightkit_agent_config::env_name("QUAL_EVT005_FAULT"))
         .ok()
         .as_deref()
         == Some(point)
@@ -47,12 +67,36 @@ fn evt005_qualification_fault(point: &str) {
     }
 }
 
+/// Release a deleted session's steering queue (called when the session is deleted).
+pub(crate) fn retire_steering_queue(session_id: &str) {
+    steering::retire_session(session_id);
+}
+
+/// Whether `POST /sessions/{id}/messages` may create a new session under the
+/// raw path `id`: the same rule `POST /sessions` applies to a client-chosen id.
+fn may_auto_create_session(id: &str) -> bool {
+    super::lifecycle::is_safe_client_session_id(id)
+}
+
 pub(crate) async fn post_message(
     State(state): State<DaemonState>,
     Path(id): Path<String>,
     headers: HeaderMap,
     Json(body): Json<PostMessage>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if let Some(reason) = &state.storage_open_failure {
+        // Rule 7: no persistence, no turn. History is not being saved, so the daemon says so.
+        let correlation_id = rightkit_agent_engine_protocol::uuid_v7();
+        return Err(machine_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "storage_unavailable",
+            &format!("History is not being saved: the database could not be opened ({reason})"),
+            &correlation_id,
+            true,
+            "none",
+        ));
+    }
+    crate::api_session_handoff::recover_orphaned_handoff(&state, &id).await;
     if state.handoff_intake_is_fenced(&id) {
         let correlation_id = rightkit_agent_engine_protocol::uuid_v7();
         return Err(machine_error(
@@ -78,6 +122,39 @@ pub(crate) async fn post_message(
             .await
             .is_none()
         {
+            // A stored session that could not be resumed must not be recreated under the same id:
+            // the fresh event counter would collide with the durable rows and kill the chat.
+            if let Some(storage) = state.storage.clone() {
+                let stored = storage
+                    .lock()
+                    .await
+                    .get_session(&id)
+                    .ok()
+                    .flatten()
+                    .is_some();
+                if stored {
+                    return Err(machine_error(
+                        StatusCode::CONFLICT,
+                        "session_resume_failed",
+                        "this session has stored history but could not be resumed; see the daemon log for the reason",
+                        &rightkit_agent_engine_protocol::uuid_v7(),
+                        false,
+                        "none",
+                    ));
+                }
+            }
+            // A genuinely new id becomes a directory name (history, worktrees, traces):
+            // apply the same check `POST /sessions` applies to client-chosen ids.
+            if !may_auto_create_session(&id) {
+                return Err(machine_error(
+                    StatusCode::BAD_REQUEST,
+                    "session_id_invalid",
+                    "session id must be non-empty, at most 256 bytes, not `.` or `..`, and hold no path separator, control character, `: * ? \" < > |`, trailing `.` or space, or Windows device name (`CON`, `NUL`, `COM1`, ...)",
+                    &rightkit_agent_engine_protocol::uuid_v7(),
+                    false,
+                    "none",
+                ));
+            }
             let role = if is_website_task(&body.text) {
                 Some("designer")
             } else {
@@ -329,7 +406,7 @@ pub(crate) async fn post_message(
         {
             transcript.push(TranscriptMessage::user_with_attachments(
                 user_message_id,
-                user_created_at,
+                user_created_at.clone(),
                 engine_content.clone(),
                 Some(transcript_trust.clone()),
                 false,
@@ -338,24 +415,10 @@ pub(crate) async fn post_message(
         }
     }
 
-    let memory_injection = if state.uses_direct_context() {
-        None
-    } else {
-        crate::api::retrieve_session_memory(
-            &state,
-            &id,
-            &live.workspace_root,
-            &body.text,
-            5,
-            request_source,
-        )
-        .await
-    };
-    let reminder = dynamic_user_turn_reminder(
-        memory_injection
-            .as_ref()
-            .map(|injection| injection.context.as_str()),
+    let reminder = crate::api::user_turn_reminder_with_state_at(
+        &user_created_at,
         &[],
+        crate::api::session_state_note(&live, &id).as_deref(),
     );
     let direct_engine_content =
         direct_message_engine_payload(&engine_content, &transcript_trust, &reminder);
@@ -394,7 +457,18 @@ pub(crate) async fn post_message(
         live.sandbox_grant_prompts
             .store(enabled, std::sync::atomic::Ordering::Release);
     }
-    let routing_enabled = require_license_feature(&state, "routing").is_ok();
+    // The dispatch complexity classifier is an extra model call per message, so it
+    // runs only when the workspace opts in (`orchestration.conductor-routing`) and, on a host
+    // that enforces licences, only with the `routing` Pro feature.
+    // W8G-01 (#494): a session carrying the per-session trust grant reads the workspace layer
+    // whole, like its conductor (W7T-02), so its conductor-routing setting is honoured.
+    let routing_enabled = crate::daemon_state::load_workspace_config_granted(
+        std::path::Path::new(live.workspace_root.trim()),
+        crate::daemon_state::session_config_granted(&id),
+    )
+    .orchestration
+    .conductor_routing()
+        && require_license_feature(&state, "routing").is_ok();
     let classifier = state.dispatch_classifier();
     let dispatch_conduit = live.conduit.clone();
     let dispatch_session_id = id.clone();
@@ -473,15 +547,25 @@ pub(crate) async fn post_message(
                     content: crate::api::missing_provider_key_message(),
                     reasoning_content: None,
                     tool_calls: Vec::new(),
-                    pinned: false, origin: None,
+                    pinned: false,
+                    origin: None,
                 };
                 let seq = direct_conduit.next_seq();
                 direct_conduit.publish(ProtocolEvent::AssistantMessageCompleted {
                     session_id: direct_session_id.clone(),
                     seq,
                     created_at: now_iso(),
-                    message, phase: rightkit_agent_engine_protocol::AssistantMessagePhase::legacy_default(),
+                    message,
+                    phase: rightkit_agent_engine_protocol::AssistantMessagePhase::Final,
                 });
+                publish_turn_finished(
+                    &direct_conduit,
+                    &direct_session_id,
+                    &format!("no-provider-{seq}"),
+                    // The turn did nothing: no model was reachable. Recording it as completed
+                    // made the session list say "Finished" for a chat that never ran.
+                    "failed",
+                );
             }
             Ok(())
         },
@@ -500,9 +584,18 @@ pub(crate) async fn post_message(
             let settle_digest = conduct_digest.clone();
             let settle_session_id = conduct_session_id.clone();
             tokio::spawn(async move {
-                if let Err(e) = conduct_state
+                let conduct_result = conduct_state
                     .run_conductor(&conduct_session_id, &conduct_goal, false)
-                    .await
+                    .await;
+                if conduct_result.is_ok() {
+                    publish_turn_finished(
+                        &conduct_session.conduit,
+                        &conduct_session_id,
+                        &format!("conductor-{}", now_millis()),
+                        "completed",
+                    );
+                }
+                if let Err(e) = conduct_result
                 {
                     tracing::error!(session_id = %conduct_session_id, error = %e, "auto-dispatch conductor error");
                     // EVT-005/EVT-006: the fence was raised before this task
@@ -667,7 +760,7 @@ fn machine_error(
 
 // FM-124: routes edit / reorder / send-now (and list/enqueue/remove)
 // controls for the mid-run steering queue onto `steering::SteeringQueue`
-// (engine/crates/engine/src/steering.rs), which owns the actual queue
+// (`steering.rs`, beside this file), which owns the actual queue
 // semantics and rejection rules (e.g. an already-dispatched item can no
 // longer be edited/reordered/removed).
 pub(crate) async fn steer_session(
@@ -1147,7 +1240,7 @@ async fn rewind_session_once(
                     tracing::info!(session_id = %id, %error, "rewind request refused");
                     StatusCode::CONFLICT
                 })?;
-            return Ok(Json(serde_json::json!({
+            let mut answer = serde_json::json!({
                 "rewound": report.conversation_rewound,
                 "text": report.text,
                 "conversationRewound": report.conversation_rewound,
@@ -1155,7 +1248,23 @@ async fn rewind_session_once(
                 "fileConflicts": report.file_conflicts.into_iter().map(|(path, reason)| {
                     serde_json::json!({"path": path, "reason": reason})
                 }).collect::<Vec<_>>(),
-            })));
+            });
+            if !report.background_shells_running.is_empty() {
+                answer["backgroundShellsRunning"] = serde_json::Value::Array(
+                    report
+                        .background_shells_running
+                        .into_iter()
+                        .map(|(shell_id, command)| {
+                            serde_json::json!({
+                                "shellId": shell_id,
+                                "command": command,
+                                "note": "still running: left alone; the files it changes are not covered by this rewind",
+                            })
+                        })
+                        .collect(),
+                );
+            }
+            return Ok(Json(answer));
         }
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -1219,11 +1328,51 @@ pub(crate) struct RewindSessionRequest {
     pub nonce: Option<String>,
 }
 
+/// `POST /sessions/{id}/redo`: re-apply the most recent undo (rewind). The
+/// removed messages and the files the undo restored go back. 409 with a stable
+/// `error` code (`nothing_to_redo`, `turn_since_undo`, `turn_running`) when it
+/// cannot be redone; the reply has the same shape as a rewind.
+pub(crate) async fn redo_session(
+    State(state): State<DaemonState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    enforce_trusted_source_authority(&headers).map_err(|status| {
+        (
+            status,
+            Json(serde_json::json!({"error": "untrusted_source"})),
+        )
+    })?;
+    if state.get_session(&id).is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "session_not_found"})),
+        ));
+    }
+    match super::rewind::redo_last_undo(&state, &id).await {
+        Ok(report) => Ok(Json(serde_json::json!({
+            "rewound": report.conversation_rewound,
+            "text": report.text,
+            "conversationRewound": report.conversation_rewound,
+            "filesRestored": report.files_restored,
+            "fileConflicts": report.file_conflicts.into_iter().map(|(path, reason)| {
+                serde_json::json!({"path": path, "reason": reason})
+            }).collect::<Vec<_>>(),
+        }))),
+        Err(refusal) => Err((
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({"error": refusal.code(), "message": refusal.message()})),
+        )),
+    }
+}
+
 pub(crate) async fn rewind_points_handler(
     State(state): State<DaemonState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let points = super::rewind::rewind_points(&state, &id).map_err(|_| StatusCode::NOT_FOUND)?;
+    let points = super::rewind::rewind_points(&state, &id)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
     Ok(Json(serde_json::json!(points
         .into_iter()
         .map(|point| {
@@ -1234,4 +1383,20 @@ pub(crate) async fn rewind_points_handler(
             })
         })
         .collect::<Vec<_>>())))
+}
+
+#[cfg(test)]
+mod auto_create_session_id_tests {
+    use super::may_auto_create_session;
+
+    #[test]
+    fn a_path_id_that_could_escape_a_directory_never_auto_creates_a_session() {
+        for id in [
+            "", ".", "..", "../x", "a/b", "a\\b", "..\\..", "/", "a\0b", "a\nb",
+        ] {
+            assert!(!may_auto_create_session(id), "{id:?}");
+        }
+        assert!(!may_auto_create_session(&"x".repeat(257)));
+        assert!(may_auto_create_session("s-0193a1b2"));
+    }
 }

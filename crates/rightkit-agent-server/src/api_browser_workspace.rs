@@ -12,9 +12,9 @@
 //!   `browser_workspace_openapi_components()`.
 //!
 //! - All session-affecting state lives behind the `BrowserWorkspaceServices`
-//!   trait Agent 4 implements. The fragment itself holds the per-RightKit-
+//!   trait Agent 4 implements. The fragment itself holds the per-engine-
 //!   session annotation store and the route handlers; the trait carries the
-//!   `BrowserStore`, host policy, action log, pause flag, profile kind/label,
+//!   `BrowserStore`, host policy, action log, pause flag,
 //!   viewport, capability gate, and the dispatch seam into the live agent.
 //!   Agent 4's implementation is what reaches into `LiveSession::browser_*`,
 //!   not this file.
@@ -26,16 +26,15 @@
 //!     * Browser capability gate runs before any state mutation.
 //!     * Page text and console output are wrapped via
 //!       `rightkit_agent_coding_tools::browser_fetch::wrap_untrusted_web_text`.
-//!     * Browser profiles are ephemeral by default; named shared profiles
-//!       require the operator to flip `profile_kind` through the consent
-//!       endpoint below.
+//!     * Browser profiles are ephemeral by default; a session reuses the
+//!       user's sign-ins only under a consent receipt (granted by the host).
 //!     * Page text is bounded by `MAX_TEXT_BYTES`, screenshots by
-//!       `MAX_SCREENSHOT_BYTES`, console by RightKit's own 500-line cap.
+//!       `MAX_SCREENSHOT_BYTES`, console by the engine's own 500-line cap.
 //!     * Action log, host policy, pause, viewport, profile state all
 //!       live with the session and are dropped with it.
 //!
 //! - Tests in this file are deterministic where they exercise pure
-//!   shape/decision logic and gated on `RIGHTKIT_BROWSER_WORKSPACE_TESTS=1`
+//!   shape/decision logic and gated on `CODERIGHT_BROWSER_WORKSPACE_TESTS=1`
 //!   for anything that would require a running daemon or live Chrome.
 //!
 //! ## Decomposition (ra-020)
@@ -66,3 +65,10 @@ pub use openapi::{
     browser_workspace_openapi_components, browser_workspace_openapi_request_schema,
     browser_workspace_openapi_response_schema,
 };
+
+// =============================================================================
+// Tests (deterministic + gated-live). Not run in this lane — Agent 4 owns
+// test execution. The `#[cfg(test)] mod tests` block here documents the
+// deterministic unit checks; the gated-live block exercises the full
+// workspace surface against a real Chrome process.
+// =============================================================================

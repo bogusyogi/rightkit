@@ -1,6 +1,6 @@
 use super::ApiEndpoint;
 
-pub(super) const ENDPOINT_GROUP_07: [ApiEndpoint; 27] = [
+pub(super) const ENDPOINT_GROUP_07: [ApiEndpoint; 28] = [
     ApiEndpoint {
         method: "GET",
         path: "/runtime/rollouts",
@@ -60,6 +60,11 @@ pub(super) const ENDPOINT_GROUP_07: [ApiEndpoint; 27] = [
         method: "POST",
         path: "/plugins/install",
         summary: "Install a local plugin",
+    },
+    ApiEndpoint {
+        method: "DELETE",
+        path: "/plugins/{id}",
+        summary: "Remove an installed plugin",
     },
     ApiEndpoint {
         method: "GET",

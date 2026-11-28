@@ -33,37 +33,46 @@ enum DaemonResolution {
 /// Resolve the running daemon's base URL and bearer token.
 ///
 /// Resolution order:
-/// 1. `RIGHTKIT_DAEMON_URL` + `RIGHTKIT_DAEMON_TOKEN` env vars (set by callers / CI).
+/// 1. `<PREFIX>_DAEMON_URL` + `<PREFIX>_DAEMON_TOKEN` env vars, only on a host whose
+///    `host_options::daemon_endpoint_from_environment` is set (a host that follows client API R32
+///    never reads them).
 /// 2. `<state root>/daemon.port` — JSON file written by `serve` on startup.
 pub(crate) fn resolve_daemon() -> Option<(String, String)> {
-    match resolve_daemon_state() {
+    match resolve_daemon_state(true) {
         DaemonResolution::Resolved(resolved) => Some(resolved),
         DaemonResolution::Stopped | DaemonResolution::Unreachable { .. } => None,
     }
 }
 
-fn resolve_daemon_state() -> DaemonResolution {
-    let url = std::env::var("RIGHTKIT_DAEMON_URL").ok();
-    let tok = std::env::var("RIGHTKIT_DAEMON_TOKEN").ok();
+/// [`resolve_daemon`] with only the quick health attempts (2 x 500 ms). For the autostart
+/// poll loops in `cli_presence`, which repeat on their own schedule: the patient attempt
+/// there would stretch an attempt-counted loop from about 20 s to minutes.
+pub(crate) fn resolve_daemon_quick() -> Option<(String, String)> {
+    match resolve_daemon_state(false) {
+        DaemonResolution::Resolved(resolved) => Some(resolved),
+        DaemonResolution::Stopped | DaemonResolution::Unreachable { .. } => None,
+    }
+}
+
+/// `patient`: the second health attempt waits [`BUSY_DAEMON_HEALTH_TIMEOUT`] instead of 500 ms.
+fn resolve_daemon_state(patient: bool) -> DaemonResolution {
+    let (url, tok) = if crate::host_options::daemon_endpoint_from_environment() {
+        (
+            std::env::var(rightkit_agent_config::env_name("DAEMON_URL")).ok(),
+            std::env::var(rightkit_agent_config::env_name("DAEMON_TOKEN")).ok(),
+        )
+    } else {
+        (None, None)
+    };
     let state_dir = rightkit_agent_config::state_root().map(|p| p.display().to_string());
-    resolve_daemon_state_from_sources(url, tok, state_dir.as_deref())
-}
-
-fn resolve_daemon_from_sources(
-    url: Option<String>,
-    tok: Option<String>,
-    state_dir: Option<&str>,
-) -> Option<(String, String)> {
-    match resolve_daemon_state_from_sources(url, tok, state_dir) {
-        DaemonResolution::Resolved(resolved) => Some(resolved),
-        DaemonResolution::Stopped | DaemonResolution::Unreachable { .. } => None,
-    }
+    resolve_daemon_state_from_sources(url, tok, state_dir.as_deref(), patient)
 }
 
 fn resolve_daemon_state_from_sources(
     url: Option<String>,
     tok: Option<String>,
     state_dir: Option<&str>,
+    patient: bool,
 ) -> DaemonResolution {
     // Env vars take highest precedence.
     if let (Some(u), Some(t)) = (url, tok) {
@@ -81,7 +90,7 @@ fn resolve_daemon_state_from_sources(
     let Some(info) = LoopbackRecord::parse(&content) else {
         return DaemonResolution::Stopped;
     };
-    if info.protocol_version != 1
+    if info.protocol_version != rightkit_agent_engine_api_platform::health::PROTOCOL_VERSION
         || info.schema_id.trim().is_empty()
         || info.runtime.trim().is_empty()
         || info.generation == 0
@@ -92,7 +101,7 @@ fn resolve_daemon_state_from_sources(
         return DaemonResolution::Stopped;
     }
     let url = format!("http://127.0.0.1:{}", info.port);
-    if !blocking_health_reachable_repeated(&url) {
+    if !blocking_health_reachable_repeated(&url, patient) {
         // Discovery removal is daemon-owned. Even after repeated health
         // failure clients only classify the record as unavailable; they never
         // unlink another process's file.
@@ -104,44 +113,70 @@ fn resolve_daemon_state_from_sources(
     DaemonResolution::Resolved((url, info.token))
 }
 
+/// Response budget of the second health attempt. W2-10: with 64 chats starting at once the
+/// daemon's runtime is busy (session creates, for one, run synchronously on its workers) and
+/// `/health` can answer in seconds, not in 500 ms. Two 500 ms attempts then classified a live daemon,
+/// whose pid and start time were just verified, as unreachable; `run` fell back to
+/// the inline writer lock, found the daemon holding it, and gave up after its 10 s wait
+/// ("holds the database lock ... and no daemon answers", exit 3, about 12.6 s).
+/// A refused connection still fails at once whatever this budget, so only a daemon whose
+/// listener accepts but does not answer pays it.
+/// The cost, paid only by a wedged daemon (accepts, never answers): about 10.8 s per resolve, so
+/// `status` takes about 11 s, a headless `run` about 21 s before its exit 3 (the first
+/// resolve plus one pass of its 10 s lock wait), and each `cli_presence` poll up to about 21 s
+/// (resolve plus its 2xx check, which only bites if the daemon answered and then wedged).
+/// This is a client-side mitigation, not the cure: the daemon-side cause (synchronous session
+/// creation under `SESSION_CREATE_GATE` on the runtime workers, `api_sessions/lifecycle.rs`) is
+/// recorded as a cross-lane change in docs/reports/audit-2026-11-06/w2daemon.md.
+pub(crate) const BUSY_DAEMON_HEALTH_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_secs(10);
+
 /// Reachability probe, safe to call from sync *or* async callers: the blocking
 /// `rightkit_http::Client` owns no async runtime, so there is nothing to drop inside
-/// an async context.
-fn blocking_health_reachable_repeated(base_url: &str) -> bool {
-    let mut policy = rightkit_http::AddressPolicy::public_web();
-    if let Some(host) = rightkit_agent_daemon::http_client::host_of(base_url) {
-        policy = policy.allow_if(vec![host], |_| true);
-    }
-    let client = rightkit_http::Client::new(rightkit_http::ClientConfig {
-        connect_timeout: Some(std::time::Duration::from_millis(300)),
-        request_timeout: std::time::Duration::from_millis(500),
-        response_timeout: Some(std::time::Duration::from_millis(500)),
-        retry: rightkit_http::RetryPolicy::none(),
-        address_policy: policy,
-        proxy: rightkit_http::ProxyMode::None,
-        ..rightkit_http::ClientConfig::default()
-    });
+/// an async context. A quick attempt first, then one more: patient
+/// ([`BUSY_DAEMON_HEALTH_TIMEOUT`]) when `patient`, else another 500 ms.
+fn blocking_health_reachable_repeated(base_url: &str, patient: bool) -> bool {
+    let second_budget = if patient {
+        BUSY_DAEMON_HEALTH_TIMEOUT
+    } else {
+        std::time::Duration::from_millis(500)
+    };
+    let probe = |response_timeout: std::time::Duration| {
+        let mut policy = rightkit_http::AddressPolicy::public_web();
+        if let Some(host) = rightkit_agent_daemon::http_client::host_of(base_url) {
+            policy = policy.allow_if(vec![host], |_| true);
+        }
+        rightkit_http::Client::new(rightkit_http::ClientConfig {
+            connect_timeout: Some(std::time::Duration::from_millis(300)),
+            request_timeout: response_timeout,
+            response_timeout: Some(response_timeout),
+            retry: rightkit_http::RetryPolicy::none(),
+            address_policy: policy,
+            proxy: rightkit_http::ProxyMode::None,
+            ..rightkit_http::ClientConfig::default()
+        })
+        .send_any(&rightkit_http::Request::get(format!("{base_url}/health")))
+        // Any HTTP response proves transport reachability. HTTP
+        // health failures are classified as degraded by async status.
+        .is_ok()
+    };
     repeated_health_probe(
-        || {
-            client
-                .send_any(&rightkit_http::Request::get(format!("{base_url}/health")))
-                // Any HTTP response proves transport reachability. HTTP
-                // health failures are classified as degraded by async status.
-                .is_ok()
-        },
+        || probe(std::time::Duration::from_millis(500)),
         || std::thread::sleep(std::time::Duration::from_millis(150)),
+        || probe(second_budget),
     )
 }
 
 fn repeated_health_probe(
-    mut probe: impl FnMut() -> bool,
-    mut between_attempts: impl FnMut(),
+    first: impl FnOnce() -> bool,
+    between_attempts: impl FnOnce(),
+    second: impl FnOnce() -> bool,
 ) -> bool {
-    if probe() {
+    if first() {
         return true;
     }
     between_attempts();
-    probe()
+    second()
 }
 
 /// Whether `pid` names a process that started within two seconds of `boot_epoch_ms`
@@ -160,24 +195,4 @@ fn process_matches_start(pid: u32, boot_epoch_ms: u128) -> bool {
         ),
         Ok(Some(_))
     )
-}
-
-/// Start time of `identity`'s process as Unix epoch milliseconds.
-pub(crate) fn identity_start_epoch_ms(
-    identity: &rightkit_child_process::AdoptedIdentity,
-) -> Option<u128> {
-    identity
-        .start_time()?
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()
-        .map(|elapsed| elapsed.as_millis())
-}
-
-/// Start time of process `pid` as Unix epoch milliseconds, `None` when no such process
-/// exists or the host reports no start time.
-pub(crate) fn process_start_epoch_ms(pid: u32) -> Option<u128> {
-    let identity =
-        rightkit_child_process::AdoptedIdentity::capture(std::num::NonZeroU32::new(pid)?)
-            .ok()??;
-    identity_start_epoch_ms(&identity)
 }

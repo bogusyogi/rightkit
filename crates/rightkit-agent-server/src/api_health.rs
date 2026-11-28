@@ -41,7 +41,7 @@ async fn health() -> Json<HealthResponse> {
     Json(HealthResponse {
         ok: true,
         service: crate::host_identity::prefixed("daemon"),
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        version: crate::host_identity::version().to_string(),
         contract_version: rightkit_agent_engine_api_platform::health::CONTRACT_VERSION,
         protocol_version: rightkit_agent_engine_api_platform::health::PROTOCOL_VERSION,
     })
@@ -68,17 +68,20 @@ async fn health_diagnostics(
     let resolution = resolve_sandbox_settings(saved.as_ref());
     let source = match resolution.source {
         rightkit_agent_policy::SandboxPolicySource::Default => "default",
-        rightkit_agent_policy::SandboxPolicySource::Operator => "RIGHTKIT_SANDBOX_TIER",
+        rightkit_agent_policy::SandboxPolicySource::Operator => {
+            crate::host_identity::interned(rightkit_agent_config::env_name("SANDBOX_TIER"))
+        }
         rightkit_agent_policy::SandboxPolicySource::Workspace => {
             crate::host_identity::interned(format!(
                 "{home}/sandbox-settings.json",
-                home = crate::host_identity::home_dir()
+                home = rightkit_agent_config::state_dir_name()
             ))
         }
         rightkit_agent_policy::SandboxPolicySource::OperatorAndWorkspace => {
             crate::host_identity::interned(format!(
-                "RIGHTKIT_SANDBOX_TIER + {home}/sandbox-settings.json",
-                home = crate::host_identity::home_dir()
+                "{} + {home}/sandbox-settings.json",
+                rightkit_agent_config::env_name("SANDBOX_TIER"),
+                home = rightkit_agent_config::state_dir_name()
             ))
         }
     };
@@ -159,6 +162,25 @@ pub(crate) struct DiagnosticsBundleDownload {
     pub(crate) content_base64: String,
 }
 
+/// The sandbox tier a shell command in `workspace_root` runs under at session start: the operator
+/// and workspace settings resolved as `GET /sandbox/settings` does, then lowered the way `Bypass`
+/// lowers it (tools contract: Bypass keeps filesystem confinement and permits network).
+pub(crate) fn effective_sandbox_tier_for_session(
+    workspace_root: &str,
+    mode: rightkit_agent_policy::PermissionMode,
+) -> rightkit_agent_policy::SandboxTier {
+    let saved = optional_workspace_root(Some(workspace_root))
+        .and_then(|root| load_sandbox_settings(&root).ok().flatten());
+    let tier = resolve_sandbox_settings(saved.as_ref()).effective;
+    if mode == rightkit_agent_policy::PermissionMode::Bypass
+        && tier > rightkit_agent_policy::SandboxTier::WorkspaceWrite
+    {
+        rightkit_agent_policy::SandboxTier::WorkspaceWrite
+    } else {
+        tier
+    }
+}
+
 fn diagnostics_bundle_dir() -> Option<PathBuf> {
     rightkit_agent_config::state_root().map(|root| root.join("diagnostics"))
 }
@@ -170,6 +192,109 @@ fn safe_bundle_id(id: &str) -> Option<&str> {
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_');
     ok.then_some(id)
+}
+
+/// The daemon's own log plus the newest daily CLI/TUI log. The bundle builder
+/// key-redacts and pattern-scrubs every event and caps the size, so recent
+/// logs are safe to include; a missing file is reported as a warning there.
+/// The most of the daemon's text log a bundle carries: its newest part.
+const DAEMON_LOG_TAIL_BYTES: u64 = 512 * 1024;
+
+/// The daemon's `serve.log` is plain text (the stderr tee, one line per message), and the bundle
+/// builder reads JSON lines only, so every line of it was dropped as malformed and a bundle held
+/// no daemon log at all. Writes the log's newest part as JSON lines (`{"message": "<line>"}`) into
+/// `into` and returns that file; the builder redacts and bounds it like any other source. `None`
+/// when there is no log or it cannot be read or written.
+fn daemon_log_as_json_lines(log: &FsPath, into: &FsPath) -> Option<PathBuf> {
+    use std::io::{Read, Seek, SeekFrom, Write};
+    let mut file = std::fs::File::open(log).ok()?;
+    let length = file.metadata().ok()?.len();
+    let start = length.saturating_sub(DAEMON_LOG_TAIL_BYTES);
+    file.seek(SeekFrom::Start(start)).ok()?;
+    let mut bytes = Vec::new();
+    file.take(DAEMON_LOG_TAIL_BYTES)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    let text = String::from_utf8_lossy(&bytes);
+    let mut lines = text.lines();
+    if start > 0 {
+        // The tail starts mid-line: drop the partial first line.
+        lines.next();
+    }
+    let mut out = Vec::new();
+    for line in lines
+        .map(str::trim_end)
+        .filter(|line| !line.trim().is_empty())
+    {
+        // A line that is already a JSON object (structured tracing) is kept as it is.
+        let is_object = serde_json::from_str::<Value>(line).is_ok_and(|value| value.is_object());
+        if is_object {
+            out.extend_from_slice(line.as_bytes());
+        } else {
+            out.extend_from_slice(json!({ "message": line }).to_string().as_bytes());
+        }
+        out.push(b'\n');
+    }
+    if out.is_empty() {
+        return None;
+    }
+    let path = into.join(format!("serve-log-{}.jsonl", std::process::id()));
+    let mut target = std::fs::File::create(&path).ok()?;
+    target.write_all(&out).ok()?;
+    Some(path)
+}
+
+/// The log sources of a bundle, and the temporary file to remove once the bundle is built.
+fn diagnostics_log_sources(scratch: &FsPath) -> (Vec<rightkit_logs::LogSource>, Option<PathBuf>) {
+    let mut sources = Vec::new();
+    let mut temporary = None;
+    if let Some(path) = crate::cli_log::serve_log_path() {
+        if let Some(view) = daemon_log_as_json_lines(&path, scratch) {
+            sources.push(rightkit_logs::LogSource::new("daemon", view.clone()));
+            temporary = Some(view);
+        }
+    }
+    if let Some(dir) = crate::cli_log::log_dir() {
+        let newest = std::fs::read_dir(&dir).ok().and_then(|entries| {
+            entries
+                .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+                .filter(|path| {
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| {
+                            name.starts_with(&format!("{}.", crate::host_identity::app()))
+                                && name.ends_with(".jsonl")
+                        })
+                })
+                .max()
+        });
+        if let Some(path) = newest {
+            sources.push(rightkit_logs::LogSource::new("cli", path));
+        }
+    }
+    (sources, temporary)
+}
+
+/// What the bundle's `settings` carries (CLI-10, PERF-07): the doctor report as the doctor prints it
+/// and a summary of the merged configuration. The configuration goes through the same secret
+/// redaction `{app} config` uses; hook commands are reduced to their event names (a command
+/// line can carry a token), and the bundle builder then key-redacts and pattern-scrubs the whole
+/// value again.
+fn diagnostics_bundle_settings() -> Value {
+    let doctor = serde_json::to_value(crate::doctor::gather_runtime())
+        .unwrap_or_else(|error| json!({ "error": format!("doctor report unavailable: {error}") }));
+    let config = match crate::main_runtime::redacted_merged_config_view() {
+        Ok(mut view) => {
+            if let Some(hooks) = view.get_mut("hooks").and_then(Value::as_object_mut) {
+                let names: Vec<String> = hooks.keys().cloned().collect();
+                hooks.clear();
+                hooks.insert("events".to_string(), json!(names));
+            }
+            view
+        }
+        Err(error) => json!({ "error": error }),
+    };
+    json!({ "surface": "daemon", "doctor": doctor, "config": config })
 }
 
 async fn create_diagnostics_bundle(
@@ -186,23 +311,33 @@ async fn create_diagnostics_bundle(
     let destination = dir.join(format!("{bundle_id}.zip"));
     let crash_dir = rightkit_agent_config::state_root()
         .map(|root| root.join("crash"))
-        .unwrap_or_else(|| rightkit_crash::fallback_crash_dir("RightKit"));
+        .unwrap_or_else(|| rightkit_crash::fallback_crash_dir(rightkit_agent_config::app_name()));
+    let (log_sources, temporary_log) = diagnostics_log_sources(&dir);
     let options = rightkit_crash::SupportBundleOptions {
-        app_name: "RightKit".to_string(),
-        app_version: env!("CARGO_PKG_VERSION").to_string(),
-        build: env!("CARGO_PKG_VERSION").to_string(),
+        app_name: rightkit_agent_config::app_name().to_string(),
+        app_version: crate::host_identity::version().to_string(),
+        build: crate::host_identity::version().to_string(),
         crash_dir,
-        log_sources: Vec::new(),
+        log_sources,
         settings: json!({ "surface": "daemon" }),
         policy: rightkit_logs::CollectionPolicy::default(),
         include_native_dumps: false,
         destination: destination.clone(),
     };
-    let manifest =
-        tokio::task::spawn_blocking(move || rightkit_crash::build_support_bundle(&options))
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let manifest = tokio::task::spawn_blocking(move || {
+        let mut options = options;
+        options.settings = diagnostics_bundle_settings();
+        let built = rightkit_crash::build_support_bundle(&options);
+        if let Some(path) = temporary_log {
+            if let Err(error) = std::fs::remove_file(&path) {
+                tracing::warn!(%error, path = %path.display(), "could not remove the temporary daemon log view");
+            }
+        }
+        built
+    })
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let byte_length = std::fs::metadata(&destination)
         .map(|meta| meta.len())
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -333,6 +468,8 @@ pub(crate) struct MachineStatusResponse {
 pub(crate) struct MachineInfoResponse {
     pub(crate) service: String,
     pub(crate) version: String,
+    pub(crate) contract_version: u32,
+    pub(crate) protocol_version: u16,
     pub(crate) os: String,
     pub(crate) arch: String,
     pub(crate) pid: u32,
@@ -341,6 +478,8 @@ pub(crate) struct MachineInfoResponse {
     pub(crate) port: u16,
     pub(crate) utc_now: String,
     pub(crate) storage_available: bool,
+    pub(crate) storage_read_pool_idle: Option<usize>,
+    pub(crate) provider_key_storage: ProviderKeyStorageStatus,
 }
 
 fn machine_status_for_runtime(
@@ -415,7 +554,7 @@ async fn machine_status(State(state): State<DaemonState>) -> impl IntoResponse {
         storage_available,
         storage_read_pool_idle,
         provider_key_storage,
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        version: crate::host_identity::version().to_string(),
         degraded_reasons,
     };
     (StatusCode::OK, Json(json!(payload))).into_response()
@@ -440,9 +579,16 @@ async fn machine_info(State(state): State<DaemonState>) -> impl IntoResponse {
                 Some(t)
             }
         });
+    let storage_read_pool_idle = state
+        .storage
+        .as_ref()
+        .and_then(|storage| storage.read_pool())
+        .map(|pool| pool.idle_len());
     let payload = MachineInfoResponse {
         service: crate::host_identity::prefixed("daemon"),
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        version: crate::host_identity::version().to_string(),
+        contract_version: rightkit_agent_engine_api_platform::health::CONTRACT_VERSION,
+        protocol_version: rightkit_agent_engine_api_platform::health::PROTOCOL_VERSION,
         os: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
         pid: std::process::id(),
@@ -451,6 +597,10 @@ async fn machine_info(State(state): State<DaemonState>) -> impl IntoResponse {
         port: state.bound_port,
         utc_now: now_iso(),
         storage_available: state.storage.is_some(),
+        storage_read_pool_idle,
+        provider_key_storage: provider_key_storage_status(
+            rightkit_llm::agent_providers::provider_key_storage_health(),
+        ),
     };
     (StatusCode::OK, Json(json!(payload))).into_response()
 }

@@ -41,7 +41,7 @@ async fn probe_mcp_server_handler(
     let file = read_mcp_config_file(&path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let server = file.mcp_servers.get(&name).ok_or(StatusCode::NOT_FOUND)?;
     let started = std::time::Instant::now();
-    let transport = mcp_transport_from_config(&scope, &query.workspace_root, &name, server);
+    let transport = mcp_transport_from_config(&scope, &query.workspace_root, &name, server).await;
     // stdio servers — especially the canonical `npx -y @scope/server` config —
     // cold-start slowly (npm resolve + download + node spawn) and routinely blew
     // past a flat 12s probe, so the most common MCP setup failed its first probe.
@@ -53,10 +53,46 @@ async fn probe_mcp_server_handler(
     } else {
         std::time::Duration::from_secs(12)
     };
+    // A configured `startup_timeout_sec` may only widen the probe window.
+    let probe_timeout = server
+        .options()
+        .startup_timeout()
+        .map(|t| t.max(probe_timeout))
+        .unwrap_or(probe_timeout);
     let result = tokio::time::timeout(probe_timeout, transport.list_tools())
         .await
         .map_err(|_| "probe timed out".to_string())
         .and_then(|r| r.map_err(|e| e.to_string()));
+    // Apply the server's `enabled_tools` / `disabled_tools`, so `toolCount` matches
+    // what a session sees.
+    let tool_filter = server.options().tool_filter();
+    let result = result.map(|tools| match &tool_filter {
+        Some(filter) => tools
+            .into_iter()
+            .filter(|tool| filter.selects(&tool.name))
+            .collect::<Vec<_>>(),
+        None => tools,
+    });
+    // Http credentials come from the daemon's environment, read at daemon start;
+    // point at the fix unless the error already names an unset variable.
+    let result = result.map_err(|error| {
+        let env_credentials = match server {
+            rightkit_mcp::agent_mcp::McpServerConfig::Http(c) => {
+                c.bearer_token_env_var.is_some()
+                    || !c.env_http_headers.is_empty()
+                    || c.http_headers.values().any(|v| v.contains("${"))
+            }
+            _ => false,
+        };
+        if env_credentials && !error.contains("is not set") {
+            format!(
+                "{error} (credentials come from the daemon's environment, read at daemon start; after changing them run '{} stop' and retry)",
+                crate::host_identity::app()
+            )
+        } else {
+            error
+        }
+    });
     let latency_ms = started.elapsed().as_millis() as u64;
 
     match result {

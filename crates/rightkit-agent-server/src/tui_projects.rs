@@ -37,8 +37,6 @@ pub enum PickAction {
     OpenChat(String),
     /// Change one `[tui]` setting: key, new value.
     SetConfig(String, String),
-    /// Display-only row.
-    Noop,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,6 +69,10 @@ pub struct TuiSettings {
     pub statusline: Vec<String>,
     /// Action name (`sidebar`, `projects`, `config`) -> key spec (`ctrl+b`).
     pub keymap: HashMap<String, String>,
+    /// Digit `1`..`9` -> text submitted (or slash command run) by Alt+<digit> on an empty composer.
+    pub quick_slots: HashMap<String, String>,
+    /// `[tui] statusline-command`: the program behind the footer item `script`; empty means none.
+    pub statusline_command: String,
 }
 
 impl TuiSettings {
@@ -96,7 +98,21 @@ impl TuiSettings {
                 .map(|(k, v)| (norm(k), norm(v)))
                 .filter(|(k, v)| !k.is_empty() && !v.is_empty())
                 .collect(),
+            statusline_command: config.statusline_command.trim().to_string(),
+            quick_slots: config
+                .quick_slots
+                .iter()
+                .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+                .filter(|(k, v)| {
+                    k.len() == 1 && matches!(k.as_bytes()[0], b'1'..=b'9') && !v.is_empty()
+                })
+                .collect(),
         }
+    }
+
+    /// The text bound to quick slot `digit` (`'1'..='9'`).
+    pub fn quick_slot(&self, digit: char) -> Option<&str> {
+        self.quick_slots.get(&digit.to_string()).map(String::as_str)
     }
 
     /// Whether a footer item is shown (`cwd`, `branch`, `model`, `ctx`,
@@ -110,14 +126,270 @@ impl TuiSettings {
         if let Some(spec) = self.keymap.get(action) {
             return spec.clone();
         }
-        match action {
-            "sidebar" => "ctrl+b",
-            "projects" => "ctrl+p",
-            "config" => "f2",
-            _ => "",
-        }
-        .to_string()
+        tui_action(action)
+            .map(|spec| spec.default.to_string())
+            .unwrap_or_default()
     }
+
+    /// Problems with the loaded `[tui] keymap`, reported once at start rather
+    /// than silently shadowed: an unknown action, a spec that is not a key,
+    /// two actions on one chord, and a chord that the editor already owns
+    /// (see [`EDITOR_CHORDS`]). A shipped default that deliberately shadows an
+    /// editor chord ([`TuiActionSpec::shadows_editor`]) is not a problem; a
+    /// user binding that does the same is.
+    pub fn keymap_problems(&self) -> Vec<String> {
+        let mut problems = Vec::new();
+        let mut names: Vec<&String> = self.keymap.keys().collect();
+        names.sort();
+        for name in names {
+            let spec = &self.keymap[name];
+            if tui_action(name).is_none() {
+                problems.push(format!(
+                    "[tui.keymap] `{name}` is not a TUI action (use {})",
+                    TUI_ACTIONS
+                        .iter()
+                        .map(|action| action.name)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            } else if !valid_key_spec(spec) {
+                problems.push(format!(
+                    "[tui.keymap] `{name} = {spec}` is not a key or chord such as ctrl+b"
+                ));
+            }
+        }
+        let mut bound: Vec<(&'static str, String)> = Vec::new();
+        for action in TUI_ACTIONS {
+            let spec = normalize_spec(&self.key_for(action.name));
+            if spec.is_empty() {
+                continue;
+            }
+            if let Some((other, _)) = bound.iter().find(|(_, taken)| *taken == spec) {
+                problems.push(format!(
+                    "[tui.keymap] `{}` and `{other}` are both bound to {spec}",
+                    action.name
+                ));
+            }
+            let user_bound = self.keymap.contains_key(action.name);
+            let shipped_shadow = !user_bound && action.shadows_editor;
+            if EDITOR_CHORDS.contains(&spec.as_str()) && !shipped_shadow {
+                problems.push(format!(
+                    "[tui.keymap] `{}` = {spec} collides with an editor key and would shadow it",
+                    action.name
+                ));
+            }
+            bound.push((action.name, spec));
+        }
+        problems
+    }
+}
+
+/// One TUI-level action: a chord the session loop handles outside the editor.
+/// Every one is remappable through `[tui] keymap` (pi `keybindings`, OpenCode
+/// `keybinds`). `Ctrl+C` (interrupt/quit) is deliberately not here: a remap
+/// must never remove the way out of a running turn.
+pub struct TuiActionSpec {
+    pub name: &'static str,
+    pub default: &'static str,
+    pub summary: &'static str,
+    /// The shipped default deliberately wins over an editor chord.
+    pub shadows_editor: bool,
+}
+
+/// The TUI actions and their shipped defaults.
+///
+/// Ctrl+P decision: the editor owns Ctrl+P (move up in the draft and history,
+/// `docs/user/tui.md`), so `projects` ships on Alt+P and never shadows it.
+/// `sidebar` keeps Ctrl+B, a deliberate shadow of the editor's move-left (Left
+/// does the same), and so do the approval chords while a card is on screen
+/// (`approve` Ctrl+Y, `deny` Ctrl+N: the card owns the keyboard).
+pub const TUI_ACTIONS: &[TuiActionSpec] = &[
+    TuiActionSpec {
+        name: "sidebar",
+        default: "ctrl+b",
+        summary: "Toggle the project and chat sidebar.",
+        shadows_editor: true,
+    },
+    TuiActionSpec {
+        name: "projects",
+        default: "alt+p",
+        summary: "Open the projects home.",
+        shadows_editor: false,
+    },
+    TuiActionSpec {
+        name: "config",
+        default: "f2",
+        summary: "Open TUI settings.",
+        shadows_editor: false,
+    },
+    TuiActionSpec {
+        name: "clear_screen",
+        default: "ctrl+l",
+        summary: "Clear and repaint the screen.",
+        shadows_editor: false,
+    },
+    TuiActionSpec {
+        name: "suspend",
+        default: "ctrl+z",
+        summary: "Suspend the TUI to the shell (Unix).",
+        shadows_editor: false,
+    },
+    TuiActionSpec {
+        name: "transcript",
+        default: "ctrl+t",
+        summary: "Open the transcript viewer, or focus the agents strip.",
+        shadows_editor: false,
+    },
+    TuiActionSpec {
+        name: "expand_output",
+        default: "ctrl+o",
+        summary: "Expand the last collapsed tool output.",
+        shadows_editor: false,
+    },
+    TuiActionSpec {
+        name: "copy_select",
+        default: "ctrl+up",
+        summary: "Select an assistant message to copy.",
+        shadows_editor: false,
+    },
+    TuiActionSpec {
+        name: "approve",
+        default: "ctrl+y",
+        summary: "Approve the open approval card.",
+        shadows_editor: true,
+    },
+    TuiActionSpec {
+        name: "deny",
+        default: "ctrl+n",
+        summary: "Deny the open approval card.",
+        shadows_editor: true,
+    },
+    // The pane chords (A021-2). Alt+B and Alt+D shadow the editor's word-left and
+    // delete-word-right on purpose, as they did before they were remappable.
+    TuiActionSpec {
+        name: "observability",
+        default: "alt+o",
+        summary: "Show the observability pane (tokens, cache, rate limit, tools).",
+        shadows_editor: false,
+    },
+    TuiActionSpec {
+        name: "ci_band",
+        default: "alt+b",
+        summary: "Show the PR and CI band.",
+        shadows_editor: true,
+    },
+    TuiActionSpec {
+        name: "diff_open",
+        default: "alt+d",
+        summary: "Load the workspace diff and show the current hunk.",
+        shadows_editor: true,
+    },
+    // Issue #535: letters, so a terminal without the extended key protocol can
+    // send them (`ESC j`, `ESC k`). Alt+[ is `ESC [` there, the start of every
+    // control sequence. Alt+] and Alt+[ stay as extra chords: `tui_panes.rs`
+    // `LEGACY_HUNK_CHORDS`.
+    TuiActionSpec {
+        name: "hunk_next",
+        default: "alt+j",
+        summary: "Next hunk of the loaded diff.",
+        shadows_editor: false,
+    },
+    TuiActionSpec {
+        name: "hunk_prev",
+        default: "alt+k",
+        summary: "Previous hunk of the loaded diff.",
+        shadows_editor: false,
+    },
+    TuiActionSpec {
+        name: "hunk_accept",
+        default: "alt+a",
+        summary: "Accept the current hunk.",
+        shadows_editor: false,
+    },
+    TuiActionSpec {
+        name: "hunk_revert",
+        default: "alt+r",
+        summary: "Revert the current hunk (asks first).",
+        shadows_editor: false,
+    },
+    TuiActionSpec {
+        name: "collapse_turns",
+        default: "alt+c",
+        summary: "Fold or unfold the tool output of finished turns.",
+        shadows_editor: false,
+    },
+    TuiActionSpec {
+        name: "effort_up",
+        default: "alt+.",
+        summary: "Raise the reasoning effort one step.",
+        shadows_editor: false,
+    },
+    TuiActionSpec {
+        name: "effort_down",
+        default: "alt+,",
+        summary: "Lower the reasoning effort one step.",
+        shadows_editor: false,
+    },
+    TuiActionSpec {
+        name: "help",
+        default: "?",
+        summary: "Open the command list (only on an empty composer).",
+        shadows_editor: false,
+    },
+    TuiActionSpec {
+        name: "side",
+        default: "alt+/",
+        summary: "Start a side question (`/side `) in the composer.",
+        shadows_editor: false,
+    },
+    TuiActionSpec {
+        name: "raw",
+        default: "ctrl+alt+r",
+        summary: "Switch between the full layout and append-only raw output.",
+        shadows_editor: false,
+    },
+];
+
+/// The spec of one TUI action by name.
+pub fn tui_action(name: &str) -> Option<&'static TuiActionSpec> {
+    TUI_ACTIONS.iter().find(|action| action.name == name)
+}
+
+/// The chords the editor binds by default (`crates/tui/src/composer/keymap.rs`
+/// defaults). A TUI action bound to one of these shadows the editor key.
+pub const EDITOR_CHORDS: &[&str] = &[
+    "ctrl+a",
+    "ctrl+b",
+    "ctrl+d",
+    "ctrl+e",
+    "ctrl+f",
+    "ctrl+h",
+    "ctrl+j",
+    "ctrl+k",
+    "ctrl+m",
+    "ctrl+n",
+    "ctrl+p",
+    "ctrl+r",
+    "ctrl+s",
+    "ctrl+u",
+    "ctrl+w",
+    "ctrl+y",
+    "ctrl+backspace",
+    "ctrl+delete",
+    "alt+b",
+    "alt+f",
+    "alt+d",
+    "alt+enter",
+    "alt+backspace",
+    "alt+delete",
+];
+
+/// A spec in the canonical lower-case, trimmed, `+`-joined form.
+fn normalize_spec(spec: &str) -> String {
+    spec.split('+')
+        .map(|part| part.trim().to_ascii_lowercase())
+        .collect::<Vec<_>>()
+        .join("+")
 }
 
 /// Mutable TUI-side state for these surfaces; one field on `SessionState`.
@@ -152,6 +424,16 @@ pub fn key_matches(spec: &str, key: &KeyEvent) -> bool {
             "enter" | "return" => code = Some(KeyCode::Enter),
             "esc" | "escape" => code = Some(KeyCode::Esc),
             "space" => code = Some(KeyCode::Char(' ')),
+            "up" => code = Some(KeyCode::Up),
+            "down" => code = Some(KeyCode::Down),
+            "left" => code = Some(KeyCode::Left),
+            "right" => code = Some(KeyCode::Right),
+            "home" => code = Some(KeyCode::Home),
+            "end" => code = Some(KeyCode::End),
+            "pageup" => code = Some(KeyCode::PageUp),
+            "pagedown" => code = Some(KeyCode::PageDown),
+            "backspace" => code = Some(KeyCode::Backspace),
+            "delete" => code = Some(KeyCode::Delete),
             name if name.starts_with('f')
                 && name.len() > 1
                 && name[1..].chars().all(|c| c.is_ascii_digit()) =>
@@ -184,7 +466,10 @@ fn valid_key_spec(spec: &str) -> bool {
     for part in spec.split('+').map(str::trim) {
         match part {
             "ctrl" | "control" | "alt" | "meta" | "opt" | "option" | "shift" => {}
-            "tab" | "enter" | "return" | "esc" | "escape" | "space" => key_count += 1,
+            "tab" | "enter" | "return" | "esc" | "escape" | "space" | "up" | "down" | "left"
+            | "right" | "home" | "end" | "pageup" | "pagedown" | "backspace" | "delete" => {
+                key_count += 1
+            }
             name if name.starts_with('f') && name.len() > 1 => {
                 if !name[1..].parse::<u8>().is_ok_and(|n| (1..=24).contains(&n)) {
                     return false;
@@ -327,7 +612,14 @@ pub fn build_home(
         .position(|p| current_dir.is_some_and(|c| same_root(c, &p.root)))
         .or(Some(0))
         .filter(|_| !items.is_empty());
-    let mut params = PickerParams::picker(40, "RightKit · choose a project or chat", items);
+    let mut params = PickerParams::picker(
+        40,
+        format!(
+            "{} · choose a project or chat",
+            rightkit_agent_config::app_name()
+        ),
+        items,
+    );
     params.subtitle = Some(
         "Enter opens · type to filter · type a folder path + Enter to add one · Esc stays"
             .to_string(),
@@ -483,18 +775,29 @@ pub fn build_config_with_notice(settings: &TuiSettings, notice: Option<&str>) ->
             "all".to_string()
         };
     actions.push(PickAction::SetConfig("statusline".into(), status_next));
-    for action in ["sidebar", "projects", "config"] {
+    for (index, spec) in TUI_ACTIONS.iter().enumerate() {
+        let action = spec.name;
         let current = settings.key_for(action);
-        let next = next_in(&["ctrl+b", "ctrl+g", "alt+b", "f2"], &current);
+        // Enter flips between the shipped default and a function key no editor
+        // chord uses; any other key is set in `[tui.keymap]`.
+        let alternate = format!("f{}", 5 + index % 20);
+        let next = if current == spec.default {
+            alternate
+        } else {
+            spec.default.to_string()
+        };
         items.push(
-            SelectionItem::new(format!("key {action}: {current}")).description(
-                "Enter cycles key binding; set [tui.keymap] in config.toml for custom keys",
-            ),
+            SelectionItem::new(format!("key {action}: {current}")).description(format!(
+                "{} Enter flips default/{}; set [tui.keymap] in config.toml for any key",
+                spec.summary,
+                if current == spec.default {
+                    next.as_str()
+                } else {
+                    spec.default
+                }
+            )),
         );
-        actions.push(PickAction::SetConfig(
-            format!("keymap.{action}"),
-            next.to_string(),
-        ));
+        actions.push(PickAction::SetConfig(format!("keymap.{action}"), next));
     }
     let mut params = PickerParams::picker(42, "Settings · [tui]", items);
     params.is_searchable = false;
@@ -568,7 +871,10 @@ pub fn apply_tui_setting(
                     .collect()
             };
         }
-        "keymap.sidebar" | "keymap.projects" | "keymap.config" => {
+        action_key
+            if action_key.starts_with("keymap.")
+                && tui_action(action_key.strip_prefix("keymap.").unwrap_or_default()).is_some() =>
+        {
             let action = key.strip_prefix("keymap.").unwrap_or_default();
             config
                 .tui
@@ -611,7 +917,7 @@ pub fn config_value(key: &str, value: &str) -> Result<toml::Value, String> {
                     "all".to_string(),
                 )]));
             }
-            let known = ["cwd", "branch", "model", "ctx", "cache", "goal"];
+            let known = ["cwd", "branch", "model", "ctx", "cost", "cache", "goal"];
             let mut out = Vec::new();
             for item in v.split(',').map(str::trim).filter(|s| !s.is_empty()) {
                 if !known.contains(&item) {
@@ -624,7 +930,9 @@ pub fn config_value(key: &str, value: &str) -> Result<toml::Value, String> {
             }
             Ok(toml::Value::Array(out))
         }
-        "keymap.sidebar" | "keymap.projects" | "keymap.config" => {
+        action_key if action_key.starts_with("keymap.")
+            && tui_action(action_key.strip_prefix("keymap.").unwrap_or_default()).is_some() =>
+        {
             if valid_key_spec(&v) {
                 Ok(toml::Value::String(v))
             } else {

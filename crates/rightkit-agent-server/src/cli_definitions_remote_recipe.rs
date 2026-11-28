@@ -112,9 +112,10 @@ pub enum RecipeCommand {
         /// Workspace root directory. Defaults to recipe settings, then current directory.
         #[arg(long)]
         workspace: Option<String>,
-        /// Allow all mutating tools without prompting.
-        #[arg(long, alias = "yes")]
-        auto_approve: bool,
+        /// Permission mode of the recipe run: plan, ask, accept-edits or
+        /// auto-safe (`bypass` is `run` only).
+        #[arg(long = "permission-mode", value_enum)]
+        permission_mode: Option<CliPermissionMode>,
         /// Print events as JSONL to stdout.
         #[arg(long)]
         stream_json: bool,

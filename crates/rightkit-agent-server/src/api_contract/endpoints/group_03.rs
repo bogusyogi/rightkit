@@ -22,14 +22,14 @@ pub(super) const ENDPOINT_GROUP_03: [ApiEndpoint; 31] = [
         summary: "Rewind the session conversation and/or workspace changes",
     },
     ApiEndpoint {
+        method: "POST",
+        path: "/sessions/{id}/redo",
+        summary: "Redo the most recent rewind; 409 once a new turn has run since it",
+    },
+    ApiEndpoint {
         method: "GET",
         path: "/sessions/{id}/rewind/points",
         summary: "List rewindable user prompts",
-    },
-    ApiEndpoint {
-        method: "POST",
-        path: "/sessions/{id}/clone",
-        summary: "Clone a session transcript into an independent session",
     },
     ApiEndpoint {
         method: "GET",

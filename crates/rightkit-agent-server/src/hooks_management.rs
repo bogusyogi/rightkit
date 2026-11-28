@@ -1,23 +1,25 @@
-// Operator-facing endpoints for managing the env-var-driven hook runner:
+// Operator-facing endpoints for managing configured hooks (tools rule 58):
 //
-// - `GET  /hooks/list`    — every env-var key wired to a hook, with
-//                           `configured` and `revoked` markers.
-// - `POST /hooks/test`    — dry-run matching hooks against a synthetic
-//                           event. Returns the synthesized Proceed / Deny /
-//                           Error outcome without publishing on the bus.
-// - `POST /hooks/revoke`  — record / clear a hook id (env-var name) in the
-//                           daemon-wide revocation registry. The shared
-//                           registry is also consulted by `spawn_hook_runner*`
+// - `GET  /hooks/list`    — the event taxonomy and every configured hook, with its id
+//                           (`<Event>#<n>`), origin and `revoked` marker.
+// - `POST /hooks/test`    — dry-run the command hooks of an event. Returns the synthesized
+//                           Proceed / Deny / Error outcome without publishing on the bus.
+// - `POST /hooks/revoke`  — record / clear a hook in the daemon-wide revocation registry.
+//                           The positional id is resolved, against the request's `workspace`
+//                           (default: the daemon's cwd), to the hook's stable identity
+//                           (`hook_revocation_key`), and that is what is stored, so later
+//                           reordering of the hook file cannot move the revocation (audit M4).
+//                           The shared registry is also consulted by `spawn_hook_runner*`
 //                           so subsequent events skip revoked hooks.
 //
 // Composed onto `hook_routes()` via `include!` from `hooks.rs`.
 
-// `HookRunnerConfig`, `hook_status_from_config`, and the axum/serde/serde_json/
+// `HookRunnerConfig`, `daemon_wide_bus`, and the axum/serde/serde_json/
 // `Arc`/`HookBus`/`HookEvent`/`HookRegistry` imports are already in scope from
 // `hooks.rs`, which `include!`s this file into its own module. Only the symbols
 // new to this file are imported here.
 use axum::routing::post;
-use rightkit_hooks::agent_hooks::{HookDryRunReport, HookOutcome, HookSpec, IdentifiedHook};
+use rightkit_hooks::agent_hooks::{HookDryRunReport, HookOutcome};
 use serde::Deserialize;
 use std::sync::OnceLock;
 
@@ -50,10 +52,10 @@ struct HookListItem {
     id: String,
     event: String,
     kind: String,
-    /// Reserved for future matcher language; the env-var model has no
-    /// matcher pattern, so this is currently `null`.
+    /// The hook's own tool-name matcher, when it has one.
     matcher: Option<String>,
-    /// Env-var name backing this hook — surfaced as the canonical id.
+    /// Where the hook is configured: `config` (the `[hooks]` key), `project` (the project hook
+    /// file) or `env-json` (`<PREFIX>_HOOKS_JSON`).
     source: String,
     configured: bool,
     revoked: bool,
@@ -65,13 +67,14 @@ struct HookListResponse {
     total: usize,
     configured: usize,
     revoked: usize,
+    /// Every event a hook may be configured for (`rightkit_hooks::agent_hooks::chain::HOOK_EVENT_NAMES`).
+    events: Vec<String>,
     hooks: Vec<HookListItem>,
 }
 
 async fn list_hooks_handler() -> Json<HookListResponse> {
-    let config = HookRunnerConfig::from_env();
     let registry = shared_registry();
-    let hooks = collect_list_items(&config, &registry);
+    let hooks = collect_list_items(&daemon_wide_bus(), &registry, &daemon_cwd_scope());
     let configured = hooks
         .iter()
         .filter(|item| item.configured && !item.revoked)
@@ -81,26 +84,30 @@ async fn list_hooks_handler() -> Json<HookListResponse> {
         total: hooks.len(),
         configured,
         revoked,
+        events: rightkit_hooks::agent_hooks::chain::HOOK_EVENT_NAMES
+            .iter()
+            .map(|name| name.to_string())
+            .collect(),
         hooks,
     })
 }
 
-fn collect_list_items(config: &HookRunnerConfig, registry: &HookRegistry) -> Vec<HookListItem> {
-    hook_status_from_config(config)
-        .hooks
+fn daemon_cwd_scope() -> String {
+    workspace_scope(&std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")))
+}
+
+fn collect_list_items(bus: &HookBus, registry: &HookRegistry, scope: &str) -> Vec<HookListItem> {
+    bus.inventory()
+        .unwrap_or_default()
         .into_iter()
-        .map(|entry| {
-            let env_var = entry.env_var.to_string();
-            let revoked = registry.is_revoked(&env_var);
-            HookListItem {
-                id: env_var.clone(),
-                event: entry.event.to_string(),
-                kind: entry.kind.to_string(),
-                matcher: None,
-                source: env_var,
-                configured: entry.configured,
-                revoked,
-            }
+        .map(|hook| HookListItem {
+            revoked: registry.is_revoked(&hook_revocation_key(&hook, scope)),
+            id: hook.id,
+            event: hook.event,
+            kind: hook.spec.kind.as_str().to_string(),
+            matcher: hook.spec.matcher,
+            source: hook.origin.to_string(),
+            configured: true,
         })
         .collect()
 }
@@ -128,40 +135,6 @@ struct HookTestResponse {
     revoked: Vec<String>,
 }
 
-/// The per-event command hook the daemon's env-var runner
-/// (`HookRunnerConfig::from_env`) runs for `event`, shaped as the hook list
-/// `dry_run_hook_with_adapter` takes. The id is the env-var name, the key
-/// `/hooks/list` and `/hooks/revoke` use. A non-empty `matcher` must be a
-/// substring of that name, as it always was for this endpoint.
-fn env_command_hooks_for_event(event: &str, matcher: Option<&str>) -> Vec<IdentifiedHook> {
-    let config = HookRunnerConfig::from_env();
-    let (env_var, command) = match event {
-        "PreToolUse" => ("RIGHTKIT_HOOK_PRE_TOOL_USE", config.pre_tool_use),
-        "PostToolUse" => ("RIGHTKIT_HOOK_POST_TOOL_USE", config.post_tool_use),
-        "UserPromptSubmit" => (
-            "RIGHTKIT_HOOK_USER_PROMPT_SUBMIT",
-            config.user_prompt_submit,
-        ),
-        "Notification" => ("RIGHTKIT_HOOK_NOTIFICATION", config.notification),
-        "SubagentStop" => ("RIGHTKIT_HOOK_SUBAGENT_STOP", config.subagent_stop),
-        "Stop" => ("RIGHTKIT_HOOK_STOP_BLOCKING", config.blocking_stop),
-        "PreCommit" => ("RIGHTKIT_HOOK_PRE_COMMIT", config.pre_commit),
-        _ => return Vec::new(),
-    };
-    if matcher.is_some_and(|m| !m.is_empty() && !env_var.contains(m)) {
-        return Vec::new();
-    }
-    command
-        .into_iter()
-        .map(|command| IdentifiedHook {
-            id: env_var.to_string(),
-            event: event.to_string(),
-            origin: "env",
-            spec: HookSpec::new(command),
-        })
-        .collect()
-}
-
 async fn test_hooks_handler(Json(req): Json<HookTestRequest>) -> Json<HookTestResponse> {
     let matcher = req.matcher.as_deref().filter(|m| !m.is_empty());
     let workspace_root = std::env::current_dir()
@@ -174,17 +147,28 @@ async fn test_hooks_handler(Json(req): Json<HookTestRequest>) -> Json<HookTestRe
         sandbox_required: false,
         network_required: false,
     };
+    // Handler tests use local managed child semantics; daemon production stays
+    // bound to native confinement adapter.
     let adapter = rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter;
-    let hooks = env_command_hooks_for_event(&req.event, matcher);
-    let report: HookDryRunReport = rightkit_hooks::agent_hooks::dry_run_hook_with_adapter(
-        &req.event,
-        matcher,
-        Some(&shared_registry()),
-        &hooks,
-        &adapter,
-        &context,
+    let hooks = daemon_wide_bus().hooks_for(&req.event).unwrap_or_default();
+    // M4: revocations are stable keys, so revoked hooks are filtered here and reported by
+    // their positional id, rather than letting the dry run compare positional ids.
+    let (revoked_hooks, hooks) = split_revoked(hooks, &shared_registry(), &context.workspace_root);
+    let revoked_candidates: Vec<String> = revoked_hooks
+        .into_iter()
+        .filter(|hook| hook.event == req.event)
+        .filter(|hook| hook.spec.kind == rightkit_hooks::agent_hooks::HookKind::Command)
+        .filter(|hook| hook.spec.matches(matcher))
+        .map(|hook| hook.id)
+        .collect();
+    let mut report: HookDryRunReport = rightkit_hooks::agent_hooks::dry_run_hook_with_adapter(
+        &req.event, matcher, None, &hooks, &adapter, &context,
     )
     .await;
+    if !revoked_candidates.is_empty() {
+        report.no_match = false;
+        report.revoked.extend(revoked_candidates);
+    }
     let (outcome, message) = match report.outcome {
         HookOutcome::Proceed => ("Proceed", None),
         HookOutcome::Deny(msg) => ("Deny", Some(msg)),
@@ -204,10 +188,28 @@ async fn test_hooks_handler(Json(req): Json<HookTestRequest>) -> Json<HookTestRe
 
 // ── Revoke ───────────────────────────────────────────────────────────────────
 
+/// `hooks` split into (revoked, live) by each hook's stable key in `workspace`.
+fn split_revoked(
+    hooks: Vec<IdentifiedHook>,
+    registry: &HookRegistry,
+    workspace: &str,
+) -> (Vec<IdentifiedHook>, Vec<IdentifiedHook>) {
+    let scope = workspace_scope(Path::new(workspace));
+    hooks
+        .into_iter()
+        .partition(|hook| registry.is_revoked(&hook_revocation_key(hook, &scope)))
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct HookRevokeRequest {
+    /// A positional id from `/hooks/list` (`PostToolUse#1`), or a stable key (`hook:...`)
+    /// from a revoke response's snapshot.
     id: String,
+    /// The workspace whose hook list the positional id refers to. Default: the daemon's cwd,
+    /// the view `/hooks/list` shows.
+    #[serde(default)]
+    workspace: Option<String>,
     /// When `true`, remove a prior revocation instead of adding one.
     #[serde(default)]
     restore: bool,
@@ -227,18 +229,60 @@ struct HookRevokeResponse {
 
 async fn revoke_hook_handler(Json(req): Json<HookRevokeRequest>) -> Json<HookRevokeResponse> {
     let registry = shared_registry();
-    let applied = if req.restore {
-        registry.unrevoke(&req.id)
-    } else {
-        registry.revoke(&req.id)
+    let workspace = req
+        .workspace
+        .as_deref()
+        .filter(|path| !path.trim().is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+        });
+    let bus = HookBus::new(1);
+    configure_session_hooks(&bus, &workspace);
+    let key = resolve_revocation_key(&req.id, &bus, &workspace_scope(&workspace));
+    Json(apply_revocation(&registry, req.id, key, req.restore))
+}
+
+/// The stable key `id` names in `bus`'s hook list: a `hook:` key as given, or the key of the
+/// hook at that position now. `None` when no such hook exists.
+fn resolve_revocation_key(id: &str, bus: &HookBus, scope: &str) -> Option<String> {
+    if id.starts_with(HOOK_KEY_PREFIX) {
+        return Some(id.to_string());
+    }
+    bus.inventory()
+        .unwrap_or_default()
+        .iter()
+        .find(|hook| hook.id == id)
+        .map(|hook| hook_revocation_key(hook, scope))
+}
+
+fn apply_revocation(
+    registry: &HookRegistry,
+    id: String,
+    key: Option<String>,
+    restore: bool,
+) -> HookRevokeResponse {
+    let Some(key) = key else {
+        // An id that names no hook is never stored: a stale positional id must not
+        // later match whatever hook moves into that slot.
+        return HookRevokeResponse {
+            id,
+            applied: false,
+            revoked: false,
+            snapshot: registry.snapshot(),
+        };
     };
-    let revoked = registry.is_revoked(&req.id);
-    Json(HookRevokeResponse {
-        id: req.id,
+    let applied = if restore {
+        registry.unrevoke(&key)
+    } else {
+        registry.revoke(&key)
+    };
+    HookRevokeResponse {
+        id,
         applied,
-        revoked,
+        revoked: registry.is_revoked(&key),
         snapshot: registry.snapshot(),
-    })
+    }
 }
 
 // ── OpenAPI components ───────────────────────────────────────────────────────
@@ -266,11 +310,12 @@ pub(crate) fn hook_management_openapi_components() -> Map<String, Value> {
         "HookListResponse".to_string(),
         json!({
             "type": "object",
-            "required": ["total", "configured", "revoked", "hooks"],
+            "required": ["total", "configured", "revoked", "events", "hooks"],
             "properties": {
                 "total": {"type": "integer", "minimum": 0},
                 "configured": {"type": "integer", "minimum": 0},
                 "revoked": {"type": "integer", "minimum": 0},
+                "events": {"type": "array", "items": {"type": "string"}},
                 "hooks": {
                     "type": "array",
                     "items": {"$ref": "#/components/schemas/HookListItem"}
@@ -324,6 +369,7 @@ pub(crate) fn hook_management_openapi_components() -> Map<String, Value> {
             "required": ["id"],
             "properties": {
                 "id": {"type": "string"},
+                "workspace": {"type": ["string", "null"]},
                 "restore": {"type": "boolean"}
             },
             "additionalProperties": false
@@ -362,6 +408,7 @@ pub(crate) fn hook_management_openapi_components() -> Map<String, Value> {
             "required": ["id"],
             "properties": {
                 "id": {"type": "string"},
+                "workspace": {"type": ["string", "null"]},
                 "restore": {"type": "boolean"}
             },
             "additionalProperties": false

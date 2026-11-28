@@ -46,8 +46,25 @@ fn load_output_schema(path: &str) -> Result<OutputSchema, String> {
     })
 }
 
-fn validate_output_response(schema: &OutputSchema, response: &str) -> Result<(), String> {
-    parse_validated_output(schema, response).map(|_| ())
+/// The schema's JSON for the session-create body, so the daemon can send it to the provider
+/// as native structured output. The file was already loaded and validated before this point.
+fn output_schema_value(path: Option<&str>) -> Option<serde_json::Value> {
+    let contents = std::fs::read_to_string(path?).ok()?;
+    serde_json::from_str(&contents).ok()
+}
+
+/// The text inside one surrounding Markdown code fence, else the input trimmed.
+fn strip_code_fence(response: &str) -> &str {
+    let trimmed = response.trim();
+    if let Some(rest) = trimmed.strip_prefix("```") {
+        if let Some(body) = rest.strip_suffix("```") {
+            // Drop the info string (`json`) on the opening fence line.
+            if let Some((_, inner)) = body.split_once('\n') {
+                return inner.trim();
+            }
+        }
+    }
+    response
 }
 
 /// Parse & validate one complete assistant response, returning its JSON value.
@@ -58,7 +75,8 @@ fn parse_validated_output(
     schema: &OutputSchema,
     response: &str,
 ) -> Result<serde_json::Value, String> {
-    let instance: serde_json::Value = serde_json::from_str(response).map_err(|err| {
+    // Models often wrap the JSON in one Markdown code fence despite the steering text.
+    let instance: serde_json::Value = serde_json::from_str(strip_code_fence(response)).map_err(|err| {
         format!(
             "[run] final response is not valid JSON and cannot satisfy --output-schema {path}: {err}",
             path = schema.source_path()
@@ -134,24 +152,4 @@ fn prepare_output_schema(
         _ => Some(fragment),
     };
     Ok((steered, Some(compiled)))
-}
-
-// FM-109: keep schema-constrained output contract — this is the live
-// mechanism site (steer the model via `schema_steering_append`, then gate
-// the final response through `validate_output_response`/`iter_errors`,
-// rejecting non-conformant output with `RunExitCode::SchemaViolation`
-// rather than passing it through silently). Covered by
-// `output_schema_unit_tests` below.
-fn validate_run_output<E>(
-    result: &Result<String, E>,
-    schema: Option<&OutputSchema>,
-) -> Result<(), (i32, String)> {
-    let Some(schema) = schema else {
-        return Ok(());
-    };
-    let Ok(text) = result else {
-        return Ok(());
-    };
-    validate_output_response(schema, text)
-        .map_err(|message| (RunExitCode::SchemaViolation.as_i32(), message))
 }

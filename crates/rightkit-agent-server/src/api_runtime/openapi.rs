@@ -17,6 +17,7 @@ fn adapt_manifest_request_schema(adjudicate: bool) -> Value {
     let mut properties = json!({
         "manifest": {"type":"null"},
         "manifestValue": {"type":"null"},
+        "workspaceRoot": {"type":"string","description":"The workspace a manifest file is in; required with the manifest path, and it must be a workspace the engine knows."},
     });
     let mut required = Vec::new();
     if adjudicate {
@@ -42,13 +43,13 @@ fn adapt_manifest_request_schema(adjudicate: bool) -> Value {
 pub(crate) fn runtime_openapi_request_schema(method: &str, path: &str) -> Option<Value> {
     match (method, path) {
         ("post", "/runtime/context/adapt/review-taste") => Some(
-            json!({"type":"object","required":["input","installationId","createdAt"],"properties":{"input":{"type":"string"},"installationId":{"type":"string"},"createdAt":{"type":"string"},"canonicalPoolSha256":{"type":["string","null"]}}}),
+            json!({"type":"object","required":["input","installationId","createdAt"],"properties":{"input":{"type":"string","description":"A file inside workspaceRoot, as a relative path."},"workspaceRoot":{"type":"string","description":"The workspace the file is in; required with a file path, and it must be a workspace the engine knows."},"installationId":{"type":"string"},"createdAt":{"type":"string"},"canonicalPoolSha256":{"type":["string","null"]}}}),
         ),
         ("post", "/runtime/context/adapt/adjudicate-taste") => {
             Some(adapt_manifest_request_schema(true))
         }
         ("post", "/runtime/context/adapt/apply-insights") => Some(
-            json!({"type":"object","required":["input","installationId"],"properties":{"input":{"type":"string"},"installationId":{"type":"string"},"dryRun":{"type":"boolean","default":false}}}),
+            json!({"type":"object","required":["input","installationId"],"properties":{"input":{"type":"string","description":"A file inside workspaceRoot, as a relative path."},"workspaceRoot":{"type":"string","description":"The workspace the file is in; required with a file path, and it must be a workspace the engine knows."},"installationId":{"type":"string"},"dryRun":{"type":"boolean","default":false}}}),
         ),
         ("post", "/runtime/context/adapt/insights") => Some(
             json!({"type":"object","additionalProperties":false,"properties":{"sessionIds":{"type":"array","maxItems":128,"items":{"type":"string","minLength":1}},"workspaceRoot":{"type":["string","null"]},"scope":{"type":"string","minLength":1,"default":"global"},"minRecurrence":{"type":"integer","minimum":1,"maximum":100,"default":2}}}),
@@ -87,6 +88,12 @@ pub(crate) fn runtime_openapi_response_schema(method: &str, path: &str) -> Optio
         ("get", "/runtime/context/status") => Some(
             json!({"type":"object","required":["schemaVersion","state","contextDegraded","degradedReason"],"properties":{"schemaVersion":{"type":"string","enum":[crate::host_identity::schema("context-status.v1")]},"state":{"type":"string"},"contextDegraded":{"type":"boolean"},"degradedReason":{"type":["string","null"]},"reason":{"type":"string"},"source":{"type":"string"},"snapshot":{"type":"object"}}}),
         ),
+        // Adapt insights has no Membrane CLI equivalent yet; the route answers a typed error.
+        ("post", "/runtime/context/adapt/insights") if !crate::host_options::adapt_routes() => {
+            Some(
+                json!({"type":"object","additionalProperties":true,"description":"Typed adapt_not_available error until Pulse ships the Membrane CLI verb."}),
+            )
+        }
         // Adapt payloads are SDK-owned JSON objects, forwarded without reshaping.
         ("get", "/runtime/context/adapt/status")
         | ("post", "/runtime/context/adapt/review-taste")
@@ -101,6 +108,7 @@ pub(crate) fn runtime_openapi_response_schema(method: &str, path: &str) -> Optio
         ("post", "/runtime/learning/{id}/approve") | ("post", "/runtime/learning/{id}/reject") => {
             Some(runtime_learning_decision_response_schema())
         }
+        ("get", "/runtime/instincts") => Some(runtime_schema_ref("RuntimeInstinctsResponse")),
         ("get", "/runtime/skillopt/runs") => Some(skillopt_runs_response_schema()),
         ("post", "/runtime/skillopt/runs") => Some(create_skillopt_run_response_schema()),
         ("get", "/runtime/skillopt/runs/{id}") => Some(skillopt_run_response_schema()),

@@ -242,7 +242,7 @@ pub(crate) fn startup_guard_decision(
     };
     if normalize_db_path(other_db) == normalize_db_path(own_db_path) {
         Err(format!(
-            "daemon already running at {existing_url} on the same database; refusing to start a second (set RIGHTKIT_SERVE_FORCE=1 to override)"
+            "daemon already running at {existing_url} on the same database; refusing to start a second"
         ))
     } else {
         Ok(())
@@ -282,12 +282,12 @@ pub(crate) fn idle_mutation_fence() -> &'static MutationDrainFence {
     IDLE_MUTATION_FENCE.get_or_init(MutationDrainFence::new)
 }
 
-/// Idle-eviction policy, read once from `RIGHTKIT_IDLE_EVICTION_MINUTES`.
+/// Idle-eviction policy, read once from `{PREFIX}_IDLE_EVICTION_MINUTES`.
 /// Unset or `0` keeps the existing (pre-RA-003) behavior — nothing is ever
 /// evicted — so wiring this sweep into the resident loop does not change any
 /// running daemon's behavior until an operator explicitly opts in.
 pub(crate) fn idle_eviction_policy_from_env() -> IdleEvictionMinutes {
-    match std::env::var("RIGHTKIT_IDLE_EVICTION_MINUTES")
+    match std::env::var(rightkit_agent_config::env_name("IDLE_EVICTION_MINUTES"))
         .ok()
         .and_then(|value| value.trim().parse::<u64>().ok())
     {
@@ -578,8 +578,10 @@ pub(crate) fn run_daemon_idle_eviction_sweep(
         workers,
         policy,
         now_ms,
-        idle_mutation_fence(),
-        Duration::from_secs(5),
+        crate::daemon::idle_eviction::EvictionDrain {
+            fence: idle_mutation_fence(),
+            timeout: Duration::from_secs(5),
+        },
         |worker| Ok(build_worker_residency_snapshot(state, worker)),
         |worker, _snapshot, policy, now_ms| passivate_idle_children(state, worker, policy, now_ms),
         |worker| {

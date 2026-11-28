@@ -40,38 +40,61 @@ fn decode_row_durable_event(row: &EventRow) -> Option<ProtocolEvent> {
     decode_row_event(row).filter(ProtocolEvent::is_durable_fact)
 }
 
-/// Fold persisted events (in seq order) into a transcript.
-pub fn rehydrate_transcript(events: &[EventRow]) -> Vec<TranscriptMessage> {
-    let mut out = Vec::new();
-    for row in events {
-        let Some(ev) = decode_row_durable_event(row) else {
-            continue;
-        };
-        match ev {
+/// Visible-transcript fold. One copy of the logic serves `rehydrate_transcript`
+/// and `rehydrate_for_resume`; `push` takes each decoded event by value.
+pub(crate) struct TranscriptFold {
+    out: Vec<TranscriptMessage>,
+    rewound_tail: Option<Vec<TranscriptMessage>>,
+}
+
+impl TranscriptFold {
+    pub(crate) fn new() -> Self {
+        Self {
+            out: Vec::new(),
+            rewound_tail: None,
+        }
+    }
+
+    /// Whether the visible fold reads this event at all. Call-start and
+    /// approval events carry the large call arguments and are ignored by it.
+    fn uses(event: &ProtocolEvent) -> bool {
+        matches!(
+            event,
+            ProtocolEvent::UserMessageSubmitted { .. }
+                | ProtocolEvent::AssistantMessageCompleted { .. }
+                | ProtocolEvent::ToolResultAdded { .. }
+                | ProtocolEvent::SessionCompacted { .. }
+                | ProtocolEvent::SessionContextFolded { .. }
+                | ProtocolEvent::HumanSteeringInjected { .. }
+        )
+    }
+
+    pub(crate) fn push(&mut self, seq: i64, event: ProtocolEvent) {
+        match event {
             ProtocolEvent::UserMessageSubmitted {
                 text,
                 created_at,
                 trust,
                 attachments,
                 ..
-            } => out.push(TranscriptMessage::user_with_attachments(
-                format!("user-{}", row.seq),
+            } => self.out.push(TranscriptMessage::user_with_attachments(
+                format!("user-{}", seq),
                 created_at,
                 text,
                 trust,
                 false,
                 attachments,
             )),
-            ProtocolEvent::AssistantMessageCompleted { message, .. } => out.push(message),
-            ProtocolEvent::ToolResultAdded { result, .. } => out.push(result),
+            ProtocolEvent::AssistantMessageCompleted { message, .. } => self.out.push(message),
+            ProtocolEvent::ToolResultAdded { result, .. } => self.out.push(result),
             ProtocolEvent::SessionCompacted {
                 summary,
                 dropped_count,
                 created_at,
                 ..
             } => {
-                out.push(TranscriptMessage::Compact {
-                    id: format!("compact-{}", row.seq),
+                self.out.push(TranscriptMessage::Compact {
+                    id: format!("compact-{}", seq),
                     created_at,
                     summary,
                     dropped_count,
@@ -84,60 +107,172 @@ pub fn rehydrate_transcript(events: &[EventRow]) -> Vec<TranscriptMessage> {
                 fold,
                 ..
             } => {
-                apply_context_fold(&mut out, &start_marker, &end_marker, fold);
+                apply_context_fold(&mut self.out, &start_marker, &end_marker, fold);
             }
+            ProtocolEvent::HumanSteeringInjected {
+                injected_by, text, ..
+            } => apply_rewind_marker(
+                &mut self.out,
+                &mut self.rewound_tail,
+                &injected_by,
+                text.as_deref(),
+            ),
             _ => {}
         }
     }
-    out
+
+    pub(crate) fn finish(self) -> Vec<TranscriptMessage> {
+        self.out
+    }
 }
 
-/// Rebuild the model-facing context from the same event log while replaying
-/// authoritative compaction boundaries. The visible transcript intentionally
-/// keeps full history; this seed must not, or a resumed near-full session can
-/// exceed the model window before the next automatic compaction can run.
-///
-/// `session_id` and `workspace_root` identify the rebuilt session for the
-/// memory-block provider; `memory_block_provider` is the optional seam
-/// that re-injects a fresh durable-memory block at every replayed
-/// boundary, mirroring the live `compact_authoritative` path. When the
-/// provider is `None` the rebuild behaves exactly as before — no
-/// sentinel block is injected.
-pub fn rehydrate_engine_context(
-    events: &[EventRow],
-    session_id: &str,
-    workspace_root: &std::path::Path,
-    memory_block_provider: Option<std::sync::Arc<dyn MemoryBlockProvider>>,
-) -> Vec<TranscriptMessage> {
-    use std::collections::HashSet;
+/// Fold persisted events (in seq order) into a transcript.
+pub fn rehydrate_transcript(events: &[EventRow]) -> Vec<TranscriptMessage> {
+    let mut fold = TranscriptFold::new();
+    for row in events {
+        let Some(ev) = decode_row_durable_event(row) else {
+            continue;
+        };
+        fold.push(row.seq, ev);
+    }
+    fold.finish()
+}
 
-    // Result-backed calls can be grouped ahead of their retained outputs.
-    // Unanswered real call facts remain pending for interrupted-call repair;
-    // replay never invents a successful result for them.
-    let mut answered_call_ids = HashSet::new();
+/// Replay a persisted rewind or redo marker so a rebuilt transcript matches the
+/// live one: a rewind drops the chosen prompt and everything after it (kept for
+/// a redo), a redo puts that tail back. A marker whose prompt is gone changes
+/// nothing, so corrupt events fail closed.
+fn apply_rewind_marker(
+    messages: &mut Vec<TranscriptMessage>,
+    stash: &mut Option<Vec<TranscriptMessage>>,
+    injected_by: &str,
+    text: Option<&str>,
+) {
+    match injected_by {
+        "rewind" => {
+            let Some(target) = text
+                .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+                .and_then(|marker| {
+                    marker["rewind"]["messageCreatedAt"]
+                        .as_str()
+                        .map(str::to_string)
+                })
+            else {
+                return;
+            };
+            let Some(position) = messages.iter().rposition(|message| {
+                matches!(
+                    message,
+                    TranscriptMessage::User { created_at, pinned: false, .. } if *created_at == target
+                )
+            }) else {
+                return;
+            };
+            *stash = Some(messages.split_off(position));
+        }
+        "redo" => {
+            if let Some(tail) = stash.take() {
+                messages.extend(tail);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Result-backed calls can be grouped ahead of their retained outputs. Ids only;
+/// no payload is kept.
+fn answered_call_ids(events: &[EventRow]) -> std::collections::HashSet<String> {
+    let mut answered = std::collections::HashSet::new();
     for row in events {
         if let Some(ProtocolEvent::ToolResultAdded {
             result: TranscriptMessage::Tool { tool_call_id, .. },
             ..
-        }) = decode_row_durable_event(row).as_ref()
+        }) = decode_row_durable_event(row)
         {
-            answered_call_ids.insert(tool_call_id.clone());
+            answered.insert(tool_call_id);
         }
     }
+    answered
+}
 
-    let mut messages = Vec::new();
+/// Rebuild the visible transcript and the model context for a resume in one
+/// pass that consumes the rows, so each payload is freed as soon as it is
+/// folded. Folds and their inputs are the same as `rehydrate_transcript` and
+/// `rehydrate_engine_context`; a row that does not decode is skipped by both.
+pub(crate) fn rehydrate_for_resume(
+    events: Vec<EventRow>,
+    session_id: &str,
+    workspace_root: &std::path::Path,
+    memory_block_provider: Option<std::sync::Arc<dyn MemoryBlockProvider>>,
+) -> (Vec<TranscriptMessage>, Vec<TranscriptMessage>) {
+    let mut context = EngineContextFold::new(
+        answered_call_ids(&events),
+        session_id,
+        workspace_root,
+        memory_block_provider,
+    );
+    let mut transcript = TranscriptFold::new();
+    for row in events {
+        context.note_row(row.seq);
+        let Some(event) = decode_row_durable_event(&row) else {
+            continue;
+        };
+        if TranscriptFold::uses(&event) {
+            transcript.push(row.seq, event.clone());
+        }
+        context.push(row.seq, event);
+    }
+    (transcript.finish(), context.finish())
+}
+
+/// Model-context fold behind `rehydrate_engine_context` and `rehydrate_for_resume`.
+pub(crate) struct EngineContextFold<'a> {
+    answered_call_ids: std::collections::HashSet<String>,
+    session_id: &'a str,
+    workspace_root: &'a std::path::Path,
+    memory_block_provider: Option<std::sync::Arc<dyn MemoryBlockProvider>>,
+    messages: Vec<TranscriptMessage>,
+    rewound_tail: Option<Vec<TranscriptMessage>>,
     // Durable call facts (`ToolCallStarted` / `ToolApprovalRequested`) whose
     // retained results have not yet replayed. The native engine publishes
     // only a final tool-free `AssistantMessageCompleted`, so these facts are
     // the sole source of the call records the provider needs ahead of each
-    // `function_call_output`.
-    let mut pending_calls: Vec<rightkit_agent_engine_protocol::ToolCall> = Vec::new();
-    let mut pending_ids = HashSet::new();
-    let mut emitted_ids = HashSet::new();
-    for row in events {
-        let Some(event) = decode_row_durable_event(row) else {
-            continue;
-        };
+    // `function_call_output`. Unanswered real call facts remain pending for
+    // interrupted-call repair; replay never invents a successful result.
+    pending_calls: Vec<rightkit_agent_engine_protocol::ToolCall>,
+    pending_ids: std::collections::HashSet<String>,
+    emitted_ids: std::collections::HashSet<String>,
+    last_seq: Option<i64>,
+}
+
+impl<'a> EngineContextFold<'a> {
+    pub(crate) fn new(
+        answered_call_ids: std::collections::HashSet<String>,
+        session_id: &'a str,
+        workspace_root: &'a std::path::Path,
+        memory_block_provider: Option<std::sync::Arc<dyn MemoryBlockProvider>>,
+    ) -> Self {
+        Self {
+            answered_call_ids,
+            session_id,
+            workspace_root,
+            memory_block_provider,
+            messages: Vec::new(),
+            rewound_tail: None,
+            pending_calls: Vec::new(),
+            pending_ids: std::collections::HashSet::new(),
+            emitted_ids: std::collections::HashSet::new(),
+            last_seq: None,
+        }
+    }
+
+    /// Called for EVERY row, decodable or not: the `replay-pending-<seq>` anchor
+    /// is the last row of the whole log.
+    pub(crate) fn note_row(&mut self, seq: i64) {
+        self.last_seq = Some(seq);
+    }
+
+    pub(crate) fn push(&mut self, seq: i64, event: ProtocolEvent) {
         match event {
             ProtocolEvent::UserMessageSubmitted {
                 text,
@@ -145,41 +280,58 @@ pub fn rehydrate_engine_context(
                 trust,
                 attachments,
                 ..
-            } => messages.push(TranscriptMessage::user_with_attachments(
-                format!("user-{}", row.seq),
-                created_at,
-                text,
-                trust,
-                false,
-                attachments,
-            )),
+            } => {
+                // The engine sent this turn with a reminder keyed to the event's own
+                // timestamp; rebuild that exact content so a resumed session keeps the
+                // provider's cached prefix byte-identical.
+                let reminder = crate::api::user_turn_reminder_at(&created_at, &[]);
+                let wrapped = trust.as_ref().map_or_else(
+                    || text.clone(),
+                    |trust| trust.boundary_wrapped_content(&text),
+                );
+                let content =
+                    crate::api::decorate_user_payload_with_system_reminder(&wrapped, &reminder);
+                self.messages.push(TranscriptMessage::user_with_attachments(
+                    format!("user-{}", seq),
+                    created_at,
+                    content,
+                    trust,
+                    false,
+                    attachments,
+                ))
+            }
             ProtocolEvent::ToolCallStarted { call, .. }
             | ProtocolEvent::ToolApprovalRequested { call, .. } => {
                 // An approval request and the subsequent dispatch start both
                 // carry the same call; record it once.
-                if !pending_ids.contains(&call.id) && !emitted_ids.contains(&call.id) {
-                    pending_ids.insert(call.id.clone());
-                    pending_calls.push(call);
+                if !self.pending_ids.contains(&call.id) && !self.emitted_ids.contains(&call.id) {
+                    self.pending_ids.insert(call.id.clone());
+                    self.pending_calls.push(call);
                 }
             }
-            ProtocolEvent::AssistantMessageCompleted { message, .. } => messages.push(message),
+            ProtocolEvent::AssistantMessageCompleted { message, .. } => self.messages.push(message),
             ProtocolEvent::ToolResultAdded { result, .. } => {
                 // Declare every recorded, result-backed call ahead of the
                 // first retained output. Parallel calls share one assistant
                 // envelope; serial calls each get their own. An orphan output
                 // with no durable call fact stays an orphan — nothing is
                 // invented for it.
-                let (declared, deferred): (Vec<_>, Vec<_>) = std::mem::take(&mut pending_calls)
-                    .into_iter()
-                    .partition(|call| answered_call_ids.contains(&call.id));
-                pending_calls = deferred;
-                pending_ids = pending_calls.iter().map(|call| call.id.clone()).collect();
+                let (declared, deferred): (Vec<_>, Vec<_>) =
+                    std::mem::take(&mut self.pending_calls)
+                        .into_iter()
+                        .partition(|call| self.answered_call_ids.contains(&call.id));
+                self.pending_calls = deferred;
+                self.pending_ids = self
+                    .pending_calls
+                    .iter()
+                    .map(|call| call.id.clone())
+                    .collect();
                 if !declared.is_empty() {
                     for call in &declared {
-                        emitted_ids.insert(call.id.clone());
+                        self.emitted_ids.insert(call.id.clone());
                     }
-                    messages.push(TranscriptMessage::Assistant {
-                        id: rightkit_agent_engine_protocol::ids::assistant_message_id(row.seq),
+                    self.messages.push(TranscriptMessage::Assistant {
+                        id: rightkit_agent_engine_protocol::ids::assistant_message_id(seq),
                         created_at: result.created_at().to_string(),
                         content: String::new(),
                         reasoning_content: None,
@@ -188,7 +340,7 @@ pub fn rehydrate_engine_context(
                         origin: None,
                     });
                 }
-                messages.push(result);
+                self.messages.push(result);
             }
             ProtocolEvent::SessionCompacted {
                 summary,
@@ -198,24 +350,23 @@ pub fn rehydrate_engine_context(
                 ..
             } => {
                 let mut transcript = rightkit_agent_engine_core::transcript::Transcript::new();
-                transcript.replace(messages);
+                transcript.replace(std::mem::take(&mut self.messages));
                 let keep_recent = retained_turns as usize;
                 let compactor = rightkit_agent_engine_core::Compactor::new(0, keep_recent);
-                let compactor = match memory_block_provider.clone() {
+                let compactor = match self.memory_block_provider.clone() {
                     Some(provider) => compactor.with_memory_block_provider(provider),
                     None => compactor,
                 };
                 compactor.replay_authoritative_boundary(
                     &mut transcript,
-                    format!("compact-{}", row.seq),
+                    format!("compact-{}", seq),
                     created_at,
                     summary,
                     dropped_count,
-                    session_id,
-                    workspace_root,
+                    self.session_id,
+                    self.workspace_root,
                 );
-                messages = transcript.messages().to_vec();
-                continue;
+                self.messages = transcript.messages().to_vec();
             }
             ProtocolEvent::SessionContextFolded {
                 start_marker,
@@ -223,26 +374,53 @@ pub fn rehydrate_engine_context(
                 fold,
                 ..
             } => {
-                apply_context_fold(&mut messages, &start_marker, &end_marker, fold);
+                apply_context_fold(&mut self.messages, &start_marker, &end_marker, fold);
+            }
+            ProtocolEvent::OrchestrationObservationRecorded { observation, .. } => {
+                // A loop warning the model was sent as a message: put it back where the live
+                // transcript had it (between the tool results that tripped it and the next call).
+                if let Some(nudge) =
+                    rightkit_agent_engine_core::transcript::loop_warning_nudge(&observation, seq)
+                {
+                    self.messages.push(nudge);
+                }
+            }
+            ProtocolEvent::HumanSteeringInjected {
+                injected_by, text, ..
+            } => {
+                apply_rewind_marker(
+                    &mut self.messages,
+                    &mut self.rewound_tail,
+                    &injected_by,
+                    text.as_deref(),
+                );
+                if injected_by == "rewind" {
+                    // Calls started in the rewound turns must not resurface as pending.
+                    self.pending_calls.clear();
+                    self.pending_ids.clear();
+                }
             }
             _ => {}
         }
     }
-    if !pending_calls.is_empty() {
-        // A started/requested call without a durable result remains uncertain.
-        // Retain its real call fact so the engine's dangling-call repair emits
-        // an interrupted error before the resumed provider request.
-        messages.push(TranscriptMessage::Assistant {
-            id: format!("replay-pending-{}", events.last().map_or(0, |row| row.seq)),
-            created_at: rightkit_agent_engine_protocol::now_iso(),
-            content: String::new(),
-            reasoning_content: None,
-            tool_calls: pending_calls,
-            pinned: false,
-            origin: None,
-        });
+
+    pub(crate) fn finish(mut self) -> Vec<TranscriptMessage> {
+        if !self.pending_calls.is_empty() {
+            // A started/requested call without a durable result remains uncertain.
+            // Retain its real call fact so the engine's dangling-call repair emits
+            // an interrupted error before the resumed provider request.
+            self.messages.push(TranscriptMessage::Assistant {
+                id: format!("replay-pending-{}", self.last_seq.unwrap_or(0)),
+                created_at: rightkit_agent_engine_protocol::now_iso(),
+                content: String::new(),
+                reasoning_content: None,
+                tool_calls: self.pending_calls,
+                pinned: false,
+                origin: None,
+            });
+        }
+        self.messages
     }
-    messages
 }
 
 /// Apply a persisted fold boundary. Returns false rather than mutating when
@@ -277,34 +455,6 @@ pub(crate) fn apply_context_fold(
     true
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RehydratedTerminalTurn {
-    pub seq: i64,
-    pub turn_id: String,
-    pub status: String,
-}
-
-/// Latest durable terminal turn fact. Streaming deltas and transport
-/// disconnects are intentionally irrelevant to this reconstruction.
-pub fn rehydrate_terminal_turn(events: &[EventRow]) -> Option<RehydratedTerminalTurn> {
-    events
-        .iter()
-        .filter_map(|row| match decode_row_durable_event(row)? {
-            ProtocolEvent::SessionTurnFinished {
-                seq,
-                turn_id,
-                status,
-                ..
-            } => Some(RehydratedTerminalTurn {
-                seq,
-                turn_id,
-                status,
-            }),
-            _ => None,
-        })
-        .next_back()
-}
-
 /// Latest task-graph snapshot reconstructed from the event log (the last
 /// `TaskGraphUpdated` wins, mirroring the live consumer).
 pub fn rehydrate_tasks(events: &[EventRow]) -> Vec<rightkit_agent_engine_protocol::TaskNode> {
@@ -323,8 +473,8 @@ pub fn rehydrate_tasks(events: &[EventRow]) -> Vec<rightkit_agent_engine_protoco
 /// `session_id` (corrupt JSON, a foreign session's payload, or an oversized
 /// spill stub). The compaction projection record is a legitimate non-protocol
 /// row and the final row anchors the persisted high-water mark, so neither is
-/// ever reported. Callers move the reported rows to quarantine instead of
-/// skipping them on every resume (audit M9).
+/// ever reported. Callers copy the reported rows to quarantine but keep them in
+/// the live log, because a newer build may decode them (audit M1).
 pub(crate) fn undecodable_event_seqs(events: &[EventRow]) -> Vec<i64> {
     let last_seq = events.last().map(|row| row.seq);
     events

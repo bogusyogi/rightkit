@@ -14,19 +14,12 @@ use crate::api::DaemonState;
 use crate::api_permissions::enforce_trusted_source_authority;
 
 pub(crate) fn default_mcp_user_config_path() -> PathBuf {
-    std::env::var_os("RIGHTKIT_MCP_CONFIG")
+    std::env::var_os(rightkit_agent_config::env_name("MCP_CONFIG"))
         .map(PathBuf::from)
-        .or_else(|| {
-            rightkit_agent_config::os_home_dir().map(|home| {
-                home.join(".config")
-                    .join(crate::host_identity::app())
-                    .join("mcp.json")
-            })
-        })
         .unwrap_or_else(|| {
-            std::env::current_dir()
-                .unwrap_or_else(|_| PathBuf::from("."))
-                .join(crate::host_identity::home_dir())
+            rightkit_agent_config::os_home_dir_required()
+                .join(".config")
+                .join(crate::host_identity::config_dir())
                 .join("mcp.json")
         })
 }
@@ -48,6 +41,22 @@ pub(crate) fn read_mcp_config_file(
     }
     let raw = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     serde_json::from_str::<rightkit_mcp::agent_mcp::McpConfigFile>(&raw).map_err(|e| e.to_string())
+}
+
+/// Read a config file for LISTING: an entry that does not parse is skipped and named instead of
+/// failing the whole file (EXT-05). Only listings use this; a read-modify-write (save, delete)
+/// stays strict, because writing back a lenient read would drop the entries it skipped.
+pub(crate) fn read_mcp_config_file_lenient(
+    path: &FsPath,
+) -> Result<(rightkit_mcp::agent_mcp::McpConfigFile, Vec<String>), String> {
+    if !path.exists() {
+        return Ok((
+            rightkit_mcp::agent_mcp::McpConfigFile::default(),
+            Vec::new(),
+        ));
+    }
+    let raw = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    rightkit_mcp::agent_mcp::McpConfigFile::from_json_lenient(&raw)
 }
 
 pub(crate) fn write_mcp_config_file(
@@ -83,6 +92,31 @@ pub(crate) fn mcp_transport_label(
     }
 }
 
+/// Clone of `config` for display: an Http `Authorization` header value is replaced
+/// with "[redacted]" unless it is exactly `Bearer ${NAME}` (an env reference, no secret).
+fn redact_http_authorization(
+    config: &rightkit_mcp::agent_mcp::McpServerConfig,
+) -> rightkit_mcp::agent_mcp::McpServerConfig {
+    let mut view = config.clone();
+    if let rightkit_mcp::agent_mcp::McpServerConfig::Http(http) = &mut view {
+        for (key, value) in http.http_headers.iter_mut() {
+            if key.eq_ignore_ascii_case("authorization") && !is_bearer_env_reference(value) {
+                *value = "[redacted]".to_string();
+            }
+        }
+    }
+    view
+}
+
+fn is_bearer_env_reference(value: &str) -> bool {
+    value
+        .strip_prefix("Bearer ${")
+        .and_then(|rest| rest.strip_suffix('}'))
+        .is_some_and(|name| {
+            !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        })
+}
+
 pub(crate) fn mcp_server_json(
     scope: &str,
     name: &str,
@@ -92,11 +126,12 @@ pub(crate) fn mcp_server_json(
 ) -> serde_json::Value {
     let inferred = trust.is_none();
     let trust = trust.cloned().unwrap_or_else(|| inferred_mcp_trust(config));
+    let config_view = redact_http_authorization(config);
     serde_json::json!({
         "scope": scope,
         "name": name,
         "type": mcp_transport_label(config),
-        "config": config,
+        "config": config_view,
         "trust": {
             "preset": trust.preset,
             "approvedBy": trust.approved_by,
@@ -105,6 +140,13 @@ pub(crate) fn mcp_server_json(
         },
         "channelPermissions": channel_permissions,
         "policyDiagnostics": mcp_policy_diagnostics(config, &trust, channel_permissions),
+        // Contract R4: a stdio server whose script is gone is listed as unreachable.
+        "unreachable": match config {
+            rightkit_mcp::agent_mcp::McpServerConfig::Stdio(stdio) => {
+                rightkit_mcp::agent_mcp::stdio_unreachable_reason(stdio)
+            }
+            _ => None,
+        },
     })
 }
 
@@ -118,14 +160,14 @@ fn mcp_policy_diagnostics(
         None => diagnostics.push(serde_json::json!({
             "severity": "warning",
             "code": "mcp_channel_permissions_unscoped",
-            "message": "No channel permissions are configured; this server is available from every RightKit channel and mutating MCP tools are allowed for compatibility."
+            "message": format!("No channel permissions are configured; this server is available from every {} channel and mutating MCP tools are allowed for compatibility.", crate::host_identity::app())
         })),
         Some(permissions) => {
             if permissions.allowed_channels.is_empty() {
                 diagnostics.push(serde_json::json!({
                     "severity": "warning",
                     "code": "mcp_allowed_channels_empty",
-                    "message": "Allowed channels is empty, so this server is available from every RightKit channel."
+                    "message": format!("Allowed channels is empty, so this server is available from every {} channel.", crate::host_identity::app())
                 }));
             }
             if permissions.allow_mutating {
@@ -138,7 +180,7 @@ fn mcp_policy_diagnostics(
                 diagnostics.push(serde_json::json!({
                     "severity": "info",
                     "code": "mcp_mutating_requires_read_only_hint",
-                    "message": "Mutating MCP tools are disabled; RightKit only exposes/calls tools that declare annotations.readOnlyHint=true."
+                    "message": format!("Mutating MCP tools are disabled; {} only exposes/calls tools that declare annotations.readOnlyHint=true.", crate::host_identity::app())
                 }));
             }
         }
@@ -237,19 +279,19 @@ fn mcp_trust_presets_json() -> serde_json::Value {
 /// Home directory used to locate the persisted MCP trust-approval store,
 /// mirroring `rightkit_mcp::agent_mcp::config::home_dir` (crates/mcp/src/config.rs).
 fn mcp_trust_store_home_dir() -> Option<PathBuf> {
+    // Test seam: `dirs::home_dir` ignores HOME/USERPROFILE on Windows, so tests that
+    // redirect the trust store through HOME would otherwise read the real profile.
     rightkit_agent_config::os_home_dir()
 }
 
 /// Whether the workspace is explicitly trusted in the persisted workspace-trust
-/// store (the store `{app} trust`, the TUI and `PATCH /workspace/trust`
+/// store (the store the CLI `trust` command, the TUI and `PATCH /workspace/trust`
 /// all write). Project-scoped MCP servers of any transport may only be
 /// contacted from a trusted workspace; an unknown, blank or non-`trusted`
 /// workspace fails closed (A203).
 pub(crate) fn workspace_project_config_trusted(workspace_root: &str) -> bool {
-    rightkit_agent_config::is_workspace_trusted_in(
-        &rightkit_agent_config::workspace_trust_store_path(),
-        workspace_root,
-    )
+    crate::api_stores::workspace_trust_store_file()
+        .is_some_and(|store| rightkit_agent_config::is_workspace_trusted_in(&store, workspace_root))
 }
 
 /// Decide whether a workspace-sourced stdio server may spawn right now,
@@ -284,7 +326,7 @@ pub(crate) fn workspace_stdio_trust_decision(
 /// call site (probe, `/mcp tools|resources|read|test`) must route through so
 /// none of them can bypass the invariant the canonical config loader already
 /// enforces at daemon/session boot (audit ra-001).
-pub(crate) fn mcp_transport_from_config(
+pub(crate) async fn mcp_transport_from_config(
     scope: &str,
     workspace_root: &str,
     name: &str,
@@ -313,10 +355,47 @@ pub(crate) fn mcp_transport_from_config(
 
     match config {
         rightkit_mcp::agent_mcp::McpServerConfig::Http(c) => {
-            Arc::new(rightkit_mcp::agent_mcp::HttpTransport::new(c.url))
+            let placeholder_scope = if scope == "workspace" {
+                rightkit_mcp::agent_mcp::PlaceholderScope::Repository
+            } else {
+                rightkit_mcp::agent_mcp::PlaceholderScope::User
+            };
+            // Same stored-credential rule as the session loader: a bearer credential
+            // issued for this server's origin.
+            let oauth = rightkit_mcp::agent_mcp::McpOAuthCredentialStore::get(name)
+                .ok()
+                .flatten()
+                .filter(|stored| {
+                    stored.token_type.eq_ignore_ascii_case("bearer")
+                        && stored.issued_for_server(&c.url)
+                })
+                .map(|stored| stored.access_token);
+            // An unresolvable credential becomes a transport that fails with the
+            // message, so the probe reports it instead of calling unauthenticated.
+            let transport = match rightkit_mcp::agent_mcp::resolve_http_bearer_with_command(
+                name,
+                &c,
+                oauth.as_deref(),
+                &env_vars,
+                placeholder_scope,
+            )
+            .await
+            {
+                Ok(bearer) => {
+                    rightkit_mcp::agent_mcp::HttpTransport::with_access_token(c.url.clone(), bearer)
+                }
+                Err(message) => rightkit_mcp::agent_mcp::HttpTransport::with_configuration_error(
+                    c.url.clone(),
+                    message,
+                ),
+            };
+            Arc::new(transport.with_timeouts(c.options.startup_timeout(), c.options.tool_timeout()))
         }
         rightkit_mcp::agent_mcp::McpServerConfig::Sse(c) => {
-            Arc::new(rightkit_mcp::agent_mcp::SseTransport::new(c.url))
+            let (startup, request) = (c.options.startup_timeout(), c.options.tool_timeout());
+            Arc::new(
+                rightkit_mcp::agent_mcp::SseTransport::new(c.url).with_timeouts(startup, request),
+            )
         }
         rightkit_mcp::agent_mcp::McpServerConfig::Stdio(c) => {
             let workspace_root = std::env::current_dir()
@@ -330,7 +409,8 @@ pub(crate) fn mcp_transport_from_config(
                 network_required: false,
             };
             let transport = rightkit_mcp::agent_mcp::StdioTransport::new(c.command, c.args, c.env)
-                .with_launch_context(launch_context);
+                .with_launch_context(launch_context)
+                .with_timeouts(c.options.startup_timeout(), c.options.tool_timeout());
             let transport = match crate::main_runtime::governed_mcp_process_launcher() {
                 Ok(launcher) => transport.with_process_launch_adapter(launcher),
                 Err(error) => {

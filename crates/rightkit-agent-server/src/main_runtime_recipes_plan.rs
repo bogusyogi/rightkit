@@ -1,20 +1,74 @@
 // Sub-recipe run-plan execution + response-schema pass-through for
 // `{app} recipe run` (spliced into main_runtime via include!).
 
-#[allow(clippy::too_many_arguments)]
-async fn run_recipe_sub_steps(
+/// R8: refuse before anything is materialised or run when any step's workspace is untrusted.
+/// Plan errors (including the step cap) surface here, ahead of the trust refusal.
+fn recipe_run_trust_gate(
     recipe: &Recipe,
     params: &std::collections::BTreeMap<String, String>,
     store: &RecipeStore,
+    workspace: &Option<String>,
+) -> Result<(), i32> {
+    let plan = match rightkit_agent_recipes::resolve_run_plan(
+        recipe,
+        params,
+        &cli_recipe_catalog(store, Some(recipe)),
+    ) {
+        Ok(plan) => plan,
+        Err(error) => {
+            eprintln!("recipe run-plan resolution failed: {error}");
+            return Err(1);
+        }
+    };
+    for step in &plan.steps {
+        let ws = workspace
+            .clone()
+            .or_else(|| step.rendered.settings.workspace.clone())
+            .unwrap_or_else(default_cli_workspace);
+        if workspace_trust_for(&ws) != rightkit_agent_policy::WorkspaceTrust::Trusted {
+            let reason = format!(
+                "this workspace is not trusted: {ws}: trust it from the TUI or the desktop app (`/trust`), or run `{} trust` in that directory",
+                crate::host_identity::app()
+            );
+            return Err(cli_gate::refuse_exit(
+                "recipe run",
+                RunExitCode::UntrustedWorkspace,
+                &reason,
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// What the CLI run passes down to each sub-recipe run: the model, provider and workspace
+/// overrides, the permission mode, output and turn limits, the toolset and the budget.
+struct RecipeSubRunSettings {
     cli_model: Option<String>,
     provider: String,
     workspace: Option<String>,
-    auto_approve: bool,
+    permission_mode: Option<rightkit_agent_policy::PermissionMode>,
     stream_json: bool,
     max_turns: Option<u32>,
     toolset: Option<String>,
     max_budget_usd: Option<f64>,
+}
+
+async fn run_recipe_sub_steps(
+    recipe: &Recipe,
+    params: &std::collections::BTreeMap<String, String>,
+    store: &RecipeStore,
+    settings: RecipeSubRunSettings,
 ) -> Result<(), i32> {
+    let RecipeSubRunSettings {
+        cli_model,
+        provider,
+        workspace,
+        permission_mode,
+        stream_json,
+        max_turns,
+        toolset,
+        max_budget_usd,
+    } = settings;
     let plan = match rightkit_agent_recipes::resolve_run_plan(
         recipe,
         params,
@@ -58,7 +112,6 @@ async fn run_recipe_sub_steps(
             .or_else(|| step.rendered.settings.toolset.clone())
             .or_else(|| step.rendered.required_toolsets.first().cloned());
         let code = run_session(RunArgs {
-            context_mode: ContextMode::effective(),
             output_schema: None,
             prompt: step.rendered.rendered_prompt.clone(),
             print: false,
@@ -68,15 +121,18 @@ async fn run_recipe_sub_steps(
             provider: Some(provider.clone()),
             effort: None,
             workspace: effective_workspace,
-            auto_approve: auto_approve || permission_auto_approve,
-            bypass_approvals: false,
-            permission_mode: None,
+            permission_mode: permission_mode.or_else(|| {
+                permission_auto_approve
+                    .then_some(rightkit_agent_policy::PermissionMode::AcceptEdits)
+            }),
             stream_json,
             exit_on_error: false,
             max_turns,
             allowed_tools: Vec::new(),
             disallowed_tools: Vec::new(),
             toolset: effective_toolset,
+            own_toolset: None,
+            trust_workspace: false,
             max_budget_usd,
             bare: false,
             safe_mode: false,
@@ -95,6 +151,8 @@ async fn run_recipe_sub_steps(
             tools: Vec::new(),
             exclude_tools: Vec::new(),
             no_mcp: false,
+            unattended: false,
+            approval_callback: false,
         })
         .await;
         if code != 0 {

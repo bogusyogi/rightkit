@@ -77,8 +77,6 @@ pub struct DaemonSupervisor {
     workers: HashMap<WorkerId, WorkerOwner>,
     pauses: HashMap<PauseLeaseId, PauseLease>,
     next_pause_id: u64,
-    started: bool,
-    ever_attached: bool,
     scheduled_work: usize,
 }
 
@@ -87,7 +85,6 @@ impl DaemonSupervisor {
     /// not consequences of the first socket attachment (DL-008).
     pub fn start_empty(adopted_workers: Vec<WorkerOwner>, scheduled_work: usize) -> Self {
         let mut supervisor = Self {
-            started: true,
             scheduled_work,
             ..Self::default()
         };
@@ -97,21 +94,6 @@ impl DaemonSupervisor {
         supervisor
     }
 
-    pub fn is_started(&self) -> bool {
-        self.started
-    }
-
-    pub fn client_count(&self) -> usize {
-        self.clients.len()
-    }
-
-    pub fn live_client_count(&self) -> usize {
-        self.clients
-            .values()
-            .filter(|client| client.disconnected_at.is_none())
-            .count()
-    }
-
     /// Ids of every client that is registered and not in disconnect grace.
     pub fn live_client_ids(&self) -> Vec<ClientId> {
         self.clients
@@ -119,10 +101,6 @@ impl DaemonSupervisor {
             .filter(|(_, client)| client.disconnected_at.is_none())
             .map(|(id, _)| id.clone())
             .collect()
-    }
-
-    pub fn ever_attached(&self) -> bool {
-        self.ever_attached
     }
 
     pub fn startup_residency(&self) -> StartupResidency {
@@ -191,19 +169,6 @@ impl DaemonSupervisor {
     ) -> Result<(), SupervisorError> {
         let client = self.client_mut(client_id)?;
         client.attached_sessions.insert(session_id);
-        self.ever_attached = true;
-        Ok(())
-    }
-
-    pub fn detach_session(
-        &mut self,
-        client_id: &ClientId,
-        session_id: &SessionId,
-    ) -> Result<(), SupervisorError> {
-        let client = self.client_mut(client_id)?;
-        if !client.attached_sessions.remove(session_id) {
-            return Err(SupervisorError::SessionNotAttached);
-        }
         Ok(())
     }
 

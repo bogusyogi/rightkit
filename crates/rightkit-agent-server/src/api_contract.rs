@@ -32,7 +32,7 @@ async fn get_api_contract_handler() -> Json<ApiContract> {
     Json(ApiContract {
         name: crate::host_identity::interned(crate::host_identity::prefixed("daemon")),
         version: 1,
-        endpoints: DAEMON_API_ENDPOINTS,
+        endpoints: daemon_api_endpoints(),
     })
 }
 

@@ -1,6 +1,6 @@
 use rightkit_mcp::agent_mcp::{
-    McpServerModePolicy, RequestContext, RightKitMcpBackend as McpBackend, RightKitMcpError,
-    RightKitMcpServer, ToolDescriptor, MCP_SUPPORTED_VERSIONS,
+    McpServerModePolicy, RequestContext, RightKitMcpBackend, RightKitMcpError, RightKitMcpServer,
+    ToolDescriptor, MCP_SUPPORTED_VERSIONS,
 };
 use serde_json::{json, Value};
 use std::io::BufRead;
@@ -11,8 +11,27 @@ const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 const MAX_MCP_LINE_BYTES: usize = 1024 * 1024;
 
+/// Read one request line into `line`, but never more than one byte past the limit, so a peer
+/// that sends gigabytes without a newline is refused after 1 MiB instead of buffered whole
+/// (audit 2026-11-05 L5). Returns the byte count; 0 is EOF.
+fn read_bounded_line<R: BufRead>(reader: &mut R, line: &mut Vec<u8>) -> std::io::Result<usize> {
+    let mut limited = std::io::Read::take(reader, MAX_MCP_LINE_BYTES as u64 + 1);
+    limited.read_until(b'\n', line)
+}
+
+/// Text returned when `mcp-server` starts without `--session-id` on a host that runs no public
+/// MCP server (contract R32).
+fn no_session_refusal() -> String {
+    format!(
+        "mcp-server is an internal driver helper and requires --session-id; {} does not run a public MCP server",
+        crate::host_identity::app()
+    )
+}
+
 pub struct McpServerOptions {
-    pub workspace: PathBuf,
+    /// The folder a stand-alone server (no `--session-id`, host option `mcp_public_server`) exposes;
+    /// `None` is the current directory. A session-bound server and the vendor helper ignore it.
+    pub workspace: Option<PathBuf>,
     pub allow_mutate: bool,
     pub session_id: Option<String>,
 }
@@ -23,6 +42,9 @@ struct SessionGateway {
     capability_token: String,
     driver_instance_secret: String,
     session_id: String,
+    /// Changes whenever the vendor starts a fresh gateway process, because
+    /// JSON-RPC request ids restart from a small integer at that point.
+    generation: String,
     client: rightkit_http::AsyncClient,
 }
 
@@ -47,7 +69,7 @@ impl SessionGateway {
                 .filter(|value| !value.trim().is_empty())
                 .ok_or_else(|| format!("{name} is required for a session-bound MCP gateway"))
         };
-        let daemon_url = std::env::var("RIGHTKIT_DAEMON_URL")
+        let daemon_url = std::env::var(rightkit_agent_config::env_name("DAEMON_URL"))
             .ok()
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| "http://127.0.0.1:51123".to_string())
@@ -61,9 +83,19 @@ impl SessionGateway {
         )?;
         Ok(Some(Self {
             daemon_url,
-            capability_token: required("RIGHTKIT_GATEWAY_TOKEN")?,
-            driver_instance_secret: required("RIGHTKIT_DRIVER_INSTANCE_SECRET")?,
+            capability_token: required(&rightkit_agent_config::env_name("GATEWAY_TOKEN"))?,
+            driver_instance_secret: required(&rightkit_agent_config::env_name(
+                "DRIVER_INSTANCE_SECRET",
+            ))?,
             session_id: session_id.to_string(),
+            generation: format!(
+                "{}-{:x}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|elapsed| elapsed.as_nanos())
+                    .unwrap_or_default()
+            ),
             client,
         }))
     }
@@ -120,7 +152,14 @@ impl SessionGateway {
                 &self.driver_instance_secret,
             )
             .json(&json!({
-                "callId": request_id,
+                "callId": format!(
+                    "{}-{}",
+                    self.generation,
+                    match request_id {
+                        Value::String(text) => text.clone(),
+                        other => other.to_string(),
+                    }
+                ),
                 "name": name,
                 "arguments": arguments,
             }))
@@ -142,14 +181,21 @@ impl SessionGateway {
 }
 
 pub async fn run_stdio(options: McpServerOptions) -> i32 {
-    #[cfg(windows)]
-    if std::env::var_os("RIGHTKIT_VENDOR_PIPE").is_some() {
-        return rightkit_agents::vendor_mcp_pipe::proxy_stdio().await;
+    if std::env::var_os(rightkit_agent_config::env_name("VENDOR_PIPE")).is_some() {
+        return crate::vendor_mcp_pipe::proxy_stdio().await;
     }
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     let reader = stdin.lock();
     run_reader(reader, &mut stdout, options).await
+}
+
+/// Write one start-up refusal line. The refusal is the exit status; a reader that has gone is
+/// noted, not a second failure.
+fn write_refusal<W: std::io::Write>(writer: &mut W, response: Value) {
+    if let Err(error) = writeln!(writer, "{response}") {
+        tracing::debug!(%error, "the MCP refusal could not be written");
+    }
 }
 
 pub async fn run_reader<R: BufRead, W: std::io::Write>(
@@ -160,20 +206,26 @@ pub async fn run_reader<R: BufRead, W: std::io::Write>(
     let gateway = match SessionGateway::from_options(&options) {
         Ok(gateway) => gateway,
         Err(error) => {
-            let _ = writeln!(writer, "{}", error_response(None, -32000, error));
+            write_refusal(writer, error_response(None, -32000, error));
             return 1;
         }
     };
+    if gateway.is_none() && !crate::host_options::mcp_public_server() {
+        // Contract R32: on this host `mcp-server` is the session-bound driver helper only.
+        // The public no-session server is deleted.
+        write_refusal(writer, error_response(None, -32000, no_session_refusal()));
+        return 1;
+    }
     let inline = if gateway.is_none() {
-        match crate::main_runtime::InlineMcpProjection::build(
-            &options.workspace,
-            options.allow_mutate,
-        )
-        .await
+        let workspace = options.workspace.clone().unwrap_or_else(|| {
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+        });
+        match crate::main_runtime::InlineMcpProjection::build(&workspace, options.allow_mutate)
+            .await
         {
             Ok(inline) => Some(inline),
             Err(error) => {
-                let _ = writeln!(writer, "{}", error_response(None, -32000, error));
+                write_refusal(writer, error_response(None, -32000, error));
                 return 1;
             }
         }
@@ -201,8 +253,13 @@ async fn run_reader_with_gateway_and_inline<R: BufRead, W: std::io::Write>(
     } else {
         Vec::new()
     };
-    let allow_mutate = options.allow_mutate;
-    let trust_tier = std::env::var("RIGHTKIT_MCP_TRUST_TIER")
+    // Bound to a session's gateway, this process is a proxy: the engine decides which tools the
+    // lease allows and puts every call through its own policy and approvals. Filtering here as
+    // well left a vendor program with the read-only tools alone (memory recall), whatever the
+    // lease allowed. The read-only default stays for the stand-alone server, where no engine
+    // session governs the calls.
+    let allow_mutate = options.allow_mutate || gateway.is_some();
+    let trust_tier = std::env::var(rightkit_agent_config::env_name("MCP_TRUST_TIER"))
         .ok()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| {
@@ -220,11 +277,11 @@ async fn run_reader_with_gateway_and_inline<R: BufRead, W: std::io::Write>(
         McpServerModePolicy::new(&trust_tier, allow_mutate),
         false,
     );
-    let mut line = String::new();
+    let mut bytes = Vec::new();
     let mut reader = reader;
     loop {
-        line.clear();
-        let read = match reader.read_line(&mut line) {
+        bytes.clear();
+        let read = match read_bounded_line(&mut reader, &mut bytes) {
             Ok(read) => read,
             Err(_) => {
                 return 1;
@@ -233,7 +290,7 @@ async fn run_reader_with_gateway_and_inline<R: BufRead, W: std::io::Write>(
         if read == 0 {
             break;
         }
-        if line.len() > MAX_MCP_LINE_BYTES {
+        if bytes.len() > MAX_MCP_LINE_BYTES {
             let _ = writeln!(
                 writer,
                 "{}",
@@ -242,10 +299,13 @@ async fn run_reader_with_gateway_and_inline<R: BufRead, W: std::io::Write>(
             let _ = writer.flush();
             return 1;
         }
+        let Ok(line) = std::str::from_utf8(&bytes) else {
+            return 1;
+        };
         if line.trim().is_empty() {
             continue;
         }
-        let response = match serde_json::from_str::<Value>(&line) {
+        let response = match serde_json::from_str::<Value>(line) {
             Ok(request) => server.handle_request(request).await,
             Err(e) => Some(error_response(None, -32700, format!("parse error: {e}"))),
         };
@@ -259,22 +319,24 @@ async fn run_reader_with_gateway_and_inline<R: BufRead, W: std::io::Write>(
     0
 }
 
-/// Application backend: RightKit retains execution, permissions & error codes.
-struct RightKitMcpBackend {
+/// Application backend: the host retains execution, permissions & error codes.
+struct HostMcpBackend {
     gateway: Option<SessionGateway>,
     inline: Option<Arc<crate::main_runtime::InlineMcpProjection>>,
     inline_tools: Vec<Value>,
-    policy: McpServerModePolicy,
     vendor_permissions: bool,
 }
 
-impl RightKitMcpBackend {
+impl HostMcpBackend {
     fn raw_tools(&self) -> Vec<Value> {
         let mut tools = self.inline_tools.clone();
         if self.vendor_permissions {
             tools.push(json!({
                 "name": "permission_prompt",
-                "description": "Request RightKit policy approval for a RightKit tool call",
+                "description": format!(
+                    "Request {app} policy approval for a {app} tool call",
+                    app = crate::host_identity::app()
+                ),
                 "inputSchema": {
                     "type": "object",
                     "properties": {"tool_name": {"type": "string"}, "input": {"type": "object"}},
@@ -287,7 +349,7 @@ impl RightKitMcpBackend {
     }
 }
 
-impl McpBackend for RightKitMcpBackend {
+impl RightKitMcpBackend for HostMcpBackend {
     fn should_audit(&self, name: &str) -> bool {
         !(self.vendor_permissions && name == "permission_prompt")
     }
@@ -346,7 +408,8 @@ impl McpBackend for RightKitMcpBackend {
                     .await
                     .unwrap_or_else(|_| {
                         json!({
-                            "behavior": "deny", "message": "RightKit approval channel unavailable"
+                            "behavior": "deny",
+                            "message": format!("{} approval channel unavailable", crate::host_identity::app())
                         })
                     });
                 return Ok(json!({"content": [{"type": "text", "text": result.to_string()}]}));
@@ -383,10 +446,9 @@ fn sort_tools(tools: &mut [Value]) {
     });
 }
 
-/// Thin ingress policy adapter; RightKit owns parsed protocol dispatch.
+/// Thin ingress policy adapter; the shared MCP crate owns parsed protocol dispatch.
 pub(crate) struct McpStdioServer {
     host: RightKitMcpServer,
-    backend: Arc<RightKitMcpBackend>,
     initialized: bool,
     session_id: Option<String>,
 }
@@ -400,35 +462,32 @@ impl McpStdioServer {
         policy: McpServerModePolicy,
         vendor_permissions: bool,
     ) -> Self {
-        let backend = Arc::new(RightKitMcpBackend {
+        let backend = Arc::new(HostMcpBackend {
             gateway,
             inline: inline.map(Arc::new),
             inline_tools,
-            policy,
             vendor_permissions,
         });
         let host = RightKitMcpServer::new(
             crate::host_identity::app(),
-            env!("CARGO_PKG_VERSION"),
-            backend.clone(),
+            crate::host_identity::version(),
+            backend,
             policy,
         );
         Self {
             host,
-            backend,
             initialized: false,
             session_id: options.session_id,
         }
     }
 
     pub(crate) async fn for_vendor(
-        workspace: PathBuf,
         inline: crate::main_runtime::InlineMcpProjection,
     ) -> Result<Self, String> {
         let inline_tools = inline.tools().await?;
         Ok(Self::new(
             McpServerOptions {
-                workspace,
+                workspace: None,
                 allow_mutate: true,
                 session_id: None,
             },
@@ -529,13 +588,29 @@ fn error_response(id: Option<Value>, code: i64, message: impl Into<String>) -> V
     })
 }
 
-// The vendor MCP pipe (Windows) answers each request through this server (rightkit-agents `VendorMcpHandler`).
-#[cfg(windows)]
-impl rightkit_agents::vendor_mcp_pipe::VendorMcpHandler for McpStdioServer {
-    fn handle_request(
-        &mut self,
-        request: Value,
-    ) -> impl std::future::Future<Output = Option<Value>> + Send {
-        McpStdioServer::handle_request(self, request)
+#[cfg(test)]
+mod bounded_line_tests {
+    use super::*;
+
+    #[test]
+    fn oversized_line_is_cut_at_the_limit() {
+        let mut input = std::io::Cursor::new(vec![b'a'; 3 * MAX_MCP_LINE_BYTES]);
+        let mut line = Vec::new();
+        let read = read_bounded_line(&mut input, &mut line).unwrap();
+        assert_eq!(read, MAX_MCP_LINE_BYTES + 1);
+        assert!(line.len() > MAX_MCP_LINE_BYTES);
+        assert_eq!(input.position(), MAX_MCP_LINE_BYTES as u64 + 1);
+    }
+
+    #[test]
+    fn normal_lines_read_one_at_a_time() {
+        let mut input = std::io::Cursor::new(b"{\"a\":1}\n{\"b\":2}\n".to_vec());
+        let mut line = Vec::new();
+        assert_eq!(read_bounded_line(&mut input, &mut line).unwrap(), 8);
+        assert_eq!(line, b"{\"a\":1}\n");
+        line.clear();
+        assert_eq!(read_bounded_line(&mut input, &mut line).unwrap(), 8);
+        line.clear();
+        assert_eq!(read_bounded_line(&mut input, &mut line).unwrap(), 0);
     }
 }

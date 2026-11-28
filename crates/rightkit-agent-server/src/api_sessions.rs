@@ -7,21 +7,21 @@
 //! Task A (lifecycle) → B (messages) → C (SSE) → D (approvals/compaction) → E (specs).
 
 pub mod approvals;
+pub(crate) mod chat_state;
 pub mod credentials;
 pub mod elicitation;
 pub mod export;
 mod idempotency;
+pub(crate) mod import_session;
 pub mod lifecycle;
 pub mod messages;
 pub mod orchestration;
 pub mod rewind;
 pub mod router;
 pub mod sse;
-pub mod state;
+pub(crate) mod test_summary;
+pub(crate) mod transcript_steps;
 pub mod validation;
-
-#[path = "blueprint_init.rs"]
-pub(crate) mod blueprint_init;
 
 pub(crate) use router::sessions_routes;
 

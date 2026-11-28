@@ -33,8 +33,6 @@ pub struct PostMessage {
     pub workspace_root: Option<String>,
     #[serde(default, rename = "clientId")]
     pub client_id: Option<String>,
-    #[serde(default, rename = "connectionId")]
-    pub connection_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -108,10 +106,11 @@ pub struct ResolveApproval {
     pub decision: Option<rightkit_agent_engine_protocol::ReviewDecision>,
     #[serde(default)]
     pub request_id: Option<String>,
-    /// Optional client-supplied note. The current approval event stream only
-    /// carries the approval decision, but older UI payloads may still include it.
-    #[allow(dead_code)]
-    pub reason: Option<String>,
+    /// Keep this answer for later calls: `"session"` (the rest of this chat, the same grant the
+    /// terminal's "for this session" adds) or `"project"` (a standing rule for this workspace, the
+    /// same rule the terminal's "always" adds). Only an approval can be remembered.
+    #[serde(default)]
+    pub remember: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -127,11 +126,10 @@ pub struct AnswerQuestion {
 pub struct ResolvePlan {
     pub plan_id: String,
     pub approved: bool,
-}
-
-#[derive(Deserialize)]
-pub struct PostSteer {
-    pub text: String,
+    /// With `approved`: also drop the earlier conversation from the model's context and continue
+    /// from the plan alone ("approve and clear context").
+    #[serde(default)]
+    pub clear_context: bool,
 }
 
 #[derive(Deserialize)]
@@ -259,7 +257,8 @@ pub(crate) fn session_row(s: &LiveSession) -> serde_json::Value {
         "driverKind": *lock_recover(&s.driver_kind, "session.driver_kind"),
         "mcpChannel": s.mcp_channel,
         "specId": spec_id,
-        "status": "running",
+        // Runtime status: running only while a turn is active (sessions rule 7).
+        "status": if s.live_turn_handle.is_active() { "running" } else { "idle" },
         "workspaceTrust": workspace_trust_label(s.workspace_trust),
         "effort": effort,
         "providerId": provider_id,
@@ -270,7 +269,35 @@ pub(crate) fn session_row(s: &LiveSession) -> serde_json::Value {
         "tags": [],
         // Cumulative session spend in USD, or null when unpriced/not-yet-known.
         "costUsd": cost_usd,
+        // True when that figure is the provider's own charge, not a price-table estimate.
+        "costBilled": s.cost_billed.load(std::sync::atomic::Ordering::Relaxed),
     })
+}
+
+/// The permission mode a resumed session starts in (sessions rule 35). A
+/// stored Ask or Plan is restored. Bypass, and every mode more permissive than
+/// Ask, is never restored: the session resumes in Ask. The second value is the
+/// stored mode when it was lowered, so the caller can show a notice. A session
+/// with no stored mode (a child included) resumes in Ask.
+pub(crate) fn resumed_permission_mode(
+    config_json: &str,
+) -> (
+    rightkit_agent_policy::PermissionMode,
+    Option<rightkit_agent_policy::PermissionMode>,
+) {
+    use rightkit_agent_policy::PermissionMode;
+    let stored = serde_json::from_str::<serde_json::Value>(config_json)
+        .ok()
+        .and_then(|cfg| {
+            cfg.get("permissionMode")
+                .and_then(|value| value.as_str())
+                .and_then(rightkit_agent_policy::parse_permission_mode_strict)
+        });
+    match stored {
+        Some(mode @ (PermissionMode::Ask | PermissionMode::Plan)) => (mode, None),
+        Some(other) => (PermissionMode::Ask, Some(other)),
+        None => (PermissionMode::Ask, None),
+    }
 }
 
 pub(crate) fn session_runtime_options_from_config(config_json: &str) -> SessionRuntimeOptions {
@@ -335,6 +362,38 @@ pub(crate) fn session_runtime_options_from_config(config_json: &str) -> SessionR
             .get("budgetCeilingUsd")
             .and_then(|value| value.as_f64())
             .filter(|value| value.is_finite() && *value > 0.0),
+        // Prompt-shaping flags are persisted so a resumed session rebuilds the
+        // byte-identical system prompt (stable provider cache prefix).
+        brief_default: cfg
+            .get("briefDefault")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false),
+        fable_mode: cfg
+            .get("fableMode")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false),
+        // The run's prompt overlays (`--system-prompt`, `--append-system-prompt`
+        // with the unattended note, `--bare`, `--add-dir`) are stored with the
+        // session so a resumed run rebuilds the same system prompt.
+        system_prompt: cfg
+            .get("systemPrompt")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        append_system_prompt: cfg
+            .get("appendSystemPrompt")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        output_schema: cfg
+            .get("outputSchema")
+            .filter(|value| value.is_object())
+            .cloned(),
+        bare: cfg
+            .get("bare")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false),
+        add_dir: string_list("addDir"),
         ..SessionRuntimeOptions::default()
     }
 }
@@ -364,17 +423,28 @@ pub(crate) fn should_auto_title_for_workspace(title: &str, workspace_root: &str)
     !workspace_name.is_empty() && title.trim().eq_ignore_ascii_case(workspace_name)
 }
 
-#[allow(clippy::too_many_arguments)]
+/// The session an automatic title is generated for: its id and workspace, and the shared
+/// title and update-time cells the generated title is written into.
+pub(crate) struct AutoTitleSession {
+    pub(crate) session_id: String,
+    pub(crate) title: Arc<Mutex<String>>,
+    pub(crate) updated_at: Arc<Mutex<String>>,
+    pub(crate) workspace_root: String,
+}
+
 pub(crate) fn spawn_auto_title_task(
-    session_id: String,
-    title: Arc<Mutex<String>>,
-    updated_at: Arc<Mutex<String>>,
+    session: AutoTitleSession,
     conduit: Arc<Conduit>,
-    workspace_root: String,
     storage: Option<SharedStorage>,
     engine_cfg: EngineConfig,
     transcript: Vec<TranscriptMessage>,
 ) {
+    let AutoTitleSession {
+        session_id,
+        title,
+        updated_at,
+        workspace_root,
+    } = session;
     tokio::spawn(async move {
         if !should_auto_title_for_workspace(&lock_recover(&title, "session.title"), &workspace_root)
         {

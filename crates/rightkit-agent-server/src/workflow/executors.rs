@@ -837,11 +837,11 @@ impl A2aExecutionPort for TrustedRemoteTransport {
 /// executor never silently degrades to unverified admission.
 ///
 /// Environment:
-/// * `RIGHTKIT_A2A_EXECUTOR_URL` — base URL of the trusted remote executor.
-/// * `RIGHTKIT_A2A_TRUST_ROOT_PUBKEY` — hex ed25519 public key of the trust root.
-/// * `RIGHTKIT_A2A_DESCRIPTOR_JSON` — JSON `A2aExecutorDescriptor` bounding the executor.
+/// * `<PREFIX>_A2A_EXECUTOR_URL` — base URL of the trusted remote executor.
+/// * `<PREFIX>_A2A_TRUST_ROOT_PUBKEY` — hex ed25519 public key of the trust root.
+/// * `<PREFIX>_A2A_DESCRIPTOR_JSON` — JSON `A2aExecutorDescriptor` bounding the executor.
 pub fn try_build_daemon_a2a_adapter() -> Option<Arc<A2aAdapter>> {
-    let base_url = match std::env::var("RIGHTKIT_A2A_EXECUTOR_URL") {
+    let base_url = match std::env::var(rightkit_agent_config::env_name("A2A_EXECUTOR_URL")) {
         Ok(value) if !value.trim().is_empty() => value.trim().to_string(),
         _ => {
             tracing::info!(
@@ -851,26 +851,28 @@ pub fn try_build_daemon_a2a_adapter() -> Option<Arc<A2aAdapter>> {
             return None;
         }
     };
-    let trust_root_hex = match std::env::var("RIGHTKIT_A2A_TRUST_ROOT_PUBKEY") {
-        Ok(value) if !value.trim().is_empty() => value.trim().to_string(),
-        _ => {
-            tracing::warn!(
-                target: "agent_server.workflow.a2a",
-                "A2A trust-root public key not configured; bounded A2A stays closed"
-            );
-            return None;
-        }
-    };
-    let descriptor_json = match std::env::var("RIGHTKIT_A2A_DESCRIPTOR_JSON") {
-        Ok(value) if !value.trim().is_empty() => value,
-        _ => {
-            tracing::warn!(
-                target: "agent_server.workflow.a2a",
-                "A2A descriptor not configured; bounded A2A stays closed"
-            );
-            return None;
-        }
-    };
+    let trust_root_hex =
+        match std::env::var(rightkit_agent_config::env_name("A2A_TRUST_ROOT_PUBKEY")) {
+            Ok(value) if !value.trim().is_empty() => value.trim().to_string(),
+            _ => {
+                tracing::warn!(
+                    target: "agent_server.workflow.a2a",
+                    "A2A trust-root public key not configured; bounded A2A stays closed"
+                );
+                return None;
+            }
+        };
+    let descriptor_json =
+        match std::env::var(rightkit_agent_config::env_name("A2A_DESCRIPTOR_JSON")) {
+            Ok(value) if !value.trim().is_empty() => value,
+            _ => {
+                tracing::warn!(
+                    target: "agent_server.workflow.a2a",
+                    "A2A descriptor not configured; bounded A2A stays closed"
+                );
+                return None;
+            }
+        };
     let descriptor: A2aExecutorDescriptor = match serde_json::from_str(&descriptor_json) {
         Ok(descriptor) => descriptor,
         Err(error) => {

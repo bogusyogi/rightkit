@@ -16,6 +16,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use rightkit_agent_telemetry::measurement::{HostGauges, MeasurementScenario};
+use rightkit_agent_telemetry::MeasurementObservation;
 
 use super::soak_driver::{drive_soak, SoakDriveConfig};
 use super::soak_harness::{SoakConfig, SoakHarness};
@@ -166,7 +167,8 @@ async fn run_soak_handler(
 
     for scenario in scenarios {
         let finished_at = now_millis() as u64;
-        if let Err(error) = harness.capture(
+        // Host values come from the live runner; none is inferred from the resource snapshot.
+        if let Err(error) = harness.record(MeasurementObservation::capture_with_host(
             scenario,
             started_at,
             finished_at.max(started_at + 1),
@@ -174,7 +176,7 @@ async fn run_soak_handler(
             cancelled_workers,
             completed_workers,
             ownership_violations,
-        ) {
+        )) {
             return Json(json!({ "error": format!("{error:?}") }));
         }
     }

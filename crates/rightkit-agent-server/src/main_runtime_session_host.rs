@@ -8,6 +8,10 @@
 use std::collections::VecDeque;
 use std::sync::{Mutex, OnceLock};
 
+/// R15 (headless-cli.md section 2.5): how long an interrupt may wait for the
+/// turn to settle before the outcome is reported as unknown (exit 3).
+const RUN_INTERRUPT_SETTLE_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
 use axum::extract::{Path as AxumPath, Query as AxumQuery, State as AxumState};
 use axum::http::HeaderMap;
 use axum::response::Json as AxumJson;
@@ -16,7 +20,13 @@ use rightkit_agent_engine_core::conduit::{
 };
 use rightkit_agent_engine_protocol::{ProtocolEvent, ToolCall};
 
-const RUN_HOST_ENV: &str = "RIGHTKIT_RUN_HOST";
+/// Error text of `wait_for_quiescence` when a turn is still running after ten seconds.
+const TURN_SETTLE_TIMEOUT_MESSAGE: &str = "engine turn did not settle within ten seconds";
+
+/// The environment variable that names the run host (`{prefix}_RUN_HOST`), computed at use.
+fn run_host_env() -> String {
+    rightkit_agent_config::env_name("RUN_HOST")
+}
 
 /// Per-presentation-turn cancellation. Completion is published only before
 /// admission or after the engine has settled; dropping a feed is not completion.
@@ -50,7 +60,7 @@ impl RunCancellation {
     fn push_live_projection(&self, event: &serde_json::Value) {
         if !matches!(
             event.get("$kind").and_then(serde_json::Value::as_str),
-            Some("assistantDelta" | "toolOutputDelta")
+            Some("assistantDelta" | "toolOutputDelta" | "toolArgumentsPartial")
         ) {
             return;
         }
@@ -75,7 +85,7 @@ impl RunCancellation {
     async fn cancel_and_wait(&self) -> Result<(), String> {
         self.requested.cancel();
         let mut completion = self.completion.subscribe();
-        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        tokio::time::timeout(RUN_INTERRUPT_SETTLE_WAIT, async {
             loop {
                 if let Some(result) = completion.borrow_and_update().clone() {
                     return result;
@@ -164,6 +174,8 @@ fn classify_cli_host_route_with_service_selection(
 ) -> CliHostRoute {
     match command {
         Command::Serve { .. } => CliHostRoute::ServiceHost,
+        // The rpc adapter runs `run` as its child; the child picks its own host.
+        Command::Rpc { .. } => CliHostRoute::InlineHost,
         Command::Run { .. } => {
             if service_selected {
                 CliHostRoute::ServiceHost
@@ -171,15 +183,8 @@ fn classify_cli_host_route_with_service_selection(
                 CliHostRoute::InlineHost
             }
         }
-        Command::McpServer { session_id, .. } => {
-            if session_id.is_some() {
-                CliHostRoute::ServiceProjection
-            } else {
-                CliHostRoute::InlineHost
-            }
-        }
-        Command::AcpServer { .. }
-        | Command::Remote { .. }
+        Command::McpServer { .. } => CliHostRoute::ServiceProjection,
+        Command::Remote { .. }
         | Command::Schedule { .. }
         | Command::Browser { .. }
         | Command::Bot { .. }
@@ -198,7 +203,11 @@ fn classify_cli_host_route_with_service_selection(
         | Command::Attach { .. }
         | Command::Conduct { .. }
         | Command::Kill { .. }
+        | Command::Queue { .. }
+        | Command::Import { .. }
         | Command::Handoff { .. }
+        | Command::Web { .. }
+        | Command::Share { .. }
         | Command::App { .. }
         | Command::Export { .. }
         | Command::Review { .. }
@@ -209,8 +218,7 @@ fn classify_cli_host_route_with_service_selection(
         | Command::LocalModel { .. }
         | Command::Hooks { .. }
         | Command::Toolset { .. }
-        | Command::Execution { .. }
-        | Command::CliRuntime { .. } => CliHostRoute::ServiceProjection,
+        | Command::Execution { .. } => CliHostRoute::ServiceProjection,
         Command::Insights { .. } => CliHostRoute::ServiceProjection,
         Command::Spec { command } => match command {
             SpecCommand::Clarify { .. }
@@ -220,15 +228,25 @@ fn classify_cli_host_route_with_service_selection(
             _ => CliHostRoute::LocalUtility,
         },
         Command::Onboard
+        | Command::Contract { .. }
+        | Command::Login { .. }
+        | Command::Logout { .. }
+        | Command::Apply { .. }
         | Command::Trust { .. }
         | Command::Doctor { .. }
         | Command::Models { .. }
-        | Command::Config
+        | Command::Config { .. }
+        | Command::Execpolicy { .. }
+        | Command::Features { .. }
+        | Command::Debug { .. }
         | Command::Migrate { .. }
         | Command::Info { .. }
         | Command::Completion { .. }
         | Command::Caps { .. }
         | Command::Diff { .. }
+        | Command::Discover { .. }
+        | Command::Ssh { .. }
+        | Command::AcpServer { .. }
         | Command::Help { .. } => CliHostRoute::LocalUtility,
         Command::Recipe { command } => match command {
             RecipeCommand::Run { .. } => {
@@ -246,12 +264,6 @@ fn classify_cli_host_route_with_service_selection(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HostCapabilityRequirement {
     OrdinaryLocal,
-    /// Detached/process-surviving residency; ordinary durable storage stays inline.
-    Persistence,
-    MultiClient,
-    Remote,
-    Background,
-    Scheduled,
     ExplicitService,
 }
 
@@ -259,12 +271,7 @@ impl HostCapabilityRequirement {
     const fn host_mode(self) -> RunHostMode {
         match self {
             Self::OrdinaryLocal => RunHostMode::Inline,
-            Self::Persistence
-            | Self::MultiClient
-            | Self::Remote
-            | Self::Background
-            | Self::Scheduled
-            | Self::ExplicitService => RunHostMode::Service,
+            Self::ExplicitService => RunHostMode::Service,
         }
     }
 }
@@ -278,21 +285,34 @@ fn parse_run_host_mode(raw: Option<&str>) -> Result<RunHostMode, String> {
             Ok(HostCapabilityRequirement::ExplicitService.host_mode())
         }
         Some(other) => Err(format!(
-            "invalid {RUN_HOST_ENV}={other:?}; expected inline or service"
+            "invalid {name}={other:?}; expected inline or service",
+            name = run_host_env()
         )),
     }
 }
 
-/// Whether this process explicitly selected ServiceHost for ordinary run/TUI
-/// execution. Presentation/lifecycle adapters use this to avoid taking daemon
-/// presence/discovery leases on the default InlineHost path.
+/// Whether this process's TUI and run presentation use ServiceHost: the
+/// operator named it (`{prefix}_RUN_HOST=service`), or a daemon already holds the
+/// database lock and answers (cli-and-tui R42, storage-and-state 27: with a
+/// daemon running the TUI submits to it and never opens a second writer).
+/// Decided once per process, so a TUI never switches host mid-session.
+/// Presentation/lifecycle adapters use it to avoid taking daemon
+/// presence/discovery leases on the in-process path.
 pub(crate) fn service_host_explicitly_selected() -> bool {
-    let raw = std::env::var(RUN_HOST_ENV).ok();
-    matches!(
-        parse_run_host_mode(raw.as_deref()),
-        Ok(RunHostMode::Service)
-    )
+    let mut route = HOST_ROUTE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *route.get_or_insert_with(|| {
+        let raw = std::env::var(run_host_env()).ok();
+        match parse_run_host_mode(raw.as_deref()) {
+            Ok(RunHostMode::Service) => true,
+            _ => resolve_daemon().is_some(),
+        }
+    })
 }
+
+/// The host route this process decided, `None` until the first question.
+static HOST_ROUTE: std::sync::Mutex<Option<bool>> = std::sync::Mutex::new(None);
 
 /// The value composed once (per context mode) by [`InlineHost::build`] and
 /// cached by [`inline_host_initializer`]'s single-flight initializer.
@@ -310,13 +330,7 @@ fn apply_membrane_cli_composition(mut state: api::DaemonState) -> api::DaemonSta
     )));
     match rightkit_memory_client::backend::native::connect_from_environment() {
         Ok(backend) => {
-            let provenance =
-                rightkit_memory_client::memory_provenance::MemoryProvenanceStore::from_backend(
-                    backend.clone(),
-                );
-            state = state
-                .with_memory_backend(backend)
-                .with_memory_provenance(provenance);
+            state = state.with_memory_backend(backend);
             // Pulse absent connects to the typed unavailable backend; the
             // context is still off and must be reported degraded.
             if rightkit_memory_client::backend::native::context_is_off() {
@@ -335,36 +349,30 @@ fn apply_membrane_cli_composition(mut state: api::DaemonState) -> api::DaemonSta
                         error.message(),
                     ),
                 ))
-                .with_memory_provenance(
-                    rightkit_memory_client::memory_provenance::MemoryProvenanceStore::unavailable(
-                        reason.clone(),
-                    ),
-                )
                 .with_context_degraded(reason);
         }
     }
     state
 }
 
-/// The process-wide single-flight initializer for one `ContextMode`'s
-/// InlineHost composition. Replaces the permanent-failure-caching
+/// The process-wide single-flight initializer for the InlineHost composition. Replaces the permanent-failure-caching
 /// `OnceLock<Result<...>>` this used to be: a failed attempt is never
-/// cached, concurrent callers share one in-flight attempt, and a stale
-/// cached value can be forced to rebuild via `invalidate()` (used when a
-/// state must be rebuilt).
+/// cached, concurrent callers share one in-flight attempt, and a success
+/// is kept for the life of the process.
 fn inline_host_initializer(
-    context_mode: ContextMode,
 ) -> &'static crate::inline_host_init::InlineHostInitializer<InlineHostState> {
-    static MEMBRANE_INIT: OnceLock<
-        crate::inline_host_init::InlineHostInitializer<InlineHostState>,
-    > = OnceLock::new();
-    static DIRECT_INIT: OnceLock<crate::inline_host_init::InlineHostInitializer<InlineHostState>> =
+    static INIT: OnceLock<crate::inline_host_init::InlineHostInitializer<InlineHostState>> =
         OnceLock::new();
-    match context_mode {
-        ContextMode::Membrane => MEMBRANE_INIT.get_or_init(Default::default),
-        ContextMode::Direct => DIRECT_INIT.get_or_init(Default::default),
-    }
+    INIT.get_or_init(Default::default)
 }
+
+/// The workspace a `--trust-workspace` call trusts for this run only
+/// (headless R8). Set once before the InlineHost is built; never persisted.
+/// The `--request-id` of this call (headless R14), used as the first
+/// message's idempotency nonce. Set once before the run starts.
+static RUN_REQUEST_ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+static RUN_TRUSTED_WORKSPACE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 /// Keep an already-built InlineHost's in-memory trust view in step with the
 /// canonical persisted store after an explicit TUI/CLI trust decision.
@@ -373,7 +381,7 @@ pub(crate) fn sync_inline_workspace_trust(workspace_root: &str) {
     if key.is_empty() {
         return;
     }
-    let Some((state, _)) = inline_host_initializer(ContextMode::effective()).peek() else {
+    let Some((state, _)) = inline_host_initializer().peek() else {
         return;
     };
     let mut store = state
@@ -396,23 +404,36 @@ struct InlineHost {
 }
 
 impl InlineHost {
-    fn build(context_mode: ContextMode) -> Result<InlineHostState, String> {
+    fn build() -> Result<InlineHostState, String> {
         // InlineHost owns a session-lifetime Membrane holder while retaining
         // local execution. ServiceHost has an independent holder path.
         let config = load_current_merged_config();
-        let db_path = default_db_path();
+        let db_path = default_db_path().map_err(|error| {
+            format!(
+                "open inline {app} storage: {error}",
+                app = rightkit_agent_config::app_name()
+            )
+        })?;
         let (storage, migration_report) =
-            crate::daemon::migrate::open_with_migration_report(&db_path)
-                .map_err(|error| format!("open inline RightKit storage: {error}"))?;
+            crate::daemon::migrate::open_with_migration_report(&db_path).map_err(|error| {
+                format!(
+                    "open inline {app} storage: {error}",
+                    app = rightkit_agent_config::app_name()
+                )
+            })?;
         if migration_report.applied_migrations {
             tracing::info!(
                 host = "inline",
                 "database migrations applied on inline-host startup"
             );
         }
+        // Issue 510: this process shares the account with other in-process hosts, so every
+        // session it creates or revives is leased to it first.
+        crate::session_lease::enable();
+        // A one-shot run killed mid-turn leaves its session `running`; no daemon will stamp it.
+        crate::session_startup_recovery::recover_for_inline_host(&storage);
 
         let mut state = api::DaemonState::new(generate_token())
-            .with_context_mode(context_mode)
             .with_runtime_info(0, db_path.clone())
             .with_runtime_middleware_store_path(runtime_middleware_store_path(&db_path))
             .with_recipe_store_path(recipe_store_path(&db_path))
@@ -432,6 +453,7 @@ impl InlineHost {
             s.per_agent_call_max_usd = budget.per_agent_call_max_usd;
             s.max_retries_per_role = budget.max_retries_per_role;
             s.max_wall_clock_minutes = budget.max_wall_clock_minutes;
+            s.turn_max_wall_clock_minutes = config.turn.max_wall_clock_minutes.unwrap_or(0);
             s.max_iterations = budget.max_iterations;
             s.max_workers = budget.max_workers;
         }
@@ -450,6 +472,28 @@ impl InlineHost {
             tracing::warn!(host = "inline", error = %error, "provider extension registration unavailable");
         }
 
+        // `--trust-workspace` (headless R8): trusted for this run only. The
+        // record lives in this process's memory; nothing is written to the
+        // trust store.
+        if let Some(root) = RUN_TRUSTED_WORKSPACE.get() {
+            let key = api::workspace_trust_key(root);
+            if !key.is_empty() {
+                state
+                    .workspace_trust_store
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .projects
+                    .insert(
+                        key,
+                        crate::api_stores::WorkspaceTrustRecord {
+                            trust: "trusted".to_string(),
+                            approved_by: Some("--trust-workspace".to_string()),
+                            updated_at: rightkit_agent_engine_protocol::now_iso(),
+                        },
+                    );
+            }
+        }
+
         Ok((state, ()))
     }
 
@@ -457,23 +501,21 @@ impl InlineHost {
     /// initializer (see `inline_host_init.rs`). A cached success
     /// is never rebuilt; a cached
     /// failure is never returned twice -- the next call always retries.
-    async fn shared(context_mode: ContextMode) -> Result<Self, String> {
-        let (state, ()) = inline_host_initializer(context_mode)
-            .ensure(move || Self::build(context_mode))
-            .await?;
+    async fn shared() -> Result<Self, String> {
+        let (state, ()) = inline_host_initializer().ensure(Self::build).await?;
         Ok(Self { state })
     }
 
-    /// Warm the cached composition for `context_mode` without acquiring a
+    /// Warm the cached composition without acquiring a
     /// resident lease. Presentation hosts (`EngineTurnHost`) call this as
     /// soon as the TUI starts, so the slow native connect (which can block
     /// for minutes on a cold worker) runs off the first turn's critical
     /// path instead of stalling the first submitted message. `shared()`
     /// still performs its own -- cheap once the cache is warm -- lease
     /// acquisition per call; this only ensures the expensive part is done.
-    async fn warm(context_mode: ContextMode) -> Result<Option<String>, String> {
-        inline_host_initializer(context_mode)
-            .ensure(move || Self::build(context_mode))
+    async fn warm() -> Result<Option<String>, String> {
+        inline_host_initializer()
+            .ensure(Self::build)
             .await
             .map(|(state, _)| state.context_degraded_reason().map(str::to_string))
     }
@@ -482,13 +524,12 @@ impl InlineHost {
     /// composition and durable store. This is a local read-only view; it does
     /// not discover/bind ServiceHost or create another persistence authority.
     async fn list_sessions_for_workspace(
-        context_mode: ContextMode,
         workspace_root: &str,
     ) -> Result<Vec<serde_json::Value>, String> {
         // Never builds: this feeds navigation from the terminal loop, which
         // must not wait on (or retry) a slow context build. Until the state
         // exists the caller shows its local stub.
-        let (state, _) = inline_host_initializer(context_mode)
+        let (state, _) = inline_host_initializer()
             .peek()
             .ok_or_else(|| "inline host state is not built yet".to_string())?;
         let AxumJson(rows) = crate::api_sessions::lifecycle::list_sessions(
@@ -508,12 +549,38 @@ impl InlineHost {
             .collect())
     }
 
+    /// Sessions whose message text matches `query`, from the same full-text search `/sessions/search` runs, called
+    /// in-process. `(session id, title, snippet)`, best match first. Never builds.
+    async fn search_sessions_content(query: &str) -> Vec<(String, String, String)> {
+        let Some((state, _)) = inline_host_initializer().peek() else {
+            return Vec::new();
+        };
+        let AxumJson(rows) = crate::api_sessions::lifecycle::search_sessions_handler(
+            AxumState(state),
+            AxumQuery(crate::api::SessionSearchQuery {
+                q: query.to_string(),
+                limit: Some(20),
+            }),
+        )
+        .await;
+        rows.as_array()
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(|row| {
+                        let id = row["sessionId"].as_str()?.to_string();
+                        let title = row["title"].as_str().unwrap_or_default().to_string();
+                        let snippet = row["snippet"].as_str().unwrap_or_default().to_string();
+                        Some((id, title, snippet))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// Every durable session row (all workspaces) from the already-built
     /// inline composition -- the project/chat browser's feed. Never builds.
-    async fn list_all_sessions(
-        context_mode: ContextMode,
-    ) -> Result<Vec<serde_json::Value>, String> {
-        let (state, _) = inline_host_initializer(context_mode)
+    async fn list_all_sessions() -> Result<Vec<serde_json::Value>, String> {
+        let (state, _) = inline_host_initializer()
             .peek()
             .ok_or_else(|| "inline host state is not built yet".to_string())?;
         let AxumJson(rows) = crate::api_sessions::lifecycle::list_sessions(
@@ -539,6 +606,13 @@ impl InlineHost {
             }
             return Ok(());
         }
+
+        // Issue 510: one writer per session. Refuse here, with the reason, before anything is
+        // read or written; the lease is kept until this process exits.
+        let lease_id = session_id.to_string();
+        tokio::task::spawn_blocking(move || crate::session_lease::hold(&lease_id))
+            .await
+            .map_err(|error| format!("take the session lock: {error}"))??;
 
         if let Some(existing) = self
             .state
@@ -568,29 +642,23 @@ impl InlineHost {
         .map_err(|status| format!("create inline session {session_id}: HTTP {status}"))
     }
 
-    async fn submit_message(
-        &self,
-        session_id: &str,
-        prompt: &str,
-        workspace_root: &str,
-    ) -> Result<i64, String> {
-        self.submit_message_with_attachments(session_id, prompt, workspace_root, None, None)
-            .await
-    }
-
-    async fn submit_message_with_attachments(
+    /// Submit with an idempotency nonce: the same nonce replays the first
+    /// admission and never starts a second turn.
+    async fn submit_message_with_nonce(
         &self,
         session_id: &str,
         prompt: &str,
         workspace_root: &str,
         attachments: Option<Vec<api::Attachment>>,
         sandbox_grant_prompts: Option<bool>,
+        nonce: Option<&str>,
     ) -> Result<i64, String> {
         let request: api::PostMessage = serde_json::from_value(serde_json::json!({
             "text": prompt,
             "workspaceRoot": workspace_root,
             "attachments": attachments,
             "sandboxGrantPrompts": sandbox_grant_prompts,
+            "nonce": nonce,
         }))
         .map_err(|error| format!("build inline message request: {error}"))?;
         match crate::api_sessions::messages::post_message(
@@ -620,6 +688,7 @@ impl InlineHost {
         &self,
         session_id: &str,
         after: i64,
+        human: bool,
     ) -> Result<InlineEventStream, String> {
         let live = self
             .state
@@ -627,7 +696,11 @@ impl InlineHost {
             .ok_or_else(|| format!("inline session {session_id} is not live"))?;
 
         // Match the daemon SSE race-proof ordering: subscribe first, then replay.
-        let subscription = live.conduit.subscribe();
+        let subscription = if human {
+            live.conduit.subscribe_human()
+        } else {
+            live.conduit.subscribe()
+        };
         let mut pending = VecDeque::new();
         match live.conduit.replay_after(after) {
             ConduitReplay::Events(events) => pending.extend(events),
@@ -662,7 +735,7 @@ impl InlineHost {
             before: None,
             limit: None,
         };
-        match crate::api_sessions::sse::get_events_history(
+        match crate::api_sessions::sse::get_events_history_all(
             AxumState(self.state.clone()),
             AxumPath(session_id.to_string()),
             AxumQuery(query),
@@ -703,7 +776,7 @@ impl InlineHost {
             before: Some(before_seq),
             limit: Some(limit),
         };
-        match crate::api_sessions::sse::get_events_history(
+        match crate::api_sessions::sse::get_events_history_all(
             AxumState(self.state.clone()),
             AxumPath(session_id.to_string()),
             AxumQuery(query),
@@ -761,7 +834,7 @@ impl InlineMcpProjection {
         mode: rightkit_agent_policy::PermissionMode,
         control: &RunCancellation,
     ) -> Result<(Self, InlineEventStream), String> {
-        let host = InlineHost::shared(ContextMode::Membrane).await?;
+        let host = InlineHost::shared().await?;
         if host.state.get_session(session_id).is_none() {
             let request = serde_json::from_value(serde_json::json!({
                 "id": session_id, "title": "Vendor tools",
@@ -780,9 +853,9 @@ impl InlineMcpProjection {
             .state
             .get_session(session_id)
             .ok_or("vendor session unavailable")?;
-        crate::api_permissions::apply_live_permission_mode(&host.state, &live, mode);
+        crate::api_permissions::apply_live_permission_mode(&host.state, &live, mode)?;
         let stream = host
-            .open_event_stream(session_id, live.conduit.current_high_water())
+            .open_event_stream(session_id, live.conduit.current_high_water(), false)
             .await?;
         let projection = Self {
             state: host.state.clone(),
@@ -797,6 +870,56 @@ impl InlineMcpProjection {
             ))
             .map_err(|_| "vendor host already bound".to_string())?;
         Ok((projection, stream))
+    }
+
+    /// A projection over a fresh read-only session (or a mutating one with `allow_mutate`) on the
+    /// shared inline host, for the stand-alone MCP server.
+    pub(crate) async fn build(
+        workspace: &std::path::Path,
+        allow_mutate: bool,
+    ) -> Result<Self, String> {
+        let host = InlineHost::shared().await?;
+        Self::build_with_state_impl(host.state, workspace, allow_mutate).await
+    }
+
+    async fn build_with_state_impl(
+        state: api::DaemonState,
+        workspace: &std::path::Path,
+        allow_mutate: bool,
+    ) -> Result<Self, String> {
+        let permission_mode = if allow_mutate { "bypass" } else { "ask" };
+        Self::build_with_state_and_mode(state, workspace, allow_mutate, permission_mode).await
+    }
+
+    async fn build_with_state_and_mode(
+        state: api::DaemonState,
+        workspace: &std::path::Path,
+        allow_mutate: bool,
+        permission_mode: &str,
+    ) -> Result<Self, String> {
+        let session_id = format!("mcp-{}", rightkit_agent_engine_protocol::uuid_v7());
+        let toolset = (!allow_mutate).then_some("read-only");
+        let request: api::CreateSession = serde_json::from_value(serde_json::json!({
+            "id": session_id,
+            "title": "MCP stdio",
+            "workspaceRoot": workspace.to_string_lossy(),
+            "toolset": toolset,
+            "safeMode": !allow_mutate,
+            "permissionMode": permission_mode,
+            "mcpChannel": "cli"
+        }))
+        .map_err(|error| format!("build inline MCP session request: {error}"))?;
+        crate::api_sessions::lifecycle::create_session_handler(
+            AxumState(state.clone()),
+            AxumJson(request),
+        )
+        .await
+        .map_err(|status| format!("create inline MCP session: HTTP {status}"))?;
+        Ok(Self {
+            state,
+            session_id,
+            vendor_grants: Mutex::new(Vec::new()),
+        })
     }
 
     pub(crate) async fn permission_prompt(
@@ -815,7 +938,7 @@ impl InlineMcpProjection {
             });
         let Some(name) = name.filter(|name| *name != "permission_prompt") else {
             return Ok(
-                serde_json::json!({"behavior": "deny", "message": "Only RightKit tools are permitted"}),
+                serde_json::json!({"behavior": "deny", "message": format!("Only {app} tools are permitted", app = rightkit_agent_config::app_name())}),
             );
         };
         if !input.is_object() {
@@ -864,54 +987,6 @@ impl InlineMcpProjection {
             std::time::Instant::now(),
         ));
         Ok(serde_json::json!({"behavior": "allow", "updatedInput": input}))
-    }
-
-    pub(crate) async fn build(
-        workspace: &std::path::Path,
-        allow_mutate: bool,
-    ) -> Result<Self, String> {
-        let host = InlineHost::shared(ContextMode::Membrane).await?;
-        Self::build_with_state_impl(host.state, workspace, allow_mutate).await
-    }
-
-    async fn build_with_state_impl(
-        state: api::DaemonState,
-        workspace: &std::path::Path,
-        allow_mutate: bool,
-    ) -> Result<Self, String> {
-        let permission_mode = if allow_mutate { "bypass" } else { "ask" };
-        Self::build_with_state_and_mode(state, workspace, allow_mutate, permission_mode).await
-    }
-
-    async fn build_with_state_and_mode(
-        state: api::DaemonState,
-        workspace: &std::path::Path,
-        allow_mutate: bool,
-        permission_mode: &str,
-    ) -> Result<Self, String> {
-        let session_id = format!("mcp-{}", rightkit_agent_engine_protocol::uuid_v7());
-        let toolset = (!allow_mutate).then_some("read-only");
-        let request: api::CreateSession = serde_json::from_value(serde_json::json!({
-            "id": session_id,
-            "title": "MCP stdio",
-            "workspaceRoot": workspace.to_string_lossy(),
-            "toolset": toolset,
-            "safeMode": !allow_mutate,
-            "permissionMode": permission_mode,
-            "mcpChannel": "cli"
-        }))
-        .map_err(|error| format!("build inline MCP session request: {error}"))?;
-        let _ = crate::api_sessions::lifecycle::create_session_handler(
-            AxumState(state.clone()),
-            AxumJson(request),
-        )
-        .await
-        .map_err(|status| format!("create inline MCP session: HTTP {status}"))?;
-        Ok(Self {
-            state,
-            session_id,
-            vendor_grants: Mutex::new(Vec::new()),
-        })
     }
 
     pub(crate) async fn tools(&self) -> Result<Vec<serde_json::Value>, String> {
@@ -1060,15 +1135,109 @@ impl ServiceHost {
         let (base_url, token) = crate::cli_presence::resolve_daemon_or_autostart()
             .await
             .ok_or_else(|| {
-                format!("No running ServiceHost found and automatic start failed. Start one with `{app} serve`.", app = crate::host_identity::app())
-                    .to_string()
+                format!(
+                    "No running ServiceHost found and automatic start failed. Start one with `{app} serve`.",
+                    app = crate::host_identity::app()
+                )
             })?;
+        Ok(Self::with_daemon(base_url, token).await)
+    }
+
+    async fn with_daemon(base_url: String, token: String) -> Self {
         let client = Arc::new(DaemonSessionClient::new(base_url, token));
         let context_degraded_reason = client.context_degraded_reason().await.ok().flatten();
-        Ok(Self {
+        Self {
             client,
             context_degraded_reason,
-        })
+        }
+    }
+}
+
+/// R13 (headless-cli.md section 2.6) and cli-and-tui R42: an in-process host
+/// writes the database only while it holds the daemon's single-instance lock,
+/// so a CLI call and a daemon never write at once. The lock is taken once and
+/// held for the rest of the process. `Err` names why nothing may run.
+fn hold_inline_writer_lock() -> Result<(), String> {
+    match try_hold_inline_writer_lock()? {
+        None => Ok(()),
+        Some(held_elsewhere) => Err(held_elsewhere),
+    }
+}
+
+/// [`hold_inline_writer_lock`] that tells contention apart: `Ok(None)` means
+/// the lock is held here, `Ok(Some(message))` means another process holds it.
+fn try_hold_inline_writer_lock() -> Result<Option<String>, String> {
+    static HELD: std::sync::Mutex<Option<crate::daemon::ownership::OwnershipLock>> =
+        std::sync::Mutex::new(None);
+    let mut held = HELD.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if held.is_some() {
+        return Ok(None);
+    }
+    let path = crate::daemon::ownership::default_lockfile_path().ok_or_else(|| {
+        format!(
+            "the {app} state root is unavailable, so the database lock has no location",
+            app = rightkit_agent_config::app_name()
+        )
+    })?;
+    // Issue 510: shared. In-process hosts run side by side (one writer per session, see
+    // `session_lease`); only a `serve` daemon, which takes the lock exclusively, is in the way.
+    match crate::daemon::ownership::OwnershipLock::acquire_shared(&path) {
+        Ok(Some(lock)) => {
+            *held = Some(lock);
+            Ok(None)
+        }
+        Ok(None) => {
+            let owner = crate::daemon::ownership::read_lockfile_pid(&path)
+                .map(|pid| format!("process {pid}"))
+                .unwrap_or_else(|| "another process".to_string());
+            let app = rightkit_agent_config::app_name();
+            Ok(Some(format!(
+                "{owner} holds the {app} database lock {} for itself (a {app} daemon that is starting or stopping, or an older {app} run) and no daemon answers; nothing was run, retry when it exits",
+                path.display()
+            )))
+        }
+        Err(error) => Err(format!(
+            "cannot take the {app} database lock {}: {error}",
+            path.display(),
+            app = rightkit_agent_config::app_name()
+        )),
+    }
+}
+
+/// Take the account lock shared (`Ok(None)`), or, while a process holds it for itself (a daemon
+/// starting or stopping, or a run of a build from before issue 510), poll until it is released or
+/// a daemon answers (`Ok(Some(..))`). After the bounded wait the lock error stands.
+async fn wait_for_inline_writer_lock_or_daemon() -> Result<Option<(String, String)>, String> {
+    // Issue 510: in-process runs no longer take turns, so this wait only covers a daemon that
+    // is starting or draining, and a run of an older build that still holds the lock for
+    // itself. The wait stays bounded so a holder that never exits cannot hang a caller for
+    // ever; `{prefix}_LOCK_WAIT_SECS` changes the bound.
+    let wait_secs = std::env::var(rightkit_agent_config::env_name("LOCK_WAIT_SECS"))
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u64>().ok())
+        .unwrap_or(600);
+    let started = std::time::Instant::now();
+    let deadline = started + std::time::Duration::from_secs(wait_secs);
+    let mut announced = false;
+    loop {
+        let Some(held_elsewhere) = try_hold_inline_writer_lock()? else {
+            return Ok(None);
+        };
+        if let Some(daemon) = resolve_daemon() {
+            return Ok(Some(daemon));
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err(held_elsewhere);
+        }
+        if !announced && started.elapsed() >= std::time::Duration::from_secs(2) {
+            announced = true;
+            eprintln!(
+                "{slug}: another {app} process holds the database lock for itself; waiting for it to finish (up to {wait_secs} s)",
+                slug = rightkit_agent_config::host_slug(),
+                app = rightkit_agent_config::app_name()
+            );
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
 }
 
@@ -1082,14 +1251,25 @@ impl SessionExecutionHost {
     /// The inline host if its composed state is already built -- never builds
     /// one. A read-only presentation poll has nothing to read before the
     /// state exists, and must not wait on (or retry) a slow context build.
-    fn select_if_ready(context_mode: ContextMode) -> Option<Self> {
-        let raw = std::env::var(RUN_HOST_ENV).ok();
-        match parse_run_host_mode(raw.as_deref()).ok()? {
-            RunHostMode::Inline => inline_host_initializer(context_mode)
-                .peek()
-                .map(|(state, _source)| Self::Inline(Box::new(InlineHost { state }))),
-            RunHostMode::Service => None,
+    fn select_if_ready() -> Option<Self> {
+        let raw = std::env::var(run_host_env()).ok();
+        parse_run_host_mode(raw.as_deref()).ok()?;
+        if service_host_explicitly_selected() {
+            return None;
         }
+        inline_host_initializer()
+            .peek()
+            .map(|(state, _source)| Self::Inline(Box::new(InlineHost { state })))
+    }
+
+    /// The host a session operation of the open TUI (rewind, undo, redo) goes
+    /// through: the daemon when the TUI submits to one, else the in-process
+    /// host once it is built.
+    async fn for_session_ops() -> Result<Self, String> {
+        if service_host_explicitly_selected() {
+            return Ok(Self::Service(ServiceHost::connect().await?));
+        }
+        Self::select_if_ready().ok_or_else(|| "the session has not started yet".to_string())
     }
 
     async fn session_snapshot(
@@ -1137,6 +1317,22 @@ impl SessionExecutionHost {
         provider_id: Option<&str>,
         effort: Option<&str>,
     ) -> Result<serde_json::Value, String> {
+        self.patch_route(session_id, model, provider_id, effort)
+            .await?;
+        self.session_snapshot(session_id)
+            .await?
+            .ok_or_else(|| format!("session {session_id} disappeared after route update"))
+    }
+
+    /// The route PATCH alone: applies to a live session, or to the stored row
+    /// so the next resume uses it.
+    async fn patch_route(
+        &self,
+        session_id: &str,
+        model: &str,
+        provider_id: Option<&str>,
+        effort: Option<&str>,
+    ) -> Result<(), String> {
         let body = serde_json::json!({"model": model, "providerId": provider_id, "effort": effort});
         match self {
             Self::Inline(host) => {
@@ -1155,9 +1351,7 @@ impl SessionExecutionHost {
                 host.client.patch_route(session_id, &body).await?;
             }
         }
-        self.session_snapshot(session_id)
-            .await?
-            .ok_or_else(|| format!("session {session_id} disappeared after route update"))
+        Ok(())
     }
 
     /// Goal control (`/goal`) over the same handlers the daemon routes use.
@@ -1251,7 +1445,14 @@ impl SessionExecutionHost {
                             "archived",
                         )
                         .await
-                        .map_err(|status| format!("archive session: HTTP {status}"))?;
+                        .map_err(|status| {
+                            if status == axum::http::StatusCode::NOT_FOUND {
+                                // A chat is stored with its first message; before that there is nothing to archive.
+                                "Nothing to archive yet: this chat has no saved messages. Send a message first.".to_string()
+                            } else {
+                                format!("archive session: HTTP {status}")
+                            }
+                        })?;
                         Ok(serde_json::json!({"id":session_id,"status":"archived"}))
                     }
                     "delete" => crate::api_sessions::lifecycle::delete_session_handler(
@@ -1262,10 +1463,19 @@ impl SessionExecutionHost {
                     .await
                     .map(|AxumJson(json)| json)
                     .map_err(|status| format!("delete session: HTTP {status}")),
-                    "clone" => {
-                        let body = serde_json::from_value(serde_json::json!({"title": value}))
-                            .map_err(|error| format!("build clone request: {error}"))?;
-                        crate::api_sessions::lifecycle::clone_session_handler(
+                    "fork" | "fork_back" | "fork_into" => {
+                        let request = if action == "fork_back" {
+                            serde_json::json!({
+                                "turnsBack": value.and_then(|n| n.trim().parse::<usize>().ok())
+                            })
+                        } else if action == "fork_into" {
+                            serde_json::json!({"workspaceRoot": value})
+                        } else {
+                            serde_json::json!({"title": value})
+                        };
+                        let body = serde_json::from_value(request)
+                            .map_err(|error| format!("build fork request: {error}"))?;
+                        crate::api_sessions::lifecycle::fork_session_handler(
                             state,
                             path,
                             HeaderMap::new(),
@@ -1273,7 +1483,7 @@ impl SessionExecutionHost {
                         )
                         .await
                         .map(|AxumJson(json)| json)
-                        .map_err(|status| format!("clone session: HTTP {status}"))
+                        .map_err(|status| format!("fork session: HTTP {status}"))
                     }
                     "export" => {
                         let query = serde_json::from_value(
@@ -1402,10 +1612,6 @@ impl SessionExecutionHost {
         }
     }
 
-    async fn init_workspace(&self, session_id: &str) -> Result<serde_json::Value, String> {
-        self.execute_command("/init", Some(session_id)).await
-    }
-
     async fn resolve_approval(
         &self,
         session_id: &str,
@@ -1445,6 +1651,7 @@ impl SessionExecutionHost {
                     AxumState(host.state.clone()),
                     AxumPath(session_id.to_owned()),
                     HeaderMap::new(),
+                    None,
                     AxumJson(body),
                 )
                 .await
@@ -1473,7 +1680,7 @@ impl SessionExecutionHost {
                     AxumState(host.state.clone()),
                     AxumQuery(crate::api_permissions::PersistentPermissionRuleQuery {
                         scope: Some("all".to_string()),
-                        workspace_root: None,
+                        ..Default::default()
                     }),
                 )
                 .await
@@ -1493,7 +1700,7 @@ impl SessionExecutionHost {
     ) -> Result<(), String> {
         match self {
             Self::Inline(host) => {
-                crate::api_permissions::add_permission_rule_handler(
+                let _ = crate::api_permissions::add_permission_rule_handler(
                     AxumState(host.state.clone()),
                     AxumPath(session_id.to_owned()),
                     HeaderMap::new(),
@@ -1618,6 +1825,18 @@ impl SessionExecutionHost {
         plan_id: &str,
         approved: bool,
     ) -> Result<(), String> {
+        self.resolve_plan_with_context(session_id, plan_id, approved, false)
+            .await
+    }
+
+    /// Answer a plan card; `clear_context` with `approved` is "approve and clear context".
+    async fn resolve_plan_with_context(
+        &self,
+        session_id: &str,
+        plan_id: &str,
+        approved: bool,
+        clear_context: bool,
+    ) -> Result<(), String> {
         match self {
             Self::Inline(host) => crate::api_sessions::approvals::resolve_plan(
                 AxumState(host.state.clone()),
@@ -1626,6 +1845,7 @@ impl SessionExecutionHost {
                 AxumJson(crate::api::ResolvePlan {
                     plan_id: plan_id.to_owned(),
                     approved,
+                    clear_context,
                 }),
             )
             .await
@@ -1636,7 +1856,7 @@ impl SessionExecutionHost {
                     .respond_interaction(
                         session_id,
                         "/resolve-plan",
-                        &serde_json::json!({"planId": plan_id, "approved": approved}),
+                        &serde_json::json!({"planId": plan_id, "approved": approved, "clearContext": clear_context}),
                     )
                     .await
             }
@@ -1673,19 +1893,17 @@ impl SessionExecutionHost {
     }
 
     /// Prior user prompts of the session, oldest first (rewind picker rows).
-    /// InlineHost reads its in-process session; the service transport has no
-    /// rewind-to-message route yet and says so rather than faking one.
+    /// InlineHost reads its in-process session; ServiceHost uses the daemon's
+    /// `rewind/points` route. Both reach the same engine operation.
     async fn rewind_points(
         &self,
         session_id: &str,
     ) -> Result<Vec<crate::api_sessions::rewind::RewindPoint>, String> {
         match self {
             Self::Inline(host) => {
-                crate::api_sessions::rewind::rewind_points(&host.state, session_id)
+                crate::api_sessions::rewind::rewind_points(&host.state, session_id).await
             }
-            Self::Service(_) => {
-                Err("Rewind to a message is only available with the inline host.".to_string())
-            }
+            Self::Service(host) => host.client.rewind_points(session_id).await,
         }
     }
 
@@ -1700,9 +1918,22 @@ impl SessionExecutionHost {
                 crate::api_sessions::rewind::rewind_to_message(&host.state, session_id, point, mode)
                     .await
             }
-            Self::Service(_) => {
-                Err("Rewind to a message is only available with the inline host.".to_string())
+            Self::Service(host) => host.client.rewind_to(session_id, point, mode).await,
+        }
+    }
+
+    /// Re-apply the most recent undo. A refusal is its message.
+    async fn redo_last_undo(
+        &self,
+        session_id: &str,
+    ) -> Result<crate::api_sessions::rewind::RewindReport, String> {
+        match self {
+            Self::Inline(host) => {
+                crate::api_sessions::rewind::redo_last_undo(&host.state, session_id)
+                    .await
+                    .map_err(|refusal| refusal.message())
             }
+            Self::Service(host) => host.client.redo(session_id).await,
         }
     }
 
@@ -1725,17 +1956,37 @@ impl SessionExecutionHost {
             }
         })
         .await
-        .map_err(|_| "engine turn did not settle within ten seconds".to_string())?
+        .map_err(|_| TURN_SETTLE_TIMEOUT_MESSAGE.to_string())?
     }
 
-    async fn select(context_mode: ContextMode) -> Result<Self, String> {
-        let raw = std::env::var(RUN_HOST_ENV).ok();
-        match parse_run_host_mode(raw.as_deref())? {
-            RunHostMode::Inline => Ok(Self::Inline(Box::new(
-                InlineHost::shared(context_mode).await?,
-            ))),
-            RunHostMode::Service => Ok(Self::Service(ServiceHost::connect().await?)),
+    /// The TUI's host: the daemon when one holds the lock, else in-process
+    /// under the single-writer lock (cli-and-tui R42, storage 27).
+    async fn select() -> Result<Self, String> {
+        let raw = std::env::var(run_host_env()).ok();
+        parse_run_host_mode(raw.as_deref())?;
+        if service_host_explicitly_selected() {
+            return Ok(Self::Service(ServiceHost::connect().await?));
         }
+        hold_inline_writer_lock()?;
+        Ok(Self::Inline(Box::new(InlineHost::shared().await?)))
+    }
+
+    /// A headless call's host (headless-cli.md section 2.6, R13): a live
+    /// daemon when one answers, otherwise in-process under the daemon's
+    /// single-instance lock. No environment switch picks the route, and a
+    /// headless call never starts a daemon.
+    async fn select_for_call() -> Result<Self, String> {
+        if let Some((base_url, token)) = resolve_daemon() {
+            return Ok(Self::Service(
+                ServiceHost::with_daemon(base_url, token).await,
+            ));
+        }
+        if let Some((base_url, token)) = wait_for_inline_writer_lock_or_daemon().await? {
+            return Ok(Self::Service(
+                ServiceHost::with_daemon(base_url, token).await,
+            ));
+        }
+        Ok(Self::Inline(Box::new(InlineHost::shared().await?)))
     }
 
     /// Why Membrane context is off for this host, when turns run degraded.
@@ -1773,6 +2024,43 @@ impl SessionExecutionHost {
                     .await?;
             }
         }
+        // #476 (W5D-1): a session that already existed (a 409 on create, or an
+        // evicted session resumed from storage) keeps its stored route, and a
+        // session created without a model has none, so its turn never reaches a
+        // provider. When the caller names a model and the session has none,
+        // apply the caller's route. A session that has a model keeps it; switching
+        // is `update_route`'s job.
+        if let Some(model) = args
+            .model
+            .as_deref()
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+        {
+            let has_model = self
+                .session_snapshot(session_id)
+                .await?
+                .and_then(|row| {
+                    row.get("model")
+                        .and_then(|m| m.as_str())
+                        .map(str::to_string)
+                })
+                .is_some_and(|current| !current.trim().is_empty());
+            if !has_model {
+                self.patch_route(
+                    session_id,
+                    model,
+                    args.provider
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|p| !p.is_empty()),
+                    args.effort
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|e| !e.is_empty()),
+                )
+                .await?;
+            }
+        }
         // A session that already existed keeps the mode it was created with
         // unless the caller carries an explicit live mode (`/yolo`,
         // Shift+Tab); the engine adopts it at the start of this turn. Safe
@@ -1794,7 +2082,7 @@ impl SessionExecutionHost {
         match self {
             Self::Inline(host) => {
                 if let Some(live) = host.state.get_session(session_id) {
-                    crate::api_permissions::apply_live_permission_mode(&host.state, &live, mode);
+                    crate::api_permissions::apply_live_permission_mode(&host.state, &live, mode)?;
                 }
                 Ok(())
             }
@@ -1828,25 +2116,47 @@ impl SessionExecutionHost {
         attachments: Option<Vec<api::Attachment>>,
         sandbox_grant_prompts: Option<bool>,
     ) -> Result<i64, String> {
+        self.submit_message_with_nonce(
+            session_id,
+            prompt,
+            workspace_root,
+            attachments,
+            sandbox_grant_prompts,
+            None,
+        )
+        .await
+    }
+
+    async fn submit_message_with_nonce(
+        &self,
+        session_id: &str,
+        prompt: &str,
+        workspace_root: &str,
+        attachments: Option<Vec<api::Attachment>>,
+        sandbox_grant_prompts: Option<bool>,
+        nonce: Option<&str>,
+    ) -> Result<i64, String> {
         match self {
             Self::Inline(host) => {
-                host.submit_message_with_attachments(
+                host.submit_message_with_nonce(
                     session_id,
                     prompt,
                     workspace_root,
                     attachments,
                     sandbox_grant_prompts,
+                    nonce,
                 )
                 .await
             }
             Self::Service(host) => {
                 host.client
-                    .submit_message_with_attachments(
+                    .submit_message_with_nonce(
                         session_id,
                         prompt,
                         workspace_root,
                         attachments,
                         sandbox_grant_prompts,
+                        nonce,
                     )
                     .await
             }
@@ -1857,10 +2167,11 @@ impl SessionExecutionHost {
         &self,
         session_id: &str,
         after: i64,
+        human: bool,
     ) -> Result<SessionEventStream, String> {
         match self {
             Self::Inline(host) => host
-                .open_event_stream(session_id, after)
+                .open_event_stream(session_id, after, human)
                 .await
                 .map(SessionEventStream::Inline),
             Self::Service(host) => host

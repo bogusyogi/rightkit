@@ -4,6 +4,7 @@
 //! forge fetch. `tui_host.rs` holds one [`PaneState`] and forwards usage, tool
 //! and key events to it.
 
+use crate::tui_projects::{key_matches, TuiSettings, TUI_ACTIONS};
 use rightkit_github::forge_client::{execute_get_blocking, GitHubForgeClient};
 use rightkit_terminal_ui::ci_band::{parse_check_runs, CiBand};
 use rightkit_terminal_ui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -16,6 +17,67 @@ use std::sync::mpsc::{channel, Receiver, TryRecvError};
 use std::time::{Duration, Instant};
 
 const CI_REFRESH_AFTER: Duration = Duration::from_secs(60);
+
+/// The pane actions a chord can run. Each one is a `[tui.keymap]` action, so
+/// the chord is looked up through [`TuiSettings::key_for`] (A021-2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PaneKey {
+    Observability,
+    CiBand,
+    DiffOpen,
+    HunkNext,
+    HunkPrev,
+    HunkAccept,
+    HunkRevert,
+}
+
+impl PaneKey {
+    /// Every pane action with its keymap name.
+    pub const ALL: [(PaneKey, &'static str); 7] = [
+        (PaneKey::Observability, "observability"),
+        (PaneKey::CiBand, "ci_band"),
+        (PaneKey::DiffOpen, "diff_open"),
+        (PaneKey::HunkNext, "hunk_next"),
+        (PaneKey::HunkPrev, "hunk_prev"),
+        (PaneKey::HunkAccept, "hunk_accept"),
+        (PaneKey::HunkRevert, "hunk_revert"),
+    ];
+
+    /// The pane action whose configured chord is `key`.
+    pub fn lookup(settings: &TuiSettings, key: &KeyEvent) -> Option<PaneKey> {
+        if key.kind != KeyEventKind::Press {
+            return None;
+        }
+        Self::ALL
+            .iter()
+            .find(|(_, name)| key_matches(&settings.key_for(name), key))
+            .map(|(pane, _)| *pane)
+            .or_else(|| Self::legacy_lookup(settings, key))
+    }
+
+    /// The hunk action an older default chord still runs (issue #535). Only
+    /// while that action keeps its shipped chord and no action at all is bound
+    /// to the old one, so a user binding always wins and nothing is shadowed.
+    fn legacy_lookup(settings: &TuiSettings, key: &KeyEvent) -> Option<PaneKey> {
+        let (pane, name, _) = LEGACY_HUNK_CHORDS
+            .iter()
+            .find(|(_, _, chord)| key_matches(chord, key))?;
+        let taken = settings.keymap.contains_key(*name)
+            || TUI_ACTIONS
+                .iter()
+                .any(|action| key_matches(&settings.key_for(action.name), key));
+        (!taken).then_some(*pane)
+    }
+}
+
+/// The hunk chords shipped before issue #535, kept as extra bindings. A
+/// terminal with the extended key protocol sends them unambiguously
+/// (`CSI 93;3u`, `CSI 91;3u`); without it Alt+[ is `ESC [` and never arrives
+/// as a key, which is why they are no longer the defaults.
+const LEGACY_HUNK_CHORDS: [(PaneKey, &str, &str); 2] = [
+    (PaneKey::HunkNext, "hunk_next", "alt+]"),
+    (PaneKey::HunkPrev, "hunk_prev", "alt+["),
+];
 
 /// What the host should do with a handled key.
 pub enum PaneAction {
@@ -39,12 +101,23 @@ pub struct PaneState {
     ci_note: Option<String>,
     tool_starts: HashMap<String, (String, Instant)>,
     input_total: u64,
+    output_total: u64,
     cached_total: u64,
     cost_usd: f64,
     ci_rx: Option<Receiver<CiFetch>>,
     ci_last: Option<Instant>,
     /// Alt+R was pressed; the next key answers `[y/N]`.
     revert_pending: bool,
+    /// The workspace diff being read on a thread; `poll_diff` collects it.
+    diff_rx: Option<Receiver<Result<String, String>>>,
+}
+
+/// The cost half of a `DaemonEvent::Usage`: the micro-dollar figure and whether the event reports
+/// a cumulative cost at all.
+#[derive(Debug, Clone, Copy)]
+pub struct UsageCost {
+    pub micros: Option<i64>,
+    pub reported: bool,
 }
 
 impl PaneState {
@@ -60,11 +133,20 @@ impl PaneState {
         context_permille: i64,
         cache_read: i64,
         prompt: i64,
-        cost_micros: Option<i64>,
-        cost_reported: bool,
+        completion: i64,
+        cost: UsageCost,
     ) {
+        let UsageCost {
+            micros: cost_micros,
+            reported: cost_reported,
+        } = cost;
         self.input_total += prompt.max(0) as u64;
         self.cached_total += cache_read.max(0) as u64;
+        // Only the cumulative event carries session-wide output; the per-response
+        // one would double count against it.
+        if cost_reported {
+            self.output_total = completion.max(0) as u64;
+        }
         if cost_reported {
             self.cost_usd = cost_micros.map_or(0.0, |m| m as f64 / 1_000_000.0);
         }
@@ -75,7 +157,7 @@ impl PaneState {
         };
         self.obs.set_usage(UsageSnapshot {
             input_tokens: self.input_total,
-            output_tokens: 0,
+            output_tokens: self.output_total,
             cached_input_tokens: self.cached_total,
             cost_usd: self.cost_usd,
             context_used: context_size.max(0) as u64,
@@ -119,10 +201,10 @@ impl PaneState {
                             self.ci_note = None;
                         }
                         CiFetch::Unauthenticated => {
-                            self.ci_note = Some(
-                                format!("PR/CI status needs a GitHub sign-in (run `{app} github sign-in`).", app = crate::host_identity::app())
-                                    .to_string(),
-                            );
+                            self.ci_note = Some(format!(
+                                "PR/CI status needs a GitHub sign-in (run `{}`).",
+                                crate::host_identity::command("github sign-in")
+                            ));
                         }
                         CiFetch::Failed(why) => {
                             self.ci_note = Some(format!("PR/CI status unavailable: {why}"));
@@ -145,8 +227,65 @@ impl PaneState {
         }
     }
 
-    /// Handle an Alt-chord. None when the key is not a pane key.
-    pub fn handle_key(&mut self, key: &KeyEvent, cwd: &Path) -> Option<PaneAction> {
+    /// Comment on line `n` (counting from 1) of the current hunk.
+    pub fn add_comment(&mut self, n: usize, text: &str) -> PaneAction {
+        let Some(review) = self.review.as_mut() else {
+            return PaneAction::Notice("Run /changes first to load the changes.".into());
+        };
+        if n > 0 && review.comment(n - 1, text) {
+            PaneAction::Notice(format!(
+                "Comment added on line {n}. /changes send sends them."
+            ))
+        } else {
+            PaneAction::Notice("No such line in this hunk, or the comment is empty.".into())
+        }
+    }
+
+    /// The review comments as one prompt for the agent, cleared once taken.
+    pub fn take_feedback_prompt(&mut self) -> Option<String> {
+        let feedback = self.review.as_mut()?.take_feedback()?;
+        Some(format!(
+            "Review feedback on my uncommitted changes:\n{feedback}"
+        ))
+    }
+
+    /// True while a diff read is running.
+    pub fn diff_pending(&self) -> bool {
+        self.diff_rx.is_some()
+    }
+
+    /// The finished diff read as the pane's answer; None while it still runs.
+    pub fn poll_diff(&mut self) -> Option<PaneAction> {
+        let result = match self.diff_rx.as_ref()?.try_recv() {
+            Ok(result) => result,
+            Err(TryRecvError::Empty) => return None,
+            Err(TryRecvError::Disconnected) => Err("the git read stopped".to_string()),
+        };
+        self.diff_rx = None;
+        Some(match result {
+            Ok(diff) => {
+                let review = DiffReview::from_diff(&diff);
+                if review.is_empty() {
+                    self.review = None;
+                    PaneAction::Notice("No uncommitted changes to review.".into())
+                } else {
+                    let lines = hunk_lines(&review);
+                    self.review = Some(review);
+                    PaneAction::Show(lines)
+                }
+            }
+            Err(e) => PaneAction::Notice(format!("Diff review unavailable: {e}")),
+        })
+    }
+
+    /// Handle a pane chord (already resolved to `pane` through the keymap) or
+    /// the `[y/N]` answer of a pending revert. None when the key is not for us.
+    pub fn handle_key(
+        &mut self,
+        key: &KeyEvent,
+        cwd: &Path,
+        pane: Option<PaneKey>,
+    ) -> Option<PaneAction> {
         if key.kind != KeyEventKind::Press {
             return None;
         }
@@ -162,57 +301,55 @@ impl PaneState {
             }
             return Some(PaneAction::Notice("Revert cancelled.".into()));
         }
-        if key.modifiers != KeyModifiers::ALT {
-            return None;
-        }
-        match key.code {
-            // Alt+O: observability pane.
-            KeyCode::Char('o') => Some(PaneAction::Show(self.obs.lines())),
-            // Alt+B: PR/CI band (refreshes in the background).
-            KeyCode::Char('b') => {
+        self.run(pane?, cwd)
+    }
+
+    /// Run one pane action. None when it needs a loaded diff and none is.
+    pub fn run(&mut self, pane: PaneKey, cwd: &Path) -> Option<PaneAction> {
+        match pane {
+            PaneKey::Observability => Some(PaneAction::Show(self.obs.lines())),
+            // PR/CI band (refreshes in the background).
+            PaneKey::CiBand => {
                 self.poll_ci(cwd, true);
                 Some(match (self.ci.line(), &self.ci_note) {
                     (Some(line), _) => PaneAction::Show(vec![line]),
                     (None, Some(note)) => PaneAction::Notice(note.clone()),
                     (None, None) => PaneAction::Notice(
-                        "Fetching PR/CI status; press Alt+B again in a moment.".to_string(),
+                        "Fetching PR/CI status; run /ci or press Alt+B again in a moment."
+                            .to_string(),
                     ),
                 })
             }
-            // Alt+D: (re)load the workspace diff and show the current hunk.
-            KeyCode::Char('d') => match git_diff(cwd) {
-                Ok(diff) => {
-                    let review = DiffReview::from_diff(&diff);
-                    if review.is_empty() {
-                        self.review = None;
-                        return Some(PaneAction::Notice(
-                            "No uncommitted changes to review.".into(),
-                        ));
-                    }
-                    let lines = hunk_lines(&review);
-                    self.review = Some(review);
-                    Some(PaneAction::Show(lines))
+            // (Re)load the workspace diff and show the current hunk. `git diff` runs on a
+            // thread so a large repository never stalls typing; `poll_diff` shows the result.
+            PaneKey::DiffOpen => {
+                if self.diff_rx.is_some() {
+                    return Some(PaneAction::Notice("The diff is still loading.".into()));
                 }
-                Err(e) => Some(PaneAction::Notice(format!("Diff review unavailable: {e}"))),
-            },
-            // Alt+] / Alt+[: next / previous hunk.
-            KeyCode::Char(']') | KeyCode::Char('[') => {
+                let (tx, rx) = channel();
+                let cwd = cwd.to_path_buf();
+                std::thread::spawn(move || {
+                    let _ = tx.send(git_diff(&cwd));
+                });
+                self.diff_rx = Some(rx);
+                Some(PaneAction::Notice("Loading the diff...".into()))
+            }
+            PaneKey::HunkNext | PaneKey::HunkPrev => {
                 let r = self.review.as_mut()?;
-                if key.code == KeyCode::Char(']') {
+                if pane == PaneKey::HunkNext {
                     r.next_hunk();
                 } else {
                     r.prev_hunk();
                 }
                 Some(PaneAction::Show(hunk_lines(r)))
             }
-            // Alt+A: accept the current hunk.
-            KeyCode::Char('a') => {
+            PaneKey::HunkAccept => {
                 let r = self.review.as_mut()?;
                 r.accept();
                 Some(PaneAction::Show(hunk_lines(r)))
             }
-            // Alt+R: revert the current hunk through `git apply`.
-            KeyCode::Char('r') => {
+            // Revert the current hunk through `git apply`, after a `[y/N]`.
+            PaneKey::HunkRevert => {
                 let r = self.review.as_ref()?;
                 let (file, hunk) = r.current()?;
                 if hunk.decision == Decision::Reverted {
@@ -224,7 +361,6 @@ impl PaneState {
                     file.path
                 )))
             }
-            _ => None,
         }
     }
 }
@@ -283,9 +419,14 @@ pub fn hunk_lines(review: &DiffReview) -> Vec<Line<'static>> {
         Decision::Reverted => " [reverted]",
     };
     let mut out = vec![Line::from(format!("{}  {}{tag}", file.path, hunk.header))];
-    out.extend(hunk.lines.iter().map(|l| Line::from(format!("  {l}"))));
+    out.extend(
+        hunk.lines
+            .iter()
+            .enumerate()
+            .map(|(i, l)| Line::from(format!("{:>3} {l}", i + 1))),
+    );
     out.push(Line::from(
-        "Alt+] next  Alt+[ prev  Alt+A accept  Alt+R revert",
+        "Alt+J next  Alt+K prev  Alt+A accept  Alt+R revert  (or /changes next|prev|accept|revert|comment <line> <text>|send)",
     ));
     out
 }

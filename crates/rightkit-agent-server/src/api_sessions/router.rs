@@ -12,21 +12,23 @@ use axum::{
 
 use crate::api::DaemonState;
 
-use super::approvals::{answer_question, compact_session, resolve_plan, resolve_tool_approval};
+use super::approvals::{
+    answer_question, compact_session, list_pending, resolve_plan, resolve_tool_approval,
+};
 use super::credentials::resolve_credential_request;
 use super::elicitation::resolve_elicitation;
 use super::export::export_session_handler;
 use super::lifecycle::{
-    clone_session_handler, create_session_handler, delete_session_handler, fork_session_handler,
-    get_away_summary, get_transcript, get_untrusted_content, interrupt_session, kill_session,
-    list_sessions, patch_session, resume_session_handler, search_sessions_handler,
+    create_session_route, delete_session_handler, fork_session_handler, get_away_summary,
+    get_transcript, get_untrusted_content, interrupt_session, kill_session, list_sessions,
+    patch_session, resume_session_handler, search_sessions_handler,
 };
 use super::messages::{
-    clear_goal, edit_goal, get_goal_snapshot, pause_goal, post_message, resume_goal,
+    clear_goal, edit_goal, get_goal_snapshot, pause_goal, post_message, redo_session, resume_goal,
     rewind_points_handler, rewind_session, set_goal, steer_session,
 };
 use super::orchestration::{
-    bind_session_spec_handler, clear_session_spec_handler, get_artifacts, get_session_agents,
+    bind_session_spec_handler, clear_session_spec_handler, get_artifacts, get_session_agents_route,
     get_session_spec_completion_handler, get_taskgraph, get_tasks, orchestrate_session,
 };
 use super::sse::{get_events_history, get_events_replay_page, get_events_sse};
@@ -34,14 +36,28 @@ use super::sse::{get_events_history, get_events_replay_page, get_events_sse};
 pub(crate) fn sessions_routes() -> Router<DaemonState> {
     Router::new()
         // lifecycle
-        .route("/sessions", get(list_sessions).post(create_session_handler))
+        .route("/sessions", get(list_sessions).post(create_session_route))
         .route("/sessions/search", get(search_sessions_handler))
+        .route(
+            "/sessions/import",
+            // A long chat is bigger than the 2 MB default body limit.
+            post(super::import_session::import_session_handler)
+                .layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)),
+        )
         .route(
             "/sessions/{id}",
             delete(delete_session_handler).patch(patch_session),
         )
         .route("/sessions/{id}/kill", post(kill_session))
+        .route(
+            "/sessions/{id}/seen",
+            post(super::chat_state::mark_session_seen),
+        )
         .route("/sessions/{id}/transcript", get(get_transcript))
+        .route(
+            "/sessions/{id}/transcript/steps",
+            get(super::transcript_steps::get_transcript_steps),
+        )
         .route("/sessions/{id}/export", get(export_session_handler))
         .route(
             "/sessions/{id}/untrusted-content",
@@ -50,7 +66,6 @@ pub(crate) fn sessions_routes() -> Router<DaemonState> {
         .route("/sessions/{id}/away-summary", get(get_away_summary))
         .route("/sessions/{id}/resume", post(resume_session_handler))
         .route("/sessions/{id}/fork", post(fork_session_handler))
-        .route("/sessions/{id}/clone", post(clone_session_handler))
         .route("/sessions/{id}/interrupt", post(interrupt_session))
         // messages + steering
         .route("/sessions/{id}/messages", post(post_message))
@@ -63,6 +78,7 @@ pub(crate) fn sessions_routes() -> Router<DaemonState> {
         .route("/sessions/{id}/goal/resume", post(resume_goal))
         .route("/sessions/{id}/goal/edit", post(edit_goal))
         .route("/sessions/{id}/rewind", post(rewind_session))
+        .route("/sessions/{id}/redo", post(redo_session))
         .route("/sessions/{id}/rewind/points", get(rewind_points_handler))
         // SSE stream
         .route("/sessions/{id}/events", get(get_events_sse))
@@ -71,6 +87,7 @@ pub(crate) fn sessions_routes() -> Router<DaemonState> {
         // approvals / compaction
         .route("/sessions/{id}/compact", post(compact_session))
         .route("/sessions/{id}/tool-approval", post(resolve_tool_approval))
+        .route("/sessions/{id}/pending", get(list_pending))
         .route("/sessions/{id}/answer-question", post(answer_question))
         .route(
             "/sessions/{id}/resolve-elicitation",
@@ -93,7 +110,7 @@ pub(crate) fn sessions_routes() -> Router<DaemonState> {
         .route("/sessions/{id}/orchestrate", post(orchestrate_session))
         .route("/sessions/{id}/runtime/artifacts", get(get_artifacts))
         .route("/sessions/{id}/runtime/taskgraph", get(get_taskgraph))
-        .route("/sessions/{id}/agents", get(get_session_agents))
+        .route("/sessions/{id}/agents", get(get_session_agents_route))
         .route("/tasks", get(get_tasks))
         .layer(middleware::from_fn(normalize_session_error_envelope))
 }

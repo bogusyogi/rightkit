@@ -3,8 +3,6 @@
 //! The one-line discovery record `{app} serve` prints and writes to `<state root>/daemon.port`
 //! is `rightkit_daemon::loopback::LoopbackRecord`; this file no longer defines it.
 
-use std::path::Path;
-
 /// Validate `ORT_DYLIB_PATH` before any ONNX Runtime load.
 ///
 /// When the `fastembed` feature is enabled the daemon will attempt to load the
@@ -56,16 +54,6 @@ fn validate_ort_runtime(
         }
         Err(error) => Err(format!("ORT_DYLIB_PATH missing/invalid: {error}")),
     }
-}
-
-/// Check whether a path looks like a valid ONNX Runtime dylib file.
-#[allow(dead_code)]
-pub fn is_valid_ort_dylib_path(path: &Path) -> bool {
-    rightkit_onnx::inspect_candidate(&rightkit_onnx::RuntimeCandidate::new(
-        path,
-        rightkit_onnx::CandidateSource::Explicit,
-    ))
-    .is_file
 }
 
 /// Generate an opaque per-launch token from the OS CSPRNG.

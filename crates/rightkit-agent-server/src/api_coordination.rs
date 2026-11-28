@@ -5,7 +5,7 @@ use axum::{
     routing::{delete, get},
     Router,
 };
-use rightkit_agent_host_traits::skill_host::{CommandAction, CommandResult};
+use rightkit_agent_skills::{CommandAction, CommandResult};
 use serde_json::{json, Map, Value};
 
 use crate::api::{lock_recover, DaemonState};
@@ -113,6 +113,8 @@ pub(crate) fn coordination_openapi_response_schema(method: &str, path: &str) -> 
 }
 
 async fn list_teams_handler(State(state): State<DaemonState>) -> Json<serde_json::Value> {
+    // Also picks up teams another process saved since this one last read the file.
+    crate::api_stores::refresh_team_store(&state.team_store_path, &state.live_teams);
     let mut teams: Vec<_> = lock_recover(&state.live_teams, "state.live_teams")
         .values()
         .cloned()
@@ -125,6 +127,11 @@ async fn list_teams_handler(State(state): State<DaemonState>) -> Json<serde_json
 }
 
 async fn list_messages_handler(State(state): State<DaemonState>) -> Json<serde_json::Value> {
+    // Also picks up messages another process recorded since this one last read the file.
+    crate::api_stores::refresh_message_history_store(
+        &state.message_store_path,
+        &state.message_history,
+    );
     let mut messages = lock_recover(&state.message_history, "state.message_history").clone();
     messages.sort_by(|a, b| b.created_at.cmp(&a.created_at));
     Json(serde_json::json!({
@@ -160,6 +167,8 @@ fn team_json(team: &rightkit_agent_coding_tools::TeamDefinition) -> serde_json::
 }
 
 pub fn render_teams_command(state: &DaemonState) -> CommandResult {
+    // Also picks up teams another process saved since this one last read the file.
+    crate::api_stores::refresh_team_store(&state.team_store_path, &state.live_teams);
     let mut teams: Vec<_> = lock_recover(&state.live_teams, "state.live_teams")
         .values()
         .cloned()
@@ -205,6 +214,11 @@ pub fn render_teams_command(state: &DaemonState) -> CommandResult {
 }
 
 pub fn render_messages_command(state: &DaemonState) -> CommandResult {
+    // Also picks up messages another process recorded since this one last read the file.
+    crate::api_stores::refresh_message_history_store(
+        &state.message_store_path,
+        &state.message_history,
+    );
     let mut messages = lock_recover(&state.message_history, "state.message_history").clone();
     messages.sort_by(|a, b| b.created_at.cmp(&a.created_at));
     let total = messages.len();

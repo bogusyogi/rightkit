@@ -38,5 +38,10 @@ async fn apply_adapt_proposal_handler(
     {
         return Err(StatusCode::UNAUTHORIZED);
     }
-    Ok(Json(daemon_adapt_application_host().apply(&proposal)))
+    // The durable stores lock storage with `blocking_lock`, which panics on a runtime worker thread.
+    let receipt =
+        tokio::task::spawn_blocking(move || daemon_adapt_application_host().apply(&proposal))
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(receipt))
 }

@@ -40,6 +40,7 @@ pub(crate) async fn open_agent_runtime(
     Json(body): Json<OpenAgentRuntimeRequest>,
 ) -> Result<Json<Value>, StatusCode> {
     enforce_trusted_source_authority(&headers)?;
+    ensure_runtime_session_events(&state);
     let _authority = state.driver_authority_lock.lock().await;
     if body.runtime.kind != "authenticated_cli"
         || agent_id.trim().is_empty()
@@ -57,7 +58,13 @@ pub(crate) async fn open_agent_runtime(
         .cli_registry
         .adapter(&provider_id)
         .ok_or(StatusCode::BAD_REQUEST)?;
-    let profile = launchable_cli_profile(&state, provider_id.clone()).await?;
+    let profile = launchable_cli_profile_for_session(
+        &state,
+        provider_id.clone(),
+        &session_id,
+        &live.workspace_root,
+    )
+    .await?;
     if profile.id.as_str() != body.runtime.account_profile_id {
         return Err(StatusCode::CONFLICT);
     }
@@ -180,7 +187,7 @@ pub(crate) async fn open_agent_runtime(
         executable: executable.clone(),
         profile: profile.clone(),
         mcp_server: rightkit_agents::driver_host::cli_runtime::CliMcpServerSpec {
-            name: rightkit_agents::driver_host::agy_harness::HOST_MCP_SERVER_NAME.to_string(),
+            name: rightkit_agents::driver_host::host_names::mcp_server_name(),
             command: current_exe,
             args: vec![
                 "mcp-server".to_string(),
@@ -189,17 +196,20 @@ pub(crate) async fn open_agent_runtime(
             ],
             env: vec![
                 (
-                    "RIGHTKIT_DAEMON_URL".to_string(),
+                    rightkit_agent_config::env_name("DAEMON_URL"),
                     format!("http://127.0.0.1:{}", state.bound_port),
                 ),
-                ("RIGHTKIT_GATEWAY_TOKEN".to_string(), capability_token),
                 (
-                    "RIGHTKIT_DRIVER_INSTANCE_SECRET".to_string(),
+                    rightkit_agent_config::env_name("GATEWAY_TOKEN"),
+                    capability_token,
+                ),
+                (
+                    rightkit_agent_config::env_name("DRIVER_INSTANCE_SECRET"),
                     process_instance_secret,
                 ),
             ],
         },
-        policy: rightkit_agents::driver_host::RUN_SCOPED_POLICY.to_string(),
+        policy: rightkit_agents::driver_host::run_scoped_policy(),
         attestation_inputs: matched.inputs,
     };
     let launch_contexts = state
@@ -369,6 +379,7 @@ pub(crate) async fn resume_agent_runtime(
     headers: HeaderMap,
     Json(_body): Json<DriverBindingRequest>,
 ) -> Result<Json<Value>, StatusCode> {
+    ensure_runtime_session_events(&state);
     enforce_trusted_source_authority(&headers)?;
     let _authority = state.driver_authority_lock.lock().await;
     let binding_id = agent_binding_id(&state, &session_id, &agent_id).await?;
@@ -386,10 +397,31 @@ pub(crate) async fn resume_agent_runtime(
         .resume(&handle)
         .await
         .map_err(|_| StatusCode::BAD_GATEWAY)?;
+    let mut generation = 0;
+    if let Some(storage) = state.storage.as_ref() {
+        let store = storage.lock().await;
+        if let Some(mut binding) = store
+            .get_driver_binding(&binding_id)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        {
+            if binding.status == "resuming" {
+                binding.status = "connected".to_string();
+                binding.updated_at = unix_key(0);
+                if resumed.vendor_session_id.is_some() {
+                    binding.vendor_session_id = resumed.vendor_session_id.clone();
+                }
+                store
+                    .upsert_driver_binding(&binding)
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            }
+            generation = binding.process_generation;
+        }
+    }
     Ok(Json(json!({
         "resumed": true,
         "agentId": agent_id,
         "vendorSessionId": resumed.vendor_session_id,
+        "generation": generation,
     })))
 }
 
@@ -462,11 +494,12 @@ pub(crate) async fn recover_missing_agent_runtime(
         .cli_registry
         .adapter(&provider_id)
         .ok_or(StatusCode::CONFLICT)?;
-    if binding.status == "completed" || binding.status == "failed" {
+    if binding.status == "failed" {
         return Err(StatusCode::CONFLICT);
     }
+    let next_generation = binding.process_generation.saturating_add(1);
     let default_profile = default_cli_profile(provider_id.clone());
-    let profile = match profile_row {
+    let mut profile = match profile_row {
         Some(profile_row) => rightkit_agents::driver_host::cli_runtime::CliAccountProfile {
             id: rightkit_agents::driver_host::cli_runtime::CliAccountProfileId::new(profile_row.id),
             provider_id: provider_id.clone(),
@@ -477,16 +510,13 @@ pub(crate) async fn recover_missing_agent_runtime(
             account_fingerprint: profile_row.account_fingerprint,
             last_verified_at: profile_row.last_verified_at,
         },
-        None if missing_default_profile_is_allowed_current(
-            &provider_id,
-            binding.account_profile_id.as_deref().unwrap_or_default(),
-        )
-        .map_err(|_| StatusCode::CONFLICT)? =>
-        {
-            default_profile
-        }
+        // Claude keeps no profile row of its own: its sign-in is the chat's Claude account.
+        None if provider_id.as_str() == "claude" => default_profile,
         None => return Err(StatusCode::CONFLICT),
     };
+    if provider_id.as_str() == "claude" {
+        apply_claude_account(&mut profile, Some((session_id, &live.workspace_root)));
+    }
     let resolved =
         resolve_cli_launch_route(state, &provider_id, profile, binding.model_id.as_deref())
             .await
@@ -577,6 +607,7 @@ pub(crate) async fn recover_missing_agent_runtime(
     };
     let mut recovering = binding.clone();
     recovering.status = "resuming".to_string();
+    recovering.process_generation = next_generation;
     recovering.updated_at = created_at.clone();
     {
         let store = storage.lock().await;
@@ -598,7 +629,7 @@ pub(crate) async fn recover_missing_agent_runtime(
         executable: executable.clone(),
         profile: profile.clone(),
         mcp_server: rightkit_agents::driver_host::cli_runtime::CliMcpServerSpec {
-            name: rightkit_agents::driver_host::agy_harness::HOST_MCP_SERVER_NAME.to_string(),
+            name: rightkit_agents::driver_host::host_names::mcp_server_name(),
             command: current_exe,
             args: vec![
                 "mcp-server".to_string(),
@@ -607,17 +638,20 @@ pub(crate) async fn recover_missing_agent_runtime(
             ],
             env: vec![
                 (
-                    "RIGHTKIT_DAEMON_URL".to_string(),
+                    rightkit_agent_config::env_name("DAEMON_URL"),
                     format!("http://127.0.0.1:{}", state.bound_port),
                 ),
-                ("RIGHTKIT_GATEWAY_TOKEN".to_string(), capability_token),
                 (
-                    "RIGHTKIT_DRIVER_INSTANCE_SECRET".to_string(),
+                    rightkit_agent_config::env_name("GATEWAY_TOKEN"),
+                    capability_token,
+                ),
+                (
+                    rightkit_agent_config::env_name("DRIVER_INSTANCE_SECRET"),
                     process_instance_secret,
                 ),
             ],
         },
-        policy: rightkit_agents::driver_host::RUN_SCOPED_POLICY.to_string(),
+        policy: rightkit_agents::driver_host::run_scoped_policy(),
         attestation_inputs: matched.inputs,
     };
     if launch_contexts
@@ -636,7 +670,7 @@ pub(crate) async fn recover_missing_agent_runtime(
     }
     state
         .cli_recovery_live_generations
-        .set(binding_id, recovering.process_generation);
+        .set(binding_id, next_generation);
     let agent_kind = if binding.parent_agent_id.is_empty() {
         rightkit_agents::driver_host::cli_runtime::AgentKind::Root
     } else {
@@ -667,6 +701,9 @@ pub(crate) async fn recover_missing_agent_runtime(
         Ok(handle) => Ok(handle),
         Err(error) => {
             launch_contexts.remove(binding_id);
+            state
+                .cli_recovery_live_generations
+                .set(binding_id, binding.process_generation);
             let mut failed = binding;
             failed.status = "recovery_required".to_string();
             failed.updated_at = unix_key(0);
@@ -715,7 +752,8 @@ pub(crate) async fn stop_agent_runtime(
             .get_driver_binding(&binding_id)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         {
-            binding.status = "completed".to_string();
+            binding.status = "stopped".to_string();
+            binding.vendor_turn_id = None;
             binding.updated_at = at;
             store
                 .upsert_driver_binding(&binding)

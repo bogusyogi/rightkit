@@ -1,53 +1,91 @@
-/// Stable process exit codes for `{app} run`/`exec`. Each variant maps to
-/// a stable `u8` value so downstream CI scripts and integrations can branch on
-/// the numeric exit code without parsing the textual class label.
+/// The headless exit classes (headless-cli.md section 2.5, R9). The process
+/// exit is one of the suite codes 0 to 3; the cause is the stable
+/// `error.code` string, which is fixed per contract version.
 ///
-/// | Code | Variant                | When it is emitted                                                                 |
-/// |------|------------------------|------------------------------------------------------------------------------------|
-/// | 0    | `Success`              | Run completed without a typed terminal error.                                      |
-/// | 1    | `Generic`              | Unclassified failure or unmapped engine error.                                     |
-/// | 2    | `Usage`                | CLI usage error (unrecognized args, missing prompt, invalid MCP config, etc.).    |
-/// | 3    | `ProviderAuthFailure`  | Provider/API key rejected (`kind="auth"`, missing key, 401 Unauthorized).           |
-/// | 4    | `ToolDenied`           | Tool approval denied or policy `Deny`.                                             |
-/// | 5    | `BudgetExceeded`       | Budget ceiling hit (`kind="budget"` or `BudgetExceeded` event).                    |
-/// | 6    | `Sandbox`              | Sandbox / landlock / seccomp rejection. Preserves the legacy CliExitCode number.   |
-/// | 7    | `TimeoutStall`         | Provider timed out, wall-clock stall, or `max_iterations` ceiling.                 |
-/// | 8    | `UserAbort`            | Run was interrupted on user request (Ctrl-C, stdin shutdown, daemon kill).          |
+/// | Exit | Meaning                                  | `error.code`                                                                                       |
+/// |------|------------------------------------------|----------------------------------------------------------------------------------------------------|
+/// | 0    | Success, dry run, or accepted            | none                                                                                               |
+/// | 1    | The call ran and the state was not reached | `provider_auth`, `tool_denied`, `interaction_required`, `budget_exceeded`, `sandbox`, `timeout`, `schema_violation`, `interrupted`, `generic` |
+/// | 2    | Refused or bad usage; nothing ran        | `usage`, `unknown_command`, `untrusted_workspace`, `licence_required`, `interactive_only`, `refused_by_policy` |
+/// | 3    | No result is known                       | `unreachable` (nothing ran, safe to retry), `unknown` (the call may have run)                      |
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RunExitCode {
-    Success = 0,
-    Generic = 1,
-    Usage = 2,
-    ProviderAuthFailure = 3,
-    ToolDenied = 4,
-    BudgetExceeded = 5,
-    Sandbox = 6,
-    TimeoutStall = 7,
-    UserAbort = 8,
-    SchemaViolation = 9,
+    Success,
+    Generic,
+    Usage,
+    ProviderAuthFailure,
+    ToolDenied,
+    /// An unattended run needed an answer or a plan decision.
+    InteractionRequired,
+    BudgetExceeded,
+    Sandbox,
+    TimeoutStall,
+    /// Interrupted and settled.
+    UserAbort,
+    SchemaViolation,
+    /// The workspace is not trusted for what the call asked.
+    UntrustedWorkspace,
+    /// The policy gate refused the call before anything ran.
+    RefusedByPolicy,
+    /// The call needs a person at the app: an agent caller cannot make it.
+    InteractiveOnly,
+    /// Nothing ran and nothing was written; safe to retry.
+    Unreachable,
+    /// The call may have run; check state before retrying.
+    Unknown,
 }
 
 impl RunExitCode {
-    /// Numeric exit code (stable across releases).
+    /// Process exit code: one of the suite codes 0 to 3.
     pub fn as_i32(self) -> i32 {
-        self as i32
+        match self {
+            RunExitCode::Success => 0,
+            RunExitCode::Generic
+            | RunExitCode::ProviderAuthFailure
+            | RunExitCode::ToolDenied
+            | RunExitCode::InteractionRequired
+            | RunExitCode::BudgetExceeded
+            | RunExitCode::Sandbox
+            | RunExitCode::TimeoutStall
+            | RunExitCode::UserAbort
+            | RunExitCode::SchemaViolation => 1,
+            RunExitCode::Usage
+            | RunExitCode::UntrustedWorkspace
+            | RunExitCode::RefusedByPolicy
+            | RunExitCode::InteractiveOnly => 2,
+            RunExitCode::Unreachable | RunExitCode::Unknown => 3,
+        }
     }
 
-    /// Stable class label, used in CLI error envelopes and `--stream-json`
-    /// events so downstream classifiers can map without code numbers.
+    /// The stable `error.code` for this class (fixed per contract version).
     pub fn class(self) -> &'static str {
         match self {
             RunExitCode::Success => "success",
             RunExitCode::Generic => "generic",
             RunExitCode::Usage => "usage",
-            RunExitCode::ProviderAuthFailure => "provider_auth_failure",
+            RunExitCode::ProviderAuthFailure => "provider_auth",
             RunExitCode::ToolDenied => "tool_denied",
+            RunExitCode::InteractionRequired => "interaction_required",
             RunExitCode::BudgetExceeded => "budget_exceeded",
             RunExitCode::Sandbox => "sandbox",
-            RunExitCode::TimeoutStall => "timeout_stall",
-            RunExitCode::UserAbort => "user_abort",
+            RunExitCode::TimeoutStall => "timeout",
+            RunExitCode::UserAbort => "interrupted",
             RunExitCode::SchemaViolation => "schema_violation",
+            RunExitCode::UntrustedWorkspace => "untrusted_workspace",
+            RunExitCode::RefusedByPolicy => "refused_by_policy",
+            RunExitCode::InteractiveOnly => "interactive_only",
+            RunExitCode::Unreachable => "unreachable",
+            RunExitCode::Unknown => "unknown",
         }
+    }
+
+    /// Whether a retry can help, fixed per contract version: `true` only for
+    /// `interrupted`, `timeout` and `unreachable`.
+    pub fn retryable(self) -> bool {
+        matches!(
+            self,
+            RunExitCode::UserAbort | RunExitCode::TimeoutStall | RunExitCode::Unreachable
+        )
     }
 }
 
@@ -56,7 +94,6 @@ impl RunExitCode {
 /// legacy numeric exit codes that existed before this feature landed.
 pub(crate) fn run_exit_code_from_cli(code: CliExitCode) -> RunExitCode {
     match code {
-        CliExitCode::Success => RunExitCode::Success,
         CliExitCode::Generic => RunExitCode::Generic,
         CliExitCode::Usage => RunExitCode::Usage,
         CliExitCode::Auth => RunExitCode::ProviderAuthFailure,
@@ -64,24 +101,7 @@ pub(crate) fn run_exit_code_from_cli(code: CliExitCode) -> RunExitCode {
         CliExitCode::Budget => RunExitCode::BudgetExceeded,
         CliExitCode::Sandbox => RunExitCode::Sandbox,
         CliExitCode::TimeoutStall => RunExitCode::TimeoutStall,
-        CliExitCode::UserAbort => RunExitCode::UserAbort,
-        CliExitCode::SchemaViolation => RunExitCode::SchemaViolation,
     }
-}
-
-/// First matching event-to-RunExitCode mapping. Walks terminal protocol events
-/// in emission order so the FIRST typed class wins (used for `--exit-on-error`
-/// short-circuit). Captures `TimeoutStall` and `UserAbort` which the legacy
-/// `CliExitCode` enum does not surface.
-pub(crate) fn run_exit_code_for_events(
-    events: &[rightkit_agent_engine_protocol::ProtocolEvent],
-) -> Option<RunExitCode> {
-    for ev in events {
-        if let Some(code) = run_exit_code_for_event(ev) {
-            return Some(code);
-        }
-    }
-    None
 }
 
 pub(crate) fn run_exit_code_for_event(
@@ -110,13 +130,15 @@ fn run_exit_code_from_failure_kind(kind: &str, error: &str) -> RunExitCode {
         "auth" => RunExitCode::ProviderAuthFailure,
         "permission" => RunExitCode::ToolDenied,
         "budget" => RunExitCode::BudgetExceeded,
-        "max_iterations" | "stall" | "timeout" => RunExitCode::TimeoutStall,
-        // Unmapped kinds (network, rate_limited, provider_error, other) funnel
-        // through the legacy error-text classifier so a `RunFailed { kind:
-        // "network", error: "401 Unauthorized" }` keeps mapping to Auth (3) and
-        // rate-limited messages keep mapping to Auth. This is the SPEC-vs-
-        // legacy bridge: any future refactor here MUST keep this fallback or
-        // rate-limited / api-key error text regresses to Generic.
+        // Network and rate-limit failures are transient: exit 1 `timeout`, retryable.
+        "max_iterations" | "stall" | "timeout" | "network" | "rate_limited" => {
+            RunExitCode::TimeoutStall
+        }
+        // The engine's output-limit failure: it has its own runFailed.kind but no
+        // error.code of its own (headless-cli.md fixes that set per contract version).
+        "incomplete_output" => RunExitCode::Generic,
+        // Unmapped kinds (provider_error, other) funnel through the legacy
+        // error-text classifier so api-key error text keeps mapping to Auth.
         _ => run_exit_code_from_cli(cli_exit_code_from_error(error)),
     }
 }

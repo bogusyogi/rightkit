@@ -17,6 +17,10 @@ pub(crate) fn local_model_routes() -> Router<DaemonState> {
         .route("/local-models/catalog", get(get_local_model_catalog))
         .route("/local-models/probe", post(probe_local_model_endpoint))
         .route(
+            "/local-models/discover",
+            post(discover_local_model_endpoints),
+        )
+        .route(
             "/local-models/chat-smoke",
             post(chat_smoke_local_model_endpoint),
         )
@@ -100,6 +104,74 @@ async fn probe_local_model_endpoint(
 ) -> Result<Json<ProbeEndpointResponse>, StatusCode> {
     enforce_trusted_source_authority(&headers)?;
     Ok(Json(probe_openai_models_endpoint(&body.base_url).await))
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct DiscoverEndpointsRequest {
+    /// Base URLs to probe; empty (or no body) probes the usual local-server addresses.
+    candidates: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiscoveredEndpoint {
+    base_url: String,
+    ok: bool,
+    models: Vec<String>,
+    error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiscoverEndpointsResponse {
+    endpoints: Vec<DiscoveredEndpoint>,
+}
+
+/// Most candidates one discovery request probes.
+const DISCOVER_MAX_CANDIDATES: usize = 16;
+/// How long one candidate may take; all candidates are probed at once.
+const DISCOVER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// The candidate list of a discovery request: the caller's, trimmed, without blanks or repeats and
+/// at most [`DISCOVER_MAX_CANDIDATES`]; the catalog's local-server addresses when it names none.
+fn discovery_candidates(requested: Vec<String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut list: Vec<String> = requested
+        .into_iter()
+        .map(|c| c.trim().to_string())
+        .filter(|c| !c.is_empty() && seen.insert(c.clone()))
+        .take(DISCOVER_MAX_CANDIDATES)
+        .collect();
+    if list.is_empty() {
+        list = rightkit_agent_local_models::LOCAL_SERVER_ENDPOINTS
+            .iter()
+            .map(|url| url.to_string())
+            .collect();
+    }
+    list
+}
+
+async fn discover_local_model_endpoints(
+    headers: HeaderMap,
+    body: Option<Json<DiscoverEndpointsRequest>>,
+) -> Result<Json<DiscoverEndpointsResponse>, StatusCode> {
+    enforce_trusted_source_authority(&headers)?;
+    let requested = body.map(|Json(body)| body.candidates).unwrap_or_default();
+    let probes = discovery_candidates(requested)
+        .into_iter()
+        .map(|candidate| async move {
+            let probed = probe_openai_models_endpoint_within(&candidate, DISCOVER_TIMEOUT).await;
+            DiscoveredEndpoint {
+                base_url: candidate,
+                ok: probed.ok,
+                models: probed.models,
+                error: probed.error,
+            }
+        });
+    Ok(Json(DiscoverEndpointsResponse {
+        endpoints: futures_util::future::join_all(probes).await,
+    }))
 }
 
 async fn chat_smoke_local_model_endpoint(
@@ -194,6 +266,33 @@ pub(crate) fn local_models_openapi_components() -> Map<String, Value> {
         }),
     );
     schemas.insert(
+        "DiscoverLocalModelEndpointsRequest".to_string(),
+        json!({
+            "type": "object",
+            "properties": {"candidates": {"type": "array", "items": {"type": "string"}, "maxItems": 16}},
+            "additionalProperties": false
+        }),
+    );
+    schemas.insert(
+        "DiscoverLocalModelEndpointsResponse".to_string(),
+        json!({
+            "type": "object",
+            "required": ["endpoints"],
+            "properties": {"endpoints": {"type": "array", "items": {
+                "type": "object",
+                "required": ["baseUrl", "ok", "models"],
+                "properties": {
+                    "baseUrl": {"type": "string"},
+                    "ok": {"type": "boolean"},
+                    "models": {"type": "array", "items": {"type": "string"}},
+                    "error": {"type": ["string", "null"]}
+                },
+                "additionalProperties": false
+            }}},
+            "additionalProperties": false
+        }),
+    );
+    schemas.insert(
         "ChatSmokeLocalModelRequest".to_string(),
         json!({
             "type": "object",
@@ -278,6 +377,14 @@ pub(crate) fn probe_local_model_response_schema() -> Value {
     json!({"$ref": "#/components/schemas/ProbeLocalModelEndpointResponse"})
 }
 
+pub(crate) fn discover_local_models_request_schema() -> Value {
+    json!({"$ref": "#/components/schemas/DiscoverLocalModelEndpointsRequest"})
+}
+
+pub(crate) fn discover_local_models_response_schema() -> Value {
+    json!({"$ref": "#/components/schemas/DiscoverLocalModelEndpointsResponse"})
+}
+
 pub(crate) fn chat_smoke_local_model_request_schema() -> Value {
     json!({"$ref": "#/components/schemas/ChatSmokeLocalModelRequest"})
 }
@@ -340,6 +447,38 @@ async fn add_local_model_provider(
         ProviderRouteScope::Workspace
     };
     let workspace = workspace_path(&q);
+
+    // Audit 2026-11-05 platform H1: a saved provider key must never be redirected to a
+    // caller-chosen host by registering a route under the key's id.
+    let refusal = {
+        let provider_id = suggestion.provider_id.clone();
+        let base_url = suggestion.base_url.clone();
+        let target = workspace.clone();
+        tokio::task::spawn_blocking(move || {
+            let has_saved_key = rightkit_llm::agent_providers::load_api_key(&provider_id)
+                .is_some_and(|key| !key.trim().is_empty());
+            let layer = match scope {
+                ProviderRouteScope::User => load_user_config_only(),
+                ProviderRouteScope::Workspace => load_workspace_config_only(&target),
+            };
+            let existing = layer
+                .ok()
+                .and_then(|config| config.provider_routes.get(&provider_id).cloned())
+                .map(|route| route.base_url);
+            provider_key_redirect_refusal(
+                &provider_id,
+                &base_url,
+                has_saved_key,
+                existing.as_deref(),
+            )
+        })
+        .await
+        .unwrap_or_else(|e| Some(format!("provider key check stopped: {e}")))
+    };
+    if let Some(message) = refusal {
+        return Err(route_error(StatusCode::CONFLICT, message));
+    }
+
     let route = (
         suggestion.provider_id.clone(),
         rightkit_agent_config::ProviderRouteConfig {
@@ -349,7 +488,7 @@ async fn add_local_model_provider(
             api_key_required: suggestion.api_key_required,
             api_key_env: None,
             approved_private,
-            ..rightkit_agent_config::ProviderRouteConfig::default()
+            ..Default::default()
         },
     );
     let set_default = body.set_default;
@@ -451,7 +590,12 @@ fn route_error(status: StatusCode, message: String) -> (StatusCode, Json<Provide
 fn user_config_path_display() -> String {
     user_config_path()
         .map(|path| path.display().to_string())
-        .unwrap_or_else(|| "<RightKit state directory>/config.toml".to_string())
+        .unwrap_or_else(|| {
+            format!(
+                "<{} state directory>/config.toml",
+                rightkit_agent_config::app_name()
+            )
+        })
 }
 
 fn user_config_path() -> Option<std::path::PathBuf> {
@@ -473,12 +617,16 @@ fn load_user_config_only(
 }
 
 async fn probe_openai_models_endpoint(base_url: &str) -> ProbeEndpointResponse {
+    probe_openai_models_endpoint_within(base_url, std::time::Duration::from_secs(5)).await
+}
+
+async fn probe_openai_models_endpoint_within(
+    base_url: &str,
+    timeout: std::time::Duration,
+) -> ProbeEndpointResponse {
     let trimmed = base_url.trim().trim_end_matches('/');
     let models_url = format!("{trimmed}/models");
-    let outcome = match rightkit_agent_daemon::http_client::endpoint_client(
-        &models_url,
-        std::time::Duration::from_secs(5),
-    ) {
+    let outcome = match rightkit_agent_daemon::http_client::endpoint_client(&models_url, timeout) {
         Ok(client) => {
             rightkit_agent_daemon::http_client::send_any(
                 &client,
@@ -492,6 +640,24 @@ async fn probe_openai_models_endpoint(base_url: &str) -> ProbeEndpointResponse {
         Ok(resp) => {
             let status = resp.status;
             match resp.json::<serde_json::Value>() {
+                Ok(json)
+                    if rightkit_agent_daemon::http_client::is_success(status)
+                        && json
+                            .get("data")
+                            .and_then(serde_json::Value::as_array)
+                            .is_none() =>
+                {
+                    ProbeEndpointResponse {
+                        ok: false,
+                        base_url: trimmed.to_string(),
+                        models_url,
+                        model_count: 0,
+                        models: Vec::new(),
+                        error: Some(format!(
+                            "endpoint returned {status} without an OpenAI `data` model list"
+                        )),
+                    }
+                }
                 Ok(json) if rightkit_agent_daemon::http_client::is_success(status) => {
                     let models = json
                         .get("data")
@@ -673,6 +839,127 @@ async fn validated_provider_base_url(base_url: &str, approve_private: bool) -> R
     }
 }
 
+/// Audit 2026-11-05 platform H1. Returns why registering `provider_id` -> `base_url` would let a
+/// stored key reach a host it was not saved for, or `None` when the write is safe:
+/// - a built-in provider id must keep its registry host (its saved key is bound to it at runtime
+///   by `saved_key_bound_to_route_host`, so another host would only produce a dead route);
+/// - any other id with a saved key may only be rewritten at the origin its existing route in the
+///   target layer already uses. A fresh route under a key-holding id is refused: the caller picks
+///   a new id, or removes the saved key first and saves it again for the new host.
+fn provider_key_redirect_refusal(
+    provider_id: &str,
+    base_url: &str,
+    has_saved_key: bool,
+    existing_route_base_url: Option<&str>,
+) -> Option<String> {
+    // Round 2 M4: the same binding the runtime applies, so the credential ids outside the
+    // registry (`anthropic`, `google`, `mistral`, `antigravity`, `tinyfish`) are covered too.
+    match crate::main_runtime::saved_key_binding(provider_id) {
+        crate::main_runtime::SavedKeyBinding::Origin(origin) => {
+            return (!crate::main_runtime::same_url_origin(&origin, base_url)).then(|| {
+                format!(
+                    "providerId '{provider_id}' is a built-in provider bound to {origin}; register a different providerId for another host"
+                )
+            });
+        }
+        crate::main_runtime::SavedKeyBinding::NoRoute => {
+            return Some(format!(
+                "providerId '{provider_id}' names a vendor credential that is never sent to a provider route; register a different providerId"
+            ));
+        }
+        crate::main_runtime::SavedKeyBinding::Unbound => {}
+    }
+    if !has_saved_key {
+        return None;
+    }
+    let same_origin = existing_route_base_url
+        .is_some_and(|existing| crate::main_runtime::same_url_origin(existing, base_url));
+    (!same_origin).then(|| {
+        format!(
+            "providerId '{provider_id}' has a saved API key that would be sent to a new host; use a different providerId, or remove that key first"
+        )
+    })
+}
+
+#[cfg(test)]
+mod provider_key_redirect_tests {
+    use super::provider_key_redirect_refusal;
+
+    #[test]
+    fn built_in_id_cannot_point_at_another_host() {
+        assert!(provider_key_redirect_refusal(
+            "openrouter",
+            "https://attacker.example/v1",
+            true,
+            None
+        )
+        .is_some());
+        // Refused even with no key saved yet: the key may be saved later.
+        assert!(
+            provider_key_redirect_refusal("openai", "http://127.0.0.1:9/v1", false, None).is_some()
+        );
+        assert!(provider_key_redirect_refusal(
+            "openrouter",
+            "https://openrouter.ai/api/v1",
+            true,
+            None
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn key_holding_custom_id_keeps_its_origin() {
+        assert!(provider_key_redirect_refusal(
+            "tinyfish",
+            "https://attacker.example/v1",
+            true,
+            None
+        )
+        .is_some());
+        assert!(provider_key_redirect_refusal(
+            "my-lab",
+            "https://attacker.example/v1",
+            true,
+            Some("https://lab.example/v1")
+        )
+        .is_some());
+        assert!(provider_key_redirect_refusal(
+            "my-lab",
+            "https://lab.example/v2",
+            true,
+            Some("https://lab.example/v1")
+        )
+        .is_none());
+    }
+
+    /// Round 2 M4: credential ids outside the provider registry are bound too.
+    #[test]
+    fn non_registry_credential_ids_keep_their_vendor_origin() {
+        for id in ["anthropic", "google", "mistral", "antigravity", "tinyfish"] {
+            assert!(
+                provider_key_redirect_refusal(id, "https://attacker.example/v1", false, None)
+                    .is_some(),
+                "{id}"
+            );
+        }
+        assert!(provider_key_redirect_refusal(
+            "anthropic",
+            "https://api.anthropic.com/v1",
+            true,
+            None
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn keyless_custom_id_is_unrestricted() {
+        assert!(
+            provider_key_redirect_refusal("ollama", "http://127.0.0.1:11434/v1", false, None)
+                .is_none()
+        );
+    }
+}
+
 fn validate_provider_route_id(id: &str) -> Result<(), String> {
     let trimmed = id.trim();
     if trimmed.is_empty() || trimmed != id {
@@ -699,8 +986,10 @@ fn workspace_path(q: &WorkspaceQuery) -> std::path::PathBuf {
 
 fn workspace_config_path(workspace: &std::path::Path) -> std::path::PathBuf {
     // The file `ConfigLoader::update_workspace_from` and `save_workspace` write and
-    // `load_files_for_workspace` reads (`<workspace>/.rightkit/config.toml`).
-    workspace.join(".rightkit").join("config.toml")
+    // `load_files_for_workspace` reads (`<workspace>/{home}/config.toml`).
+    workspace
+        .join(rightkit_agent_config::state_dir_name())
+        .join("config.toml")
 }
 
 fn load_workspace_config_only(
@@ -713,5 +1002,48 @@ fn load_workspace_config_only(
             Ok(rightkit_agent_config::HostConfig::default())
         }
         Err(err) => Err(rightkit_agent_config::ConfigError::Io(err.to_string())),
+    }
+}
+
+#[cfg(test)]
+mod discovery_candidate_tests {
+    use super::discovery_candidates;
+
+    #[test]
+    fn no_candidates_means_the_catalog_addresses() {
+        let list = discovery_candidates(vec![]);
+        assert_eq!(list, rightkit_agent_local_models::LOCAL_SERVER_ENDPOINTS);
+        assert_eq!(discovery_candidates(vec!["  ".into()]), list);
+    }
+
+    #[test]
+    fn candidates_are_trimmed_deduplicated_and_capped() {
+        let list = discovery_candidates(vec![
+            " http://a/v1 ".into(),
+            "http://a/v1".into(),
+            "http://b/v1".into(),
+        ]);
+        assert_eq!(list, ["http://a/v1", "http://b/v1"]);
+        let many: Vec<String> = (0..40).map(|n| format!("http://h{n}/v1")).collect();
+        assert_eq!(
+            discovery_candidates(many).len(),
+            super::DISCOVER_MAX_CANDIDATES
+        );
+    }
+}
+
+/// The first model an OpenAI-compatible local server lists, with every listed model. `Err` names
+/// why the server did not answer (`{app} --oss` / `--local-provider` use it).
+pub(crate) async fn local_server_models(
+    base_url: &str,
+    timeout: std::time::Duration,
+) -> Result<Vec<String>, String> {
+    let probe = probe_openai_models_endpoint_within(base_url, timeout).await;
+    if probe.ok {
+        Ok(probe.models)
+    } else {
+        Err(probe
+            .error
+            .unwrap_or_else(|| "the server did not answer".to_string()))
     }
 }

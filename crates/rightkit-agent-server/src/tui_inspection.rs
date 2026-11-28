@@ -30,6 +30,15 @@ struct TranscriptReader {
     closed: bool,
     /// Rows the body showed on the last render (drives page size).
     body_rows: usize,
+    /// Bookmarked line indexes (`m` toggles one at the top visible line, `'` jumps to the next).
+    bookmarks: Vec<usize>,
+    /// Copy mode (`v`): the anchor line and the cursor line of the selection.
+    selection: Option<(usize, usize)>,
+    /// What the last copy said, shown in the header until the next key.
+    status: Option<String>,
+    /// Entries left the terminal's memory and the stored chat has no older page to put above the
+    /// first line held here (#536): the top of the reader is then not the start of the chat.
+    unloaded_above: bool,
 }
 
 pub(crate) struct InspectionState {
@@ -38,8 +47,12 @@ pub(crate) struct InspectionState {
 }
 
 impl TranscriptReader {
-    fn new(lines: Vec<String>, oldest_seq: Option<i64>, exhausted: bool) -> Self {
+    fn new(lines: Vec<String>, oldest_seq: Option<i64>, exhausted: bool, evicted: usize) -> Self {
         let body_rows = 20;
+        // The stored chat keeps the prompt and the finished answer as events, not the entries the
+        // screen was built from (thinking parts are not stored at all), so entries that left
+        // memory cannot be put back above the first line; say so instead of "start of history".
+        let unloaded_above = evicted > 0 && (exhausted || oldest_seq.is_none_or(|seq| seq <= 1));
         let mut cursor = HistoryCursor::new(oldest_seq);
         if exhausted {
             cursor.page_loaded(None);
@@ -51,7 +64,62 @@ impl TranscriptReader {
             cursor,
             closed: false,
             body_rows,
+            bookmarks: Vec::new(),
+            selection: None,
+            status: None,
+            unloaded_above,
         }
+    }
+
+    /// The selected line range in copy mode, ends included.
+    fn selected_range(&self) -> Option<(usize, usize)> {
+        self.selection
+            .map(|(anchor, cursor)| (anchor.min(cursor), anchor.max(cursor)))
+    }
+
+    /// The next bookmark after the top visible line, wrapping to the first.
+    fn next_bookmark(&self) -> Option<usize> {
+        let top = self.view.visible().0;
+        self.bookmarks
+            .iter()
+            .copied()
+            .find(|line| *line > top)
+            .or_else(|| self.bookmarks.first().copied())
+    }
+
+    /// Keys of copy mode: Up/Down extend the selection, `y` or Enter copies it, Esc or `v` leaves.
+    fn handle_copy_mode(
+        &mut self,
+        key: &rightkit_terminal_ui::crossterm::event::KeyEvent,
+    ) -> Outcome {
+        let Some((anchor, cursor)) = self.selection else {
+            return Outcome::Ignored;
+        };
+        let last = self.lines.len().saturating_sub(1);
+        match key.code {
+            KeyCode::Down | KeyCode::Char('j') => {
+                let cursor = (cursor + 1).min(last);
+                self.selection = Some((anchor, cursor));
+                self.view.reveal(cursor);
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                let cursor = cursor.saturating_sub(1);
+                self.selection = Some((anchor, cursor));
+                self.view.reveal(cursor);
+            }
+            KeyCode::Char('y') | KeyCode::Enter => {
+                if let Some((from, to)) = self.selected_range() {
+                    let text = self.lines[from..=to.min(last)].join("\n");
+                    self.status = Some(crate::tui_host::clipboard_copy_notice(&text));
+                }
+                self.selection = None;
+            }
+            KeyCode::Esc | KeyCode::Char('v') => {
+                self.selection = None;
+            }
+            _ => {}
+        }
+        Outcome::Redraw
     }
 
     fn handle(&mut self, event: &Event) -> Outcome {
@@ -60,6 +128,10 @@ impl TranscriptReader {
         };
         if key.kind != KeyEventKind::Press {
             return Outcome::Ignored;
+        }
+        self.status = None;
+        if self.selection.is_some() {
+            return self.handle_copy_mode(key);
         }
         match self.find.handle_key(key, &self.lines) {
             FindOutcome::Ignored => {}
@@ -75,6 +147,29 @@ impl TranscriptReader {
             ScrollOutcome::Moved | ScrollOutcome::AtTop => return Outcome::Redraw,
         }
         match key.code {
+            // Bookmarks: `m` marks (or unmarks) the top visible line, `'` jumps to the next mark.
+            KeyCode::Char('m') if key.modifiers.is_empty() => {
+                let line = self.view.visible().0;
+                if let Some(at) = self.bookmarks.iter().position(|b| *b == line) {
+                    self.bookmarks.remove(at);
+                } else if line < self.lines.len() {
+                    self.bookmarks.push(line);
+                    self.bookmarks.sort_unstable();
+                }
+            }
+            KeyCode::Char('\'') if key.modifiers.is_empty() => match self.next_bookmark() {
+                Some(line) => {
+                    self.view.reveal(line);
+                }
+                None => self.status = Some("No bookmarks: press m to mark the top line.".into()),
+            },
+            // Copy mode: `v` starts a line selection at the top visible line.
+            KeyCode::Char('v') if key.modifiers.is_empty() => {
+                let line = self.view.visible().0;
+                if line < self.lines.len() {
+                    self.selection = Some((line, line));
+                }
+            }
             KeyCode::Esc | KeyCode::Char('q') => self.closed = true,
             KeyCode::Up => {
                 self.view.scroll_up(1);
@@ -94,14 +189,35 @@ impl TranscriptReader {
             Some(theme) => Style::default().fg(theme.color(Role::Text)),
             None => Style::default(),
         };
+        let selected = self.selected_range();
         (start..end)
-            .map(|index| self.find.highlight_line(index, &self.lines[index], base))
+            .map(|index| {
+                let mark = if self.bookmarks.contains(&index) {
+                    "▸ "
+                } else {
+                    "  "
+                };
+                let mut line = self.find.highlight_line(index, &self.lines[index], base);
+                line.spans.insert(0, Span::styled(mark, base));
+                if selected.is_some_and(|(from, to)| index >= from && index <= to) {
+                    for span in &mut line.spans {
+                        span.style = span.style.add_modifier(Modifier::REVERSED);
+                    }
+                }
+                line
+            })
             .collect()
     }
 
     fn header(&self) -> String {
-        if self.find.is_open() {
+        if let Some(status) = &self.status {
+            status.clone()
+        } else if self.selection.is_some() {
+            "Copy mode · ↑↓ extend · y copy · Esc cancel".to_string()
+        } else if self.find.is_open() {
             self.find.bar_text()
+        } else if self.unloaded_above {
+            "Transcript · earlier lines not loaded · Esc, then scroll the terminal".to_string()
         } else if self.cursor.is_exhausted() {
             "Transcript · start of history".to_string()
         } else {
@@ -110,7 +226,7 @@ impl TranscriptReader {
     }
 
     fn footer(&self) -> &'static str {
-        "↑↓/PgUp/PgDn/Home/End scroll · Ctrl+F find · Esc/q close"
+        "↑↓/PgUp/PgDn/Home/End scroll · Ctrl+F/F3 find · m mark · ' next mark · v copy mode · Esc/q close"
     }
 
     fn render(
@@ -119,7 +235,9 @@ impl TranscriptReader {
         area: Rect,
         theme: &Theme,
     ) {
-        let body = usize::from(area.height.saturating_sub(3)).max(1);
+        // Two border rows, the header and the key legend: with one row fewer reserved the legend
+        // was drawn below the frame's last inner row and never seen in a chat longer than a screen.
+        let body = usize::from(area.height.saturating_sub(4)).max(1);
         if body != self.body_rows {
             self.body_rows = body;
             self.view.resize(body);
@@ -152,10 +270,13 @@ impl InspectionState {
         oldest_seq: Option<i64>,
         exhausted: bool,
     ) -> Self {
-        let lines = transcript.inspection_lines(width);
+        // The frame takes two columns and the bookmark gutter two more: lines rendered at the full
+        // terminal width lost their last four characters at the right border.
+        let lines = transcript.inspection_lines(width.saturating_sub(4).max(1));
+        let evicted = transcript.evicted_count();
         Self {
             viewer: InspectionViewer::transcript(lines.clone()),
-            reader: Some(TranscriptReader::new(lines, oldest_seq, exhausted)),
+            reader: Some(TranscriptReader::new(lines, oldest_seq, exhausted, evicted)),
         }
     }
 
@@ -196,6 +317,12 @@ impl InspectionState {
         let added = older.len();
         reader.lines.splice(0..0, older);
         reader.view.prepend(added);
+        for line in &mut reader.bookmarks {
+            *line += added;
+        }
+        if let Some((anchor, cursor)) = reader.selection {
+            reader.selection = Some((anchor + added, cursor + added));
+        }
         reader.find.refresh_if_open(&reader.lines);
     }
 

@@ -118,3 +118,25 @@ async fn synthesize_skill_handler(
         serde_json::to_value(&bundle).unwrap_or(serde_json::Value::Null),
     ))
 }
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AdmissionTraceQuery {
+    call_id: String,
+}
+
+async fn get_admission_trace(
+    Query(q): Query<AdmissionTraceQuery>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let stages = rightkit_agent_engine_core::admission_trace::stages(&q.call_id);
+    if stages.is_empty() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    Ok(Json(serde_json::json!({
+        "schema": crate::host_identity::schema("admission-trace.v1"),
+        "callId": q.call_id,
+        "stages": stages,
+        "reachedExecute": rightkit_agent_engine_core::admission_trace::reached_execute(&q.call_id),
+        "canonicalOrder": rightkit_agent_engine_core::admission_trace::canonically_ordered(&q.call_id),
+    })))
+}

@@ -9,7 +9,11 @@ use std::{
 use tokio::sync::{mpsc, watch, OwnedSemaphorePermit, Semaphore};
 
 /// Default maximum number of simultaneously active cloud inference streams.
-pub const DEFAULT_ACTIVE_STREAM_LIMIT: u32 = 4;
+/// One connection may hold half of them, so the host decides how many sessions or
+/// sub-agents of one account can stream at once (`host_options::active_stream_limit`).
+pub fn default_active_stream_limit() -> u32 {
+    crate::host_options::active_stream_limit()
+}
 /// Each active stream has this many event slots. It is deliberately bounded.
 pub const EVENT_CHANNEL_CAPACITY: usize = 128;
 
@@ -92,7 +96,7 @@ impl Drop for QueuedGuard {
 
 impl Default for InferenceScheduler {
     fn default() -> Self {
-        Self::new(DEFAULT_ACTIVE_STREAM_LIMIT)
+        Self::new(default_active_stream_limit())
     }
 }
 

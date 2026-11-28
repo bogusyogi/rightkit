@@ -1,29 +1,18 @@
 pub(crate) fn plugin_routes() -> Router<DaemonState> {
-    Router::new()
+    let mut router = Router::new()
         .route(
             "/provider-extensions",
             get(list_provider_extensions_handler),
         )
         .route("/plugins", get(list_plugins_handler))
-        .route("/plugins/marketplace", get(list_plugin_marketplace_handler))
-        .route(
-            "/plugins/marketplace/categories",
-            get(list_plugin_marketplace_categories_handler),
-        )
-        .route(
-            "/plugins/marketplace/sync",
-            post(sync_plugin_marketplace_handler),
-        )
-        .route(
-            "/plugins/marketplace/{id}/install",
-            post(install_marketplace_plugin_handler),
-        )
         .route("/plugins/install", post(install_plugin_handler))
         .route("/plugins/reload", post(reload_plugins_handler))
+        .route(
+            "/plugins/{id}",
+            axum::routing::delete(remove_plugin_handler),
+        )
         .route("/plugins/{id}/enable", post(enable_plugin_handler))
         .route("/plugins/{id}/disable", post(disable_plugin_handler))
-        .route("/plugins/{id}/rollback", post(rollback_plugin_handler))
-        .route("/plugins/{id}/versions", get(list_plugin_versions_handler))
         .route(
             "/sessions/{id}/plugins/{pluginId}/enable",
             post(enable_session_plugin_handler),
@@ -35,7 +24,86 @@ pub(crate) fn plugin_routes() -> Router<DaemonState> {
         .route(
             "/sessions/{id}/plugins",
             get(list_session_plugins_handler).delete(clear_session_plugins_handler),
+        );
+    // The marketplace, the rollback and the version listing exist only on a host whose
+    // `plugin_marketplace` option is on.
+    if crate::host_options::plugin_marketplace() {
+        router = router
+            .route("/plugins/marketplace", get(list_plugin_marketplace_handler))
+            .route(
+                "/plugins/marketplace/categories",
+                get(list_plugin_marketplace_categories_handler),
+            )
+            .route(
+                "/plugins/marketplace/sync",
+                post(sync_plugin_marketplace_handler),
+            )
+            .route(
+                "/plugins/marketplace/{id}/install",
+                post(install_marketplace_plugin_handler),
+            )
+            .route("/plugins/{id}/rollback", post(rollback_plugin_handler))
+            .route("/plugins/{id}/versions", get(list_plugin_versions_handler));
+    }
+    router
+}
+
+/// The JSON of one installed plugin in a listing: with the signature provenance of its install
+/// folder on a host with a plugin marketplace, the plain manifest otherwise.
+fn listed_plugin_json(
+    state: &DaemonState,
+    manifest: &rightkit_agent_plugins::PluginManifest,
+) -> serde_json::Value {
+    if crate::host_options::plugin_marketplace() {
+        plugin_manifest_json_with_provenance(manifest, &state.plugin_dir.join(&manifest.id))
+    } else {
+        plugin_manifest_json(manifest)
+    }
+}
+
+/// A plugin route refusal: the status plus a body whose `message` says why in plain words
+/// (contract R9), never a bare status code.
+type PluginRouteError = (StatusCode, Json<serde_json::Value>);
+
+fn plugin_refusal(status: StatusCode, code: &str, message: impl Into<String>) -> PluginRouteError {
+    (
+        status,
+        Json(serde_json::json!({"code": code, "message": message.into()})),
+    )
+}
+
+fn plugin_error(error: rightkit_agent_plugins::PluginError) -> PluginRouteError {
+    use rightkit_agent_plugins::PluginError;
+    match error {
+        PluginError::NotFound(message) => {
+            plugin_refusal(StatusCode::NOT_FOUND, "plugin_not_found", message)
+        }
+        PluginError::Refused(message) => {
+            plugin_refusal(StatusCode::BAD_REQUEST, "plugin_refused", message)
+        }
+        PluginError::Parse(message) => plugin_refusal(
+            StatusCode::BAD_REQUEST,
+            "plugin_manifest_invalid",
+            format!("the plugin manifest is not valid: {message}"),
+        ),
+        PluginError::Conflict(message) => {
+            plugin_refusal(StatusCode::CONFLICT, "plugin_conflict", message)
+        }
+        PluginError::Io(message) => {
+            plugin_refusal(StatusCode::INTERNAL_SERVER_ERROR, "plugin_io", message)
+        }
+    }
+}
+
+/// Mutating plugin routes accept only a trusted source (contract R16).
+fn require_trusted_plugin_source(headers: &HeaderMap) -> Result<(), PluginRouteError> {
+    enforce_trusted_source_authority(headers).map_err(|status| {
+        plugin_refusal(
+            status,
+            "untrusted_source",
+            "plugins can only be changed from a trusted source",
         )
+    })
 }
 
 fn extension_execution_diagnostics_json() -> serde_json::Value {
@@ -82,30 +150,41 @@ async fn list_provider_extensions_handler(State(state): State<DaemonState>) -> J
 async fn list_plugins_handler(
     State(state): State<DaemonState>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let plugins =
-        discover_plugins(&state.plugin_dir).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    // Join each manifest with its install dir so the UI can badge the
-    // signature status (audit A-8 SPEC 4). Plugins listed here come from
-    // `discover_plugins` which yields manifests; re-walking the dir to find
-    // matching install dirs is cheap because both sides are tiny.
+    let discovery =
+        discover_plugin_report(&state.plugin_dir).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let plugins = discovery.plugins;
+    // Contract R10: a plugin whose manifest does not parse is listed with its path and error,
+    // never silently dropped and never able to fail the whole listing.
+    let broken_json = discovery
+        .broken
+        .iter()
+        .map(|broken| {
+            serde_json::json!({
+                "path": broken.path.display().to_string(),
+                "error": broken.error,
+            })
+        })
+        .collect::<Vec<_>>();
     let plugins_json = plugins
         .iter()
         .map(|p| {
-            let install_dir = state.plugin_dir.join(&p.id);
-            let mut json = plugin_manifest_json_with_provenance(p, &install_dir);
-            // Attach rollback versions for UI chip: installed vs update vs rollback available
-            let loader = rightkit_agent_plugins::PluginLoader::new(state.plugin_dir.clone());
-            let rollback_versions = loader.available_rollback_versions(&p.id);
+            let mut json = listed_plugin_json(&state, p);
             if let Some(obj) = json.as_object_mut() {
-                obj.insert(
-                    "rollbackVersions".into(),
-                    serde_json::Value::Array(
-                        rollback_versions
-                            .into_iter()
-                            .map(serde_json::Value::String)
-                            .collect(),
-                    ),
-                );
+                if crate::host_options::plugin_marketplace() {
+                    // Rollback versions for the UI chip: installed vs update vs rollback available.
+                    let loader =
+                        rightkit_agent_plugins::PluginLoader::new(state.plugin_dir.clone());
+                    obj.insert(
+                        "rollbackVersions".into(),
+                        serde_json::Value::Array(
+                            loader
+                                .available_rollback_versions(&p.id)
+                                .into_iter()
+                                .map(serde_json::Value::String)
+                                .collect(),
+                        ),
+                    );
+                }
                 // Include per-session activation hint: if any session has overrides, expose count
                 // The UI can query per-session endpoint for details; this is a lightweight hint.
                 let has_session_overrides = {
@@ -143,6 +222,7 @@ async fn list_plugins_handler(
     Ok(Json(serde_json::json!({
         "pluginDir": state.plugin_dir,
         "plugins": plugins_json,
+        "broken": broken_json,
         "extension_execution": extension_execution,
     })))
 }
@@ -150,18 +230,15 @@ async fn list_plugins_handler(
 async fn reload_plugins_handler(
     State(state): State<DaemonState>,
     headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, StatusCode> {
-    enforce_trusted_source_authority(&headers)?;
-    let plugins =
-        discover_plugins(&state.plugin_dir).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+) -> Result<Json<serde_json::Value>, PluginRouteError> {
+    require_trusted_plugin_source(&headers)?;
+    let plugins = discover_plugins(&state.plugin_dir)
+        .map_err(|e| plugin_refusal(StatusCode::INTERNAL_SERVER_ERROR, "plugin_io", e))?;
     let middleware_count = refresh_runtime_plugins(&state);
     refresh_live_session_catalogs(&state);
     let plugins_json = plugins
         .iter()
-        .map(|p| {
-            let install_dir = state.plugin_dir.join(&p.id);
-            plugin_manifest_json_with_provenance(p, &install_dir)
-        })
+        .map(|p| listed_plugin_json(&state, p))
         .collect::<Vec<_>>();
     let extension_execution = extension_execution_diagnostics_json()["extension_execution"].clone();
     Ok(Json(serde_json::json!({
@@ -421,35 +498,80 @@ async fn install_plugin_handler(
     State(state): State<DaemonState>,
     headers: HeaderMap,
     Json(req): Json<InstallPluginRequest>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
-    enforce_trusted_source_authority(&headers)?;
+) -> Result<Json<serde_json::Value>, PluginRouteError> {
+    require_trusted_plugin_source(&headers)?;
     if !req.trust_accepted {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(plugin_refusal(
+            StatusCode::BAD_REQUEST,
+            "trust_not_accepted",
+            "a plugin runs code on this machine; confirm you trust it (trustAccepted: true) to install it",
+        ));
     }
-    let (manifest, installed_path, overwritten) =
-        install_local_plugin(&state.plugin_dir, &req.source_path, req.overwrite)?;
-    // Local /plugins/install has no publisher signature block, so the
-    // provenance defaults to `unsigned` (audit A-8 SPEC 4). The UI badges
-    // this state and the user has explicitly accepted the install via
-    // `trustAccepted: true`.
-    let record = PluginSignatureRecord::unsigned("local".into(), now_iso());
-    write_record(&installed_path, &record);
+    let installed = rightkit_agent_plugins::PluginLoader::new(state.plugin_dir.clone())
+        .install(&req.source_path, req.overwrite)
+        .map_err(plugin_error)?;
+    tracing::info!(
+        event = "plugin_install",
+        plugin = %installed.manifest.id,
+        overwritten = installed.overwritten,
+        outcome = "ok",
+        "plugin lifecycle"
+    );
+    // On a host with a plugin marketplace a local install has no publisher signature block, so
+    // the provenance defaults to `unsigned` (audit A-8 SPEC 4). The UI badges this state and the
+    // user has explicitly accepted the install via `trustAccepted: true`.
+    let signature_status = crate::host_options::plugin_marketplace().then(|| {
+        let record = PluginSignatureRecord::unsigned("local".into(), now_iso());
+        write_record(&installed.path, &record);
+        match record.status {
+            SignatureStatus::Signed => "signed",
+            SignatureStatus::Unsigned => "unsigned",
+            SignatureStatus::Unknown => "unknown",
+        }
+    });
     let middleware_count = refresh_runtime_plugins(&state);
     refresh_live_session_catalogs(&state);
-    let status_str = match record.status {
-        SignatureStatus::Signed => "signed",
-        SignatureStatus::Unsigned => "unsigned",
-        SignatureStatus::Unknown => "unknown",
-    };
-    Ok(Json(serde_json::json!({
+    // An install that replaced a plugin says what changed between the two versions.
+    let replaced = installed.replaced.as_ref().map(|replaced| {
+        serde_json::json!({
+            "fromVersion": replaced.from_version,
+            "toVersion": replaced.to_version,
+            "added": {"commands": replaced.added_commands, "tools": replaced.added_tools},
+            "removed": {"commands": replaced.removed_commands, "tools": replaced.removed_tools},
+        })
+    });
+    let mut body = serde_json::json!({
         "installed": true,
-        "overwritten": overwritten,
+        "overwritten": installed.overwritten,
+        "replaced": replaced,
         "pluginDir": state.plugin_dir,
-        "installedPath": installed_path,
+        "installedPath": installed.path,
         "middlewareCount": middleware_count,
-        "signatureStatus": status_str,
-        "plugin": plugin_manifest_json_with_provenance(&manifest, state.plugin_dir.join(&manifest.id).as_path()),
-    })))
+        "plugin": listed_plugin_json(&state, &installed.manifest),
+    });
+    if let (Some(status), Some(object)) = (signature_status, body.as_object_mut()) {
+        object.insert("signatureStatus".into(), serde_json::Value::from(status));
+    }
+    Ok(Json(body))
+}
+
+/// `DELETE /plugins/{id}`: remove an installed plugin (its folder and enabled record). Its
+/// commands and tools leave every live session's next catalog.
+async fn remove_plugin_handler(
+    State(state): State<DaemonState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, PluginRouteError> {
+    require_trusted_plugin_source(&headers)?;
+    rightkit_agent_plugins::PluginLoader::new(state.plugin_dir.clone())
+        .remove(&id)
+        .map_err(plugin_error)?;
+    tracing::info!(event = "plugin_remove", plugin = %id, outcome = "ok", "plugin lifecycle");
+    let middleware_count = refresh_runtime_plugins(&state);
+    refresh_live_session_catalogs(&state);
+    Ok(Json(
+        serde_json::json!({ "id": id, "removed": true, "middlewareCount": middleware_count }),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -485,6 +607,10 @@ async fn install_marketplace_plugin_handler(
         .iter()
         .find(|entry| entry.manifest.id == id)
         .ok_or(StatusCode::NOT_FOUND)?;
+    // The id names a folder under the temp and plugin directories: never `.`, `..` or a path.
+    if !validate_plugin_id(&entry.manifest.id) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
     if !entry.signature.trim().is_empty()
         || !entry.signing_public_key.trim().is_empty()
         || !entry.signed_by.trim().is_empty()
@@ -589,9 +715,10 @@ async fn enable_plugin_handler(
     State(state): State<DaemonState>,
     Path(id): Path<String>,
     headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, StatusCode> {
-    enforce_trusted_source_authority(&headers)?;
+) -> Result<Json<serde_json::Value>, PluginRouteError> {
+    require_trusted_plugin_source(&headers)?;
     set_plugin_enabled(&state.plugin_dir, &id, true)?;
+    tracing::info!(event = "plugin_enable", plugin = %id, outcome = "ok", "plugin lifecycle");
     let middleware_count = refresh_runtime_plugins(&state);
     refresh_live_session_catalogs(&state);
     Ok(Json(
@@ -603,9 +730,10 @@ async fn disable_plugin_handler(
     State(state): State<DaemonState>,
     Path(id): Path<String>,
     headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, StatusCode> {
-    enforce_trusted_source_authority(&headers)?;
+) -> Result<Json<serde_json::Value>, PluginRouteError> {
+    require_trusted_plugin_source(&headers)?;
     set_plugin_enabled(&state.plugin_dir, &id, false)?;
+    tracing::info!(event = "plugin_disable", plugin = %id, outcome = "ok", "plugin lifecycle");
     let middleware_count = refresh_runtime_plugins(&state);
     refresh_live_session_catalogs(&state);
     Ok(Json(
@@ -630,7 +758,19 @@ async fn rollback_plugin_handler(
     Json(req): Json<RollbackPluginRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     enforce_trusted_source_authority(&headers)?;
-    if req.target_version.trim().is_empty() {
+    // A rollback replaces code that runs on this machine: it needs the same explicit trust
+    // acceptance as an install, whichever source the version comes from.
+    if !req.trust_accepted {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let req = RollbackPluginRequest {
+        target_version: req.target_version.trim().to_string(),
+        trust_accepted: req.trust_accepted,
+    };
+    // The id and the version each name a folder under the plugin directory and the temp
+    // directory: they get the plugin-id character set before anything joins them to a path
+    // (the loader joins `target_version` into a snapshot path without a check of its own).
+    if !validate_plugin_id(&id) || !validate_plugin_id(&req.target_version) {
         return Err(StatusCode::BAD_REQUEST);
     }
     // Prefer marketplace versioned entry if catalog contains the target version;
@@ -643,6 +783,19 @@ async fn rollback_plugin_handler(
         .find(|e| e.manifest.id == id && e.manifest.version == req.target_version)
         .cloned();
     if let Some(entry) = catalog_entry {
+        // The catalog is a file a sync can replace: its id and version get the same check as
+        // the ones the caller sent.
+        if !validate_plugin_id(&entry.manifest.id) || !validate_plugin_id(&entry.manifest.version) {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        // An entry that carries any signature field must verify, as on install, before the
+        // rollback installs it or records it as signed.
+        let carries_signature = !entry.signature.trim().is_empty()
+            || !entry.signing_public_key.trim().is_empty()
+            || !entry.signed_by.trim().is_empty();
+        if carries_signature {
+            verify_marketplace_entry_signature(&entry).map_err(|_| StatusCode::BAD_REQUEST)?;
+        }
         // Install from catalog entry (with snapshot preservation)
         let temp_root = std::env::temp_dir().join(format!(
             "{app}-plugin-rollback-{}-{}-{}",
@@ -685,18 +838,21 @@ async fn rollback_plugin_handler(
         } else {
             entry.source_path.clone()
         };
-        // Verify checksum if present
-        if !entry.checksum_sha256.trim().is_empty() {
-            let actual = plugin_source_sha256(&source_path).map_err(|_| StatusCode::BAD_REQUEST)?;
-            if !actual.eq_ignore_ascii_case(&entry.checksum_sha256) {
-                let _ = std::fs::remove_dir_all(&temp_root);
-                return Err(StatusCode::BAD_REQUEST);
-            }
+        // The source must match the checksum the entry names; an entry with none is refused,
+        // as on install.
+        let actual = plugin_source_sha256(&source_path).map_err(|_| StatusCode::BAD_REQUEST)?;
+        if !actual.eq_ignore_ascii_case(&entry.checksum_sha256) {
+            let _ = std::fs::remove_dir_all(&temp_root);
+            return Err(StatusCode::BAD_REQUEST);
         }
         let (manifest, installed_path, _) =
             install_local_plugin(&state.plugin_dir, &source_path, true)?;
         let _ = std::fs::remove_dir_all(&temp_root);
-        let record = if !entry.signature.trim().is_empty() {
+        // Signed only when the entry carried all three fields and its signature verified above.
+        let record = if !entry.signature.trim().is_empty()
+            && !entry.signing_public_key.trim().is_empty()
+            && !entry.signed_by.trim().is_empty()
+        {
             PluginSignatureRecord::signed(
                 entry.signed_by.clone(),
                 entry.signing_public_key.clone(),
@@ -814,8 +970,7 @@ async fn list_session_plugins_handler(
         .iter()
         .map(|p| {
             let active = activations.is_active(&p.id, &id, p.enabled);
-            let mut json =
-                plugin_manifest_json_with_provenance(p, state.plugin_dir.join(&p.id).as_path());
+            let mut json = listed_plugin_json(&state, p);
             if let Some(obj) = json.as_object_mut() {
                 obj.insert("activeForSession".into(), serde_json::Value::Bool(active));
             }
@@ -915,23 +1070,15 @@ async fn clear_session_plugins_handler(
     })))
 }
 
-fn set_plugin_enabled(dir: &FsPath, id: &str, enabled: bool) -> Result<(), StatusCode> {
+fn set_plugin_enabled(dir: &FsPath, id: &str, enabled: bool) -> Result<(), PluginRouteError> {
     let mut loader = rightkit_agent_plugins::PluginLoader::new(dir.to_path_buf());
-    loader
-        .discover()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    loader.discover().map_err(plugin_error)?;
     let result = if enabled {
         loader.enable(id)
     } else {
         loader.disable(id)
     };
-    result.map_err(|e| match e {
-        rightkit_agent_plugins::PluginError::NotFound(_) => StatusCode::NOT_FOUND,
-        rightkit_agent_plugins::PluginError::Io(_)
-        | rightkit_agent_plugins::PluginError::Parse(_) => StatusCode::INTERNAL_SERVER_ERROR,
-        rightkit_agent_plugins::PluginError::Refused(_) => StatusCode::BAD_REQUEST,
-        rightkit_agent_plugins::PluginError::Conflict(_) => StatusCode::CONFLICT,
-    })
+    result.map_err(plugin_error)
 }
 
 /// Publish replacement catalogs for every active session. Each engine adopts

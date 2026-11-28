@@ -111,6 +111,21 @@ pub fn image_paths_in_prompt(prompt: &str, workspace: Option<&Path>) -> Vec<Stri
     found
 }
 
+/// One-line notice naming the images a prompt will upload, so a path that
+/// merely appears in the prompt text is never attached silently.
+pub fn attachment_notice(prompt: &str, workspace: Option<&Path>) -> Option<String> {
+    let images = image_paths_in_prompt(prompt, workspace);
+    if images.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "Attaching {} image{} to this message: {}",
+        images.len(),
+        if images.len() == 1 { "" } else { "s" },
+        images.join(", ")
+    ))
+}
+
 /// The first-message prompt for an interactive launch with `--image` files:
 /// the prompt text followed by one `@path` mention per image (made absolute
 /// so the submit path resolves them regardless of workspace).
@@ -151,6 +166,65 @@ pub fn mention_for(path: &Path) -> String {
     } else {
         format!("@{text} ")
     }
+}
+
+/// Pasted clipboard images of this process with the session they were pasted
+/// in, `[Image #N]` -> index `N - 1`. Never cleared, so a placeholder recalled
+/// from history in the same session still resolves; a deleted temp file then
+/// fails the existence check in [`image_paths_in_prompt`] and attaches nothing.
+/// An entry resolves only in its own session, so literal `[Image #1]` typed in
+/// another session never attaches an earlier session's image.
+type PastedImage = (Option<String>, PathBuf);
+static PASTED_IMAGES: std::sync::Mutex<Vec<PastedImage>> = std::sync::Mutex::new(Vec::new());
+
+/// Register an image pasted in `session` and return the short composer
+/// placeholder for it (`[Image #N] `) instead of the long temp-file mention.
+pub fn placeholder_for(path: &Path, session: Option<&str>) -> String {
+    let mut images = PASTED_IMAGES.lock().unwrap_or_else(|e| e.into_inner());
+    images.push((session.map(str::to_string), path.to_path_buf()));
+    format!("[Image #{}] ", images.len())
+}
+
+/// Replace every `[Image #N]` pasted in `session` with the `@path` mention the
+/// attach path reads. Unknown numbers and other sessions' images stay literal.
+pub fn expand_image_placeholders(text: &str, session: Option<&str>) -> String {
+    const OPEN: &str = "[Image #";
+    if !text.contains(OPEN) {
+        return text.to_string();
+    }
+    let images = PASTED_IMAGES.lock().unwrap_or_else(|e| e.into_inner());
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find(OPEN) {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + OPEN.len()..];
+        let digits = after.bytes().take_while(u8::is_ascii_digit).count();
+        let path = after[digits..]
+            .starts_with(']')
+            .then(|| after[..digits].parse::<usize>().ok())
+            .flatten()
+            .and_then(|n| n.checked_sub(1))
+            .and_then(|index| images.get(index))
+            .filter(|(pasted_in, _)| pasted_in.as_deref() == session)
+            .map(|(_, path)| path);
+        match path {
+            Some(path) => {
+                out.push_str(mention_for(path).trim_end());
+                rest = &after[digits + 1..];
+                // Keep the mention a separate token even when the user
+                // deleted the space after the placeholder.
+                if rest.chars().next().is_some_and(|c| !c.is_whitespace()) {
+                    out.push(' ');
+                }
+            }
+            None => {
+                out.push_str(OPEN);
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Save the clipboard image (if any) to a PNG under the temp dir and return

@@ -12,7 +12,7 @@ pub fn browser_workspace_openapi_components() -> Map<String, Value> {
         "BrowserWorkspaceSummary".to_string(),
         json!({
             "type": "object",
-            "required": ["paused", "profileKind", "actionLogLen", "sessions"],
+            "required": ["paused", "actionLogLen", "sessions"],
             "properties": {
                 "viewport": {
                     "oneOf": [
@@ -22,11 +22,6 @@ pub fn browser_workspace_openapi_components() -> Map<String, Value> {
                 },
                 "actionLogLen": {"type": "integer", "minimum": 0},
                 "paused": {"type": "boolean"},
-                "profileKind": {
-                    "type": "string",
-                    "enum": ["ephemeral", "named_shared"]
-                },
-                "profileLabel": {"type": ["string", "null"]},
                 "sessions": {
                     "type": "array",
                     "items": {"$ref": "#/components/schemas/BrowserSessionSummary"}
@@ -170,21 +165,6 @@ pub fn browser_workspace_openapi_components() -> Map<String, Value> {
         }),
     );
     schemas.insert(
-        "BrowserProfileConsent".to_string(),
-        json!({
-            "type": "object",
-            "required": ["kind"],
-            "properties": {
-                "kind": {
-                    "type": "string",
-                    "enum": ["ephemeral", "named_shared"]
-                },
-                "label": {"type": "string"}
-            },
-            "additionalProperties": false
-        }),
-    );
-    schemas.insert(
         "BrowserWorkspaceError".to_string(),
         json!({
             "type": "object",
@@ -198,7 +178,11 @@ pub fn browser_workspace_openapi_components() -> Map<String, Value> {
                         "browser_paused",
                         "session_not_found",
                         "consent_required",
-                        "capability_denied"
+                        "capability_denied",
+                        "capability_requires_approval",
+                        "invalid_request",
+                        "annotation_too_large",
+                        "browser_action_failed"
                     ]
                 },
                 "message": {"type": "string"}
@@ -217,8 +201,7 @@ pub fn browser_workspace_openapi_request_schema(method: &str, path: &str) -> Opt
             "type": "object",
             "required": ["url"],
             "properties": {
-                "url": {"type": "string"},
-                "name": {"type": "string", "description": "Optional named-profile label. Ephemeral by default."}
+                "url": {"type": "string"}
             }
         })),
         ("post", "/sessions/{id}/browser/workspace/navigate") => Some(json!({
@@ -254,9 +237,6 @@ pub fn browser_workspace_openapi_request_schema(method: &str, path: &str) -> Opt
         })),
         ("post", "/sessions/{id}/browser/workspace/host-policy") => {
             Some(json!({"$ref": "#/components/schemas/BrowserHostPolicy"}))
-        }
-        ("post", "/sessions/{id}/browser/workspace/profile") => {
-            Some(json!({"$ref": "#/components/schemas/BrowserProfileConsent"}))
         }
         _ => None,
     }

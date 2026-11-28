@@ -142,6 +142,7 @@ pub fn with_session<T>(session_id: &str, f: impl FnOnce(&mut SteeringQueue) -> T
     f(all.entry(session_id.to_owned()).or_default())
 }
 
+/// Drop a deleted session's queue, so the process-wide map holds no entry for a session that is gone.
 pub fn retire_session(session_id: &str) {
     queues()
         .lock()

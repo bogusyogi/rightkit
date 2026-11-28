@@ -19,7 +19,7 @@ use rightkit_agent_policy::{
 };
 use serde_json::Value;
 
-use super::types::{workspace_error, CapabilityVerdict};
+use super::types::{workspace_error, CapabilityKind, CapabilityVerdict};
 
 pub(crate) fn browser_capability_verdict(
     mode: PermissionMode,
@@ -28,6 +28,11 @@ pub(crate) fn browser_capability_verdict(
     let verdict =
         PermissionEngine::new().evaluate(CapabilityClass::Browser, mode, trust, None, false);
     CapabilityVerdict {
+        kind: match verdict.decision {
+            PermissionDecision::Allow => CapabilityKind::Allowed,
+            PermissionDecision::Ask => CapabilityKind::NeedsApproval,
+            _ => CapabilityKind::Denied,
+        },
         allowed: verdict.decision == PermissionDecision::Allow,
         reason: if verdict.decision == PermissionDecision::Allow {
             format!("authenticated live session ({})", verdict.policy_source)
@@ -45,7 +50,7 @@ pub(crate) async fn workspace_ssrf_check(
     if url.trim().is_empty() {
         return Err(workspace_error(
             StatusCode::BAD_REQUEST,
-            "ssrf_refused",
+            "invalid_request",
             "URL is empty.".to_string(),
         ));
     }

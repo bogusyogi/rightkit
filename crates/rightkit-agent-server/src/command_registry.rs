@@ -3,7 +3,7 @@
 //! commands (`main_runtime_interactive_session.rs`).
 //!
 //! P1-1/CR-24 unification: the authoritative table itself lives in
-//! `rightkit_agent_host_traits::skill_host::commands` (`COMMAND_SPECS`) — the one place where a
+//! `rightkit_agent_skills::commands` (`COMMAND_SPECS`) — the one place where a
 //! command's canonical name, aliases, metadata, and daemon-side executable
 //! handler identity are defined together. Dependency direction is
 //! `bins -> crates`, so this module is a THIN VIEW over that authority:
@@ -14,17 +14,13 @@
 //! `/model` and `session set --model` are two different *surfaces* over the
 //! same registry entry (`session-set` concept), not two implementations.
 
-pub use rightkit_agent_host_traits::skill_host::commands::{
+pub use rightkit_agent_skills::commands::{
     canonical_bare_name, entries_for_surface, entries_in_group, resolve_query, HelpGroup,
 };
 
 /// The single source of truth, re-exported from the shared authority so
 /// every in-binary consumer keeps reading it through this module path.
-/// The slash command table (installed host).
-pub fn command_registry() -> &'static [rightkit_agent_host_traits::skill_host::commands::CommandSpec]
-{
-    rightkit_agent_host_traits::skill_host::command_specs()
-}
+pub use rightkit_agent_skills::commands::COMMAND_SPECS as COMMAND_REGISTRY;
 
 /// Whether a command may run while a turn is in flight. This is the one
 /// place mid-turn eligibility is *enforced* rather than merely read off the
@@ -56,7 +52,7 @@ pub fn enforce_mid_turn(name: &str) -> Result<(), String> {
 }
 
 /// The registry's implementation of the TUI's `CommandSource` seam
-/// (`engine/crates/tui/src/component.rs`). `{app}-tui` is a dependency
+/// (`engine/crates/tui/src/component.rs`). the terminal-UI crate is a dependency
 /// of this binary purely so the `impl` below can name the trait;
 /// `CommandRouter`'s own inherent methods are unchanged and unaware of the
 /// TUI crate.
@@ -81,7 +77,7 @@ impl CommandRouter {
     /// completion. `prefix` matches against every registered string, not
     /// just canonical names, so completing `/q` offers `/quit`.
     pub fn completions(&self, prefix: &str) -> Vec<String> {
-        let mut out: Vec<String> = command_registry()
+        let mut out: Vec<String> = COMMAND_REGISTRY
             .iter()
             .flat_map(|entry| std::iter::once(entry.name).chain(entry.aliases.iter().copied()))
             .filter(|candidate| candidate.starts_with(prefix))

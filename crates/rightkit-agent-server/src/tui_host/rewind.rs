@@ -147,6 +147,105 @@ pub(super) async fn handle_key(
     requester.schedule_immediate();
 }
 
+/// `/undo`: rewind to just before the session's last prompt, conversation and
+/// files together. The prompt goes back into the composer.
+pub(super) async fn undo(
+    host: &impl TurnHost,
+    composer: &mut Composer,
+    session: &mut SessionState,
+    transcript: &mut Transcript,
+) {
+    let points = match host.rewind_points().await {
+        Ok(points) => points,
+        Err(error) => {
+            session.notice(transcript, error);
+            return;
+        }
+    };
+    let Some(last) = points.last() else {
+        session.notice(
+            transcript,
+            "Nothing to undo: no earlier messages in this session.",
+        );
+        return;
+    };
+    match host.rewind_to(last, RewindMode::Both).await {
+        Ok(report) => {
+            if report.conversation_rewound {
+                session.redo_available = true;
+            }
+            report_restore(&report, "Undid", composer, session, transcript);
+        }
+        Err(error) => session.notice(transcript, error),
+    }
+}
+
+/// `/redo`: put the most recent undo back. A refusal shows its message.
+pub(super) async fn redo(
+    host: &impl TurnHost,
+    composer: &mut Composer,
+    session: &mut SessionState,
+    transcript: &mut Transcript,
+) {
+    // Whatever the answer, the undo is spent.
+    session.redo_available = false;
+    match host.redo_last_undo().await {
+        Ok(report) => {
+            // The redone prompt is back in the conversation, so the composer
+            // holds nothing for it.
+            composer.set_text("");
+            report_restore(&report, "Redid", composer, session, transcript);
+        }
+        Err(message) => session.notice(transcript, message),
+    }
+}
+
+/// The lines that tell what an undo or redo did: the prompt, restored files
+/// and the files left alone because they changed since the agent wrote them.
+pub(super) fn restore_lines(
+    report: &crate::api_sessions::rewind::RewindReport,
+    verb: &str,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    if report.conversation_rewound {
+        lines.push(format!(
+            "{verb} conversation: {}",
+            excerpt(&report.text, 80)
+        ));
+    }
+    if report.files_restored.is_empty() && report.file_conflicts.is_empty() {
+        lines.push("No file changes were restored.".to_string());
+    }
+    if !report.files_restored.is_empty() {
+        lines.push(format!(
+            "Restored {} file(s): {}",
+            report.files_restored.len(),
+            report.files_restored.join(", ")
+        ));
+    }
+    for (path, reason) in &report.file_conflicts {
+        lines.push(format!(
+            "Not restored (changed since the agent wrote it): {path} \u{2014} {reason}"
+        ));
+    }
+    lines
+}
+
+fn report_restore(
+    report: &crate::api_sessions::rewind::RewindReport,
+    verb: &str,
+    composer: &mut Composer,
+    session: &mut SessionState,
+    transcript: &mut Transcript,
+) {
+    if verb == "Undid" && report.conversation_rewound {
+        composer.set_text(&report.text);
+    }
+    for line in restore_lines(report, verb) {
+        session.notice(transcript, line);
+    }
+}
+
 async fn perform(
     host: &impl TurnHost,
     point: &RewindPoint,

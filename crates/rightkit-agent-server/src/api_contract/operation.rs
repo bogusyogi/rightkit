@@ -50,6 +50,20 @@ fn openapi_operation(endpoint: &ApiEndpoint, openapi_path: &str, method: &str) -
                 }
             }),
         );
+    } else if method == "get" && endpoint.path == "/sessions/{id}/events" {
+        // The session event stream: each `data:` frame is one ProtocolEvent and its `id:` is the
+        // event's seq, so `Last-Event-ID` resumes it.
+        responses.insert(
+            success_status.to_string(),
+            json!({
+                "description": success_description,
+                "content": {
+                    "text/event-stream": {
+                        "schema": {"$ref": "#/components/schemas/ProtocolEvent"}
+                    }
+                }
+            }),
+        );
     } else {
         responses.insert(
             success_status.to_string(),
@@ -106,7 +120,6 @@ fn openapi_operation(endpoint: &ApiEndpoint, openapi_path: &str, method: &str) -
                 | "/runtime/context/adapt/insights"
                 | "/runtime/context/adapt/apply-taste"
                 | "/runtime/context/adapt/recall"
-                | "/sessions/{id}/clone"
         );
         operation.insert(
             "requestBody".to_string(),
@@ -176,15 +189,47 @@ fn unavailable_response_schema(method: &str, path: &str) -> Option<Value> {
     }
 }
 
+/// A header name of the host's namespace as the contract writes it (`X-<App>-<Name>`): the app
+/// part in the casing of the display name (`rightkit_agent_config::app_name()`, for example
+/// `X-CodeRight-Signature-256`) when that is a valid header token, else the name
+/// [`crate::host_identity::header`] gives with each dash-separated word capitalised. Header names
+/// are matched case-insensitively; this is the spelling the documentation shows.
+fn host_header_title(name: &str) -> String {
+    fn capitalised(text: &str) -> String {
+        text.split('-')
+            .map(|word| {
+                let mut chars = word.chars();
+                chars
+                    .next()
+                    .map(|first| first.to_ascii_uppercase().to_string() + chars.as_str())
+                    .unwrap_or_default()
+            })
+            .collect::<Vec<_>>()
+            .join("-")
+    }
+    let app = rightkit_agent_config::app_name();
+    // The display spelling is used only when it is the app id in another letter case, so the
+    // document never names a header the server does not read.
+    if app.eq_ignore_ascii_case(crate::host_identity::app())
+        && app.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
+        format!("X-{app}-{}", capitalised(name))
+    } else {
+        capitalised(&crate::host_identity::header(name))
+    }
+}
+
 fn trigger_delivery_header_parameters(path: &str) -> Vec<Value> {
     let (signature, delivery, event) = match path {
-        "/triggers/{id}/deliver/github" => {
-            ("X-Hub-Signature-256", "X-GitHub-Delivery", "X-GitHub-Event")
-        }
+        "/triggers/{id}/deliver/github" => (
+            "X-Hub-Signature-256".to_string(),
+            "X-GitHub-Delivery".to_string(),
+            "X-GitHub-Event".to_string(),
+        ),
         "/triggers/{id}/deliver/generic" => (
-            "X-RightKit-Signature-256",
-            "X-RightKit-Delivery-Id",
-            "X-RightKit-Event",
+            host_header_title("signature-256"),
+            host_header_title("delivery-id"),
+            host_header_title("event"),
         ),
         _ => return Vec::new(),
     };

@@ -9,12 +9,11 @@
 //! integration owner.
 
 use rightkit_agent_telemetry::{
-    HostGauges, MeasurementError, MeasurementObservation, MeasurementReceipt, MeasurementScenario,
+    MeasurementError, MeasurementObservation, MeasurementReceipt, MeasurementScenario,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
-use crate::api_health::{MachineStatus, MACHINE_STATUS_SCHEMA};
+use crate::api_health::MachineStatus;
 
 const MAX_SOAK_OBSERVATIONS: usize = 4096;
 
@@ -96,40 +95,6 @@ impl SoakHarness {
         }
     }
 
-    pub(crate) fn status(&self) -> MachineStatus {
-        self.status
-    }
-
-    pub(crate) fn set_status(&mut self, status: MachineStatus) {
-        self.status = status;
-    }
-
-    /// Capture current process-global resource counters and issue one
-    /// integrity-bound receipt. Host values are supplied by the live runner;
-    /// no host value is inferred from the resource snapshot.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn capture(
-        &mut self,
-        scenario: MeasurementScenario,
-        started_at_unix_ms: u64,
-        finished_at_unix_ms: u64,
-        host: HostGauges,
-        cancelled_workers: Option<u64>,
-        completed_workers: Option<u64>,
-        ownership_violations: Option<u64>,
-    ) -> Result<(), SoakError> {
-        let observation = MeasurementObservation::capture_with_host(
-            scenario,
-            started_at_unix_ms,
-            finished_at_unix_ms,
-            host,
-            cancelled_workers,
-            completed_workers,
-            ownership_violations,
-        );
-        self.record(observation)
-    }
-
     pub(crate) fn record(&mut self, observation: MeasurementObservation) -> Result<(), SoakError> {
         if !self.config.scenarios.contains(&observation.scenario) {
             return Err(SoakError::UnknownScenario(observation.scenario));
@@ -150,11 +115,6 @@ impl SoakHarness {
         Ok(())
     }
 
-    pub(crate) fn stop(mut self) -> SoakReport {
-        self.status = MachineStatus::Stopped;
-        self.into_report()
-    }
-
     pub(crate) fn finish(self) -> SoakReport {
         self.into_report()
     }
@@ -173,59 +133,4 @@ impl SoakHarness {
             observed_receipts,
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum MachineConformanceError {
-    NotObject,
-    MissingSchemaVersion,
-    WrongSchemaVersion,
-    MissingStatus,
-    UnknownStatus,
-    MissingOk,
-    StatusOkMismatch,
-}
-
-/// Validate the common, transport-independent portion of the machine status
-/// envelope. This is executable conformance logic for every status class;
-/// transport failures still cannot produce a daemon body and are represented
-/// by the `unreachable` class at the client seam.
-pub(crate) fn validate_machine_status_document(
-    document: &Value,
-) -> Result<(), MachineConformanceError> {
-    let object = document
-        .as_object()
-        .ok_or(MachineConformanceError::NotObject)?;
-    let schema = object
-        .get("schemaVersion")
-        .and_then(Value::as_str)
-        .ok_or(MachineConformanceError::MissingSchemaVersion)?;
-    if schema != MACHINE_STATUS_SCHEMA {
-        return Err(MachineConformanceError::WrongSchemaVersion);
-    }
-    let status = object
-        .get("status")
-        .and_then(Value::as_str)
-        .ok_or(MachineConformanceError::MissingStatus)?;
-    let expected_ok = match status {
-        "healthy" => true,
-        "stopped" | "unreachable" | "degraded" => false,
-        _ => return Err(MachineConformanceError::UnknownStatus),
-    };
-    let ok = object
-        .get("ok")
-        .and_then(Value::as_bool)
-        .ok_or(MachineConformanceError::MissingOk)?;
-    if ok != expected_ok {
-        return Err(MachineConformanceError::StatusOkMismatch);
-    }
-    Ok(())
-}
-
-pub(crate) fn machine_status_document(status: MachineStatus) -> Value {
-    serde_json::json!({
-        "schemaVersion": MACHINE_STATUS_SCHEMA,
-        "status": status,
-        "ok": matches!(status, MachineStatus::Healthy),
-    })
 }

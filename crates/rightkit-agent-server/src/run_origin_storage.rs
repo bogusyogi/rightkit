@@ -96,8 +96,11 @@ impl RunOriginSink for StorageRunOriginSink {
             let Some(storage) = self.storage.as_ref() else {
                 return OriginWriteResult::Deferred("storage not wired on this session".into());
             };
+            // The background writer stores this same event stamped with its schema version
+            // (STORE-13) and compares a repeat write with the stored row, so this early write must
+            // carry the same stamp or the two writes read as a collision.
             let payload = match serde_json::to_string(event) {
-                Ok(payload) => payload,
+                Ok(payload) => crate::api::stamp_event_schema_version(&payload),
                 Err(error) => {
                     return OriginWriteResult::Failed(format!("serialize call: {error}"));
                 }

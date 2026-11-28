@@ -204,7 +204,7 @@ async fn list_skillopt_rejected_edits(
 pub(crate) fn load_skillopt_store(
     path: &FsPath,
 ) -> rightkit_agent_learning::SkillOptimizationStore {
-    crate::store_write::load_or_set_aside::<rightkit_agent_learning::SkillOptimizationStore>(path)
+    crate::store_write::load_shared_store::<rightkit_agent_learning::SkillOptimizationStore>(path)
         .unwrap_or_default()
 }
 
@@ -218,8 +218,10 @@ fn persist_skillopt_store(
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }
-    let payload =
-        serde_json::to_string_pretty(store).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    crate::store_write::write_store_file(path, payload.as_bytes())
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    // Several processes share the file: only what this process changed is applied to what is
+    // on disk, under the cross-process lock (`write_shared_store`).
+    crate::store_write::write_shared_store(path, "skillopt-runs", store).map_err(|error| {
+        tracing::error!(%error, "skill optimization store was not saved");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })
 }

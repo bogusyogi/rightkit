@@ -11,6 +11,19 @@ pub(crate) fn plugin_openapi_components() -> Map<String, Value> {
                     "type": "array",
                     "items": {"$ref": "#/components/schemas/PluginManifest"}
                 },
+                "broken": {
+                    "type": "array",
+                    "description": "Plugin folders whose plugin.json cannot be read, with the path and the error",
+                    "items": {
+                        "type": "object",
+                        "required": ["path", "error"],
+                        "properties": {
+                            "path": {"type": "string"},
+                            "error": {"type": "string"}
+                        },
+                        "additionalProperties": false
+                    }
+                },
                 "extension_execution": {"$ref": "#/components/schemas/ExtensionExecutionTrustCatalog"}
             },
             "additionalProperties": false
@@ -178,11 +191,12 @@ pub(crate) fn plugin_openapi_components() -> Map<String, Value> {
                     "type": "string",
                     "enum": ["trustedSubprocess", "restrictedSubprocess", "metadataOnly"]
                 },
-                "allowNetwork": {"type": "boolean"},
-                "inheritEnv": {"type": "boolean"},
-                "allowEnv": {"type": "array", "items": {"type": "string"}},
-                "denyEnv": {"type": "array", "items": {"type": "string"}},
-                "timeoutMs": {"type": "integer", "minimum": 0}
+                "allowAbsoluteEntry": {"type": "boolean"},
+                "timeoutMs": {"type": "integer", "minimum": 0},
+                "inheritEnv": {"type": "boolean", "description": "false starts the plugin from a minimal environment plus allowedEnv (enforced by the launcher)"},
+                "allowedEnv": {"type": "array", "items": {"type": "string"}},
+                "deniedEnv": {"type": "array", "items": {"type": "string"}},
+                "stripNetworkEnv": {"type": "boolean", "description": "removes proxy, certificate and cloud-credential variables and withholds network from the plugin"}
             }
         }),
     );
@@ -223,6 +237,16 @@ pub(crate) fn plugin_openapi_components() -> Map<String, Value> {
             "properties": {
                 "installed": {"type": "boolean"},
                 "overwritten": {"type": "boolean"},
+                "replaced": {
+                    "description": "What changed between the replaced version and this one; null for a first install.",
+                    "type": ["object", "null"],
+                    "properties": {
+                        "fromVersion": {"type": "string"},
+                        "toVersion": {"type": "string"},
+                        "added": {"$ref": "#/components/schemas/PluginContributionList"},
+                        "removed": {"$ref": "#/components/schemas/PluginContributionList"}
+                    }
+                },
                 "pluginDir": {"type": "string"},
                 "installedPath": {"type": "string"},
                 "marketplacePath": {"type": "string"},
@@ -232,6 +256,7 @@ pub(crate) fn plugin_openapi_components() -> Map<String, Value> {
                 "signedBy": {"type": "string"},
                 "signingPublicKey": {"type": "string"},
                 "signature": {"type": "string"},
+                "signatureStatus": {"type": "string"},
                 "middlewareCount": {"type": "integer"},
                 "plugin": {"$ref": "#/components/schemas/PluginManifest"}
             },
@@ -239,100 +264,126 @@ pub(crate) fn plugin_openapi_components() -> Map<String, Value> {
         }),
     );
     schemas.insert(
-        "PluginMarketplaceEntry".to_string(),
+        "PluginContributionList".to_string(),
         json!({
-            "allOf": [
-                {"$ref": "#/components/schemas/PluginManifest"},
-                {
-                    "type": "object",
-                    "required": ["downloads", "rating", "sourceUrl", "sourcePath", "checksumSha256", "signedBy"],
-                    "properties": {
-                        "downloads": {"type": "integer"},
-                        "rating": {"type": "number"},
-                        "sourceUrl": {"type": "string"},
-                        "sourcePath": {"type": "string"},
-                        "checksumSha256": {"type": "string"},
-                        "packageSha256": {"type": "string"},
-                        "signedBy": {"type": "string"},
-                        "signingPublicKey": {"type": "string"},
-                        "signature": {"type": "string"}
-                    },
-                    "additionalProperties": false
-                }
-            ]
+            "type": "object",
+            "properties": {
+                "commands": {"type": "array", "items": {"type": "string"}},
+                "tools": {"type": "array", "items": {"type": "string"}}
+            }
         }),
     );
     schemas.insert(
-        "PluginMarketplaceListResponse".to_string(),
+        "PluginRemovedResponse".to_string(),
         json!({
             "type": "object",
-            "required": ["marketplacePath", "plugins", "categories"],
+            "required": ["id", "removed"],
             "properties": {
-                "marketplacePath": {"type": "string"},
-                "plugins": {"type": "array", "items": {"$ref": "#/components/schemas/PluginMarketplaceEntry"}},
-                "categories": {
-                    "type": "array",
-                    "items": {
+                "id": {"type": "string"},
+                "removed": {"type": "boolean"},
+                "middlewareCount": {"type": "integer"}
+            },
+            "additionalProperties": false
+        }),
+    );
+    // The marketplace schemas exist only on a host whose `plugin_marketplace` option is on.
+    if crate::host_options::plugin_marketplace() {
+        schemas.insert(
+            "PluginMarketplaceEntry".to_string(),
+            json!({
+                "allOf": [
+                    {"$ref": "#/components/schemas/PluginManifest"},
+                    {
                         "type": "object",
-                        "required": ["category", "count"],
+                        "required": ["downloads", "rating", "sourceUrl", "sourcePath", "checksumSha256", "signedBy"],
                         "properties": {
-                            "category": {"type": "string"},
-                            "count": {"type": "integer", "minimum": 0}
+                            "downloads": {"type": "integer"},
+                            "rating": {"type": "number"},
+                            "sourceUrl": {"type": "string"},
+                            "sourcePath": {"type": "string"},
+                            "checksumSha256": {"type": "string"},
+                            "packageSha256": {"type": "string"},
+                            "signedBy": {"type": "string"},
+                            "signingPublicKey": {"type": "string"},
+                            "signature": {"type": "string"}
                         },
                         "additionalProperties": false
                     }
-                }
-            },
-            "additionalProperties": false
-        }),
-    );
-    schemas.insert(
-        "SyncPluginMarketplaceRequest".to_string(),
-        json!({
-            "type": "object",
-            "required": ["catalogUrl", "expectedSha256", "trustAccepted"],
-            "properties": {
-                "catalogUrl": {"type": "string"},
-                "expectedSha256": {"type": "string"},
-                "trustAccepted": {"type": "boolean"},
-                "requireSigned": {"type": "boolean"},
-                "allowFileUrls": {"type": "boolean"},
-                "fileUrlTrustAccepted": {"type": "boolean"}
-            },
-            "additionalProperties": false
-        }),
-    );
-    schemas.insert(
-        "PluginMarketplaceSyncResponse".to_string(),
-        json!({
-            "type": "object",
-            "required": ["synced", "marketplacePath", "catalogUrl", "checksumSha256", "pluginCount", "requireSigned"],
-            "properties": {
-                "synced": {"type": "boolean"},
-                "marketplacePath": {"type": "string"},
-                "catalogUrl": {"type": "string"},
-                "checksumSha256": {"type": "string"},
-                "pluginCount": {"type": "integer"},
-                "requireSigned": {"type": "boolean"}
-            },
-            "additionalProperties": false
-        }),
-    );
-    schemas.insert(
-        "InstallMarketplacePluginRequest".to_string(),
-        json!({
-            "type": "object",
-            "required": ["trustAccepted"],
-            "properties": {
-                "trustAccepted": {"type": "boolean"},
-                "expectedSha256": {"type": "string"},
-                "overwrite": {"type": "boolean"},
-                "allowFileUrls": {"type": "boolean"},
-                "fileUrlTrustAccepted": {"type": "boolean"}
-            },
-            "additionalProperties": false
-        }),
-    );
+                ]
+            }),
+        );
+        schemas.insert(
+            "PluginMarketplaceListResponse".to_string(),
+            json!({
+                "type": "object",
+                "required": ["marketplacePath", "plugins", "categories"],
+                "properties": {
+                    "marketplacePath": {"type": "string"},
+                    "plugins": {"type": "array", "items": {"$ref": "#/components/schemas/PluginMarketplaceEntry"}},
+                    "categories": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["category", "count"],
+                            "properties": {
+                                "category": {"type": "string"},
+                                "count": {"type": "integer", "minimum": 0}
+                            },
+                            "additionalProperties": false
+                        }
+                    }
+                },
+                "additionalProperties": false
+            }),
+        );
+        schemas.insert(
+            "SyncPluginMarketplaceRequest".to_string(),
+            json!({
+                "type": "object",
+                "required": ["catalogUrl", "expectedSha256", "trustAccepted"],
+                "properties": {
+                    "catalogUrl": {"type": "string"},
+                    "expectedSha256": {"type": "string"},
+                    "trustAccepted": {"type": "boolean"},
+                    "requireSigned": {"type": "boolean"},
+                    "allowFileUrls": {"type": "boolean"},
+                    "fileUrlTrustAccepted": {"type": "boolean"}
+                },
+                "additionalProperties": false
+            }),
+        );
+        schemas.insert(
+            "PluginMarketplaceSyncResponse".to_string(),
+            json!({
+                "type": "object",
+                "required": ["synced", "marketplacePath", "catalogUrl", "checksumSha256", "pluginCount", "requireSigned"],
+                "properties": {
+                    "synced": {"type": "boolean"},
+                    "marketplacePath": {"type": "string"},
+                    "catalogUrl": {"type": "string"},
+                    "checksumSha256": {"type": "string"},
+                    "pluginCount": {"type": "integer"},
+                    "requireSigned": {"type": "boolean"}
+                },
+                "additionalProperties": false
+            }),
+        );
+        schemas.insert(
+            "InstallMarketplacePluginRequest".to_string(),
+            json!({
+                "type": "object",
+                "required": ["trustAccepted"],
+                "properties": {
+                    "trustAccepted": {"type": "boolean"},
+                    "expectedSha256": {"type": "string"},
+                    "overwrite": {"type": "boolean"},
+                    "allowFileUrls": {"type": "boolean"},
+                    "fileUrlTrustAccepted": {"type": "boolean"}
+                },
+                "additionalProperties": false
+            }),
+        );
+    }
     schemas.insert(
         "PluginEnabledResponse".to_string(),
         json!({
@@ -346,6 +397,27 @@ pub(crate) fn plugin_openapi_components() -> Map<String, Value> {
             "additionalProperties": false
         }),
     );
+    if !crate::host_options::plugin_marketplace() {
+        // Without a marketplace an install reports none of its provenance.
+        if let Some(properties) = schemas
+            .get_mut("PluginInstallResponse")
+            .and_then(|schema| schema.get_mut("properties"))
+            .and_then(Value::as_object_mut)
+        {
+            for field in [
+                "marketplacePath",
+                "sourceUrl",
+                "checksumSha256",
+                "packageSha256",
+                "signedBy",
+                "signingPublicKey",
+                "signature",
+                "signatureStatus",
+            ] {
+                properties.remove(field);
+            }
+        }
+    }
     schemas
 }
 
@@ -360,10 +432,12 @@ pub(crate) fn plugin_list_response_schema() -> Value {
 pub(crate) fn plugins_openapi_request_schema(method: &str, path: &str) -> Option<Value> {
     match (method, path) {
         ("post", "/plugins/install") => Some(plugin_schema_ref("PluginInstallRequest")),
-        ("post", "/plugins/marketplace/sync") => {
+        ("post", "/plugins/marketplace/sync") if crate::host_options::plugin_marketplace() => {
             Some(plugin_schema_ref("SyncPluginMarketplaceRequest"))
         }
-        ("post", "/plugins/marketplace/{id}/install") => {
+        ("post", "/plugins/marketplace/{id}/install")
+            if crate::host_options::plugin_marketplace() =>
+        {
             Some(plugin_schema_ref("InstallMarketplacePluginRequest"))
         }
         _ => None,
@@ -375,16 +449,21 @@ pub(crate) fn plugins_openapi_response_schema(method: &str, path: &str) -> Optio
         ("get", "/plugins") => Some(plugin_list_response_schema()),
         ("post", "/plugins/reload") => Some(plugin_schema_ref("PluginReloadResponse")),
         ("post", "/plugins/install") => Some(plugin_schema_ref("PluginInstallResponse")),
-        ("get", "/plugins/marketplace") => Some(plugin_schema_ref("PluginMarketplaceListResponse")),
-        ("post", "/plugins/marketplace/sync") => {
+        ("get", "/plugins/marketplace") if crate::host_options::plugin_marketplace() => {
+            Some(plugin_schema_ref("PluginMarketplaceListResponse"))
+        }
+        ("post", "/plugins/marketplace/sync") if crate::host_options::plugin_marketplace() => {
             Some(plugin_schema_ref("PluginMarketplaceSyncResponse"))
         }
-        ("post", "/plugins/marketplace/{id}/install") => {
+        ("post", "/plugins/marketplace/{id}/install")
+            if crate::host_options::plugin_marketplace() =>
+        {
             Some(plugin_schema_ref("PluginInstallResponse"))
         }
         ("post", "/plugins/{id}/enable") | ("post", "/plugins/{id}/disable") => {
             Some(plugin_schema_ref("PluginEnabledResponse"))
         }
+        ("delete", "/plugins/{id}") => Some(plugin_schema_ref("PluginRemovedResponse")),
         _ => None,
     }
 }

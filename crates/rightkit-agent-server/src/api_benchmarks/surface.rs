@@ -5,4 +5,3 @@ include!("compare_history.rs");
 include!("executed_bakeoff.rs");
 include!("corpus_bakeoff.rs");
 include!("corpus_bakeoff_openapi.rs");
-include!("measurement.rs");

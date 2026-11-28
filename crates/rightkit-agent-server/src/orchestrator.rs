@@ -21,7 +21,6 @@ use rightkit_agent_engine_protocol::{ProtocolEvent, TaskNode, TaskState, Transcr
 use rightkit_agent_engine_tasks::TaskGraph;
 use rightkit_agent_orchestration::coding::catalog::{build_catalog, roster_entries};
 use rightkit_agent_orchestration::coding::conductor_day_from_iso;
-use rightkit_agent_orchestration::coding::evolution::DurationAwareRouter;
 use rightkit_agent_orchestration::coding::orchestrator::RunOutcome;
 use rightkit_agent_orchestration::coding::registry::AgentRegistry;
 use rightkit_agent_orchestration::coding::router::AgentRouter;
@@ -35,8 +34,8 @@ use rightkit_agent_orchestration::coding::{
 };
 
 use crate::api::{
-    load_workspace_config_with_env, lock_recover, now_iso, now_millis, push_session_artifact,
-    update_session_model, DaemonState, LiveSession,
+    lock_recover, now_iso, now_millis, push_session_artifact, update_session_model, DaemonState,
+    LiveSession,
 };
 use crate::provider_client::ProviderLlmClient;
 use rightkit_llm::agent_providers::client::capacity::measure_o200k_base as token_count;

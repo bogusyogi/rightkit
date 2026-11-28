@@ -1,11 +1,12 @@
-use rightkit_agent_host_traits::skill_host::{CommandAction, CommandResult};
+use rightkit_agent_skills::{CommandAction, CommandResult};
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::api::DaemonState;
 use crate::api_mcp::{
-    mcp_transport_label, read_mcp_config_file, validate_mcp_server_name, workspace_mcp_config_path,
-    workspace_project_config_trusted, workspace_stdio_trust_decision,
+    mcp_transport_label, read_mcp_config_file, read_mcp_config_file_lenient,
+    validate_mcp_server_name, workspace_mcp_config_path, workspace_project_config_trusted,
+    workspace_stdio_trust_decision,
 };
 
 #[derive(Clone)]
@@ -48,7 +49,7 @@ fn mcp_command_servers(
     workspace_args: &[String],
 ) -> Result<Vec<McpCommandServer>, String> {
     let mut servers = Vec::new();
-    let user = read_mcp_config_file(&state.mcp_user_config_path)
+    let (user, _) = read_mcp_config_file_lenient(&state.mcp_user_config_path)
         .map_err(|e| format!("Failed to read user MCP config: {e}"))?;
     let user_permissions = user.mcp_channel_permissions;
     let user_trust = user.mcp_trust;
@@ -70,7 +71,7 @@ fn mcp_command_servers(
 
     if let Some(path) = command_mcp_workspace_path(workspace_args) {
         let workspace_root = workspace_args.join(" ").trim().to_string();
-        let workspace = read_mcp_config_file(&path)
+        let (workspace, _) = read_mcp_config_file_lenient(&path)
             .map_err(|e| format!("Failed to read workspace MCP config: {e}"))?;
         let workspace_permissions = workspace.mcp_channel_permissions;
         let workspace_trust = workspace.mcp_trust;
@@ -247,6 +248,8 @@ pub(crate) async fn command_mcp(state: &DaemonState, args: &[String]) -> Command
         Some("tools") => command_mcp_tools(state, &args[1..]).await,
         Some("resources") => command_mcp_resources(state, &args[1..]).await,
         Some("read") => command_mcp_read(state, &args[1..]).await,
+        Some("prompts") => command_mcp_prompts(state, &args[1..]).await,
+        Some("prompt") => command_mcp_prompt(state, &args[1..]).await,
         Some("test") | Some("probe") => command_mcp_test(state, &args[1..]).await,
         Some("login") => command_mcp_login(state, &args[1..]).await,
         Some("logout") => command_mcp_logout(state, &args[1..]).await,
@@ -282,12 +285,18 @@ fn command_mcp_summary(state: &DaemonState, args: &[String]) -> CommandResult {
     }
     servers.sort();
     let count = servers.len();
-    let (read_only_tools, mutating_tools) = mcp_server_mode_tool_counts();
     let mut output = format!(
-        "**MCP:** {count} server{}\nUser config: {}\nServer mode: `{app} mcp-server` exposes {read_only_tools} read-only tools by default; `{app} mcp-server --allow-mutate` exposes {mutating_tools} mutating tools when the configured trust tier permits them. Served MCP invocations are audit-recorded.",
+        "**MCP:** {count} server{}\nUser config: {}",
         if count == 1 { "" } else { "s" },
-        state.mcp_user_config_path.display(), app = crate::host_identity::app(),
+        state.mcp_user_config_path.display(),
     );
+    if crate::host_options::mcp_public_server() {
+        let (read_only_tools, mutating_tools) = mcp_server_mode_tool_counts();
+        output.push_str(&format!(
+            "\nServer mode: `{app} mcp-server` exposes {read_only_tools} read-only tools by default; `{app} mcp-server --allow-mutate` exposes {mutating_tools} mutating tools when the configured trust tier permits them. Served MCP invocations are audit-recorded.",
+            app = crate::host_identity::app(),
+        ));
+    }
     if servers.is_empty() {
         output.push_str("\nNo configured MCP servers.");
     } else {
@@ -402,6 +411,109 @@ async fn command_mcp_resources(state: &DaemonState, args: &[String]) -> CommandR
         );
     }
     command_ok(output)
+}
+
+async fn command_mcp_prompts(state: &DaemonState, args: &[String]) -> CommandResult {
+    let Some(server) = args.first() else {
+        return command_err("Usage: /mcp prompts <server> [workspace-root]");
+    };
+    let servers = match mcp_command_servers(state, &args[1..]) {
+        Ok(servers) => servers,
+        Err(e) => return command_err(e),
+    };
+    if !servers.iter().any(|candidate| candidate.name == *server) {
+        return command_err(format!("MCP server not found: {server}"));
+    }
+    let manager = mcp_command_manager(&servers);
+    if let Some(denial) = command_channel_denial(&manager, server) {
+        return command_err(denial);
+    }
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(12),
+        manager.list_prompts(server),
+    )
+    .await;
+    let mut prompts = match result {
+        Ok(Ok(prompts)) => prompts,
+        Ok(Err(e)) => return command_err(format!("MCP prompts failed for {server}: {e}")),
+        Err(_) => return command_err(format!("MCP prompts timed out for {server}.")),
+    };
+    prompts.sort_by(|a, b| a.name.cmp(&b.name));
+    let mut output = format!(
+        "**MCP prompts:** {server} - {} prompt{}",
+        prompts.len(),
+        if prompts.len() == 1 { "" } else { "s" }
+    );
+    if prompts.is_empty() {
+        output.push_str("\nNo prompts offered.");
+    }
+    for prompt in &prompts {
+        output.push_str(&format!("\n- {}", prompt.name));
+        if !prompt.description.trim().is_empty() {
+            output.push_str(&format!(" - {}", prompt.description.trim()));
+        }
+        if !prompt.arguments.is_empty() {
+            let names = prompt
+                .arguments
+                .iter()
+                .map(|(name, required)| {
+                    if *required {
+                        format!("{name}*")
+                    } else {
+                        name.clone()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            output.push_str(&format!(" [arguments: {names}; * required]"));
+        }
+    }
+    command_ok(output)
+}
+
+/// `/mcp prompt <server> <name> [key=value ...]`: shows the rendered prompt and offers it as the turn to a client that submits.
+async fn command_mcp_prompt(state: &DaemonState, args: &[String]) -> CommandResult {
+    let (Some(server), Some(name)) = (args.first(), args.get(1)) else {
+        return command_err("Usage: /mcp prompt <server> <name> [key=value ...]");
+    };
+    let mut arguments = serde_json::Map::new();
+    for pair in &args[2..] {
+        let Some((key, value)) = pair.split_once('=') else {
+            return command_err(format!("Prompt arguments are key=value; got '{pair}'."));
+        };
+        arguments.insert(
+            key.to_string(),
+            serde_json::Value::String(value.to_string()),
+        );
+    }
+    let servers = match mcp_command_servers(state, &[]) {
+        Ok(servers) => servers,
+        Err(e) => return command_err(e),
+    };
+    if !servers.iter().any(|candidate| candidate.name == *server) {
+        return command_err(format!("MCP server not found: {server}"));
+    }
+    let manager = mcp_command_manager(&servers);
+    if let Some(denial) = command_channel_denial(&manager, server) {
+        return command_err(denial);
+    }
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(12),
+        manager.get_prompt(server, name, serde_json::Value::Object(arguments)),
+    )
+    .await;
+    match result {
+        Ok(Ok(text)) if text.trim().is_empty() => {
+            command_err(format!("MCP prompt {name} of {server} has no text."))
+        }
+        Ok(Ok(text)) => CommandResult {
+            success: true,
+            output: format!("**MCP prompt:** {server} {name}\n{text}"),
+            action: CommandAction::SubmitMessage(text),
+        },
+        Ok(Err(e)) => command_err(format!("MCP prompt failed for {server}: {e}")),
+        Err(_) => command_err(format!("MCP prompt timed out for {server}.")),
+    }
 }
 
 async fn command_mcp_read(state: &DaemonState, args: &[String]) -> CommandResult {
@@ -590,10 +702,11 @@ pub(crate) fn render_mcp_auth_status(
         McpAuthCredentialStatus::PresentWithoutRefreshToken => {
             "Keyring credential present without refresh token"
         }
-        McpAuthCredentialStatus::Missing => "No credential file; no keyring credential",
+        McpAuthCredentialStatus::Missing => "No keychain credential",
     };
     command_ok(format!(
-        "**MCP auth: {server}**\nStatus: {status}\nCredential store: keyring mcp-auth\nSecrets are never displayed by this command."
+        "**MCP auth: {server}**\nStatus: {status}\nCredential store: OS keychain ({namespace} / mcp:<server>:oauth)\nSecrets are never displayed by this command.",
+        namespace = crate::host_identity::host().credential_namespace()
     ))
 }
 

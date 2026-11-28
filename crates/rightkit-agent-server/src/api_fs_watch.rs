@@ -6,7 +6,7 @@
 //! and NOTICE entry are recorded in
 //! `docs/canon/daemon-master-canon-atoms.md`.
 //!
-//! Seam adaptation (required — RightKit has no persistent JSON-RPC
+//! Seam adaptation (required — the host has no persistent JSON-RPC
 //! connection/session concept like codex's `app-server`):
 //!   - Donor keys watches by `(ConnectionId, watch_id)` over a long-lived
 //!     RPC connection and pushes `FsChanged` notifications back down that

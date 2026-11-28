@@ -1,4 +1,3 @@
-use super::InferenceSelection;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
@@ -26,12 +25,4 @@ pub fn selection_fingerprint(input: &SelectionFingerprintInput<'_>) -> String {
     hash.update(&crate::host_identity::domain("inference-selection.v1"));
     hash.update(AsRef::<[u8]>::as_ref(&json));
     hash.finalize()
-}
-pub fn selection_matches(
-    stored: &InferenceSelection,
-    current: &InferenceSelection,
-    stored_fingerprint: &str,
-    current_fingerprint: &str,
-) -> bool {
-    stored == current && stored_fingerprint == current_fingerprint
 }

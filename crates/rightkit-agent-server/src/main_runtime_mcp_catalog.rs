@@ -1,4 +1,7 @@
 // Curated MCP server catalog for `{app} mcp catalog` / `{app} mcp install`.
+// Every package-run entry is pinned to
+// an exact version (contract R20): `{app} mcp install <name>` is the explicit user action
+// that names the package and version and records it in mcp.json; nothing runs `npx` before it.
 // Static, in-code list (no network fetch, no signing) — mirrors the plugin
 // marketplace's Install/InstallMarketplace pattern but scoped down to what the
 // #224 gap actually needs: a curated list + one-command resolve-and-add.
@@ -19,14 +22,14 @@ const MCP_CATALOG: &[McpCatalogEntry] = &[
         name: "context7",
         description: "Up-to-date library/framework documentation lookup.",
         command: "npx",
-        args: &["-y", "@upstash/context7-mcp"],
+        args: &["-y", "@upstash/context7-mcp@4.4.4"],
         env: &[],
     },
     McpCatalogEntry {
         name: "filesystem",
         description: "Read/write access to a local directory tree.",
         command: "npx",
-        args: &["-y", "@modelcontextprotocol/server-filesystem"],
+        args: &["-y", "@modelcontextprotocol/server-filesystem@2.1.0"],
         env: &[],
     },
     McpCatalogEntry {
@@ -41,14 +44,14 @@ const MCP_CATALOG: &[McpCatalogEntry] = &[
         name: "memory",
         description: "Persistent knowledge-graph memory across sessions.",
         command: "npx",
-        args: &["-y", "@modelcontextprotocol/server-memory"],
+        args: &["-y", "@modelcontextprotocol/server-memory@2.0.1"],
         env: &[],
     },
     McpCatalogEntry {
         name: "sequential-thinking",
         description: "Structured step-by-step reasoning tool.",
         command: "npx",
-        args: &["-y", "@modelcontextprotocol/server-sequential-thinking"],
+        args: &["-y", "@modelcontextprotocol/server-sequential-thinking@2.0.0"],
         env: &[],
     },
     McpCatalogEntry {

@@ -1,9 +1,10 @@
 /// Build the planner's system prompt, advertising the available agent roles and
-/// reusable team templates so the model can only assign work to agents that
+/// reusable team presets so the model can only assign work to agents that
 /// actually exist while still respecting user-defined collaboration patterns.
 pub fn planner_system_prompt(
     registry: &AgentRegistry,
     teams: &[rightkit_agent_coding_tools::TeamDefinition],
+    budget_note: Option<&str>,
 ) -> String {
     let mut roles = String::new();
     for a in registry.all() {
@@ -31,10 +32,10 @@ pub fn planner_system_prompt(
         ));
     }
     let team_block = if team_templates.is_empty() {
-        "No user-defined team templates are currently registered.\n".to_string()
+        "No user-defined team presets are currently registered.\n".to_string()
     } else {
         format!(
-            "Team templates (team templates are not roles; they are reusable planner hints):\n\
+            "Team presets (team presets are not roles; they are reusable planner hints):\n\
              {team_templates}\
              If the goal names a team or clearly matches a team description, prefer tasks assigned \
              to that team's member roles and respect any listed presets as execution constraints. \
@@ -42,6 +43,9 @@ pub fn planner_system_prompt(
              from the roster above.\n"
         )
     };
+    let budget_block = budget_note
+        .map(|note| format!("{note}\n\n"))
+        .unwrap_or_default();
     format!(
         "You are the Conductor's planner. Decompose the user's goal into the smallest set of \
          concrete tasks that genuinely achieves it. Assign each task to exactly one agent role \
@@ -54,6 +58,7 @@ pub fn planner_system_prompt(
          all implementation tasks.\n\n\
          Available agent roles:\n{roles}\n\
          {team_block}\n\
+         {budget_block}\
          Respond with ONLY a JSON object, no prose, in exactly this shape:\n\
          {{\"tasks\":[{{\"id\":\"t1\",\"title\":\"...\",\"role\":\"coder\",\"deps\":[],\"done_when\":\"...\"}}]}}"
     )
@@ -111,18 +116,34 @@ pub fn parse_plan(raw: &str, registry: &AgentRegistry) -> Result<Vec<TaskNode>, 
             .unwrap_or("")
             .to_string();
 
-        // Unknown roles are kept; the router will fail them cleanly rather than
-        // silently dropping work. A warning is the best we can do here.
+        // A plan that names a role outside the roster fails here, before any
+        // worker runs (orchestration rule 39), instead of leaving a task that
+        // can never be routed.
         if registry.get(&role).is_none() {
-            eprintln!("[planner] task {id} assigned unknown role '{role}'");
+            return Err(format!("planner assigned unknown role {role}"));
         }
+
+        // The planner's `done_when` text is the task's completion predicate
+        // (orchestration rule 8, D2). Known forms (`tests pass`, `compiles`,
+        // `contains:<text>`, `has_citations`, ...) are evaluated against the
+        // worker's output; any other text falls back to the worker's success,
+        // which is the evaluator's documented free-text behaviour. A task that
+        // states no `done_when` has no predicate and stays unverified.
+        let done_when_predicates = if done_when.trim().is_empty() {
+            vec![]
+        } else {
+            vec![rightkit_agent_engine_protocol::DoneWhenPredicate {
+                predicate: done_when.trim().to_string(),
+                weight: 1.0,
+            }]
+        };
 
         tasks.push(TaskNode {
             id,
             title,
             deps,
             done_when,
-            done_when_predicates: vec![],
+            done_when_predicates,
             state: TaskState::Open,
             category: String::new(),
             estimated_duration: String::new(),
@@ -157,6 +178,7 @@ pub async fn plan_goal(
     memory: Option<&str>,
     registry: &AgentRegistry,
     teams: &[rightkit_agent_coding_tools::TeamDefinition],
+    budget_note: Option<&str>,
 ) -> Result<Vec<TaskNode>, String> {
     let user = match memory {
         Some(m) => format!("Goal: {goal}\n\nRelevant experience from past runs:\n{m}"),
@@ -166,7 +188,7 @@ pub async fn plan_goal(
         TranscriptMessage::System {
             id: format!("sys-{}", now_millis()),
             created_at: now_iso(),
-            content: planner_system_prompt(registry, teams),
+            content: planner_system_prompt(registry, teams, budget_note),
             pinned: true,
         },
         TranscriptMessage::User {

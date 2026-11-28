@@ -13,7 +13,7 @@
 //!   shared walker; the returned outcomes drive UI banners and the
 //!   resume-after-restart decision.
 //! - [`apply_deferred_binding_updates`] drains the
-//!   [`DeferredBindingUpdates`] queue at a turn boundary (never
+//!   `DeferredBindingUpdates` queue at a turn boundary (never
 //!   mid-turn) and applies each pending update against storage,
 //!   preserving the `idx_one_active_binding_per_agent` UNIQUE
 //!   invariant.
@@ -25,8 +25,8 @@ use std::sync::{Arc, Mutex};
 use rightkit_agent_engine_storage::DriverBindingRow;
 use rightkit_agents::driver_host::cli_runtime::recovery::{
     walk_active_bindings_for_resume, BindingResumeGuard, BindingSnapshot, DeferredApplyReport,
-    DeferredBindingUpdate, DeferredBindingUpdates, DeferredUpdateKind, DriverBindingRecoveryRow,
-    LiveContextEpoch, LiveProcessGeneration, RecoveryError, ResumeDecision, ResumeWalkOutcome,
+    DeferredBindingUpdate, DeferredUpdateKind, DriverBindingRecoveryRow, LiveContextEpoch,
+    RecoveryError, ResumeDecision, ResumeWalkOutcome,
 };
 use rightkit_agents::driver_host::cli_runtime::{ContextEpoch, ContextEpochReason};
 
@@ -313,58 +313,4 @@ pub async fn apply_deferred_binding_updates(
         }
     }
     report
-}
-
-/// Helper used by the supervisor when a vendor process restarts.
-/// Advances the in-memory generation and queues a deferred update so
-/// the binding row catches up at the next turn boundary.
-pub fn record_process_restart(
-    queue: &DeferredBindingUpdates,
-    table: &LiveGenerationTable,
-    binding_id: &str,
-    now: &str,
-) {
-    let next = table.advance(binding_id);
-    queue.enqueue(DeferredBindingUpdate::increment_generation(
-        binding_id, next, now,
-    ));
-}
-
-/// Helper used when the RightKit context rebuilds (workspace trust
-/// changed, user re-authenticated, etc.). Advances the live epoch and
-/// queues a deferred update for every binding the daemon knows
-/// about so each binding row gets re-stamped at the turn boundary.
-pub fn record_context_rebuild(
-    queue: &DeferredBindingUpdates,
-    epoch: &LiveContextEpochState,
-    binding_ids: &[String],
-    new_epoch: ContextEpoch,
-    now: &str,
-) {
-    let advanced = epoch.current().advance(new_epoch.reason);
-    epoch.replace(advanced.clone());
-    for binding_id in binding_ids {
-        queue.enqueue(DeferredBindingUpdate::bump_epoch(
-            binding_id,
-            ContextEpoch {
-                value: advanced.value,
-                reason: advanced.reason,
-            },
-            now,
-        ));
-    }
-}
-
-/// Convenience for constructing a [`LiveProcessGeneration`] off the
-/// shared table. Used by the supervisor when spawning a brand-new
-/// process so the guard's view of the live generation is consistent.
-pub fn fresh_live_generation(
-    table: &LiveGenerationTable,
-    binding_id: &str,
-) -> LiveProcessGeneration {
-    let mut live = LiveProcessGeneration::new(binding_id);
-    if let Some(existing) = table.get(binding_id) {
-        live.generation = existing;
-    }
-    live
 }

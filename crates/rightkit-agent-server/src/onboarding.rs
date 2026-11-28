@@ -15,7 +15,7 @@
 //! exactly intact and a re-run starts clean.
 //!
 //! ```text
-//! Welcome to RightKit — no working provider configuration found.
+//! Welcome — no working provider configuration found.
 //!
 //! 1. Pick a route:
 //!      1) OpenRouter — moonshotai/kimi-k2.6 (Direct)
@@ -76,7 +76,6 @@ pub enum RouteKind {
 
 #[derive(Debug, Clone)]
 pub struct RouteChoice {
-    pub kind: RouteKind,
     /// Provider catalog id, e.g. `"openrouter"`.
     pub provider: String,
     /// Default model id offered in the picker.
@@ -87,6 +86,7 @@ pub struct RouteChoice {
     pub display_name: String,
     /// Use the product's native subscription broker instead of an API key.
     pub native_subscription: bool,
+    pub kind: RouteKind,
 }
 
 /// Build the shared picker from the product's live provider catalog
@@ -100,23 +100,33 @@ pub fn shared_route_picker() -> Vec<RouteChoice> {
     for id in ["openrouter", "minimax", "openai"] {
         if let Some(p) = rightkit_llm::agent_providers::find_provider(id) {
             routes.push(RouteChoice {
-                kind: RouteKind::Direct,
                 provider: p.id.to_string(),
                 // No built-in model: the model is chosen in the TUI picker.
                 model: String::new(),
                 base_url: p.base_url.to_string(),
                 display_name: p.display_name.to_string(),
                 native_subscription: id == "openai",
+                kind: RouteKind::Direct,
             });
         }
     }
+    // Claude through an Anthropic API key. The catalog lists only OpenAI-compatible hosts, but a
+    // route on api.anthropic.com is served natively (provider_client), so the row is built here.
     routes.push(RouteChoice {
+        provider: "anthropic".into(),
+        model: String::new(),
+        base_url: "https://api.anthropic.com/v1".into(),
+        display_name: "Anthropic (Claude API key)".into(),
+        native_subscription: false,
         kind: RouteKind::Direct,
+    });
+    routes.push(RouteChoice {
         provider: "custom".into(),
         model: String::new(),
         base_url: String::new(),
         display_name: "Custom (OpenAI-compatible)".into(),
         native_subscription: false,
+        kind: RouteKind::Direct,
     });
     routes
 }
@@ -150,34 +160,49 @@ pub fn detect_from_config<B: rightkit_llm::agent_providers::KeyStoreBackend>(
 ) -> OnboardingState {
     let has_model = !config.model.default_model.trim().is_empty();
     let has_route = !config.provider_routes.is_empty();
-    // A route that names an environment variable holding its key is a
-    // configured credential (headless/CI and shell-profile workflows use it
-    // instead of the keychain); presence only, the value is never read.
-    let env_keyed_route = config.provider_routes.values().any(|route| {
-        route
-            .api_key_env
-            .as_deref()
-            .and_then(|name| std::env::var(name).ok())
-            .is_some_and(|value| !value.trim().is_empty())
-    });
     // Explicit credential-free routes satisfy onboarding for their selected model.
     let credential_free_route = config
         .provider_routes
         .values()
         .any(|route| !route.api_key_required && route.model == config.model.default_model);
+    // A route that names an environment variable holding its key is a configured credential
+    // (headless/CI and shell-profile workflows use it instead of the keychain) when the host
+    // allows provider keys from the environment. The name is looked up through the host's
+    // credential source, the same authority that reads the key at run time, so a name that
+    // authority refuses never counts here either.
+    let env_keyed_route = crate::host_options::provider_keys_from_environment()
+        && config.provider_routes.values().any(|route| {
+            route
+                .api_key_env
+                .as_deref()
+                .map(str::trim)
+                .and_then(|name| {
+                    rightkit_llm::agent_providers::host_credentials::host()
+                        .route_key(name)
+                        .ok()
+                        .flatten()
+                })
+                .is_some_and(|found| !found.value.trim().is_empty())
+        });
     let has_credential = credential_free_route
         || env_keyed_route
-        || ["openrouter", "opencode-go", "commandcode", "minimax"]
-            .iter()
-            .any(|id| {
-                let key = rightkit_llm::agent_providers::KeyStore::get(
-                    rightkit_llm::agent_providers::KeyStore::default_service(),
-                    id,
-                )
-                .ok();
-                let _ = backend; // reserved for write/read tests; presence uses the real store
-                key.map(|v| !v.trim().is_empty()).unwrap_or(false)
-            });
+        || [
+            "openrouter",
+            "opencode-go",
+            "commandcode",
+            "minimax",
+            "anthropic",
+        ]
+        .iter()
+        .any(|id| {
+            let key = rightkit_llm::agent_providers::KeyStore::get(
+                rightkit_llm::agent_providers::KeyStore::default_service(),
+                id,
+            )
+            .ok();
+            let _ = backend; // reserved for write/read tests; presence uses the real store
+            key.map(|v| !v.trim().is_empty()).unwrap_or(false)
+        });
     OnboardingState {
         has_model,
         has_route,
@@ -273,8 +298,12 @@ impl ReadinessRunner for RealReadinessRunner {
             disable_thinking: false,
             fallback_models: Vec::new(),
             approved_private: false,
+            api_key_required: false,
+            compat: Default::default(),
         }));
-        let client = ProviderLlmClient::new_dynamic(route, Arc::new(ToolRegistry::build_default()));
+        let mut registry = ToolRegistry::build_default();
+        crate::host_options::apply_tool_registry_controls(&mut registry);
+        let client = ProviderLlmClient::new_dynamic(route, Arc::new(registry));
 
         let msg = TranscriptMessage::User {
             id: "onboard-probe".into(),
@@ -486,7 +515,8 @@ struct TerminalEchoGuard {
 #[cfg(windows)]
 #[link(name = "kernel32")]
 unsafe extern "system" {
-    fn GetStdHandle(standard_handle: u32) -> *mut std::ffi::c_void;
+    // Same signature as the declarations in cli_log.rs and tui_host.rs.
+    fn GetStdHandle(which: u32) -> isize;
     fn GetConsoleMode(handle: *mut std::ffi::c_void, mode: *mut u32) -> i32;
     fn SetConsoleMode(handle: *mut std::ffi::c_void, mode: u32) -> i32;
 }
@@ -497,7 +527,7 @@ impl TerminalEchoGuard {
         const STD_INPUT_HANDLE: u32 = (-10i32) as u32;
         const INVALID_HANDLE_VALUE: *mut std::ffi::c_void = -1isize as *mut _;
         const ENABLE_ECHO_INPUT: u32 = 0x0004;
-        let handle = unsafe { GetStdHandle(STD_INPUT_HANDLE) };
+        let handle = unsafe { GetStdHandle(STD_INPUT_HANDLE) } as *mut std::ffi::c_void;
         if handle.is_null() || handle == INVALID_HANDLE_VALUE {
             return Err(io::Error::last_os_error());
         }
@@ -727,7 +757,24 @@ async fn run_onboarding_with_native_auth<
         }
         ReadinessResult::Ok { reply } => {
             // Persist Direct credentials via the product keychain contract.
-            if !selection.choice.native_subscription {
+            // The prior key is held only to roll back a failed config save; it is never logged or printed.
+            let stores_key = !selection.choice.native_subscription;
+            // `Some(Some(key))` = a key existed, `Some(None)` = none existed, `None` = unreadable or unused.
+            let previous = if stores_key {
+                match backend.get(
+                    rightkit_llm::agent_providers::key_migration::service(),
+                    &provider,
+                ) {
+                    Ok(prev) => Some(Some(prev)),
+                    Err(rightkit_llm::agent_providers::KeyStoreError::NotFound { .. }) => {
+                        Some(None)
+                    }
+                    Err(rightkit_llm::agent_providers::KeyStoreError::Keyring(_)) => None,
+                }
+            } else {
+                None
+            };
+            if stores_key {
                 if let Err(e) = store_credential(backend, &provider, &selection.credential) {
                     io.write(&format!(
                         "Credential was not stored: {e}\nNothing was changed. Re-run /onboard after fixing this.\n"
@@ -739,11 +786,28 @@ async fn run_onboarding_with_native_auth<
             let base_url = selection.choice.base_url.clone();
             let display_name = selection.choice.display_name.clone();
             if let Err(e) = persister.persist(&provider, &model, &base_url, &display_name) {
-                io.write(&format!("Failed to save configuration: {e}\n"));
+                let note = if stores_key {
+                    let restored = match previous {
+                        Some(Some(prev)) => {
+                            rightkit_llm::agent_providers::write_key(backend, &provider, &prev)
+                        }
+                        Some(None) => remove_credential(backend, &provider),
+                        None => Err("previous key state unknown".to_string()),
+                    };
+                    if restored.is_ok() {
+                        ". Nothing was changed."
+                    } else {
+                        ". The new key was saved but the configuration was not."
+                    }
+                } else {
+                    ""
+                };
+                io.write(&format!("Failed to save configuration: {e}{note}\n"));
                 return OnboardOutcome::Failed { detail: e };
             }
             io.write(&format!(
-                "Ready — {provider}/{model} replied: {reply}\n\nOnboarding complete. Try: {app} run 'hello'\n", app = crate::host_identity::app()
+                "Ready — {provider}/{model} replied: {reply}\n\nOnboarding complete. Try: {app} run 'hello'\n",
+                app = crate::host_identity::app()
             ));
             OnboardOutcome::Completed { provider, model }
         }

@@ -39,6 +39,9 @@ pub(super) fn start(metrics: Arc<RenderMetrics>) -> MetricsExport {
                     "coalesced": snapshot.coalesced_requests,
                     "immediateRequests": snapshot.immediate_requests,
                     "slowFrames": snapshot.slow_frames,
+                    "maintenanceTicks": snapshot.maintenance_ticks,
+                    "timelineEntries": snapshot.timeline_entries,
+                    "timelineEvicted": snapshot.timeline_evicted,
                     "inputLatencySamples": snapshot.input_latency_samples,
                     "inputLatencyMs": if snapshot.input_latency_samples == 0 { 0.0 } else {
                         snapshot.input_latency_micros as f64 / snapshot.input_latency_samples as f64 / 1000.0

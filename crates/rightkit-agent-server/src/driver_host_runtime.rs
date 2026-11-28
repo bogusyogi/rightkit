@@ -1,6 +1,6 @@
 //! Daemon-side process supervision for external reasoning drivers.
 //!
-//! RightKit remains the capability and approval authority. This module only owns vendor process
+//! The host remains the capability and approval authority. This module only owns vendor process
 //! lifecycle and wire normalization; callers persist bindings/events and execute capabilities.
 
 use async_trait::async_trait;
@@ -9,35 +9,27 @@ use rightkit_agents::driver_host::cli_runtime::{
     VendorSessionHandle, VendorTurnHandle,
 };
 use rightkit_agents::driver_host::{
-    parse_claude_stream_events, parse_codex_jsonrpc_line, ClaudeAccountIdentity, CodexMessage,
-    DriverCursor, DriverKind, LaunchSpec, NormalizedEvent, NormalizedEventKind, RUN_SCOPED_POLICY,
+    parse_claude_stream_events, ClaudeAccountIdentity, DriverCursor, DriverKind, LaunchSpec,
+    NormalizedEvent, NormalizedEventKind,
 };
 use rightkit_sandbox::execution::ProcessLaunchAdapter;
+use rightkit_sidecar::{FrameError, Incoming, ReadOptions};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, watch, Mutex};
 
-pub(crate) async fn capture_login_output(
-    program: &Path,
-    argv: Vec<String>,
-    cwd: &Path,
-) -> Result<(i32, Vec<u8>, Vec<u8>), String> {
-    rightkit_agents::driver_host::cli_runtime::transports::process::StdioProcessIo::capture_with_native_adapter(
-        program, argv, cwd, vec![("HOME".into(), cwd.to_string_lossy().into_owned())]
-    ).await.map_err(|error| error.to_string())
-}
-
 const EVENT_CHANNEL_CAPACITY: usize = 128;
 const VERSION_TIMEOUT: Duration = Duration::from_secs(5);
 const DRIVER_READY_TIMEOUT: Duration = Duration::from_secs(30);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
-const CODEX_INITIALIZE_ID: u64 = 1;
+const FIRST_REQUEST_ID: u64 = 1;
+/// The longest single stdout line a vendor process may emit before it is cut off.
+const MAX_VENDOR_LINE_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DriverRuntimeError {
@@ -66,7 +58,7 @@ pub enum DiagnosticStream {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DriverRuntimeEvent {
-    Normalized(Box<NormalizedEvent>),
+    Normalized(NormalizedEvent),
     ServerRequest {
         id: Value,
         method: String,
@@ -93,6 +85,8 @@ pub struct DriverProcessInfo {
     pub driver: DriverKind,
     pub pid: Option<u32>,
     pub binary_version: String,
+    /// Which start of this binding id the process is; a stale process never matches it.
+    pub generation: u64,
 }
 
 pub struct StartedDriver {
@@ -104,6 +98,7 @@ pub struct StartedDriver {
 pub struct DriverHostRuntime {
     processes: Arc<Mutex<HashMap<String, Arc<ManagedDriver>>>>,
     next_request_id: Arc<AtomicU64>,
+    next_generation: Arc<AtomicU64>,
     process_launch_adapter: Arc<dyn ProcessLaunchAdapter>,
     process_launch_context: rightkit_sandbox::execution::ProcessLaunchContext,
 }
@@ -112,6 +107,7 @@ type StdinHandle = Arc<Mutex<Option<std::pin::Pin<Box<dyn AsyncWrite + Send>>>>>
 
 struct ManagedDriver {
     kind: DriverKind,
+    generation: u64,
     child: Arc<Mutex<Box<dyn rightkit_sandbox::execution::ManagedChild>>>,
     stdin: StdinHandle,
     ready: watch::Receiver<bool>,
@@ -129,7 +125,8 @@ impl DriverHostRuntime {
     pub fn new() -> Self {
         Self {
             processes: Arc::new(Mutex::new(HashMap::new())),
-            next_request_id: Arc::new(AtomicU64::new(CODEX_INITIALIZE_ID + 1)),
+            next_request_id: Arc::new(AtomicU64::new(FIRST_REQUEST_ID + 1)),
+            next_generation: Arc::new(AtomicU64::new(1)),
             process_launch_adapter: default_process_launch_adapter(),
             process_launch_context: rightkit_sandbox::execution::ProcessLaunchContext {
                 workspace_root: String::new(),
@@ -150,19 +147,6 @@ impl DriverHostRuntime {
         self
     }
 
-    /// Start a driver from an already validated launch spec. Public so tests and future adapters
-    /// can reuse the same supervisor without adding vendor conditionals to the daemon API.
-    pub async fn start_with_spec(
-        &self,
-        binding_id: impl Into<String>,
-        kind: DriverKind,
-        spec: LaunchSpec,
-        cursor: DriverCursor,
-    ) -> Result<StartedDriver, DriverRuntimeError> {
-        self.start_with_spec_for_account(binding_id, kind, spec, cursor, None)
-            .await
-    }
-
     /// `start_with_spec` plus the non-secret identity of the Claude account the spec was built
     /// for, stamped onto that driver's rate-limit and cost events.
     pub async fn start_with_spec_for_account(
@@ -174,6 +158,9 @@ impl DriverHostRuntime {
         account: Option<ClaudeAccountIdentity>,
     ) -> Result<StartedDriver, DriverRuntimeError> {
         let binding_id = binding_id.into();
+        if kind == DriverKind::Codex {
+            return Err(DriverRuntimeError::Unsupported(kind));
+        }
         if self.processes.lock().await.contains_key(&binding_id) {
             return Err(DriverRuntimeError::AlreadyRunning(binding_id));
         }
@@ -204,7 +191,9 @@ impl DriverHostRuntime {
                 workspace_root: spec.cwd.to_string_lossy().into_owned(),
                 sandbox_profile: Some("driver".into()),
                 sandbox_required: true,
-                network_required: false,
+                // A vendor CLI talks to its own provider and its MCP helper to the daemon:
+                // filesystem confinement stays, egress is allowed (sandbox config docs).
+                network_required: true,
             },
             env: launch_env.into_iter().collect(),
         };
@@ -237,8 +226,10 @@ impl DriverHostRuntime {
         let stdin = Arc::new(Mutex::new(Some(stdin)));
         let (event_tx, event_rx) = mpsc::channel(EVENT_CHANNEL_CAPACITY);
         let (ready_tx, ready_rx) = watch::channel(false);
+        let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
         let managed = Arc::new(ManagedDriver {
             kind,
+            generation,
             child: child.clone(),
             stdin: stdin.clone(),
             ready: ready_rx,
@@ -256,48 +247,26 @@ impl DriverHostRuntime {
             processes.insert(binding_id.clone(), managed);
         }
 
-        spawn_stdout_reader(StdoutReader {
+        spawn_stdout_reader(
             kind,
             stdout,
-            initial_offset: cursor.output_offset,
-            events: event_tx.clone(),
-            stdin: stdin.clone(),
-            child: child.clone(),
-            ready: ready_tx,
+            cursor.output_offset,
+            StdoutReaderHandles {
+                events: event_tx.clone(),
+                stdin: stdin.clone(),
+                child: child.clone(),
+                ready: ready_tx,
+            },
             account,
-        });
+        );
         spawn_stderr_reader(stderr, event_tx.clone(), secret_values);
         spawn_exit_monitor(
             binding_id.clone(),
             child.clone(),
             event_tx,
             self.processes.clone(),
+            generation,
         );
-
-        if kind == DriverKind::Codex {
-            if let Err(error) = write_json(
-                &stdin,
-                &json!({
-                    "id": CODEX_INITIALIZE_ID,
-                    "method": "initialize",
-                    "params": {
-                        "clientInfo": {
-                            "name": crate::host_identity::app(),
-                            "title": "RightKit",
-                            "version": env!("CARGO_PKG_VERSION")
-                        },
-                        "capabilities": { "experimentalApi": false }
-                    }
-                }),
-            )
-            .await
-            {
-                self.processes.lock().await.remove(&binding_id);
-                let mut child = child.lock().await;
-                let _ = child.cancel().await;
-                return Err(error);
-            }
-        }
 
         Ok(StartedDriver {
             info: DriverProcessInfo {
@@ -305,6 +274,7 @@ impl DriverHostRuntime {
                 driver: kind,
                 pid,
                 binary_version,
+                generation,
             },
             events: event_rx,
         })
@@ -317,19 +287,8 @@ impl DriverHostRuntime {
         text: &str,
     ) -> Result<u64, DriverRuntimeError> {
         let process = self.process(binding_id).await?;
-        if process.kind == DriverKind::Codex {
-            wait_ready(&process.ready).await?;
-        }
         let request_id = self.next_request_id.fetch_add(1, Ordering::Relaxed);
         let payload = match process.kind {
-            DriverKind::Codex => json!({
-                "id": request_id,
-                "method": "turn/start",
-                "params": {
-                    "threadId": vendor_session_id,
-                    "input": [{ "type": "text", "text": text }]
-                }
-            }),
             // Antigravity runs per-turn outside this supervisor (agy_harness
             // launch); the Claude-shaped frame is kept only so the shared
             // match stays exhaustive.
@@ -346,42 +305,15 @@ impl DriverHostRuntime {
                 }
                 payload
             }
+            // The host does not run Codex as a driver process (it is not a built-in provider),
+            // and `start_with_spec_for_account` refuses it, so no process of this kind exists.
+            DriverKind::Codex => return Err(DriverRuntimeError::Unsupported(DriverKind::Codex)),
         };
         write_json(&process.stdin, &payload).await?;
         Ok(request_id)
     }
 
-    /// Start a Codex thread whose native execution surface is read-only. Mutating effects and
-    /// approval decisions remain exclusively available through RightKit's session gateway.
-    pub async fn start_codex_thread(
-        &self,
-        binding_id: &str,
-        cwd: impl AsRef<Path>,
-    ) -> Result<u64, DriverRuntimeError> {
-        let process = self.process(binding_id).await?;
-        wait_ready(&process.ready).await?;
-        if process.kind != DriverKind::Codex {
-            return Err(DriverRuntimeError::Unsupported(process.kind));
-        }
-        let request_id = self.next_request_id.fetch_add(1, Ordering::Relaxed);
-        write_json(
-            &process.stdin,
-            &json!({
-                "id": request_id,
-                "method": "thread/start",
-                "params": {
-                    "cwd": cwd.as_ref(),
-                    "sandbox": "read-only",
-                    "approvalPolicy": "never",
-                    "developerInstructions": RUN_SCOPED_POLICY
-                }
-            }),
-        )
-        .await?;
-        Ok(request_id)
-    }
-
-    /// Answer a Codex JSON-RPC server request after RightKit has made the approval decision.
+    /// Answer a vendor permission request after the host has made the approval decision.
     pub async fn respond_server_request(
         &self,
         binding_id: &str,
@@ -404,9 +336,10 @@ impl DriverHostRuntime {
                 rightkit_agents::driver_host::ClaudePermissionDecision::Allow { .. }
             ) && !result.get("updatedInput").is_some_and(Value::is_object)
             {
-                decision = rightkit_agents::driver_host::ClaudePermissionDecision::deny(
-                    "Approval answer carried no updatedInput; denied by RightKit",
-                );
+                decision = rightkit_agents::driver_host::ClaudePermissionDecision::deny(format!(
+                    "Approval answer carried no updatedInput; denied by {}",
+                    crate::host_identity::app()
+                ));
             }
             let request_id = id.as_str().unwrap_or_default();
             if request_id.is_empty() {
@@ -422,64 +355,42 @@ impl DriverHostRuntime {
             )
             .await;
         }
-        wait_ready(&process.ready).await?;
-        if process.kind != DriverKind::Codex {
-            return Err(DriverRuntimeError::Unsupported(process.kind));
-        }
-        write_json(&process.stdin, &json!({ "id": id, "result": result })).await
+        Err(DriverRuntimeError::Unsupported(process.kind))
     }
 
     pub async fn resume(
         &self,
         binding_id: &str,
-        vendor_session_id: &str,
+        _vendor_session_id: &str,
     ) -> Result<u64, DriverRuntimeError> {
         let process = self.process(binding_id).await?;
         wait_ready(&process.ready).await?;
-        if process.kind != DriverKind::Codex {
-            return Err(DriverRuntimeError::Unsupported(process.kind));
-        }
         let request_id = self.next_request_id.fetch_add(1, Ordering::Relaxed);
-        write_json(
-            &process.stdin,
-            &json!({
-                "id": request_id,
-                "method": "thread/resume",
-                "params": {
-                    "threadId": vendor_session_id,
-                    "developerInstructions": RUN_SCOPED_POLICY
-                }
-            }),
-        )
-        .await?;
-        Ok(request_id)
+        match process.kind {
+            // Claude's stream-json process is bound to its session from launch (`--resume`
+            // on start); a live process is already attached, so resume is an acknowledgement.
+            // The route checks the requested session against the binding first.
+            DriverKind::Claude => Ok(request_id),
+            kind => Err(DriverRuntimeError::Unsupported(kind)),
+        }
     }
 
     pub async fn interrupt(
         &self,
         binding_id: &str,
-        vendor_session_id: &str,
-        vendor_turn_id: Option<&str>,
+        _vendor_session_id: &str,
+        _vendor_turn_id: Option<&str>,
     ) -> Result<u64, DriverRuntimeError> {
         let process = self.process(binding_id).await?;
         wait_ready(&process.ready).await?;
         let request_id = self.next_request_id.fetch_add(1, Ordering::Relaxed);
         let payload = match process.kind {
-            DriverKind::Codex => json!({
-                "id": request_id,
-                "method": "turn/interrupt",
-                "params": {
-                    "threadId": vendor_session_id,
-                    "turnId": vendor_turn_id.ok_or_else(|| {
-                        DriverRuntimeError::Write("Codex interrupt requires turn id".into())
-                    })?
-                }
-            }),
             DriverKind::Claude | DriverKind::Antigravity => json!({
                 "type": "control_request",
                 "request_id": format!("interrupt-{request_id}"),
                 "request": { "subtype": "interrupt" }
             }),
+            DriverKind::Codex => return Err(DriverRuntimeError::Unsupported(DriverKind::Codex)),
         };
         write_json(&process.stdin, &payload).await?;
         Ok(request_id)
@@ -517,6 +428,15 @@ impl DriverHostRuntime {
 
     pub async fn contains(&self, binding_id: &str) -> bool {
         self.processes.lock().await.contains_key(binding_id)
+    }
+
+    /// Is the process of this `generation` the one now registered under `binding_id`?
+    pub async fn is_current(&self, binding_id: &str, generation: u64) -> bool {
+        self.processes
+            .lock()
+            .await
+            .get(binding_id)
+            .is_some_and(|process| process.generation == generation)
     }
 
     async fn process(&self, binding_id: &str) -> Result<Arc<ManagedDriver>, DriverRuntimeError> {
@@ -557,7 +477,13 @@ pub struct DaemonCliDriverBridge {
     runtime: DriverHostRuntime,
     registry: Arc<rightkit_agents::driver_host::cli_runtime::CliAdapterRegistry>,
     generic: Arc<Mutex<HashMap<String, GenericCliSession>>>,
+    /// Where a copy of every driver event goes so the chat's own event stream gets it
+    /// (`ensure_runtime_session_events`). Unset until the first agent runtime is opened.
+    session_events: Arc<std::sync::OnceLock<SessionEventTap>>,
 }
+
+/// `(binding id, event)` pairs on their way to the chat the binding belongs to.
+pub(crate) type SessionEventTap = mpsc::UnboundedSender<(String, NormalizedEvent)>;
 
 struct GenericCliSession {
     transport: Arc<dyn CliTransport>,
@@ -577,7 +503,12 @@ impl DaemonCliDriverBridge {
             runtime,
             registry,
             generic: Arc::new(Mutex::new(HashMap::new())),
+            session_events: Arc::new(std::sync::OnceLock::new()),
         }
+    }
+
+    pub(crate) fn session_events(&self) -> &std::sync::OnceLock<SessionEventTap> {
+        &self.session_events
     }
 
     pub async fn contains(&self, binding_id: &str) -> bool {
@@ -605,13 +536,13 @@ impl DaemonCliDriverBridge {
                 "generic provider transport is not registered",
             )
         })?;
+        let model_id_env = rightkit_agents::driver_host::host_names::internal_model_id_env_name();
         let model_id = spec
             .env
             .iter()
-            .find(|(name, _)| name == "RIGHTKIT_INTERNAL_MODEL_ID")
+            .find(|(name, _)| *name == model_id_env)
             .map(|(_, value)| value.clone());
-        spec.env
-            .retain(|(name, _)| name != "RIGHTKIT_INTERNAL_MODEL_ID");
+        spec.env.retain(|(name, _)| *name != model_id_env);
         let process = transport
             .start(&spec)
             .await
@@ -635,7 +566,7 @@ impl DaemonCliDriverBridge {
                     CreateVendorSession {
                         model_id: model_id.clone(),
                         mcp_server: spec.mcp_server.clone(),
-                        system_policy: RUN_SCOPED_POLICY.to_string(),
+                        system_policy: rightkit_agents::driver_host::run_scoped_policy(),
                     },
                 )
                 .await
@@ -744,7 +675,7 @@ impl rightkit_agents::driver_host::cli_runtime::CliDriverHostBridge for DaemonCl
         rightkit_agents::driver_host::cli_runtime::StartedBridgeSession,
         rightkit_agents::driver_host::cli_runtime::BridgeError,
     > {
-        if !matches!(spec.provider_id.as_str(), "claude" | "codex") {
+        if spec.provider_id.as_str() != "claude" {
             return self.start_generic(binding_id, spec).await;
         }
         let vendor_session_id = spec
@@ -761,7 +692,6 @@ impl rightkit_agents::driver_host::cli_runtime::CliDriverHostBridge for DaemonCl
         };
         let legacy_kind = match spec.provider_id.as_str() {
             "claude" => DriverKind::Claude,
-            "codex" => DriverKind::Codex,
             _ => {
                 return Err(rightkit_agents::driver_host::cli_runtime::BridgeError::new(
                     "generic_provider_supervisor_unavailable",
@@ -769,19 +699,49 @@ impl rightkit_agents::driver_host::cli_runtime::CliDriverHostBridge for DaemonCl
                 ))
             }
         };
+        // The account the program runs on is the one whose folder the launch pins
+        // (`CLAUDE_CONFIG_DIR`). Name it, so its rate-limit and cost reports carry the
+        // account and not "unknown" (the `/driver/start` route already does).
+        let account = launch.env.get("CLAUDE_CONFIG_DIR").and_then(|home| {
+            use rightkit_agents::driver_host::cli_runtime::account_identity as accounts;
+            let home = std::path::Path::new(home);
+            accounts::list_subscription_accounts()
+                .into_iter()
+                .find(|account| account.provider == "claude" && account.managed_home == home)
+                .and_then(|account| {
+                    accounts::identity_for_profile(&format!("claude/{}", account.label))
+                })
+        });
         let started = self
             .runtime
-            .start_with_spec(binding_id.to_string(), legacy_kind, launch, cursor)
+            .start_with_spec_for_account(
+                binding_id.to_string(),
+                legacy_kind,
+                launch,
+                cursor,
+                account,
+            )
             .await
             .map_err(driver_bridge_error)?;
         let (events_tx, events_rx) = mpsc::channel(EVENT_CHANNEL_CAPACITY);
         let failure_driver = legacy_kind;
+        let session_events = self.session_events.clone();
+        let tapped_binding = binding_id.to_string();
+        let generation = started.info.generation;
+        let runtime = self.runtime.clone();
         tokio::spawn(async move {
             let mut events = started.events;
             while let Some(event) = events.recv().await {
+                // A stopped process must not speak for the one that replaced it.
+                if !runtime.is_current(&tapped_binding, generation).await {
+                    break;
+                }
                 match event {
                     DriverRuntimeEvent::Normalized(event) => {
-                        if events_tx.send(*event).await.is_err() {
+                        if let Some(tap) = session_events.get() {
+                            let _ = tap.send((tapped_binding.clone(), event.clone()));
+                        }
+                        if events_tx.send(event).await.is_err() {
                             break;
                         }
                     }
@@ -962,7 +922,8 @@ fn clone_vendor_session(session: &VendorSessionHandle) -> VendorSessionHandle {
 fn generic_failure_event(message: String) -> NormalizedEvent {
     NormalizedEvent {
         event_key: format!("generic-supervisor-{}", crate::api::now_millis()),
-        driver: DriverKind::Codex,
+        // The generic supervisor has no vendor of its own; only Claude is registered.
+        driver: DriverKind::Claude,
         source_offset: 0,
         vendor_method: "generic-supervisor".to_string(),
         kind: NormalizedEventKind::TurnFailed { message },
@@ -1077,96 +1038,110 @@ async fn write_json(stdin: &StdinHandle, value: &Value) -> Result<(), DriverRunt
         .map_err(|error| DriverRuntimeError::Write(error.to_string()))
 }
 
-/// Rejected `RateLimit` event for a Codex usage-limit failure line (empty for every other line),
-/// stamped with the launching account.
-fn codex_usage_limit_events(
-    line: &str,
-    offset: u64,
-    account: Option<&ClaudeAccountIdentity>,
-) -> Vec<DriverRuntimeEvent> {
-    match rightkit_agents::driver_host::parse_codex_usage_limit_event(line, offset) {
-        Ok(Some(mut event)) => {
-            rightkit_agents::driver_host::stamp_account(&mut event.kind, account);
-            vec![DriverRuntimeEvent::Normalized(Box::new(event))]
-        }
-        _ => Vec::new(),
+/// `(request_id, subtype)` of a `control_request` from Claude Code that is not a permission
+/// prompt (those are handled as server requests). `None` for every other line.
+fn unsupported_claude_control_request(line: &str) -> Option<(String, String)> {
+    let value: Value = serde_json::from_str(line).ok()?;
+    if value.get("type").and_then(Value::as_str) != Some("control_request") {
+        return None;
     }
+    let subtype = value
+        .get("request")
+        .and_then(|request| request.get("subtype"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if subtype == "can_use_tool" {
+        return None;
+    }
+    let request_id = value.get("request_id").and_then(Value::as_str)?;
+    Some((request_id.to_string(), subtype.to_string()))
 }
 
-/// Everything the stdout reader task owns for one driver process.
-struct StdoutReader {
-    kind: DriverKind,
-    stdout: std::pin::Pin<Box<dyn AsyncRead + Send>>,
-    initial_offset: u64,
+/// The channels and handles the stdout reader drives: where it sends driver events, the child's
+/// stdin it answers on, the child it cancels on a protocol error, and the readiness signal.
+struct StdoutReaderHandles {
     events: mpsc::Sender<DriverRuntimeEvent>,
     stdin: StdinHandle,
     child: Arc<Mutex<Box<dyn rightkit_sandbox::execution::ManagedChild>>>,
     ready: watch::Sender<bool>,
-    account: Option<ClaudeAccountIdentity>,
 }
 
-fn spawn_stdout_reader(reader: StdoutReader) {
-    let StdoutReader {
-        kind,
-        stdout,
-        initial_offset,
+fn spawn_stdout_reader(
+    kind: DriverKind,
+    stdout: std::pin::Pin<Box<dyn AsyncRead + Send>>,
+    initial_offset: u64,
+    handles: StdoutReaderHandles,
+    account: Option<ClaudeAccountIdentity>,
+) {
+    let StdoutReaderHandles {
         events,
         stdin,
         child,
         ready,
-        account,
-    } = reader;
+    } = handles;
     tokio::spawn(async move {
-        let mut lines = BufReader::new(stdout).lines();
+        let mut reader = BufReader::new(stdout);
+        let mut buffer: Vec<u8> = Vec::new();
         let mut offset = initial_offset;
-        while let Ok(Some(line)) = lines.next_line().await {
+        loop {
+            let line = match rightkit_sidecar::read_json_line_or_oversized_async_opts::<_, Value>(
+                &mut reader,
+                &mut buffer,
+                MAX_VENDOR_LINE_BYTES,
+                ReadOptions::default(),
+            )
+            .await
+            {
+                Ok(Some(Incoming::Frame(value))) => match serde_json::to_string(&value) {
+                    Ok(line) => line,
+                    Err(_) => {
+                        reject_vendor_output(
+                            kind,
+                            offset,
+                            "driver output is not valid JSON",
+                            "driver output is not valid JSON",
+                            &events,
+                            &child,
+                        )
+                        .await;
+                        break;
+                    }
+                },
+                Ok(Some(Incoming::Oversized(_)))
+                | Err(FrameError::TooLarge { .. })
+                | Err(FrameError::Io(_)) => {
+                    reject_vendor_output(
+                        kind,
+                        offset,
+                        &format!("a line exceeded {MAX_VENDOR_LINE_BYTES} bytes"),
+                        "driver output line too large",
+                        &events,
+                        &child,
+                    )
+                    .await;
+                    break;
+                }
+                Err(_) => {
+                    // Not valid JSON or not valid UTF-8; never include the line.
+                    reject_vendor_output(
+                        kind,
+                        offset,
+                        "driver output is not valid JSON",
+                        "driver output is not valid JSON",
+                        &events,
+                        &child,
+                    )
+                    .await;
+                    break;
+                }
+                Ok(None) => break,
+            };
             offset = offset.saturating_add(1);
             // Events a single line implies beyond the last one (Claude `result` also yields
             // cost); they are delivered in order before the last.
             let mut leading: Vec<DriverRuntimeEvent> = Vec::new();
             let parsed = match kind {
-                DriverKind::Codex => {
-                    // #34: a usage-limit failure also becomes a rejected RateLimit event,
-                    // delivered ahead of the ordinary TurnFailed for the same line.
-                    leading.extend(codex_usage_limit_events(&line, offset, account.as_ref()));
-                    match parse_codex_jsonrpc_line(&line, offset) {
-                    Ok(Some(CodexMessage::Response { id, error, .. }))
-                        if id.as_u64() == Some(CODEX_INITIALIZE_ID) =>
-                    {
-                        if let Some(error) = error {
-                            Err(format!("Codex initialization failed: {error}"))
-                        } else {
-                            match write_json(&stdin, &json!({ "method": "initialized" })).await {
-                                Ok(()) => {
-                                    let _ = ready.send(true);
-                                    Ok(None)
-                                }
-                                Err(error) => Err(error.to_string()),
-                            }
-                        }
-                    }
-                    Ok(Some(CodexMessage::Response { .. })) | Ok(None) => Ok(None),
-                    Ok(Some(CodexMessage::Notification(mut event))) => {
-                        rightkit_agents::driver_host::stamp_account(&mut event.kind, account.as_ref());
-                        let is_ready = matches!(
-                            event.kind,
-                            rightkit_agents::driver_host::NormalizedEventKind::GatewayReady
-                        );
-                        if is_ready {
-                            let _ = ready.send(true);
-                        }
-                        Ok(Some(DriverRuntimeEvent::Normalized(event)))
-                    }
-                    Ok(Some(CodexMessage::ServerRequest { id, method, params })) => {
-                        Ok(Some(DriverRuntimeEvent::ServerRequest {
-                            id,
-                            method,
-                            params,
-                        }))
-                    }
-                    Err(error) => Err(error.to_string()),
-                    }
-                }
+                DriverKind::Codex => Err(DriverRuntimeError::Unsupported(DriverKind::Codex).to_string()),
                 DriverKind::Antigravity => {
                     rightkit_agents::driver_host::agy_harness::parse_agy_stream_line(&line, offset)
                         .map(|event| {
@@ -1178,7 +1153,7 @@ fn spawn_stdout_reader(reader: StdoutReader) {
                                 ) {
                                     let _ = ready.send(true);
                                 }
-                                DriverRuntimeEvent::Normalized(Box::new(event))
+                                DriverRuntimeEvent::Normalized(event)
                             })
                         })
                         .map_err(|error| error.to_string())
@@ -1199,6 +1174,25 @@ fn spawn_stdout_reader(reader: StdoutReader) {
                             "blocked_path": request.blocked_path,
                         }),
                     })),
+                    Ok(None) if unsupported_claude_control_request(&line).is_some() => {
+                        // Claude Code waits for an answer to every request it sends. One this
+                        // driver does not implement gets the protocol's error answer, so the
+                        // session goes on and nothing waits for ever.
+                        let (request_id, subtype) =
+                            unsupported_claude_control_request(&line).unwrap_or_default();
+                        let answer = json!({
+                            "type": "control_response",
+                            "response": {
+                                "subtype": "error",
+                                "request_id": request_id,
+                                "error": format!("{} does not support the '{subtype}' request", crate::host_identity::app())
+                            }
+                        });
+                        match write_json(&stdin, &answer).await {
+                            Ok(()) => Ok(None),
+                            Err(error) => Err(error.to_string()),
+                        }
+                    }
                     Ok(None) => parse_claude_stream_events(&line, offset, account.as_ref())
                     .map(|batch| {
                         let mut batch = batch
@@ -1211,7 +1205,7 @@ fn spawn_stdout_reader(reader: StdoutReader) {
                                 ) {
                                     let _ = ready.send(true);
                                 }
-                                DriverRuntimeEvent::Normalized(Box::new(event))
+                                DriverRuntimeEvent::Normalized(event)
                             })
                             .collect::<Vec<_>>();
                         let last = batch.pop();
@@ -1269,6 +1263,37 @@ fn spawn_stdout_reader(reader: StdoutReader) {
     });
 }
 
+/// Fail closed on a vendor output line the frame reader refused: a sanitized diagnostic, the
+/// protocol error, then cancel the child. The line itself is never included.
+async fn reject_vendor_output(
+    kind: DriverKind,
+    offset: u64,
+    detail: &str,
+    protocol_message: &str,
+    events: &mpsc::Sender<DriverRuntimeEvent>,
+    child: &Arc<Mutex<Box<dyn rightkit_sandbox::execution::ManagedChild>>>,
+) {
+    let diagnostic =
+        format!("driver protocol rejected {kind:?} output at cursor {offset}: {detail}");
+    if events
+        .send(DriverRuntimeEvent::Diagnostic {
+            stream: DiagnosticStream::Stderr,
+            message: diagnostic,
+        })
+        .await
+        .is_err()
+    {
+        return;
+    }
+    let _ = events
+        .send(DriverRuntimeEvent::ProtocolError {
+            message: protocol_message.to_string(),
+        })
+        .await;
+    let mut child = child.lock().await;
+    let _ = child.cancel().await;
+}
+
 fn spawn_stderr_reader(
     stderr: std::pin::Pin<Box<dyn AsyncRead + Send>>,
     events: mpsc::Sender<DriverRuntimeEvent>,
@@ -1294,11 +1319,28 @@ fn spawn_stderr_reader(
     });
 }
 
+/// Drop the registry entry only when it still belongs to this monitor's process: a late exit
+/// report of a stopped process must not delete the entry of the one resume started after it.
+async fn remove_if_generation(
+    processes: &Arc<Mutex<HashMap<String, Arc<ManagedDriver>>>>,
+    binding_id: &str,
+    generation: u64,
+) {
+    let mut processes = processes.lock().await;
+    if processes
+        .get(binding_id)
+        .is_some_and(|process| process.generation == generation)
+    {
+        processes.remove(binding_id);
+    }
+}
+
 fn spawn_exit_monitor(
     binding_id: String,
     child: Arc<Mutex<Box<dyn rightkit_sandbox::execution::ManagedChild>>>,
     events: mpsc::Sender<DriverRuntimeEvent>,
     processes: Arc<Mutex<HashMap<String, Arc<ManagedDriver>>>>,
+    generation: u64,
 ) {
     tokio::spawn(async move {
         {
@@ -1322,7 +1364,7 @@ fn spawn_exit_monitor(
                             code: Some(code),
                         })
                         .await;
-                    processes.lock().await.remove(&binding_id);
+                    remove_if_generation(&processes, &binding_id, generation).await;
                 }
                 Err(error) => {
                     let _ = events
@@ -1330,7 +1372,7 @@ fn spawn_exit_monitor(
                             message: format!("driver status failed: {error}"),
                         })
                         .await;
-                    processes.lock().await.remove(&binding_id);
+                    remove_if_generation(&processes, &binding_id, generation).await;
                 }
             }
         }

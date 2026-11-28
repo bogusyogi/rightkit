@@ -47,6 +47,7 @@ pub(crate) fn insert_session_components_01(schemas: &mut Map<String, Value>) {
                 "driverKind": {"type": "string", "enum": ["native", "codex", "claude"]},
                 "mcpChannel": {"type": "string"},
                 "workspaceTrust": {"type": "string"},
+                "trustWorkspaceDropped": {"type": "string", "description": "Present on a create response only, when a `trustWorkspace` grant was asked for and not applied; the text says why."},
                 "specId": {"type": ["string", "null"]},
                 "tags": {"type": "array", "items": {"type": "string"}},
                 "effort": {"type": ["string", "null"]},
@@ -93,7 +94,9 @@ pub(crate) fn insert_session_components_01(schemas: &mut Map<String, Value>) {
             "properties": {
                 "id": {"type": ["string", "null"]},
                 "title": {"type": ["string", "null"]},
-                "nonce": {"type": ["string", "null"], "description": "Durable idempotency key. An identical retry replays the original response; reuse with a different body returns 409."}
+                "nonce": {"type": ["string", "null"], "description": "Durable idempotency key. An identical retry replays the original response; reuse with a different body returns 409."},
+                "beforeSeq": {"type": ["integer", "null"], "description": "Turn-scoped fork: branch from just before the parent's userMessageSubmitted event with this seq (400 for any other seq). Absent: a whole-session fork."},
+                "turnsBack": {"type": ["integer", "null"], "minimum": 1, "description": "Turn-scoped fork counted from the end: branch before the Nth-last user turn (1 = the last). Ignored when beforeSeq is set; 400 when out of range."}
             },
             "additionalProperties": false
         }),
@@ -102,12 +105,14 @@ pub(crate) fn insert_session_components_01(schemas: &mut Map<String, Value>) {
         "ForkSessionResponse".to_string(),
         json!({
             "type": "object",
-            "required": ["id", "parentSessionId", "title", "workspaceRoot", "session"],
+            "required": ["id", "forkedFromSessionId", "title", "workspaceRoot", "status", "copiedEvents", "session"],
             "properties": {
                 "id": {"type": "string"},
-                "parentSessionId": {"type": "string"},
+                "forkedFromSessionId": {"type": "string"},
                 "title": {"type": "string"},
                 "workspaceRoot": {"type": "string"},
+                "status": {"type": "string"},
+                "copiedEvents": {"type": "integer", "minimum": 0},
                 "session": {"$ref": "#/components/schemas/SessionRow"}
             },
             "additionalProperties": false
@@ -237,6 +242,9 @@ pub(crate) fn insert_session_components_01(schemas: &mut Map<String, Value>) {
         "CompactSessionRequest".to_string(),
         json!({
             "type": "object",
+            "properties": {
+                "instructions": {"type": "string"}
+            },
             "additionalProperties": false
         }),
     );
@@ -249,6 +257,7 @@ pub(crate) fn insert_session_components_01(schemas: &mut Map<String, Value>) {
                 "compacted": {"type": "boolean"},
                 "summary": {"type": "string"},
                 "droppedCount": {"type": "integer", "minimum": 0},
+                "reason": {"type": "string"},
                 "archive": {
                     "oneOf": [
                         {"$ref": "#/components/schemas/CompactionArchiveReceipt"},
@@ -272,7 +281,8 @@ pub(crate) fn insert_session_components_01(schemas: &mut Map<String, Value>) {
             "required": ["toolCallId", "approved"],
             "properties": {
                 "toolCallId": {"type": "string"},
-                "approved": {"type": "boolean"}
+                "approved": {"type": "boolean"},
+                "remember": {"type": "string", "enum": ["session", "project"]}
             },
             "additionalProperties": false
         }),
@@ -284,7 +294,24 @@ pub(crate) fn insert_session_components_01(schemas: &mut Map<String, Value>) {
             "required": ["resolved", "approved"],
             "properties": {
                 "resolved": {"type": "boolean"},
-                "approved": {"type": "boolean"}
+                "approved": {"type": "boolean"},
+                "ok": {"type": "boolean"},
+                "remembered": {"type": ["object", "null"]},
+                "notRemembered": {"type": "string"}
+            },
+            "additionalProperties": false
+        }),
+    );
+    schemas.insert(
+        "SessionPendingResponse".to_string(),
+        json!({
+            "type": "object",
+            "required": ["approvals", "questions", "plans", "elicitations"],
+            "properties": {
+                "approvals": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+                "questions": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+                "plans": {"type": "array", "items": {"type": "string"}},
+                "elicitations": {"type": "array", "items": {"type": "string"}}
             },
             "additionalProperties": false
         }),
@@ -319,7 +346,8 @@ pub(crate) fn insert_session_components_01(schemas: &mut Map<String, Value>) {
             "required": ["planId", "approved"],
             "properties": {
                 "planId": {"type": "string"},
-                "approved": {"type": "boolean"}
+                "approved": {"type": "boolean"},
+                "clearContext": {"type": "boolean"}
             },
             "additionalProperties": false
         }),
@@ -331,7 +359,8 @@ pub(crate) fn insert_session_components_01(schemas: &mut Map<String, Value>) {
             "required": ["resolved", "approved"],
             "properties": {
                 "resolved": {"type": "boolean"},
-                "approved": {"type": "boolean"}
+                "approved": {"type": "boolean"},
+                "clearContext": {"type": "boolean"}
             },
             "additionalProperties": false
         }),

@@ -2,11 +2,7 @@ async fn daemon_logs(session_id: &str) -> i32 {
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!(
-                "No running daemon found. Start one with `{app} serve`.",
-                app = crate::host_identity::app()
-            );
-            return 1;
+            return host_unreachable_exit(false);
         }
     };
 
@@ -41,137 +37,97 @@ async fn daemon_logs(session_id: &str) -> i32 {
         }
     }
 
-    let client = match rightkit_agent_daemon::http_client::daemon_client(&base_url) {
-        Ok(client) => client,
-        Err(e) => {
-            eprintln!("Failed to contact daemon: {e}");
-            return 1;
-        }
-    };
-    stream_events_with_reconnect(&client, &base_url, &token, session_id, last_seq, true).await
+    stream_events_with_reconnect(&base_url, &token, session_id, last_seq, true).await
 }
 
-// ── ra-009: bounded reconnect/backoff for the live SSE tail ────────────────
+// ── ra-009: bounded reconnect for the live SSE tail ───────────────────────
 //
-// Both `{app} logs` (`daemon_logs`) and `{app} attach`
-// (`daemon_logs_inner`) used to stop the moment the SSE connection dropped
-// or a chunk read failed — a transient network blip silently truncated
-// monitoring instead of resuming. `stream_events_with_reconnect` is the
-// shared tail loop for both: it remembers the highest `seq` it has printed
-// (the durable cursor), and on a transport error it reconnects at
-// `after=<cursor>` instead of giving up, so no event already printed is
-// re-delivered (no duplicate) and no event after the cursor is skipped (no
-// gap) — the daemon's `events?after=` contract is exclusive-of-`after`,
-// ascending, the same contract `daemon_logs`'s pre-existing scrollback catch
-// -up already relies on. Reconnect attempts are bounded and back off
-// exponentially (capped) so a genuinely dead daemon fails loudly instead of
-// spinning forever; exhausting the bound returns failure (1), never a quiet
-// success.
+// `{app} logs` (`daemon_logs`) and `{app} attach` (`daemon_logs_inner`) share one tail:
+// RightKit's `rightkit_daemon::loopback::run_replay_stream`. It resumes with `Last-Event-ID` (the
+// daemon's `id:` is the event seq, `api_sessions/sse.rs`), admits only events above the cursor
+// (no duplicate, no gap) and reconnects with capped exponential backoff. The host keeps two
+// rules on top: a clean end of the stream means the daemon closed the tail (the session
+// finished) and returns success, and reconnects are bounded so a dead daemon fails loudly (1)
+// instead of retrying forever.
 const STREAM_RECONNECT_MAX_ATTEMPTS: u32 = 6;
-const STREAM_RECONNECT_BASE_DELAY_MS: u64 = 200;
-const STREAM_RECONNECT_MAX_DELAY_MS: u64 = 5_000;
 
-fn stream_reconnect_backoff(attempt: u32) -> std::time::Duration {
-    let shift = attempt.saturating_sub(1).min(16);
-    let delay_ms = STREAM_RECONNECT_BASE_DELAY_MS
-        .saturating_mul(1u64 << shift)
-        .min(STREAM_RECONNECT_MAX_DELAY_MS);
-    std::time::Duration::from_millis(delay_ms)
-}
+/// What RightKit's replay stream reports when the daemon closed the stream itself.
+const STREAM_ENDED: &str = "the stream ended";
 
-/// Tail `GET /sessions/{id}/events?after={cursor}` from `start_after_seq`,
-/// printing each chunk to stdout, and transparently reconnect at the
-/// latest-seen cursor on a transport error instead of failing immediately.
-/// A clean end-of-stream (`None`) is treated as the daemon intentionally
-/// closing the tail (session finished) and returns success; only read/send
-/// errors trigger reconnect. `print_status` controls whether reconnect
-/// attempts are reported on stderr (quiet for the `attach` background
-/// tailer, visible for the interactive `logs` tail).
+/// Tail `GET /sessions/{id}/events` from `start_after_seq`, printing each event to stdout as an
+/// SSE frame, as the daemon sent it. `print_status` controls whether reconnect attempts are
+/// reported on stderr (quiet for the `attach` background tailer, visible for `logs`).
 async fn stream_events_with_reconnect(
-    client: &rightkit_http::AsyncClient,
     base_url: &str,
     token: &str,
     session_id: &str,
     start_after_seq: i64,
     print_status: bool,
 ) -> i32 {
-    let encoded_session_id = url_encode_component(session_id);
-    let mut cursor = start_after_seq;
-    let mut attempt = 0u32;
-    let mut line_buf = String::new();
-
-    loop {
-        let url = format!("{base_url}/sessions/{encoded_session_id}/events?after={cursor}");
-        let resp = match client
-            .stream_any(&rightkit_http::Request::get(url).bearer(token))
-            .await
-        {
-            Ok(r) if rightkit_agent_daemon::http_client::is_success(r.status) => r,
-            Ok(r) => {
-                eprintln!("Daemon returned {} for session {session_id}", r.status);
-                return 1;
-            }
-            Err(e) => {
-                if !reconnect_or_fail(&mut attempt, print_status, &format!("connect: {e}")).await {
-                    return 1;
-                }
-                continue;
-            }
-        };
-
-        let mut body = resp.into_stream();
-        loop {
-            match futures_util::StreamExt::next(&mut body).await {
-                Some(Ok(bytes)) => {
-                    attempt = 0; // any live data resets the reconnect budget
-                    let text = String::from_utf8_lossy(&bytes);
-                    print!("{text}");
-                    let _ = std::io::stdout().flush();
-                    line_buf.push_str(&text);
-                    if let Some(last_nl) = line_buf.rfind('\n') {
-                        for line in line_buf[..last_nl].lines() {
-                            if let Some(event) = parse_sse_json_event(line) {
-                                if let Some(seq) = event.get("seq").and_then(|s| s.as_i64()) {
-                                    cursor = cursor.max(seq);
-                                }
-                            }
-                        }
-                        line_buf.drain(..=last_nl);
-                    }
-                }
-                None => return 0,
-                Some(Err(e)) => {
-                    if !reconnect_or_fail(&mut attempt, print_status, &format!("read: {e}")).await {
-                        return 1;
-                    }
-                    break;
-                }
-            }
-        }
+    let Some(port) = base_url
+        .trim_end_matches('/')
+        .rsplit(':')
+        .next()
+        .and_then(|port| port.parse::<u16>().ok())
+    else {
+        eprintln!("Failed to contact daemon: no port in {base_url}");
+        return 1;
+    };
+    let path = format!("/sessions/{}/events", url_encode_component(session_id));
+    let config = rightkit_daemon::loopback::ReplayConfig {
+        backoff_initial: std::time::Duration::from_millis(200),
+        backoff_max: std::time::Duration::from_secs(5),
+        ..rightkit_daemon::loopback::ReplayConfig::new(port, token, path)
     }
-}
-
-/// Bump the bounded reconnect budget and sleep the backoff. Returns `false`
-/// (recovery exhausted) once `attempt` exceeds
-/// `STREAM_RECONNECT_MAX_ATTEMPTS`, so the caller can surface a real failure
-/// instead of looping forever against a dead daemon.
-async fn reconnect_or_fail(attempt: &mut u32, print_status: bool, reason: &str) -> bool {
-    *attempt += 1;
-    if *attempt > STREAM_RECONNECT_MAX_ATTEMPTS {
-        eprintln!(
-            "Stream error: {reason} (giving up after {STREAM_RECONNECT_MAX_ATTEMPTS} reconnect attempts)"
-        );
-        return false;
-    }
-    let delay = stream_reconnect_backoff(*attempt);
-    if print_status {
-        eprintln!(
-            "Stream error: {reason} — reconnecting (attempt {attempt}/{STREAM_RECONNECT_MAX_ATTEMPTS}) in {}ms",
-            delay.as_millis()
-        );
-    }
-    tokio::time::sleep(delay).await;
-    true
+    .cursor(u64::try_from(start_after_seq).ok());
+    let session_id = session_id.to_string();
+    let stop = rightkit_daemon::stop::StopSource::new();
+    let token = stop.token();
+    let outcome = tokio::task::spawn_blocking(move || {
+        let mut failures = 0u32;
+        let mut code = 0;
+        rightkit_daemon::loopback::run_replay_stream(&config, &token, |event| match event {
+            rightkit_daemon::loopback::ReplayEvent::Event { seq, topic, data } => {
+                failures = 0; // live data resets the reconnect budget
+                let mut frame = format!("id: {seq}\n");
+                if !topic.is_empty() && topic != "message" {
+                    frame.push_str(&format!("event: {topic}\n"));
+                }
+                frame.push_str(&format!("data: {data}\n\n"));
+                print!("{frame}");
+                let _ = std::io::stdout().flush();
+            }
+            rightkit_daemon::loopback::ReplayEvent::Disconnected { error, retry_in } => {
+                if error == STREAM_ENDED {
+                    stop.trigger(rightkit_daemon::stop::StopCause::Requested);
+                    return;
+                }
+                if error.starts_with("the daemon answered") {
+                    eprintln!("Daemon returned an error for session {session_id}: {error}");
+                    code = 1;
+                    stop.trigger(rightkit_daemon::stop::StopCause::Requested);
+                    return;
+                }
+                failures += 1;
+                if failures > STREAM_RECONNECT_MAX_ATTEMPTS {
+                    eprintln!(
+                        "Stream error: {error} (giving up after {STREAM_RECONNECT_MAX_ATTEMPTS} reconnect attempts)"
+                    );
+                    code = 1;
+                    stop.trigger(rightkit_daemon::stop::StopCause::Requested);
+                } else if print_status {
+                    eprintln!(
+                        "Stream error: {error} — reconnecting (attempt {failures}/{STREAM_RECONNECT_MAX_ATTEMPTS}) in {}ms",
+                        retry_in.as_millis()
+                    );
+                }
+            }
+            _ => {}
+        });
+        code
+    })
+    .await;
+    outcome.unwrap_or(1)
 }
 
 /// Headless multi-agent conductor run: create a session bound to the workspace,
@@ -183,17 +139,17 @@ fn conduct_create_session_body(
     workspace_root: &str,
     safe_mode: bool,
     model: Option<&str>,
-    auto_approve: bool,
+    permission_mode: Option<rightkit_agent_policy::PermissionMode>,
 ) -> serde_json::Value {
-    // Matches daemon_session_create_body's precedence: an explicit
-    // auto-approve maps to accept-edits; absence stays None so the workspace
-    // config decides (safe-mode sessions still resolve ask server-side).
+    // An explicit `--permission-mode` is sent as named; absence stays None so
+    // the workspace config decides (safe-mode sessions still resolve ask
+    // server-side).
     serde_json::json!({
         "id": session_id,
         "workspaceRoot": workspace_root,
         "safeMode": safe_mode,
         "model": model,
-        "permissionMode": if auto_approve { Some("accept-edits") } else { None },
+        "permissionMode": permission_mode.map(cli_gate::permission_mode_name),
     })
 }
 
@@ -203,16 +159,12 @@ async fn daemon_conduct(
     safe_mode: bool,
     workspace: Option<&str>,
     model: Option<&str>,
-    auto_approve: bool,
+    permission_mode: Option<rightkit_agent_policy::PermissionMode>,
 ) -> i32 {
     let (base_url, token) = match crate::cli_presence::resolve_daemon_or_autostart().await {
         Some(p) => p,
         None => {
-            eprintln!(
-                "No running daemon found. Start one with `{app} serve`.",
-                app = crate::host_identity::app()
-            );
-            return 1;
+            return host_unreachable_exit(false);
         }
     };
     let workspace_root = workspace
@@ -236,7 +188,7 @@ async fn daemon_conduct(
             &workspace_root,
             safe_mode,
             model,
-            auto_approve,
+            permission_mode,
         )),
     )
     .await
@@ -297,11 +249,7 @@ async fn daemon_attach(session_id: &str) -> i32 {
         match crate::daemon::lifecycle_backend::resolve_daemon_endpoint_via_authority().await {
             Some(p) => p,
             None => {
-                eprintln!(
-                    "No running daemon found. Start one with `{app} serve`.",
-                    app = crate::host_identity::app()
-                );
-                return 1;
+                return host_unreachable_exit(false);
             }
         };
 
@@ -374,18 +322,11 @@ async fn daemon_attach(session_id: &str) -> i32 {
 }
 
 async fn daemon_logs_inner(base_url: &str, token: &str, session_id: &str) -> i32 {
-    let client = match rightkit_agent_daemon::http_client::daemon_client(base_url) {
-        Ok(client) => client,
-        Err(e) => {
-            eprintln!("Failed to contact daemon: {e}");
-            return 1;
-        }
-    };
     // `attach` backgrounds this tailer alongside interactive stdin, so
     // reconnect status stays quiet (print_status=false) — but it still
     // resumes from the last-seen cursor with bounded backoff instead of
     // silently going dark on the first transient disconnect (ra-009).
-    stream_events_with_reconnect(&client, base_url, token, session_id, 0, false).await
+    stream_events_with_reconnect(base_url, token, session_id, 0, false).await
 }
 
 fn parse_sse_json_event(line: &str) -> Option<serde_json::Value> {
@@ -425,7 +366,7 @@ fn terminal_sse_exit_code(line: &str) -> Option<i32> {
 
 // ── R11 CR-27: bounded scrollback client ───────────────────────────────────
 //
-// The daemon now serves `GET /sessions/{id}/events?before={seq}&limit={n}`
+// The daemon now serves `GET /sessions/{id}/events/history?before={seq}&limit={n}`
 // as a bounded page backwards through durable history. No code constructed
 // that request before this lane — this is the missing consumer.
 //
@@ -472,7 +413,9 @@ pub async fn fetch_scrollback_page(
     limit: usize,
 ) -> Result<ScrollbackPage, ScrollbackError> {
     let encoded = url_encode_component(session_id);
-    let url = format!("{base_url}/sessions/{encoded}/events?before={before_seq}&limit={limit}");
+    // The JSON page lives at `/events/history`; `/events` is the live SSE stream.
+    let url =
+        format!("{base_url}/sessions/{encoded}/events/history?before={before_seq}&limit={limit}");
     let resp = client
         .send_any(&rightkit_http::Request::get(url).bearer(token))
         .await

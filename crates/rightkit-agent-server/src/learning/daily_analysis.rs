@@ -15,11 +15,8 @@ async fn run_daily_analysis(state: &crate::api::DaemonState) {
     let source = DaemonAnalyzerSource { state };
     let report = DailyAnalyzer::new().analyze(&source);
     let proposals_minted = mint_review_proposals(&state.learning, &report);
-    let (written, error) =
-        match consolidate_daily_memory(state.memory_backend.as_ref(), &report).await {
-            Ok(written) => (written, None),
-            Err(error) => (0, Some(error)),
-        };
+    // The analyzer only mints review proposals: a scheduled origin may not write
+    // memory, so nothing is stored here without a person's approval.
 
     // FM-074 roster-status projection: every tick of the consolidation cycle
     // records its outcome so a status/roster surface can report it, instead
@@ -33,10 +30,10 @@ async fn run_daily_analysis(state: &crate::api::DaemonState) {
             started_at,
             completed_at: crate::api::now_iso(),
             review_candidates_seen: report.review_candidates.len() as u64,
-            memories_written: written as u64,
+            memories_written: 0,
             repeated_failure_patterns: report.repeated_failures.len() as u64,
             proposals_minted,
-            error,
+            error: None,
         });
 }
 
@@ -76,95 +73,5 @@ fn review_candidate_to_proposal(candidate: &ReviewCandidate) -> Proposal {
         created_at: crate::api::now_iso(),
         age_sessions: 0,
         rejection_reason: None,
-    }
-}
-
-/// Consolidate daily analyzer output into durable memory without waiting for a
-/// manual proposal approval. This is intentionally deterministic and bounded:
-/// memory candidates and repeated failure patterns become stable semantic
-/// memories, while workflow/harness-rule candidates remain approval-gated.
-async fn consolidate_daily_memory(
-    memory: &dyn rightkit_memory_client::backend::MemoryBackend,
-    report: &DailyReport,
-) -> Result<usize, String> {
-    let mut written = 0usize;
-    for candidate in &report.review_candidates {
-        if candidate.suggested_proposal_kind != "Memory" {
-            continue;
-        }
-        let content = format!(
-            "Daily analyzer memory for session {}: {}. Trajectory: {}",
-            candidate.session_id, candidate.reason, candidate.trajectory_excerpt
-        );
-        let context =
-            rightkit_memory_client::backend::CallContext::after(std::time::Duration::from_secs(5));
-        if memory
-            .remember_consolidated(
-                &context,
-                &format!("daily-analyzer-memory-{}", candidate.session_id),
-                &content,
-                vec![
-                    "daily-analyzer".to_string(),
-                    "session-memory".to_string(),
-                    candidate.session_id.to_lowercase(),
-                ],
-                0.7,
-            )
-            .await
-            .map_err(|error| error.to_string())?
-            .is_some()
-        {
-            written = written.saturating_add(1);
-        }
-    }
-
-    for (index, (error, count)) in report.repeated_failures.iter().enumerate() {
-        let content = format!(
-            "Repeated failure pattern observed by daily analyzer: '{error}' appeared {count} times across recent sessions."
-        );
-        let context =
-            rightkit_memory_client::backend::CallContext::after(std::time::Duration::from_secs(5));
-        if memory
-            .remember_consolidated(
-                &context,
-                &format!(
-                    "daily-analyzer-repeated-failure-{}-{}",
-                    index,
-                    stable_slug(error)
-                ),
-                &content,
-                vec![
-                    "daily-analyzer".to_string(),
-                    "repeated-failure".to_string(),
-                    stable_slug(error),
-                ],
-                0.85,
-            )
-            .await
-            .map_err(|error| error.to_string())?
-            .is_some()
-        {
-            written = written.saturating_add(1);
-        }
-    }
-    Ok(written)
-}
-
-fn stable_slug(value: &str) -> String {
-    let slug = value
-        .trim()
-        .to_lowercase()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect::<String>()
-        .split('-')
-        .filter(|part| !part.is_empty())
-        .take(8)
-        .collect::<Vec<_>>()
-        .join("-");
-    if slug.is_empty() {
-        "unknown".to_string()
-    } else {
-        slug.chars().take(80).collect()
     }
 }

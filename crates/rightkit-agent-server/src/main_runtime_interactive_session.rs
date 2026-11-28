@@ -28,7 +28,10 @@ mod interactive_session {
 
     /// Banner printed once at session start.
     fn print_banner() {
-        println!("RightKit interactive session. Type a prompt and press Enter.");
+        println!(
+            "{} interactive session. Type a prompt and press Enter.",
+            rightkit_agent_config::app_name()
+        );
         println!("Type /quit or press Ctrl+D (EOF) to exit.");
     }
 
@@ -51,7 +54,6 @@ mod interactive_session {
         silent: bool,
     ) -> super::RunArgs {
         super::RunArgs {
-            context_mode: interactive_context_mode(std::env::args()),
             prompt,
             print: false,
             // The line-oriented REPL fallback owns stdout and needs the
@@ -68,8 +70,6 @@ mod interactive_session {
             provider: (!provider.is_empty()).then(|| provider.to_string()),
             effort,
             workspace,
-            auto_approve: false,
-            bypass_approvals: false,
             permission_mode: None,
             stream_json: false,
             exit_on_error: false,
@@ -77,6 +77,8 @@ mod interactive_session {
             allowed_tools: Vec::new(),
             disallowed_tools: Vec::new(),
             toolset: None,
+            own_toolset: None,
+            trust_workspace: false,
             max_budget_usd: None,
             bare: false,
             safe_mode: false,
@@ -102,16 +104,9 @@ mod interactive_session {
                 .map(|f| f.exclude_tools.clone())
                 .unwrap_or_default(),
             no_mcp: super::LAUNCH_TOOL_FILTERS.get().is_some_and(|f| f.no_mcp),
+            unattended: false,
+            approval_callback: false,
         }
-    }
-
-    fn interactive_context_mode<I>(_args: I) -> super::ContextMode
-    where
-        I: IntoIterator<Item = String>,
-    {
-        // `--context-mode` is a deprecated no-op; only the internal
-        // `RIGHTKIT_CONTEXT=off` switch selects the Membrane-free path.
-        super::ContextMode::effective()
     }
 
     /// True when the TUI was launched outside any project: the user's home
@@ -141,11 +136,10 @@ mod interactive_session {
     /// native connect.
     async fn ensure_inline_context_ready(
         readiness_tx: &tokio::sync::watch::Sender<crate::tui_host::HostReadiness>,
-        context_mode: super::ContextMode,
     ) -> Result<(), String> {
         let mut degraded: Option<String> = None;
         let result = publish_context_readiness(readiness_tx, async {
-            crate::main_runtime::InlineHost::warm(context_mode)
+            crate::main_runtime::InlineHost::warm()
                 .await
                 .map(|reason| degraded = reason)
         })
@@ -279,7 +273,7 @@ mod interactive_session {
     }
 
     /// Resolve `root` to its registry binding. Enrolment is Pulse's concern;
-    /// RightKit never runs `membrane init`.
+    /// The host never runs `membrane init`.
     fn resolve_repository(root: &std::path::Path) -> Result<Option<SelectedRepository>, String> {
         use rightkit_memory_client::backend::repository_scope::resolve_canonical_repository_scope;
         resolve_canonical_repository_scope(root)
@@ -288,11 +282,7 @@ mod interactive_session {
     /// The selected canonical repository, else (D18: context unavailable runs
     /// visibly degraded, never refused) the launch folder — except the home
     /// folder or a filesystem root, which are never a workspace.
-    fn turn_workspace(
-        _mode: super::ContextMode,
-        selected: Option<String>,
-        launch: Option<String>,
-    ) -> Option<String> {
+    fn turn_workspace(selected: Option<String>, launch: Option<String>) -> Option<String> {
         selected
             .or_else(|| launch.filter(|root| is_workspace_candidate(std::path::Path::new(root))))
     }
@@ -330,9 +320,8 @@ mod interactive_session {
             let host = EngineTurnHost::new(fresh_interactive_session_id(), provider, true, true);
             host.daemon_client().await?.list_sessions().await?
         } else {
-            let context_mode = super::ContextMode::effective();
-            super::InlineHost::warm(context_mode).await?;
-            super::InlineHost::list_all_sessions(context_mode).await?
+            super::InlineHost::warm().await?;
+            super::InlineHost::list_all_sessions().await?
         };
         let selected = if let Some(id) = launch.resume.as_deref() {
             rows.into_iter()
@@ -430,7 +419,7 @@ mod interactive_session {
     /// the process launch directory exactly once, then canonicalized by the
     /// registry resolver. Unenrolled roots fail with a typed
     /// setup/degradation answer — never an enrollment, index, or silent
-    /// context-mode switch.
+    /// context switch.
     fn resolve_repository_selection(path_arg: &str) -> Result<SelectedRepository, String> {
         let trimmed = path_arg.trim();
         if trimmed.is_empty() {
@@ -439,7 +428,10 @@ mod interactive_session {
         let candidate = std::path::PathBuf::from(trimmed);
         match resolve_repository(&candidate) {
             Ok(Some(scope)) => Ok(scope),
-            Ok(None) => Err(format!("{trimmed} is not a directory RightKit can open")),
+            Ok(None) => Err(format!(
+                "{trimmed} is not a directory {app} can open",
+                app = rightkit_agent_config::app_name()
+            )),
             Err(reason) => Err(format!("repository selection unavailable: {reason}")),
         }
     }
@@ -565,15 +557,14 @@ mod interactive_session {
     /// session-create body admission uses, so the new session is canonical
     /// before any local state points at it.
     async fn ensure_root_session(
-        context_mode: super::ContextMode,
         session_id: &str,
         workspace_root: &str,
         provider: &str,
         model: Option<&str>,
         effort: Option<String>,
     ) -> Result<(), String> {
-        let host = super::SessionExecutionHost::select(context_mode).await?;
-        let args = build_turn_args(
+        let host = super::SessionExecutionHost::select().await?;
+        let mut args = build_turn_args(
             String::new(),
             session_id,
             provider,
@@ -582,16 +573,26 @@ mod interactive_session {
             effort,
             true,
         );
+        // A chat made after `/preset` is created with the preset's tools and prompt: a session
+        // keeps the tool set and system prompt it was created with, so this is the only moment
+        // they can be set.
+        if apply_chat_preset_parts(session_id, &mut args) {
+            let (_, allowed, disallowed) = super::resolve_cli_tool_filters_with_mcp(
+                None,
+                std::mem::take(&mut args.tools),
+                std::mem::take(&mut args.exclude_tools),
+                args.no_mcp,
+            )?;
+            args.allowed_tools = allowed;
+            args.disallowed_tools = disallowed;
+        }
         host.ensure_session(&args, session_id, workspace_root).await
     }
 
     /// Generic CLI titles carry no searchable identity. Project the first
     /// admitted prompt from canonical history without renaming the session
     /// or making a provider request merely to populate a picker.
-    async fn session_picker_label(
-        context_mode: super::ContextMode,
-        row: &serde_json::Value,
-    ) -> Option<String> {
+    async fn session_picker_label(row: &serde_json::Value) -> Option<String> {
         let title = row
             .get("title")
             .and_then(serde_json::Value::as_str)
@@ -604,7 +605,7 @@ mod interactive_session {
             return Some(title.to_string());
         }
         let id = row.get("id").and_then(serde_json::Value::as_str)?;
-        let host = super::SessionExecutionHost::select_if_ready(context_mode)?;
+        let host = super::SessionExecutionHost::select_if_ready()?;
         let page = host.fetch_history(id, 65, 64).await.ok()?;
         let events = page.as_array()?;
         let text = events.iter().find_map(|event| {
@@ -688,7 +689,7 @@ mod interactive_session {
         };
         // A ChatGPT sign-in proves no model list in the stored credential;
         // ask the account's live catalog so new models appear without a
-        // RightKit release. A fetch failure keeps "no account list"
+        // host release. A fetch failure keeps "no account list"
         // semantics here — `{app} models --provider openai` surfaces the
         // typed stage error instead.
         // The broker's status `source` can name a stored key even when the
@@ -1255,13 +1256,48 @@ mod interactive_session {
     /// direct verification surface for the live fetch: fetch failures print
     /// the typed stage error and exit non-zero instead of collapsing to an
     /// empty list.
-    pub(crate) async fn cli_models(provider_arg: Option<String>) -> i32 {
+    pub(crate) async fn cli_models(provider_arg: Option<String>, json: bool) -> i32 {
         let provider = provider_arg
             .map(|id| id.trim().to_string())
             .filter(|id| !id.is_empty())
             .unwrap_or_else(|| {
                 super::resolve_default_provider_id(&super::load_current_merged_config())
             });
+        match models_for_provider(&provider).await {
+            Ok(ids) => {
+                if json {
+                    println!("{}", models_json(&provider, &ids));
+                } else {
+                    for id in ids {
+                        println!("{id}");
+                    }
+                }
+                0
+            }
+            Err(message) => {
+                eprintln!(
+                    "{app} models {provider}: {message}",
+                    app = crate::host_identity::app()
+                );
+                1
+            }
+        }
+    }
+
+    /// `--json` output of `models`: one tagged object (headless R12, D12).
+    pub(super) fn models_json(provider: &str, ids: &[String]) -> String {
+        serde_json::json!({
+            "schema_version": crate::host_identity::schema("cli.models.v1"),
+            "provider": provider,
+            "models": ids,
+        })
+        .to_string()
+    }
+
+    /// The model ids one provider can serve: the vendor catalog, the live
+    /// account catalog of a sign-in provider, or the canonical table.
+    async fn models_for_provider(provider: &str) -> Result<Vec<String>, String> {
+        let provider = provider.to_string();
         if let Some(kind) =
             rightkit_agents::driver_host::vendor_cli::VendorCli::from_provider_id(&provider)
         {
@@ -1271,43 +1307,29 @@ mod interactive_session {
             .await
             .unwrap_or_default();
             if models.is_empty() {
-                eprintln!(
-                    "{app} models {provider}: vendor catalog unavailable",
-                    app = crate::host_identity::app()
-                );
-                return 1;
+                return Err("vendor catalog unavailable".to_string());
             }
-            for (id, _) in models {
-                println!("{id}");
-            }
-            return 0;
+            return Ok(models.into_iter().map(|(id, _)| id).collect());
         }
         let native = super::runtime_route_picker()
             .iter()
             .any(|choice| choice.provider == provider && choice.native_subscription);
         if native {
-            return match crate::api_provider_auth::fetch_chatgpt_account_models(&provider).await {
-                Ok(models) => {
-                    for model in &models {
-                        println!("{}", model.slug);
-                    }
-                    0
-                }
-                Err(error) => {
-                    eprintln!(
-                        "{app} models {provider}: {error}",
-                        app = crate::host_identity::app()
-                    );
-                    1
-                }
-            };
+            // Signed in: the live account catalog. Signed out: the canonical table
+            // below, so `models` still lists what the provider offers (providers R7).
+            if let Ok(models) =
+                crate::api_provider_auth::fetch_chatgpt_account_models(&provider).await
+            {
+                return Ok(models.into_iter().map(|model| model.slug).collect());
+            }
         }
         let status = provider_auth_status(&provider).await;
         if status.oauth {
-            for model in &status.available_models {
-                println!("{}", model.slug);
-            }
-            return 0;
+            return Ok(status
+                .available_models
+                .iter()
+                .map(|model| model.slug.clone())
+                .collect());
         }
         let mut ids: Vec<String> = canonical_models_for_provider(&provider)
             .into_iter()
@@ -1327,16 +1349,9 @@ mod interactive_session {
         ids.sort();
         ids.dedup();
         if ids.is_empty() {
-            eprintln!(
-                "{app} models {provider}: provider is not configured or has no known models",
-                app = crate::host_identity::app()
-            );
-            return 1;
+            return Err("provider is not configured or has no known models".to_string());
         }
-        for id in ids {
-            println!("{id}");
-        }
-        0
+        Ok(ids)
     }
 
     /// Look up a model id in the shared catalog projection. Selectable rows
@@ -1476,8 +1491,9 @@ mod interactive_session {
         }
     }
 
-    /// Launch-time seed for [`run_loop`].
-    struct LoopStart<'a> {
+    /// What the interactive loop starts from: the session id and provider, and the model,
+    /// workspace, effort and first prompt the launch supplied.
+    struct InteractiveLaunch<'a> {
         session_id: &'a str,
         provider: &'a str,
         initial_model: Option<&'a str>,
@@ -1491,20 +1507,24 @@ mod interactive_session {
     /// `run_turn` once; kept generic over the turn function so the loop
     /// control-flow (blank/quit/EOF/prompt) is unit-testable without
     /// spinning up a real engine session.
-    async fn run_loop<R, F, Fut>(mut reader: R, start: LoopStart<'_>, mut run_turn: F) -> i32
+    async fn run_loop<R, F, Fut>(
+        mut reader: R,
+        launch: InteractiveLaunch<'_>,
+        mut run_turn: F,
+    ) -> i32
     where
         R: std::io::BufRead,
         F: FnMut(super::RunArgs) -> Fut,
         Fut: std::future::Future<Output = i32>,
     {
-        let LoopStart {
+        let InteractiveLaunch {
             session_id,
             provider,
             initial_model,
             initial_workspace,
             initial_effort,
             initial_prompt,
-        } = start;
+        } = launch;
         // 13a: the per-turn model is a session field, mutable at turn
         // boundaries only. `/model <id>` queues a switch that takes effect
         // starting the *next* turn (`begin_turn` below); it never rewrites
@@ -1625,7 +1645,6 @@ mod interactive_session {
                             let next_session =
                                 format!("s-{}", rightkit_agent_engine_protocol::uuid_v7());
                             match ensure_root_session(
-                                interactive_context_mode(std::env::args()),
                                 &next_session,
                                 &scope.root,
                                 turn_model.provider_id(),
@@ -1782,7 +1801,7 @@ mod interactive_session {
             let reader = stdin.lock();
             return run_loop(
                 reader,
-                LoopStart {
+                InteractiveLaunch {
                     session_id: &session_id,
                     provider: &provider,
                     initial_model: (!model.is_empty()).then_some(model.as_str()),
@@ -1840,7 +1859,21 @@ mod interactive_session {
             layout_flags.1,
         );
         host.seed_initial_model(&initial_model);
-        if let Some(workspace) = launch.workspace.as_deref().or_else(|| {
+        // A resumed session whose workspace folder is gone does not stop the start: the terminal
+        // opens in this folder and asks (Continue here / Fork here / Cancel). B-folderrgone.
+        let gone_session_folder = if launch.workspace.is_none() {
+            requested_session
+                .as_ref()
+                .and_then(|row| row.workspace.clone())
+                .filter(|path| !path.trim().is_empty() && !std::path::Path::new(path).is_dir())
+        } else {
+            None
+        };
+        if let Some(root) = gone_session_folder.as_ref() {
+            host.queue_startup_picker(crate::tui_host::PickerRequest::FolderGone {
+                root: root.clone(),
+            });
+        } else if let Some(workspace) = launch.workspace.as_deref().or_else(|| {
             requested_session
                 .as_ref()
                 .and_then(|row| row.workspace.as_deref())
@@ -1866,18 +1899,19 @@ mod interactive_session {
                 )
                 .await
             {
-                eprintln!("{error}");
-                return 2;
+                // For a session whose folder is gone the stored row cannot be updated from this folder before the
+                // person has chosen to continue or fork: the card comes first and the start goes on.
+                if gone_session_folder.is_none() {
+                    eprintln!("{error}");
+                    return 2;
+                }
+                tracing::warn!(%error, "route of a session whose folder is gone not applied at launch");
             }
         }
         let attached = crate::daemon::lifecycle_backend::attach_tui_presence("interactive").await;
         if FIRST_RUN_PROVIDER_SCREEN.swap(false, std::sync::atomic::Ordering::SeqCst) {
             // Nothing configured: open the provider setup screen first.
-            *host
-                .picker_request
-                .lock()
-                .unwrap_or_else(|e| e.into_inner()) =
-                Some(crate::tui_host::PickerRequest::Providers);
+            host.queue_startup_picker(crate::tui_host::PickerRequest::Providers);
         }
         if let Some(mode) = launch.permission_mode() {
             host.store_permission_mode(mode);
@@ -1891,8 +1925,6 @@ mod interactive_session {
         // first turn's admission.
         host.spawn_context_warmup();
         if let Some(prompt) = launch.prompt.clone() {
-            // The turn is already spawned; its JoinHandle is detached on purpose
-            // (the TUI drive loop owns turn completion).
             drop(crate::tui_host::TurnHost::spawn_turn(&host, prompt));
         }
         let code = crate::tui_host::drive(host).await;
@@ -1917,8 +1949,11 @@ mod interactive_session {
         // missing connection (no credential at all) needs setup, and setup
         // is the `/providers` screen itself (no separate prompt flow): the
         // TUI opens it at launch via `PickerRequest::Providers`.
+        // A configured `provider-routes.*` row whose key resolves (route keys included,
+        // providers R4) is a working connection too: no setup screen over it.
+        let has_route = !super::configured_catalog_routes(&config).is_empty();
         if first_run_needs_provider_screen(
-            state.has_credential,
+            state.has_credential || has_route,
             super::load_model_selection().is_some(),
         ) {
             FIRST_RUN_PROVIDER_SCREEN.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -1950,6 +1985,189 @@ mod interactive_session {
     /// command selects (registry-canonical names).
     fn permission_mode_for_command(name: &str) -> Option<rightkit_agent_policy::PermissionMode> {
         rightkit_agent_policy::PermissionMode::from_user_name(name.strip_prefix('/')?)
+    }
+
+    /// The parts of a preset that change the provider prefix of a chat: its tool filter and its
+    /// system prompt. A chat keeps one system prompt and one tool set for its whole life (the
+    /// prefix stays cacheable, sessions rule 39), so `/preset` hands these to the next new chat.
+    #[derive(Clone, Default)]
+    struct PresetChatParts {
+        tools: Vec<String>,
+        exclude_tools: Vec<String>,
+        no_mcp: bool,
+        system_prompt: Option<String>,
+    }
+
+    /// Parts waiting for the next new chat.
+    static PENDING_PRESET_PARTS: std::sync::Mutex<Option<PresetChatParts>> =
+        std::sync::Mutex::new(None);
+    /// Parts a chat was created with, by session id.
+    static CHAT_PRESET_PARTS: std::sync::Mutex<Vec<(String, PresetChatParts)>> =
+        std::sync::Mutex::new(Vec::new());
+
+    /// Tie the waiting preset parts (if any) to a chat that was just created.
+    fn bind_pending_preset_parts(session_id: &str) {
+        let taken = PENDING_PRESET_PARTS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        if let Some(parts) = taken {
+            CHAT_PRESET_PARTS
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push((session_id.to_string(), parts));
+        }
+    }
+
+    /// Replace a turn's tool filter and appended prompt with those of the preset its chat was made under.
+    fn apply_chat_preset_parts(session_id: &str, args: &mut super::RunArgs) -> bool {
+        let parts = CHAT_PRESET_PARTS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .find(|(id, _)| id == session_id)
+            .map(|(_, parts)| parts.clone());
+        let Some(parts) = parts else { return false };
+        args.tools = parts.tools;
+        args.exclude_tools = parts.exclude_tools;
+        args.no_mcp = parts.no_mcp;
+        if parts.system_prompt.is_some() {
+            args.append_system_prompt = parts.system_prompt;
+        }
+        true
+    }
+
+    /// Cards raised for the `!{cmd}` commands of a typed prompt, by request id: the answer the
+    /// card gets reaches `resolve_approval`, which hands it to the expansion that is waiting.
+    static INLINE_SHELL_APPROVALS: std::sync::Mutex<
+        Vec<(
+            String,
+            tokio::sync::oneshot::Sender<rightkit_agent_engine_protocol::ReviewDecision>,
+        )>,
+    > = std::sync::Mutex::new(Vec::new());
+    /// The typed prompt the next `spawn_turn` expands (set by the TUI for a prompt the user typed).
+    static STAGED_INLINE_PROMPT: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+    static INLINE_SHELL_CARD_SEQ: std::sync::atomic::AtomicU64 =
+        std::sync::atomic::AtomicU64::new(0);
+
+    fn take_inline_shell_approval(
+        request_id: &str,
+    ) -> Option<tokio::sync::oneshot::Sender<rightkit_agent_engine_protocol::ReviewDecision>> {
+        let mut waiting = INLINE_SHELL_APPROVALS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let at = waiting.iter().position(|(id, _)| id == request_id)?;
+        Some(waiting.remove(at).1)
+    }
+
+    /// Run one `!{cmd}` of a typed prompt under the shell permission policy: `Allow` runs, `Deny`
+    /// refuses, `Ask` raises the usual approval card and waits for the answer. `None` means the
+    /// turn was cancelled while the card was open.
+    async fn run_inline_shell_command(
+        command: &str,
+        mode: rightkit_agent_policy::PermissionMode,
+        trust: rightkit_agent_policy::WorkspaceTrust,
+        workspace: &std::path::Path,
+        events: &std::sync::Mutex<
+            std::collections::VecDeque<rightkit_terminal_ui::transcript::timeline::DaemonEvent>,
+        >,
+        control: &super::RunCancellation,
+    ) -> Option<rightkit_agent_skills::inline_shell::ShellOutcome> {
+        use rightkit_agent_skills::inline_shell::ShellOutcome;
+        let (decision, reason) = crate::inline_shell_runner::verdict(mode, trust, command);
+        match decision {
+            rightkit_agent_policy::PermissionDecision::Deny => {
+                return Some(ShellOutcome::Denied(reason))
+            }
+            rightkit_agent_policy::PermissionDecision::Allow => {}
+            rightkit_agent_policy::PermissionDecision::Ask => {
+                let request_id = format!(
+                    "inline-shell-{}",
+                    INLINE_SHELL_CARD_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                );
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                INLINE_SHELL_APPROVALS
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push((request_id.clone(), tx));
+                if let Ok(mut queue) = events.lock() {
+                    queue.push_back(
+                        rightkit_terminal_ui::transcript::timeline::DaemonEvent::ToolApprovalRequested {
+                            request_id: request_id.clone(),
+                            summary: format!("Inline shell command from your prompt: {command}"),
+                            call_name: "shell".to_string(),
+                            arguments_json: serde_json::json!({ "command": command }).to_string(),
+                            policy_source: None,
+                        },
+                    );
+                }
+                let answer = tokio::select! {
+                    answer = rx => answer.ok(),
+                    _ = control.cancelled() => {
+                        let _ = take_inline_shell_approval(&request_id);
+                        return None;
+                    }
+                };
+                if !answer.is_some_and(|decision| decision.is_approved()) {
+                    return Some(ShellOutcome::Denied("not approved".to_string()));
+                }
+            }
+        }
+        let (workspace, command) = (workspace.to_path_buf(), command.to_string());
+        Some(
+            tokio::task::spawn_blocking(move || {
+                crate::inline_shell_runner::execute_shell(&workspace, &command)
+            })
+            .await
+            .unwrap_or_else(|error| ShellOutcome::Failed(error.to_string())),
+        )
+    }
+
+    /// Replace every `!{cmd}` of a typed prompt with its command's output (see
+    /// `run_inline_shell_command`). A refused or failed command leaves a visible bracketed note.
+    async fn expand_typed_prompt_inline(
+        template: &str,
+        mode: rightkit_agent_policy::PermissionMode,
+        trust: rightkit_agent_policy::WorkspaceTrust,
+        workspace: &std::path::Path,
+        events: &std::sync::Mutex<
+            std::collections::VecDeque<rightkit_terminal_ui::transcript::timeline::DaemonEvent>,
+        >,
+        control: &super::RunCancellation,
+    ) -> Option<String> {
+        use rightkit_agent_skills::inline_shell::ShellOutcome;
+        let mut out = String::with_capacity(template.len());
+        let mut cursor = 0;
+        for marker in rightkit_agent_skills::inline_shell::find_markers(template) {
+            out.push_str(&template[cursor..marker.start]);
+            match run_inline_shell_command(&marker.command, mode, trust, workspace, events, control)
+                .await?
+            {
+                ShellOutcome::Output(text) => {
+                    out.push_str(text.strip_suffix('\n').unwrap_or(&text))
+                }
+                ShellOutcome::Denied(reason) => {
+                    out.push_str(&format!("[command not run: {reason}: {}]", marker.command))
+                }
+                ShellOutcome::Failed(reason) => {
+                    out.push_str(&format!("[command failed: {reason}: {}]", marker.command))
+                }
+            }
+            cursor = marker.end;
+        }
+        out.push_str(&template[cursor..]);
+        Some(out)
+    }
+
+    /// A preset's `permission_mode` text: the slash-command names plus `plan` and the launch-flag spellings.
+    fn preset_permission_mode(text: &str) -> Option<rightkit_agent_policy::PermissionMode> {
+        use rightkit_agent_policy::PermissionMode;
+        match text.trim().to_ascii_lowercase().as_str() {
+            "accept-edits" | "acceptedits" => Some(PermissionMode::AcceptEdits),
+            "auto-safe" | "autosafe" => Some(PermissionMode::AutoSafe),
+            "bypass" => Some(PermissionMode::Bypass),
+            other => PermissionMode::from_user_name(other),
+        }
     }
 
     /// Resolve a launch-time `--model` value against the route catalog:
@@ -2086,6 +2304,35 @@ mod interactive_session {
                     model: route.model.clone(),
                 });
             }
+            // The route exists but declares other models. `run --model` accepts any model id on a
+            // declared route, so the TUI does too (a wrong id surfaces as the provider's own error).
+            if let Some(route) = catalog.iter().find(|route| route.provider == provider) {
+                if !route.selectable {
+                    return Err(format!(
+                        "route '{provider}' is unavailable: {}",
+                        route
+                            .availability_note
+                            .as_deref()
+                            .unwrap_or("no configured credential")
+                    ));
+                }
+                return Ok(ModelSelection {
+                    provider: route.provider.clone(),
+                    model: model.to_string(),
+                });
+            }
+            // A `[provider-routes.<id>]` whose id is a built-in provider's (for example
+            // `claude`, the Claude Code driver) is shadowed by it; say so instead of "unknown".
+            if super::load_current_merged_config()
+                .provider_routes
+                .contains_key(provider)
+            {
+                return Err(format!(
+                    "route '{trimmed}' is not selectable: the id '{provider}' is taken by a built-in \
+                     provider; rename the [provider-routes.{provider}] table (for example \
+                     '{provider}-api') and select '{provider}-api{ROUTE_SELECTION_SEP}{model}'"
+                ));
+            }
             return Err(format!(
                 "unknown route '{trimmed}'; use `/model` to pick from the catalog"
             ));
@@ -2128,33 +2375,6 @@ mod interactive_session {
         ))
     }
 
-    /// Render the shared catalog as a numbered menu. The ONLY model list
-    /// this host ever shows is projected from [`route_catalog`] — typed
-    /// unavailable rows are labelled, never hidden or fabricated.
-    fn format_route_picker(catalog: &[CatalogRoute]) -> String {
-        use std::fmt::Write as _;
-        let mut out =
-            String::from("Pick a route for the next turn — `/model <n>` or `/model <model-id>`:\n");
-        for (i, r) in catalog.iter().enumerate() {
-            let state = r
-                .availability_note
-                .as_deref()
-                .map(|note| format!(" (unavailable: {note})"))
-                .unwrap_or_default();
-            let _ = writeln!(
-                out,
-                "  {}) {} [{}]{state}",
-                i + 1,
-                r.display_name,
-                r.provider,
-            );
-        }
-        if catalog.is_empty() {
-            out.push_str("  (no routes are configured for this install)\n");
-        }
-        out
-    }
-
     /// Render `/help` by iterating COMMAND_REGISTRY filtered to the
     /// interactive surface — CR-24's fourth-surface requirement: any help
     /// text this host renders must be a projection of the one registry, not
@@ -2170,7 +2390,7 @@ mod interactive_session {
         let mut out = String::from("Commands (interactive surface):\n");
         for group in groups {
             for entry in entries_in_group(*group).filter(|e| e.surfaces.interactive) {
-                let _ = write!(out, "  {:<12} {}", entry.name, entry.summary);
+                let _ = write!(out, "  {:<12} {}", entry.name, entry.summary());
                 if !entry.aliases.is_empty() {
                     let _ = write!(out, " (aliases: {})", entry.aliases.join(", "));
                 }
@@ -2187,6 +2407,14 @@ mod interactive_session {
         out
     }
 
+    /// Print host output while pausing the TUI's raw mode. Raw mode turns
+    /// `'\n'` into a bare line-feed (stair-stepped output) and suppresses
+    /// echo, so direct prints mid-session garble unless raw mode is lifted
+    /// around them. Command/help/picker output now travels through
+    /// `EngineTurnHost::enqueue_text` (the bounded host-event queue drained
+    /// by `poll_timeline_events`) instead — this helper's only remaining
+    /// consumer was removed with the 1C renderer-ownership work.
+    ///
     /// Bridges [`crate::tui_host::TurnHost`] to the concrete engine: owns the
     /// per-turn model-switch bookkeeping ([`rightkit_agent_orchestration::coding::SessionTurnModel`])
     /// behind a mutex so `spawn_turn`/`execute_command` can take `&self` (the
@@ -2236,9 +2464,8 @@ mod interactive_session {
         /// timeline. Kept apart from viewed-agent cursors: one is semantic
         /// session state, one is a display-only agent excerpt.
         timeline_cursors: std::sync::Mutex<std::collections::HashMap<String, i64>>,
-        /// Same `--context-mode` resolution `turn_args` uses, cached once so
-        /// readiness gating and per-turn args agree on the same mode.
-        context_mode: super::ContextMode,
+        /// Failure backoff for the service-host branch of `poll_timeline_events`.
+        timeline_poll_backoff: std::sync::Mutex<TimelinePollBackoff>,
         /// KRN defect #4: real InlineHost startup/context readiness, shared
         /// between the background warm-up kicked off at TUI start and every
         /// turn's pre-admission wait. `drive` renders it via `readiness()`.
@@ -2278,6 +2505,11 @@ mod interactive_session {
         /// `/repo` command; the drive loop consumes it via
         /// `take_picker_request`.
         picker_request: std::sync::Mutex<Option<crate::tui_host::PickerRequest>>,
+        /// R41: the startup gates (provider screen, model picker, Home),
+        /// kept in priority order (providers, model, Home). The drive loop
+        /// takes them one at a time through `take_startup_picker`, so the
+        /// gates that do not win the first slot are queued, never dropped.
+        startup_pickers: std::sync::Mutex<Vec<crate::tui_host::PickerRequest>>,
         /// Command output queued for the renderer (`poll_timeline_events`
         /// drains it into `DaemonEvent::System` transcript entries). This is
         /// the render-owner path for command/help/picker text: nothing is
@@ -2292,7 +2524,7 @@ mod interactive_session {
         /// `SessionStarted` event, keyed `"{provider_id}:{session_id}"` so a
         /// later turn on the same session resumes with `--resume` (Claude)
         /// or `--conversation` (agy). In-memory only — a restarted TUI opens
-        /// a fresh vendor conversation; the RightKit transcript remains the
+        /// a fresh vendor conversation; the host transcript remains the
         /// durable continuity surface.
         vendor_conversations:
             std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
@@ -2316,7 +2548,7 @@ mod interactive_session {
         ) -> Result<std::sync::Arc<rightkit_agent_coding_tools::background_shell::BgShell>, String>
         {
             let Some(super::SessionExecutionHost::Inline(host)) =
-                super::SessionExecutionHost::select_if_ready(self.context_mode)
+                super::SessionExecutionHost::select_if_ready()
             else {
                 return Err("Interactive PTY control is unavailable for this host".into());
             };
@@ -2406,7 +2638,7 @@ mod interactive_session {
                 live_pending: std::sync::Mutex::new(Vec::new()),
                 viewed_cursors: std::sync::Mutex::new(std::collections::HashMap::new()),
                 timeline_cursors: std::sync::Mutex::new(std::collections::HashMap::new()),
-                context_mode: interactive_context_mode(std::env::args()),
+                timeline_poll_backoff: std::sync::Mutex::new(TimelinePollBackoff::default()),
                 readiness_tx,
                 selected_repository: std::sync::Mutex::new(selected_repository),
                 launch_workspace: std::env::current_dir()
@@ -2425,8 +2657,12 @@ mod interactive_session {
                 // D14: start in the launch directory. Only a launch outside any
                 // project (home folder or a filesystem root) opens project/chat
                 // Home first; all projects stay one Ctrl+B / `/projects` away.
-                picker_request: std::sync::Mutex::new(
-                    launch_needs_project_home().then_some(crate::tui_host::PickerRequest::Home),
+                picker_request: std::sync::Mutex::new(None),
+                startup_pickers: std::sync::Mutex::new(
+                    launch_needs_project_home()
+                        .then_some(crate::tui_host::PickerRequest::Home)
+                        .into_iter()
+                        .collect(),
                 ),
                 host_events: std::sync::Arc::new(std::sync::Mutex::new(
                     std::collections::VecDeque::new(),
@@ -2447,6 +2683,31 @@ mod interactive_session {
                 .unwrap_or_else(|e| e.into_inner())
         }
 
+        /// Queue a startup gate. Priority when several are due: the provider
+        /// screen, then the model picker, then Home. A gate already queued is
+        /// not queued twice.
+        fn queue_startup_picker(&self, request: crate::tui_host::PickerRequest) {
+            use crate::tui_host::PickerRequest;
+            let rank = |request: &PickerRequest| match request {
+                PickerRequest::Providers => 0,
+                PickerRequest::Model => 1,
+                PickerRequest::Home => 2,
+                _ => 3,
+            };
+            let mut queue = self
+                .startup_pickers
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if queue.contains(&request) {
+                return;
+            }
+            let at = queue
+                .iter()
+                .position(|queued| rank(queued) > rank(&request))
+                .unwrap_or(queue.len());
+            queue.insert(at, request);
+        }
+
         fn store_permission_mode(&self, mode: rightkit_agent_policy::PermissionMode) {
             *self
                 .permission_mode
@@ -2457,9 +2718,11 @@ mod interactive_session {
         /// Queue a renderer-owned transcript event. Bounded: once the queue
         /// hits the cap the oldest entries are dropped — they are display
         /// copies of command output, and a wedged poll must not let this
-        /// grow without bound.
+        /// grow without bound. One command's output is enqueued a line per
+        /// event with no drain in between, so the cap sits far above any
+        /// single report (git diff output alone is capped at 100 KB).
         fn push_host_event(&self, event: rightkit_terminal_ui::transcript::timeline::DaemonEvent) {
-            const HOST_EVENT_CAP: usize = 512;
+            const HOST_EVENT_CAP: usize = 65_536;
             let mut queue = self.host_events.lock().unwrap();
             if queue.len() >= HOST_EVENT_CAP {
                 queue.pop_front();
@@ -2475,11 +2738,7 @@ mod interactive_session {
         fn seed_initial_model(&self, model: &str) {
             let model = model.trim();
             if model.is_empty() {
-                *self
-                    .picker_request
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner()) =
-                    Some(crate::tui_host::PickerRequest::Model);
+                self.queue_startup_picker(crate::tui_host::PickerRequest::Model);
                 return;
             }
             *self.turn_model.lock().unwrap_or_else(|e| e.into_inner()) =
@@ -2539,13 +2798,46 @@ mod interactive_session {
                 .get(&active)
                 .cloned()
                 .filter(|root| is_workspace_candidate(std::path::Path::new(root)));
-            turn_workspace(self.context_mode, recorded, self.launch_workspace.clone())
+            turn_workspace(recorded, self.launch_workspace.clone())
         }
 
         fn set_initial_workspace(&self, workspace: &str) -> Result<(), String> {
             let path = std::path::PathBuf::from(workspace);
-            let scope = resolve_repository(&path)?
-                .ok_or_else(|| format!("workspace {workspace} cannot be opened as a repository"))?;
+            let scope = match resolve_repository(&path) {
+                Ok(Some(scope)) => scope,
+                // D18: opening a chat (`--resume`, `--continue`, `--workspace`) never depends on the
+                // folder's Membrane registry entry. A folder with none, or a registry that cannot be
+                // read, runs the chat there visibly degraded ("context off" with the reason), exactly
+                // as a launch in such a folder does; only a folder that is no workspace is refused.
+                unscoped => {
+                    let reason = match unscoped {
+                        Err(error) => format!("the repository registry is unavailable: {error}"),
+                        _ => "this folder has no Membrane registry entry".to_string(),
+                    };
+                    if !is_workspace_candidate(&path) {
+                        return Err(format!("workspace {workspace} cannot be opened ({reason})"));
+                    }
+                    let root = path
+                        .canonicalize()
+                        .unwrap_or(path)
+                        .to_string_lossy()
+                        .into_owned();
+                    self.session_roots
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .insert(self.session_id.clone(), root.clone());
+                    *self
+                        .repository_notice
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner()) = Some(reason.clone());
+                    self.push_host_event(rightkit_terminal_ui::transcript::timeline::DaemonEvent::System {
+                        text: format!(
+                            "! context off \u{b7} {reason} \u{b7} this chat runs in {root} without memory or a repository map"
+                        ),
+                    });
+                    return Ok(());
+                }
+            };
             *self
                 .selected_repository
                 .lock()
@@ -2718,8 +3010,9 @@ mod interactive_session {
             // in here rather than left for spawn-time consumption, where it
             // could diverge from the row that was just persisted.
             let (provider, model, effort) = self.next_repository_route();
+            // A preset applied since the last new chat gives this chat its tools and prompt.
+            bind_pending_preset_parts(&next_session);
             ensure_root_session(
-                self.context_mode,
                 &next_session,
                 &root,
                 &provider,
@@ -2768,6 +3061,263 @@ mod interactive_session {
 
         /// The session id every session-scoped operation targets: the active
         /// session when set, else this host's launch session.
+        /// `/preset [name]`. Bare lists the presets of the user and (trusted) project. A name
+        /// applies the preset: model and effort go through the same route path as the pickers,
+        /// the permission mode through the one Shift+Tab sets, and the tool filter and prompt wait
+        /// for the next new chat (see `PresetChatParts`).
+        async fn execute_preset_command(&self, rest: &str) {
+            use crate::tui_host::TurnHost as _;
+            let workspace = self
+                .active_workspace_root()
+                .map(std::path::PathBuf::from)
+                .or_else(|| std::env::current_dir().ok())
+                .unwrap_or_default();
+            let presets = match rightkit_agent_config::presets::load_presets(&workspace) {
+                Ok(presets) => presets,
+                Err(error) => {
+                    self.enqueue_text(&error);
+                    return;
+                }
+            };
+            let name = rest.trim();
+            if name.is_empty() {
+                if presets.is_empty() {
+                    self.enqueue_text(&format!(
+                        "No presets. Define [preset.<name>] in presets.toml in the {app} state folder, or in {state}/presets.toml of a trusted workspace.",
+                        app = rightkit_agent_config::app_name(),
+                        state = rightkit_agent_config::state_dir_name()
+                    ));
+                    return;
+                }
+                let mut text = String::from("Presets:");
+                for (key, preset) in &presets {
+                    let mut parts = Vec::new();
+                    if let Some(model) = preset.model.as_deref() {
+                        parts.push(format!("model {model}"));
+                    }
+                    if let Some(effort) = preset.effort.as_deref() {
+                        parts.push(format!("effort {effort}"));
+                    }
+                    if let Some(mode) = preset.permission_mode.as_deref() {
+                        parts.push(format!("mode {mode}"));
+                    }
+                    if !preset.tools.is_empty() {
+                        parts.push(format!("tools {}", preset.tools.join(",")));
+                    }
+                    if preset.system_prompt.is_some() {
+                        parts.push("prompt".to_string());
+                    }
+                    text.push_str(&format!("\n  {key}  {}", parts.join(" · ")));
+                }
+                text.push_str("\nApply one with /preset <name>.");
+                self.enqueue_text(&text);
+                return;
+            }
+            let preset = match rightkit_agent_config::presets::resolve_preset(&presets, name) {
+                Ok(preset) => preset,
+                Err(error) => {
+                    self.enqueue_text(&error);
+                    return;
+                }
+            };
+            // Check everything before changing anything.
+            let mode = match preset.permission_mode.as_deref() {
+                Some(text) => match preset_permission_mode(text) {
+                    Some(mode) => Some(mode),
+                    None => {
+                        self.enqueue_text(&format!(
+                            "Preset {name} names an unknown permission mode `{text}`."
+                        ));
+                        return;
+                    }
+                },
+                None => None,
+            };
+            if let Err(error) = super::resolve_cli_tool_filters_with_mcp(
+                None,
+                preset.tools.clone(),
+                preset.exclude_tools.clone(),
+                preset.no_mcp,
+            ) {
+                self.enqueue_text(&format!("Preset {name}: {error}"));
+                return;
+            }
+            let mut applied: Vec<String> = Vec::new();
+            if let Some(model) = preset.model.as_deref() {
+                let catalog = self.current_route_catalog().await;
+                let requested = match preset.provider.as_deref() {
+                    Some(provider)
+                        if !model.contains(ROUTE_SELECTION_SEP) && !model.contains('/') =>
+                    {
+                        format!("{provider}{ROUTE_SELECTION_SEP}{model}")
+                    }
+                    _ => model.to_string(),
+                };
+                let selection = match resolve_launch_selection(&catalog, &requested) {
+                    Ok(selection) => selection,
+                    Err(reason) => {
+                        self.enqueue_text(&format!("Preset {name}: {reason}"));
+                        return;
+                    }
+                };
+                match self
+                    .select_model(&format!(
+                        "{}{ROUTE_SELECTION_SEP}{}",
+                        selection.provider, selection.model
+                    ))
+                    .await
+                {
+                    Ok(()) => applied.push(format!("model {}", selection.model)),
+                    Err(reason) => {
+                        self.enqueue_text(&format!("Preset {name}: {reason}"));
+                        return;
+                    }
+                }
+            }
+            if let Some(effort) = preset.effort.as_deref() {
+                match self.select_effort(effort).await {
+                    Ok(()) => applied.push(format!("effort {effort}")),
+                    Err(reason) => {
+                        self.enqueue_text(&format!("Preset {name}: effort not applied: {reason}"))
+                    }
+                }
+            }
+            if let Some(mode) = mode {
+                self.store_permission_mode(mode);
+                applied.push(format!("mode {}", mode.display_label()));
+            }
+            let parts = PresetChatParts {
+                tools: preset.tools.clone(),
+                exclude_tools: preset.exclude_tools.clone(),
+                no_mcp: preset.no_mcp,
+                system_prompt: preset.system_prompt.clone(),
+            };
+            let has_parts = !parts.tools.is_empty()
+                || !parts.exclude_tools.is_empty()
+                || parts.no_mcp
+                || parts.system_prompt.is_some();
+            *PENDING_PRESET_PARTS
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = has_parts.then_some(parts);
+            let mut text = if applied.is_empty() {
+                format!("Preset {name} applied.")
+            } else {
+                format!(
+                    "Preset {name} applied: {} (from the next turn).",
+                    applied.join(", ")
+                )
+            };
+            if has_parts {
+                text.push_str(
+                    "\nTools and prompt of this preset apply from the next new chat (/new).",
+                );
+            }
+            self.enqueue_text(&text);
+        }
+
+        /// `/side <question>`: ask on a throwaway fork of this chat. The fork copies the chat, runs
+        /// the one question as an ephemeral, unattended turn (the run deletes its session after the
+        /// terminal event), and the answer is queued for this view. This chat is never written to.
+        async fn execute_side_command(&self, rest: &str) {
+            let question = rest.trim();
+            if question.is_empty() {
+                self.enqueue_text("usage: /side <question>");
+                return;
+            }
+            let session_id = self.current_session_id();
+            let (provider, model) = {
+                let turn_model = self.turn_model.lock().unwrap_or_else(|e| e.into_inner());
+                (
+                    turn_model.provider_id().to_string(),
+                    turn_model.model_id().to_string(),
+                )
+            };
+            if rightkit_agents::driver_host::vendor_cli::VendorCli::from_provider_id(&provider)
+                .is_some()
+            {
+                self.enqueue_text("/side is not available on a vendor CLI route.");
+                return;
+            }
+            let Some(workspace) = self.active_workspace_root() else {
+                self.enqueue_text("Select a workspace before /side.");
+                return;
+            };
+            let effort = self
+                .committed_route_state
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .effort
+                .clone();
+            let host = match super::SessionExecutionHost::select().await {
+                Ok(host) => host,
+                Err(reason) => {
+                    self.enqueue_text(&format!("/side: {reason}"));
+                    return;
+                }
+            };
+            let fork_id = match host
+                .session_action("fork", &session_id, Some("Side question"))
+                .await
+            {
+                Ok(value) => match value.get("id").and_then(serde_json::Value::as_str) {
+                    Some(id) => id.to_string(),
+                    None => {
+                        self.enqueue_text("/side: the fork has no id.");
+                        return;
+                    }
+                },
+                Err(reason) => {
+                    self.enqueue_text(&format!(
+                        "/side needs a saved chat to fork (send a message first): {reason}"
+                    ));
+                    return;
+                }
+            };
+            self.enqueue_text("Side question sent on a fork. The answer shows here and is not added to this chat.");
+            let events = std::sync::Arc::clone(&self.host_events);
+            let prompt = format!(
+                "Side question, asked on a throwaway copy of this chat. Answer it briefly from what is already known. Do not change files or run commands.\n\n{question}"
+            );
+            tokio::spawn(async move {
+                let answer_file = std::env::temp_dir().join(format!(
+                    "{}-side-{fork_id}.txt",
+                    crate::host_identity::app()
+                ));
+                let mut args = build_turn_args(
+                    prompt,
+                    &fork_id,
+                    &provider,
+                    (!model.is_empty()).then_some(model.as_str()),
+                    Some(workspace),
+                    effort,
+                    true,
+                );
+                args.permission_mode = Some(rightkit_agent_policy::PermissionMode::Ask);
+                args.ephemeral = true;
+                args.unattended = true;
+                args.output_last_message = Some(answer_file.to_string_lossy().into_owned());
+                let code = super::run_session(args).await;
+                let answer = std::fs::read_to_string(&answer_file).unwrap_or_default();
+                let _ = std::fs::remove_file(&answer_file);
+                // The run deletes its session after the terminal event; a failed run may not have.
+                let _ = host.session_action("delete", &fork_id, None).await;
+                let text = if answer.trim().is_empty() {
+                    format!("Side answer: none (the side turn ended with exit code {code}).")
+                } else {
+                    format!("Side answer (not added to this chat):\n{}", answer.trim())
+                };
+                if let Ok(mut queue) = events.lock() {
+                    for line in text.lines() {
+                        queue.push_back(
+                            rightkit_terminal_ui::transcript::timeline::DaemonEvent::System {
+                                text: line.to_string(),
+                            },
+                        );
+                    }
+                }
+            });
+        }
+
         fn current_session_id(&self) -> String {
             let id = self
                 .active_session_id
@@ -2939,12 +3489,34 @@ mod interactive_session {
                 *self.pending_route.lock().unwrap_or_else(|e| e.into_inner()) = None;
                 return Ok(());
             }
-            let has_repo = self
+            let session_id = self.current_session_id();
+            let selected_root = self
                 .selected_repository
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .is_some();
-            if !has_repo {
+                .as_ref()
+                .map(|scope| scope.root.clone());
+            // With no selected repository the pick can only be parked for the
+            // next admission, unless the chat already runs: then it goes to the
+            // running session like any other pick, or the next request would
+            // still use the route the chat was created with.
+            let host = match &selected_root {
+                Some(_) => Some(super::SessionExecutionHost::select().await?),
+                None => match super::SessionExecutionHost::for_session_ops().await {
+                    Ok(host)
+                        if host
+                            .session_snapshot(&session_id)
+                            .await
+                            .ok()
+                            .flatten()
+                            .is_some() =>
+                    {
+                        Some(host)
+                    }
+                    _ => None,
+                },
+            };
+            let Some(host) = host else {
                 let mut pending = self.pending_route.lock().unwrap_or_else(|e| e.into_inner());
                 *pending = Some(merge_pending_route(
                     pending.take(),
@@ -2953,27 +3525,19 @@ mod interactive_session {
                     effort_id.map(str::to_string),
                 ));
                 return Ok(());
-            }
-            let session_id = self.current_session_id();
-            let workspace_root = self
-                .selected_repository
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .as_ref()
-                .map(|scope| scope.root.clone())
-                .ok_or_else(|| "no repository selected".to_string())?;
-            let host = super::SessionExecutionHost::select(self.context_mode).await?;
+            };
             // Ensure the canonical root session exists before patching it —
             // a fresh TUI session has no durable row until first admission.
-            ensure_root_session(
-                self.context_mode,
-                &session_id,
-                &workspace_root,
-                provider_id.unwrap_or(""),
-                Some(model_id),
-                effort_id.map(str::to_string),
-            )
-            .await?;
+            if let Some(workspace_root) = &selected_root {
+                ensure_root_session(
+                    &session_id,
+                    workspace_root,
+                    provider_id.unwrap_or(""),
+                    Some(model_id),
+                    effort_id.map(str::to_string),
+                )
+                .await?;
+            }
             let snapshot = host
                 .update_route(
                     &session_id,
@@ -2981,7 +3545,15 @@ mod interactive_session {
                     provider_id.filter(|p| !p.is_empty()),
                     effort_id,
                 )
-                .await?;
+                .await
+                .map_err(|error| {
+                    if error.contains("409") {
+                        "The chat is still answering. Pick again when the reply has finished."
+                            .to_string()
+                    } else {
+                        error
+                    }
+                })?;
             // Local state moves only AFTER the committed response landed.
             {
                 let mut committed = self
@@ -3054,9 +3626,8 @@ mod interactive_session {
                 return;
             }
             let readiness_tx = self.readiness_tx.clone();
-            let context_mode = self.context_mode;
             tokio::spawn(async move {
-                let _ = ensure_inline_context_ready(&readiness_tx, context_mode).await;
+                let _ = ensure_inline_context_ready(&readiness_tx).await;
             });
         }
 
@@ -3170,6 +3741,82 @@ mod interactive_session {
             .unwrap_or_else(|| "active".into())
     }
 
+    /// Failure backoff for the service-host timeline poll: 200 ms doubling to
+    /// 5 s with +/- 25 percent jitter, so daemon discovery runs at most once
+    /// per window instead of once per tick.
+    #[derive(Default)]
+    struct TimelinePollBackoff {
+        failures: u32,
+        not_before: Option<std::time::Instant>,
+    }
+
+    impl TimelinePollBackoff {
+        fn note_failure(&mut self) {
+            self.failures = self.failures.saturating_add(1);
+            let exponent = (self.failures - 1).min(5);
+            let base_ms = (200u64 << exponent).min(5_000);
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |duration| duration.subsec_nanos());
+            // Per-mille offset in -250..=250.
+            let offset = i64::from(nanos % 501) - 250;
+            let delay_ms = ((base_ms as i64) * (1000 + offset) / 1000).max(0) as u64;
+            self.not_before =
+                Some(std::time::Instant::now() + std::time::Duration::from_millis(delay_ms));
+        }
+
+        fn note_success(&mut self) {
+            self.failures = 0;
+            self.not_before = None;
+        }
+
+        fn blocked(&self) -> bool {
+            self.not_before
+                .is_some_and(|not_before| std::time::Instant::now() < not_before)
+        }
+    }
+
+    /// Run one slash command through the same dispatch as
+    /// `TurnHost::execute_command` and return its output only on success.
+    /// Nothing is printed.
+    async fn engine_host_slash_output(host: &EngineTurnHost, input: &str) -> Option<String> {
+        let active: Option<String> = Some({
+            let id = host
+                .active_session_id
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if id.is_empty() {
+                host.session_id.clone()
+            } else {
+                id.clone()
+            }
+        });
+        let result = if crate::main_runtime::service_host_explicitly_selected() {
+            match host.daemon_client().await {
+                Ok(client) => client.execute_slash(input, active.as_deref()).await,
+                Err(reason) => Err(reason),
+            }
+        } else {
+            match super::SessionExecutionHost::select().await {
+                Ok(selected) => selected.execute_command(input, active.as_deref()).await,
+                Err(reason) => Err(reason),
+            }
+        };
+        match result {
+            Ok(result) => {
+                if result.get("success").and_then(serde_json::Value::as_bool) == Some(true) {
+                    result
+                        .get("output")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_string)
+                } else {
+                    None
+                }
+            }
+            Err(_) => None,
+        }
+    }
+
     impl crate::tui_host::TurnHost for EngineTurnHost {
         async fn running_work(
             &self,
@@ -3251,7 +3898,7 @@ mod interactive_session {
                 return rows;
             }
             let Some(super::SessionExecutionHost::Inline(host)) =
-                super::SessionExecutionHost::select_if_ready(self.context_mode)
+                super::SessionExecutionHost::select_if_ready()
             else {
                 return Vec::new();
             };
@@ -3355,7 +4002,7 @@ mod interactive_session {
                 };
             }
             let Some(super::SessionExecutionHost::Inline(host)) =
-                super::SessionExecutionHost::select_if_ready(self.context_mode)
+                super::SessionExecutionHost::select_if_ready()
             else {
                 return Err("Live process control is unavailable for this host".into());
             };
@@ -3466,7 +4113,7 @@ mod interactive_session {
                 return self.daemon_client().await?.execution_process_logs(id).await;
             }
             let Some(super::SessionExecutionHost::Inline(host)) =
-                super::SessionExecutionHost::select_if_ready(self.context_mode)
+                super::SessionExecutionHost::select_if_ready()
             else {
                 return Err("Live shell output is unavailable for this host".into());
             };
@@ -3608,10 +4255,11 @@ mod interactive_session {
             // settle check; the typed refusal renders in the transcript.
             let workspace = self.active_workspace_root();
             let Some(workspace) = workspace else {
-                self.enqueue_text(
+                self.enqueue_text(&format!(
                     "This folder can't be opened as a workspace (home or drive root). \
-                     Launch RightKit inside a project folder, or run `/repo <path>`.",
-                );
+                     Launch {app} inside a project folder, or run `/repo <path>`.",
+                    app = rightkit_agent_config::app_name()
+                ));
                 return tokio::spawn(async move { 0 });
             };
             if self.no_model_selected() {
@@ -3641,6 +4289,13 @@ mod interactive_session {
                 }
                 let control = super::RunCancellation::new();
                 *previous = Some(control.clone());
+                // Lower bound for `/diff turn`: receipts captured from here on.
+                // Set only once the turn is admitted, so a rejected spawn never
+                // hides the running turn's receipts.
+                *LAST_TURN_START
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner()) =
+                    Some(rightkit_agent_engine_protocol::now_iso());
                 control
             };
             let session_id = {
@@ -3729,17 +4384,19 @@ mod interactive_session {
                 let conversations = std::sync::Arc::clone(&self.vendor_conversations);
                 let permission_mode = self.current_permission_mode();
                 return tokio::spawn(async move {
-                    let code = super::run_vendor_turn(super::VendorTurnRequest {
-                        kind: vendor_kind,
-                        model: model_for_turn,
-                        workspace,
-                        prompt,
-                        session_id,
-                        permission_mode,
+                    let code = super::run_vendor_turn(
+                        vendor_kind,
+                        super::VendorTurn {
+                            model: model_for_turn,
+                            workspace,
+                            prompt,
+                            session_id,
+                            permission_mode,
+                        },
                         events,
                         conversations,
-                        control: control.clone(),
-                    })
+                        control.clone(),
+                    )
                     .await;
                     control.settled();
                     code
@@ -3781,6 +4438,7 @@ mod interactive_session {
                 true,
             );
             args.permission_mode = Some(self.current_permission_mode());
+            let _ = apply_chat_preset_parts(&session_id, &mut args);
             // #132: a custom command's `allowed-tools` / `model` apply to its own turn only.
             {
                 let mut pending = self
@@ -3803,11 +4461,41 @@ mod interactive_session {
                 &args.prompt,
                 args.workspace.as_deref().map(std::path::Path::new),
             );
+            // A typed prompt with `!{cmd}` markers is expanded inside the turn task, so a card the
+            // expansion raises can be answered while the loop keeps running.
+            let inline_prompt = {
+                // Taken whether or not it matches, so a stale staging never outlives its turn.
+                let staged = STAGED_INLINE_PROMPT
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .take();
+                staged.filter(|text| args.prompt.contains(text))
+            };
+            let inline_mode = self.current_permission_mode();
+            let inline_workspace = args.workspace.clone().unwrap_or_default();
             let readiness_tx = self.readiness_tx.clone();
-            let context_mode = self.context_mode;
             let wait_control = control.clone();
             let failure_events = std::sync::Arc::clone(&self.host_events);
             tokio::spawn(async move {
+                if let Some(typed) = inline_prompt {
+                    let trust = crate::main_runtime::workspace_trust_for(&inline_workspace);
+                    match expand_typed_prompt_inline(
+                        &typed,
+                        inline_mode,
+                        trust,
+                        std::path::Path::new(&inline_workspace),
+                        &failure_events,
+                        &wait_control,
+                    )
+                    .await
+                    {
+                        Some(expanded) => args.prompt = args.prompt.replacen(&typed, &expanded, 1),
+                        None => {
+                            wait_control.settled();
+                            return 0;
+                        }
+                    }
+                }
                 // KRN defect #4: await REAL context readiness before this
                 // turn is admitted, instead of blocking the first message
                 // on a synchronous connect inside admission. Cancellable:
@@ -3818,7 +4506,7 @@ mod interactive_session {
                 // an InlineHost at all.
                 if !crate::main_runtime::service_host_explicitly_selected() {
                     tokio::select! {
-                        result = ensure_inline_context_ready(&readiness_tx, context_mode) => {
+                        result = ensure_inline_context_ready(&readiness_tx) => {
                             if let Err(error) = result {
                                 tracing::warn!("{error}");
                                 // Never fail silently: the turn is refused
@@ -3868,6 +4556,11 @@ mod interactive_session {
             tool_call_id: &str,
             decision: rightkit_agent_engine_protocol::ReviewDecision,
         ) -> Result<(), String> {
+            // A card raised for an inline `!{cmd}` of a typed prompt: the expansion is waiting on it.
+            if let Some(waiting) = take_inline_shell_approval(tool_call_id) {
+                let _ = waiting.send(decision);
+                return Ok(());
+            }
             let control = self
                 .turn_cancellation
                 .lock()
@@ -3897,7 +4590,7 @@ mod interactive_session {
             // The TUI names the view's session "local" until the turn binds a
             // real one; resolve it to the active turn's session like approvals.
             let session_id = self.resolve_turn_session(session_id);
-            let host = super::SessionExecutionHost::select(self.context_mode).await?;
+            let host = super::SessionExecutionHost::select().await?;
             host.resolve_credential_request(&session_id, request_id, action, secret)
                 .await
         }
@@ -3907,7 +4600,7 @@ mod interactive_session {
             session_id: &str,
         ) -> Result<Vec<crate::tui_host::PermissionRuleView>, String> {
             let session_id = self.resolve_turn_session(session_id);
-            let host = super::SessionExecutionHost::select(self.context_mode).await?;
+            let host = super::SessionExecutionHost::select().await?;
             Ok(host
                 .permission_rules(&session_id)
                 .await?
@@ -3923,7 +4616,7 @@ mod interactive_session {
             workspace_root: &str,
         ) -> Result<(), String> {
             let session_id = self.resolve_turn_session(session_id);
-            let host = super::SessionExecutionHost::select(self.context_mode).await?;
+            let host = super::SessionExecutionHost::select().await?;
             host.install_permission_rule(&session_id, pattern, workspace_root)
                 .await
         }
@@ -3936,7 +4629,7 @@ mod interactive_session {
             content: Option<serde_json::Value>,
         ) -> Result<(), String> {
             let session_id = self.resolve_turn_session(session_id);
-            let host = super::SessionExecutionHost::select(self.context_mode).await?;
+            let host = super::SessionExecutionHost::select().await?;
             host.resolve_mcp_elicitation(&session_id, request_id, action, content)
                 .await
         }
@@ -3967,6 +4660,46 @@ mod interactive_session {
             host.answer_question(session_id, question_id, answers).await
         }
 
+        async fn decline_open_interactions_as_detached(
+            &self,
+            approval_ids: Vec<(String, String)>,
+            question_ids: Vec<String>,
+            plan_ids: Vec<String>,
+        ) {
+            let control = self
+                .turn_cancellation
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .clone();
+            let Some((host, session_id)) = control.as_ref().and_then(|control| control.host.get())
+            else {
+                return;
+            };
+            // A resolve error means the engine already closed the card.
+            for (_, call_id) in approval_ids {
+                let _ = host
+                    .resolve_approval_body(
+                        session_id,
+                        serde_json::json!({
+                            "toolCallId": call_id, "approved": false, "reason": "detached",
+                        }),
+                    )
+                    .await;
+            }
+            for question_id in question_ids {
+                let _ = host
+                    .answer_question(
+                        session_id,
+                        &question_id,
+                        serde_json::json!({"declined": true, "reason": "detached"}),
+                    )
+                    .await;
+            }
+            for plan_id in plan_ids {
+                let _ = host.resolve_plan(session_id, &plan_id, false).await;
+            }
+        }
+
         async fn resolve_plan(&self, plan_id: &str, approved: bool) -> Result<(), String> {
             let control = self
                 .turn_cancellation
@@ -3976,6 +4709,23 @@ mod interactive_session {
                 .ok_or("No active turn owns this plan")?;
             let (host, session_id) = control.host.get().ok_or("Turn host is not ready")?;
             host.resolve_plan(session_id, plan_id, approved).await
+        }
+
+        async fn resolve_plan_with_context(
+            &self,
+            plan_id: &str,
+            approved: bool,
+            clear_context: bool,
+        ) -> Result<(), String> {
+            let control = self
+                .turn_cancellation
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .clone()
+                .ok_or("No active turn owns this plan")?;
+            let (host, session_id) = control.host.get().ok_or("Turn host is not ready")?;
+            host.resolve_plan_with_context(session_id, plan_id, approved, clear_context)
+                .await
         }
 
         fn resolve_command(&self, input: &str) -> Option<String> {
@@ -3997,6 +4747,36 @@ mod interactive_session {
                 return None;
             }
             let head = trimmed.split_whitespace().next()?;
+            // Issue 440: a built-in whose work is a model turn (`/commit`) returns
+            // `submit_message` from the shared command table, the same result the
+            // daemon gives desktop and web. Submitting it here sends it down the
+            // typed-input path, so the turn owns the human event stream and its
+            // `git commit` approval reaches the user. While a turn or approval is
+            // unsettled it is left to the normal slash path, which refuses
+            // commands that are not valid mid-turn.
+            let busy = self
+                .turn_cancellation
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+                .map(|control| control.require_settled().is_err())
+                .unwrap_or(false);
+            if !busy {
+                use rightkit_agent_skills::CommandAction;
+                let result =
+                    rightkit_agent_skills::SlashCommand::parse(trimmed).and_then(|command| {
+                        rightkit_agent_skills::CommandRegistry::new()
+                            .execute(&command.name, &command.args)
+                    });
+                if let Some(result) = result.filter(|result| result.success) {
+                    if let CommandAction::SubmitMessage(prompt) = result.action {
+                        if !prompt.trim().is_empty() {
+                            self.enqueue_text(&result.output);
+                            return Some(prompt);
+                        }
+                    }
+                }
+            }
             // A built-in (or login/logout) always wins over a custom file.
             if crate::tui_host::TurnHost::resolve_command(self, head).is_some() {
                 return None;
@@ -4128,6 +4908,29 @@ mod interactive_session {
                 }
                 return false;
             }
+            if name == "/statusline" {
+                let value = rest.trim();
+                if value.is_empty() {
+                    let settings = self.tui_settings();
+                    let shown = if settings.statusline.is_empty()
+                        || settings.statusline.iter().any(|item| item == "all")
+                    {
+                        "all".to_string()
+                    } else {
+                        settings.statusline.join(", ")
+                    };
+                    self.enqueue_text(&format!(
+                        "Footer items: {}\nShown now: {shown}\nChoose with /statusline cwd,model,ctx or /statusline all.",
+                        crate::api::STATUSLINE_ITEMS.join(", ")
+                    ));
+                } else {
+                    match self.set_tui_setting("statusline", value).await {
+                        Ok(line) => self.enqueue_text(&line),
+                        Err(reason) => self.enqueue_text(&reason),
+                    }
+                }
+                return false;
+            }
             if name == "/trust" {
                 match crate::tui_host::trust_active_workspace(self).await {
                     Ok(line) => self.enqueue_text(&line),
@@ -4143,7 +4946,7 @@ mod interactive_session {
                 return false;
             }
             if name == "/diff" {
-                match self.workspace_diff().await {
+                match self.workspace_diff(false).await {
                     Ok(diff) => self.enqueue_text(&diff),
                     Err(reason) => self.enqueue_text(&reason),
                 }
@@ -4161,6 +4964,37 @@ mod interactive_session {
                     "Permission mode: {} (applies from the next turn).",
                     mode.display_label()
                 ));
+                return false;
+            }
+            if name == "/permissions" {
+                // `/permissions <plan|ask|accept-edits|auto-safe>` sets the mode the way `/plan`, `/ask`, `/auto`
+                // do; a bypass spelling is refused here and never reaches the daemon.
+                if let Some(word) = rest.split_whitespace().next() {
+                    match crate::api_permissions::permissions_command_mode(word) {
+                        Some(Ok(mode)) => {
+                            self.store_permission_mode(mode);
+                            self.enqueue_text(&format!(
+                                "Permission mode: {} (applies from the next turn).",
+                                mode.display_label()
+                            ));
+                            return false;
+                        }
+                        Some(Err(())) => {
+                            self.enqueue_text(
+                                "`/permissions` never selects the mode that skips every approval. Use plan, ask, accept-edits or auto-safe; /yolo is the explicit way to skip approvals.",
+                            );
+                            return false;
+                        }
+                        None => {}
+                    }
+                }
+            }
+            if slash_form(name) == "/preset" {
+                self.execute_preset_command(rest).await;
+                return false;
+            }
+            if slash_form(name) == "/side" {
+                self.execute_side_command(rest).await;
                 return false;
             }
             if name == "/model" {
@@ -4296,7 +5130,7 @@ mod interactive_session {
                     Err(reason) => Err(reason),
                 }
             } else {
-                match super::SessionExecutionHost::select(self.context_mode).await {
+                match super::SessionExecutionHost::select().await {
                     Ok(host) => host.execute_command(&input, active.as_deref()).await,
                     Err(reason) => Err(reason),
                 }
@@ -4311,7 +5145,16 @@ mod interactive_session {
                         .get("output")
                         .and_then(serde_json::Value::as_str)
                         .unwrap_or("");
-                    if output.is_empty() {
+                    // A `submit_message` result is normally submitted as a turn by
+                    // `custom_command_prompt` before this path runs; reaching here means
+                    // the previous turn had not settled, so say so instead of printing
+                    // a "Committing…" line that nothing follows.
+                    let submit = result.get("action").and_then(|a| a.get("submit_message"));
+                    if submit.is_some_and(serde_json::Value::is_string) {
+                        self.enqueue_text(&format!(
+                            "{name}: the previous turn is still settling; nothing was started. Run {name} again."
+                        ));
+                    } else if output.is_empty() {
                         self.enqueue_text(&format!("[{}]", if success { "ok" } else { "failed" }));
                     } else {
                         self.enqueue_text(output);
@@ -4322,8 +5165,22 @@ mod interactive_session {
             false
         }
 
-        fn completions(&self, prefix: &str) -> Vec<String> {
-            crate::cli::command_registry::CommandRouter.completions(prefix)
+        async fn plugin_ui_slots(&self) -> Vec<crate::tui_plugin_slots::SlotSpec> {
+            match engine_host_slash_output(self, "/plugins ui").await {
+                Some(text) => crate::tui_plugin_slots::parse_slot_list(&text),
+                None => Vec::new(),
+            }
+        }
+
+        async fn plugin_slot_output(&self, slot_id: &str) -> Option<String> {
+            if slot_id.is_empty()
+                || !slot_id
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+            {
+                return None;
+            }
+            engine_host_slash_output(self, &format!("/plugins ui {slot_id}")).await
         }
 
         fn attach_input_pause(&self, pause: std::sync::Arc<crate::tui_host::InputPause>) {
@@ -4397,12 +5254,11 @@ mod interactive_session {
                 // still real and must reach the agent tree below — never
                 // fall back to the childless local stub here.
                 match workspace_root {
-                    Some(workspace_root) => super::InlineHost::list_sessions_for_workspace(
-                        self.context_mode,
-                        &workspace_root,
-                    )
-                    .await
-                    .unwrap_or_default(),
+                    Some(workspace_root) => {
+                        super::InlineHost::list_sessions_for_workspace(&workspace_root)
+                            .await
+                            .unwrap_or_default()
+                    }
                     None => Vec::new(),
                 }
             };
@@ -4428,6 +5284,9 @@ mod interactive_session {
                 String,
                 rightkit_terminal_ui::nav::SessionDetail,
             > = std::collections::HashMap::new();
+            // Pins and the unread tag (B-cxagentcenter): the session open here counts as seen.
+            let mut seen_store = crate::session_seen::load();
+            let mut seen_changed = false;
             for row in &session_rows {
                 // Root sessions only: rows with a parent are sub-agents, which
                 // belong in the agent tree, not the session picker.
@@ -4442,32 +5301,42 @@ mod interactive_session {
                     .get("id")
                     .and_then(serde_json::Value::as_str)
                     .unwrap_or("");
-                let name = session_picker_label(self.context_mode, row)
-                    .await
-                    .unwrap_or_else(|| {
-                        if id == active_id {
-                            "this session".to_string()
-                        } else {
-                            // A generic title names nothing: show when it
-                            // last moved and a short id to pick by.
-                            let when = row
-                                .get("updatedAt")
-                                .or_else(|| row.get("createdAt"))
-                                .and_then(serde_json::Value::as_str)
-                                .map(|t| t.replace('T', " ").chars().take(16).collect::<String>())
-                                .unwrap_or_default();
-                            let tail: String = id
-                                .chars()
-                                .rev()
-                                .take(8)
-                                .collect::<Vec<_>>()
-                                .into_iter()
-                                .rev()
-                                .collect();
-                            format!("{when} \u{b7} {tail}").trim().to_string()
-                        }
-                    });
-                details.insert(id.to_string(), session_picker_detail(row, now_secs));
+                let name = session_picker_label(row).await.unwrap_or_else(|| {
+                    if id == active_id {
+                        "this session".to_string()
+                    } else {
+                        // A generic title names nothing: show when it
+                        // last moved and a short id to pick by.
+                        let when = row
+                            .get("updatedAt")
+                            .or_else(|| row.get("createdAt"))
+                            .and_then(serde_json::Value::as_str)
+                            .map(|t| t.replace('T', " ").chars().take(16).collect::<String>())
+                            .unwrap_or_default();
+                        let tail: String = id
+                            .chars()
+                            .rev()
+                            .take(8)
+                            .collect::<Vec<_>>()
+                            .into_iter()
+                            .rev()
+                            .collect();
+                        format!("{when} \u{b7} {tail}").trim().to_string()
+                    }
+                });
+                let mut detail = session_picker_detail(row, now_secs);
+                let updated_at = row
+                    .get("updatedAt")
+                    .or_else(|| row.get("createdAt"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("");
+                if id == active_id {
+                    seen_changed |= seen_store.mark_seen(id, updated_at);
+                }
+                detail.unread = id != active_id
+                    && seen_store.is_unread(id, updated_at, crate::session_seen::process_start());
+                detail.pinned = seen_store.is_pinned(id);
+                details.insert(id.to_string(), detail);
                 if id == active_id {
                     active_row = Some(row);
                 }
@@ -4475,6 +5344,9 @@ mod interactive_session {
                     id: rightkit_terminal_ui::nav::SessionId(id.to_string()),
                     name,
                 });
+            }
+            if seen_changed {
+                crate::session_seen::save(&seen_store);
             }
             // The fresh TUI session may not have a durable row until its first
             // turn. Keep it selectable, but never auto-switch to a prior row.
@@ -4505,7 +5377,7 @@ mod interactive_session {
             // host kinds.
             // `select_if_ready`: nav refresh runs on the terminal loop and
             // must never wait on a context build; no state, no roster.
-            if let Some(host) = super::SessionExecutionHost::select_if_ready(self.context_mode) {
+            if let Some(host) = super::SessionExecutionHost::select_if_ready() {
                 if let Ok(roster) = host.get_session_agents(&active_id).await {
                     for row in roster {
                         let sub_id = row
@@ -4533,9 +5405,18 @@ mod interactive_session {
                 .filter(|model| !model.is_empty())
                 .unwrap_or(&local_model)
                 .to_string();
+            let root_cost_billed = active_row
+                .and_then(|r| r.get("costBilled").and_then(serde_json::Value::as_bool))
+                .unwrap_or(false);
             let root_cost = active_row
                 .and_then(|r| r.get("costUsd").and_then(serde_json::Value::as_f64))
-                .map(|c| format!("${c:.4}"))
+                .map(|c| {
+                    if root_cost_billed {
+                        format!("${c:.4} billed")
+                    } else {
+                        format!("${c:.4}")
+                    }
+                })
                 .unwrap_or_default();
             let root_state = if turn_in_flight {
                 rightkit_terminal_ui::nav::AgentState::Running
@@ -4566,7 +5447,7 @@ mod interactive_session {
             // kinds go through `SessionExecutionHost::interrupt` — InlineHost
             // interrupts in-process (the daemon client is never available
             // here), ServiceHost through the existing client transport.
-            let host = super::SessionExecutionHost::select(self.context_mode).await?;
+            let host = super::SessionExecutionHost::select().await?;
             let mut stopped = 0usize;
             let mut first_error: Option<String> = None;
             for id in scope {
@@ -4588,7 +5469,7 @@ mod interactive_session {
             agent: &rightkit_terminal_ui::nav::AgentId,
             text: &str,
         ) -> Result<(), String> {
-            let host = super::SessionExecutionHost::select(self.context_mode).await?;
+            let host = super::SessionExecutionHost::select().await?;
             host.steer(&agent.0, text).await
         }
 
@@ -4620,6 +5501,8 @@ mod interactive_session {
                 }
                 Err(error) => return Err(error),
             };
+            // A preset applied since the last new chat gives this chat its tools and prompt.
+            bind_pending_preset_parts(&id);
             self.timeline_cursors
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -4640,7 +5523,7 @@ mod interactive_session {
             // the previous session's repository must never serve the session
             // being entered (the cross-scope defect this ordering removes).
             // There is no cwd fallback and no re-enrollment.
-            let host = super::SessionExecutionHost::select(self.context_mode)
+            let host = super::SessionExecutionHost::select()
                 .await
                 .map_err(|reason| format!("session host unavailable: {reason}"))?;
             let row = host
@@ -4778,9 +5661,7 @@ mod interactive_session {
             // `SessionExecutionHost::events_after`: InlineHost reads its
             // composed state's durable store (the daemon client is never
             // available here); ServiceHost uses the same client transport.
-            let host = super::SessionExecutionHost::select(self.context_mode)
-                .await
-                .ok()?;
+            let host = super::SessionExecutionHost::select().await.ok()?;
             let events = host.events_after(&id.0, 0).await.ok()?;
             let cursor = advance_agent_cursor(0, &events);
             if let Ok(mut cursors) = self.viewed_cursors.lock() {
@@ -4809,9 +5690,7 @@ mod interactive_session {
             // pauses or owns the viewed worker. Same `SessionExecutionHost`
             // event seam as `fetch_agent_transcript` — never `daemon_client`,
             // which is unavailable under InlineHost.
-            let host = super::SessionExecutionHost::select(self.context_mode)
-                .await
-                .ok()?;
+            let host = super::SessionExecutionHost::select().await.ok()?;
             let cursor = self
                 .viewed_cursors
                 .lock()
@@ -4883,9 +5762,36 @@ mod interactive_session {
             } else if crate::main_runtime::service_host_explicitly_selected() {
                 // Preserve ServiceHost history/navigation before a local turn
                 // binds. Inline mode refuses daemon discovery in this helper.
-                match self.daemon_client().await {
-                    Ok(client) => Some(client.events_after(&session_id, cursor).await),
-                    Err(_) => None,
+                let backing_off = self
+                    .timeline_poll_backoff
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .blocked();
+                if backing_off {
+                    None
+                } else {
+                    match self.daemon_client().await {
+                        Ok(client) => {
+                            let events = client.events_after(&session_id, cursor).await;
+                            let mut backoff = self
+                                .timeline_poll_backoff
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner());
+                            if events.is_err() {
+                                backoff.note_failure();
+                            } else {
+                                backoff.note_success();
+                            }
+                            Some(events)
+                        }
+                        Err(_) => {
+                            self.timeline_poll_backoff
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .note_failure();
+                            None
+                        }
+                    }
                 }
             } else {
                 // InlineHost reads its composed state's durable store through
@@ -4893,7 +5799,7 @@ mod interactive_session {
                 // It never builds: a slow or failing context build must not
                 // stall the terminal loop, and there is nothing to read
                 // until the state exists.
-                match super::SessionExecutionHost::select_if_ready(self.context_mode) {
+                match super::SessionExecutionHost::select_if_ready() {
                     Some(host) => Some(host.events_after(&session_id, cursor).await),
                     None => None,
                 }
@@ -5006,7 +5912,7 @@ mod interactive_session {
                     id.clone()
                 }
             };
-            let host = super::SessionExecutionHost::select_if_ready(self.context_mode)
+            let host = super::SessionExecutionHost::select_if_ready()
                 .ok_or_else(|| "inline host state is not built yet".to_string())?;
             let page = host
                 .fetch_history(&active_session, before_seq, limit)
@@ -5614,11 +6520,27 @@ mod interactive_session {
                 .collect()
         }
 
+        fn take_startup_picker(&self) -> Option<crate::tui_host::PickerRequest> {
+            let mut queue = self
+                .startup_pickers
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            (!queue.is_empty()).then(|| queue.remove(0))
+        }
+
         fn take_picker_request(&self) -> Option<crate::tui_host::PickerRequest> {
             self.picker_request
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .take()
+        }
+
+        async fn search_session_content(&self, query: &str) -> Vec<(String, String, String)> {
+            // The resume picker's content search: the inline host's own store, in-process.
+            if crate::main_runtime::service_host_explicitly_selected() {
+                return Vec::new();
+            }
+            super::InlineHost::search_sessions_content(query).await
         }
 
         async fn project_catalog(&self) -> Vec<crate::tui_projects::ProjectEntry> {
@@ -5628,7 +6550,7 @@ mod interactive_session {
                     Err(_) => Vec::new(),
                 }
             } else {
-                super::InlineHost::list_all_sessions(self.context_mode)
+                super::InlineHost::list_all_sessions()
                     .await
                     .unwrap_or_default()
             };
@@ -5649,7 +6571,7 @@ mod interactive_session {
                 if root.is_empty() {
                     continue;
                 }
-                let title = session_picker_label(self.context_mode, &row)
+                let title = session_picker_label(&row)
                     .await
                     .unwrap_or_else(|| id.to_string());
                 let updated = row
@@ -5725,10 +6647,10 @@ mod interactive_session {
             // Startup/maintenance only project existing goal state. Joining a
             // cold context build here blocks the terminal before its first frame.
             let host = if op == "get" && !super::service_host_explicitly_selected() {
-                super::SessionExecutionHost::select_if_ready(self.context_mode)
+                super::SessionExecutionHost::select_if_ready()
                     .ok_or_else(|| "Goal state is not ready yet".to_string())?
             } else {
-                super::SessionExecutionHost::select(self.context_mode).await?
+                super::SessionExecutionHost::select().await?
             };
             if op != "get" {
                 // A fresh TUI session has no durable/live row until its first turn is admitted;
@@ -5751,7 +6673,6 @@ mod interactive_session {
                     })?;
                 let (provider, model, effort) = self.next_repository_route();
                 ensure_root_session(
-                    self.context_mode,
                     &session_id,
                     &workspace_root,
                     &provider,
@@ -5785,7 +6706,7 @@ mod interactive_session {
             session_id: &str,
             value: Option<&str>,
         ) -> Result<String, String> {
-            let host = super::SessionExecutionHost::select(self.context_mode).await?;
+            let host = super::SessionExecutionHost::select().await?;
             let response = host.session_action(action, session_id, value).await?;
             if action == "export" {
                 return response
@@ -5795,8 +6716,8 @@ mod interactive_session {
                     .ok_or_else(|| "session export returned no content".to_string());
             }
             Ok(match action {
-                "clone" => format!(
-                    "Cloned session {}",
+                "fork" | "fork_back" | "fork_into" => format!(
+                    "Forked session {}",
                     response
                         .get("id")
                         .and_then(serde_json::Value::as_str)
@@ -5810,15 +6731,25 @@ mod interactive_session {
         }
 
         async fn insights(&self) -> Result<String, String> {
-            let host = super::SessionExecutionHost::select(self.context_mode).await?;
+            let host = super::SessionExecutionHost::select().await?;
             let root = self.active_directory();
             let result = host.insights(root.as_deref()).await?;
             serde_json::to_string_pretty(&result)
                 .map_err(|error| format!("format Insights report: {error}"))
         }
 
+        async fn session_tree_rows(&self) -> Result<Vec<serde_json::Value>, String> {
+            if crate::main_runtime::service_host_explicitly_selected() {
+                return self.daemon_client().await?.list_sessions().await;
+            }
+            match self.active_workspace_root() {
+                Some(root) => super::InlineHost::list_sessions_for_workspace(&root).await,
+                None => Ok(Vec::new()),
+            }
+        }
+
         async fn session_log(&self, session_id: &str) -> Result<String, String> {
-            let host = super::SessionExecutionHost::select(self.context_mode).await?;
+            let host = super::SessionExecutionHost::select().await?;
             let events = host.events_after(session_id, 0).await?;
             let mut lines = Vec::with_capacity(events.len().min(500));
             for event in events.iter().rev().take(500).rev() {
@@ -5854,7 +6785,7 @@ mod interactive_session {
         }
 
         async fn hooks_status(&self) -> Result<String, String> {
-            let host = super::SessionExecutionHost::select(self.context_mode).await?;
+            let host = super::SessionExecutionHost::select().await?;
             let status = host.hooks_status().await?;
             // Compact and redacted: a summary line plus one line per CONFIGURED hook (values
             // are never part of the status). The full per-event matrix stays at `/hooks/status`.
@@ -5907,6 +6838,24 @@ mod interactive_session {
                 .clone()
         }
 
+        fn stage_inline_shell(&self, text: &str) -> bool {
+            if rightkit_agent_skills::inline_shell::find_markers(text).is_empty() {
+                return false;
+            }
+            *STAGED_INLINE_PROMPT
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = Some(text.to_string());
+            true
+        }
+
+        fn inline_shell_staged(&self, text: &str) -> bool {
+            STAGED_INLINE_PROMPT
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_deref()
+                == Some(text)
+        }
+
         fn take_followup_prompt(&self) -> Option<String> {
             self.followup_prompt
                 .lock()
@@ -5922,7 +6871,7 @@ mod interactive_session {
                     .unwrap_or_else(|error| error.into_inner())
                     .clone();
             }
-            super::SessionExecutionHost::select_if_ready(self.context_mode)
+            super::SessionExecutionHost::select_if_ready()
                 .and_then(|host| host.context_degraded_reason())
         }
 
@@ -5937,13 +6886,70 @@ mod interactive_session {
             crate::main_runtime::trust_workspace(root)
         }
 
-        async fn workspace_diff(&self) -> Result<String, String> {
+        async fn workspace_diff(&self, turn_only: bool) -> Result<String, String> {
             use rightkit_agent_coding_tools::Tool;
             let root = self
                 .active_directory()
                 .ok_or_else(|| "No workspace is selected".to_string())?;
             let trust = crate::main_runtime::workspace_trust_for(&root);
             let workspace = std::path::PathBuf::from(&root);
+            let mut args = serde_json::json!({"repo_path": workspace, "staged": false});
+            let mut prefix = String::new();
+            if turn_only {
+                // Scope from the FileService receipts the run-changes store
+                // captured since the last turn started. That store lives in the
+                // process that ran the turn, so a ServiceHost session cannot
+                // answer here; say so rather than show a wrong empty diff.
+                if crate::main_runtime::service_host_explicitly_selected() {
+                    return Err("/diff turn is unavailable for a ServiceHost session".to_string());
+                }
+                // The view may hold the `"local"` placeholder; run ids carry the
+                // engine's real session id.
+                let session_id = self.resolve_turn_session(&self.rewind_session_id());
+                let since = LAST_TURN_START
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .clone()
+                    .ok_or_else(|| "No turn has run yet".to_string())?;
+                let canonical = |path: &str| {
+                    std::fs::canonicalize(path).unwrap_or_else(|_| std::path::PathBuf::from(path))
+                };
+                let root_key = canonical(&root);
+                let mut paths: Vec<String> = Vec::new();
+                // `GitDiffTool` refuses pathspec metacharacters and then fails
+                // the whole call, so such paths are listed instead of diffed.
+                let mut skipped: Vec<String> = Vec::new();
+                for (_, entry) in crate::api_run_changes::shared_run_changes_store()
+                    .session_entries_since(&session_id, &since)
+                {
+                    if canonical(&entry.workspace_root) != root_key {
+                        continue;
+                    }
+                    for path in std::iter::once(entry.path).chain(entry.original_path) {
+                        let target = if path.contains(['[', ']', '*', '?']) {
+                            &mut skipped
+                        } else {
+                            &mut paths
+                        };
+                        if !target.contains(&path) {
+                            target.push(path);
+                        }
+                    }
+                }
+                let skipped_note = if skipped.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        "Changed but not diffable by path (pathspec characters): {}\n",
+                        skipped.join(", ")
+                    )
+                };
+                if paths.is_empty() {
+                    return Err(format!("{skipped_note}No file changes in the last turn"));
+                }
+                args["paths"] = serde_json::json!(paths);
+                prefix = skipped_note;
+            }
             let context = rightkit_agent_coding_tools::ToolContext::new(
                 self.current_session_id(),
                 &workspace,
@@ -5951,35 +6957,12 @@ mod interactive_session {
                 trust,
             );
             let result = rightkit_agent_coding_tools::git_diff::GitDiffTool
-                .execute(
-                    serde_json::json!({"repo_path": workspace, "staged": false}),
-                    &context,
-                )
+                .execute(args, &context)
                 .await;
             if result.is_error {
                 Err(result.content)
             } else {
-                Ok(result.content)
-            }
-        }
-
-        async fn init_workspace(&self) -> Result<String, String> {
-            let root = self
-                .active_directory()
-                .ok_or_else(|| "Select a workspace before running /init".to_string())?;
-            let prompt = format!(
-                "Initialize this workspace for RightKit. Inspect the repository, then create or update its project guidance file using the normal FileService tools available to this turn. Keep instructions specific to this repository, preserve existing useful guidance, and report what changed. Workspace: {root}"
-            );
-            let result = self
-                .spawn_turn(prompt)
-                .await
-                .map_err(|error| format!("Workspace initialization turn task failed: {error}"))?;
-            if result == 0 {
-                Ok("Workspace initialization turn completed.".to_string())
-            } else {
-                Err(format!(
-                    "Workspace initialization turn failed with exit code {result}"
-                ))
+                Ok(format!("{prefix}{}", result.content))
             }
         }
 
@@ -5987,7 +6970,7 @@ mod interactive_session {
             let root = self
                 .active_directory()
                 .ok_or_else(|| "No workspace is selected".to_string())?;
-            let host = super::SessionExecutionHost::select(self.context_mode).await?;
+            let host = super::SessionExecutionHost::select().await?;
             let result = host.worktree_action(action, &root, args).await?;
             serde_json::to_string_pretty(&result)
                 .map_err(|error| format!("format worktree result: {error}"))
@@ -5999,12 +6982,11 @@ mod interactive_session {
             prompt: String,
         ) -> Result<tokio::task::JoinHandle<i32>, String> {
             let child_id = agent_id.0.clone();
-            let context_mode = self.context_mode;
             let catalog = tokio::runtime::Handle::try_current()
                 .map_err(|error| format!("agent chat needs an active runtime: {error}"))?;
             Ok(catalog.spawn(async move {
                 let result = async {
-                    let host = super::SessionExecutionHost::select(context_mode).await?;
+                    let host = super::SessionExecutionHost::select().await?;
                     let snapshot = host
                         .session_snapshot(&child_id)
                         .await?
@@ -6058,8 +7040,7 @@ mod interactive_session {
             &self,
         ) -> Result<Vec<crate::api_sessions::rewind::RewindPoint>, String> {
             let active_session = self.rewind_session_id();
-            let host = super::SessionExecutionHost::select_if_ready(self.context_mode)
-                .ok_or_else(|| "Nothing to rewind yet: the session has not started.".to_string())?;
+            let host = super::SessionExecutionHost::for_session_ops().await?;
             host.rewind_points(&active_session).await
         }
 
@@ -6069,9 +7050,16 @@ mod interactive_session {
             mode: crate::api_sessions::rewind::RewindMode,
         ) -> Result<crate::api_sessions::rewind::RewindReport, String> {
             let active_session = self.rewind_session_id();
-            let host = super::SessionExecutionHost::select_if_ready(self.context_mode)
-                .ok_or_else(|| "Nothing to rewind yet: the session has not started.".to_string())?;
+            let host = super::SessionExecutionHost::for_session_ops().await?;
             host.rewind_to(&active_session, point, mode).await
+        }
+
+        async fn redo_last_undo(
+            &self,
+        ) -> Result<crate::api_sessions::rewind::RewindReport, String> {
+            let active_session = self.rewind_session_id();
+            let host = super::SessionExecutionHost::for_session_ops().await?;
+            host.redo_last_undo(&active_session).await
         }
     }
 
@@ -6123,6 +7111,10 @@ mod interactive_session {
         }
     }
 
+    /// Set once the unpriced-model notice has been shown in the transcript (PROV-13).
+    static UNPRICED_MODEL_NOTED: std::sync::atomic::AtomicBool =
+        std::sync::atomic::AtomicBool::new(false);
+
     /// Cumulative live output per running tool call (see `toolOutputDelta`).
     static LIVE_TOOL_TAILS: std::sync::OnceLock<
         std::sync::Mutex<std::collections::HashMap<String, String>>,
@@ -6165,6 +7157,10 @@ mod interactive_session {
             "Session persistence failed: {reason}. In-flight tools were cancelled and new work is not being saved."
         )
     }
+
+    /// ISO start time of the last turn this TUI started; the lower bound
+    /// `/diff turn` passes to the run-changes store.
+    static LAST_TURN_START: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
     pub(super) fn daemon_event_to_timeline_event(
         event: &serde_json::Value,
@@ -6239,6 +7235,20 @@ mod interactive_session {
             // Not shown as a line: the host keeps the latest figures for the
             // footer's context gauge (the full ledger stays in `/usage`).
             "usageUpdated" => {
+                // PROV-13: an unpriced model has no cost to show; say so once in the transcript.
+                if event.get("costKnown").and_then(serde_json::Value::as_bool) == Some(false)
+                    && event
+                        .get("promptTokens")
+                        .and_then(serde_json::Value::as_i64)
+                        .unwrap_or(0)
+                        > 0
+                    && !UNPRICED_MODEL_NOTED.swap(true, std::sync::atomic::Ordering::Relaxed)
+                {
+                    return Some(DaemonEvent::System {
+                        text: "No price is known for this model, so its cost is not shown and a cost ceiling cannot stop it. Add the model's price to the model metadata to get a cost."
+                            .to_string(),
+                    });
+                }
                 let number = |field: &str| {
                     event
                         .get(field)
@@ -6259,6 +7269,7 @@ mod interactive_session {
                     prompt: number("promptTokens")
                         + number("cacheReadTokens")
                         + number("cacheCreationTokens"),
+                    completion: number("completionTokens"),
                     cost_micros: event
                         .get("costKnown")
                         .and_then(serde_json::Value::as_bool)
@@ -6267,11 +7278,10 @@ mod interactive_session {
                         .filter(|cost| cost.is_finite() && *cost >= 0.0)
                         .map(|cost| (cost * 1_000_000.0).round() as i64),
                     cost_reported: true,
-                    // This host reads no output-token, billed-cost, rate-limit
-                    // or cache-lifetime figure from the wire event; none is
-                    // invented.
-                    completion: 0,
-                    cost_billed: false,
+                    cost_billed: event
+                        .get("costBilled")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false),
                     rate_limit: None,
                     cache_ttl_ms: None,
                 }
@@ -6294,12 +7304,22 @@ mod interactive_session {
                         .round() as i64,
                     cache_read: number("cachedInputTokens"),
                     prompt: number("inputTokens"),
+                    completion: number("outputTokens"),
                     cost_micros: None,
                     cost_reported: false,
-                    completion: 0,
                     cost_billed: false,
-                    rate_limit: None,
-                    cache_ttl_ms: None,
+                    // The budget the provider reported and the cache lifetime left (A193-1, A193-2).
+                    rate_limit: event.get("rateLimit").map(|limit| {
+                        let field =
+                            |name: &str| limit.get(name).and_then(serde_json::Value::as_u64);
+                        rightkit_terminal_ui::observability_pane::ProviderRateLimit {
+                            remaining_requests: field("remainingRequests"),
+                            remaining_tokens: field("remainingTokens"),
+                            reset_requests_secs: field("resetRequestsSecs"),
+                            reset_tokens_secs: field("resetTokensSecs"),
+                        }
+                    }),
+                    cache_ttl_ms: event.get("cacheTtlMs").and_then(serde_json::Value::as_u64),
                 }
             }
             // Live shell tail: the exec cell consumes a CUMULATIVE preview,
@@ -6328,6 +7348,12 @@ mod interactive_session {
                     output_preview: tail.clone(),
                 }
             }
+            // A live view of a call whose arguments are still streaming (never replayed).
+            "toolArgumentsPartial" => DaemonEvent::ToolArgumentsPartial {
+                call_id: id("callId"),
+                name: id("name"),
+                arguments_json: id("argumentsJson"),
+            },
             "runFailed" => DaemonEvent::Status(RunSignal::Failed {
                 reason: id("error"),
                 hint: id("kind"),
@@ -6353,6 +7379,27 @@ mod interactive_session {
                     .map(|ms| ms.div_ceil(1000)),
             }),
             "sessionCompactionStarted" => DaemonEvent::Status(RunSignal::Compacting),
+            // Vendor account rate-limit telemetry: the host keeps the latest
+            // state for the footer; `utilization` is a 0..1 fraction.
+            "accountRateLimited" => DaemonEvent::RateLimit {
+                status: id("status"),
+                account: event
+                    .get("account")
+                    .and_then(serde_json::Value::as_str)
+                    .filter(|account| !account.is_empty())
+                    .map(str::to_string),
+                window: event
+                    .get("rateLimitType")
+                    .and_then(serde_json::Value::as_str)
+                    .filter(|window| !window.is_empty())
+                    .map(str::to_string),
+                resets_at: event.get("resetsAt").and_then(serde_json::Value::as_u64),
+                utilization_permille: event
+                    .get("utilization")
+                    .and_then(serde_json::Value::as_f64)
+                    .filter(|used| used.is_finite())
+                    .map(|used| (used.clamp(0.0, 1.0) * 1000.0).round() as u32),
+            },
             "sessionCompacted" => DaemonEvent::Status(RunSignal::Compacted {
                 dropped: event
                     .get("droppedCount")
@@ -6874,7 +7921,7 @@ mod interactive_session {
     }
 
     /// Longest a live delta waits for the committed facts it is anchored to.
-    const LIVE_PROJECTION_HOLD: std::time::Duration = std::time::Duration::from_millis(750);
+    const LIVE_PROJECTION_HOLD: std::time::Duration = std::time::Duration::from_millis(100);
 
     /// Interleave live projections with committed facts. A projection carries
     /// the newest durable seq allocated when it was emitted, so it renders
@@ -7070,10 +8117,19 @@ mod interactive_session {
             let was_raw = ct_terminal::is_raw_mode_enabled().unwrap_or(false);
             if was_raw {
                 let _ = ct_terminal::disable_raw_mode();
+                // The prompts read cooked lines: with bracketed paste on, a
+                // pasted key arrives wrapped in ESC[200~ ... ESC[201~, and focus
+                // reporting injects ESC[I / ESC[O into the line.
+                let _ = rightkit_terminal_ui::crossterm::execute!(
+                    std::io::stdout(),
+                    rightkit_terminal_ui::crossterm::event::DisableBracketedPaste,
+                    rightkit_terminal_ui::crossterm::event::DisableFocusChange
+                );
             }
             println!();
             println!(
-                "[hint] onboarding is taking over this terminal for the next few prompts. TUI input is paused; keystrokes go to the prompts. '{app} onboard' in a fresh terminal is equivalent.", app = crate::host_identity::app()
+                "[hint] onboarding is taking over this terminal for the next few prompts. TUI input is paused; keystrokes go to the prompts. '{app} onboard' in a fresh terminal is equivalent.",
+                app = crate::host_identity::app()
             );
             println!();
             let _ = std::io::stdout().flush();
@@ -7093,13 +8149,15 @@ mod interactive_session {
                         let backend = rightkit_llm::agent_providers::OsKeyStore;
                         let state = detect_from_config_with_native_auth(&backend, &config).await;
                         if state.needs_onboarding() {
-                            io.write(
-                                "RightKit needs provider configuration before it can run a turn.\n",
-                            );
+                            io.write(&format!(
+                                "{} needs provider configuration before it can run a turn.\n",
+                                rightkit_agent_config::app_name()
+                            ));
                         } else {
-                            io.write(
-                                "RightKit already has a working configuration — onboarding will confirm before changing anything.\n",
-                            );
+                            io.write(&format!(
+                                "{} already has a working configuration — onboarding will confirm before changing anything.\n",
+                                rightkit_agent_config::app_name()
+                            ));
                         }
                         run_onboarding(
                             &state,
@@ -7141,6 +8199,16 @@ mod interactive_session {
             let _ = std::io::stdout().flush();
             if was_raw {
                 let _ = ct_terminal::enable_raw_mode();
+                // Mirror `rightkit_terminal_ui::terminal::session::set_modes`.
+                let _ = rightkit_terminal_ui::crossterm::execute!(
+                    std::io::stdout(),
+                    rightkit_terminal_ui::crossterm::event::EnableBracketedPaste
+                );
+                #[cfg(not(windows))]
+                let _ = rightkit_terminal_ui::crossterm::execute!(
+                    std::io::stdout(),
+                    rightkit_terminal_ui::crossterm::event::EnableFocusChange
+                );
             }
         }
 
@@ -7199,7 +8267,6 @@ mod interactive_session {
             age: session_age_label(&field("updatedAt"), now_secs).unwrap_or_default(),
             workspace,
             preview: field("preview"),
-            // This host keeps no seen or pin store: nothing is unread or pinned.
             unread: false,
             pinned: false,
             root,

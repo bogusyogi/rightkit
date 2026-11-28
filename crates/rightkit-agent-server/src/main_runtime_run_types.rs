@@ -1,6 +1,5 @@
 #[derive(Clone)]
 struct RunArgs {
-    context_mode: ContextMode,
     prompt: String,
     print: bool,
     output_format: OutputFormat,
@@ -12,12 +11,9 @@ struct RunArgs {
     provider: Option<String>,
     effort: Option<String>,
     workspace: Option<String>,
-    auto_approve: bool,
-    bypass_approvals: bool,
-    /// Explicit session permission mode (launch flags `--ask` /
-    /// `--accept-edits` / `--auto` / `--yolo`, `/yolo`, Shift+Tab). When set it
-    /// supersedes `auto_approve` / `bypass_approvals` for the session's mode
-    /// (safe mode still wins). This is the field turn dispatch reads for the
+    /// Explicit session permission mode (`--permission-mode`, launch flags
+    /// `--ask` / `--accept-edits` / `--auto` / `--yolo`, `/yolo`, Shift+Tab).
+    /// Safe mode still wins. This is the field turn dispatch reads for the
     /// live mode (e.g. vendor-CLI runtimes mapping yolo to skip-permissions).
     permission_mode: Option<rightkit_agent_policy::PermissionMode>,
     stream_json: bool,
@@ -26,6 +22,10 @@ struct RunArgs {
     allowed_tools: Vec<String>,
     disallowed_tools: Vec<String>,
     toolset: Option<String>,
+    /// Tool profile for this session's own tools only (`--own-toolset`); children do not inherit it.
+    own_toolset: Option<String>,
+    /// `--trust-workspace`: a hosting daemon receives a per-session grant (issue 445).
+    trust_workspace: bool,
     max_budget_usd: Option<f64>,
     bare: bool,
     /// Strict policy / permission tier for the whole run. When true the
@@ -52,42 +52,37 @@ struct RunArgs {
     tools: Vec<String>,
     exclude_tools: Vec<String>,
     no_mcp: bool,
+    /// True for a headless `run` (and `-p`): no person is attached to approve a call or answer
+    /// a question. The session is told so (`UNATTENDED_RUN_NOTE`). False for the TUI's turns.
+    unattended: bool,
+    /// Hidden `--approval-callback` (issue 558): the run asks the attached caller to approve calls.
+    approval_callback: bool,
 }
 
+/// Appended to the system prompt of a headless run. Task-set run on build 94 (2026-11-11):
+/// after one refused shell call Haiku stopped and asked the user to approve it, in a run where
+/// nobody can answer (5 of 25 tasks left undone).
+pub(crate) const UNATTENDED_RUN_NOTE: &str = "\
+<unattended_run>
+This run is unattended: no person is attached, so nobody can approve a call or answer a
+question. A refused call stays refused for the whole run. Do not stop to ask for approval,
+confirmation or a decision: choose the most reasonable reading, continue with what is allowed
+(file reads and searches, file edits, plain shell commands), and finish the task. In your last
+message say what you could not run or verify.
+</unattended_run>";
+
+/// Classes the legacy error-text and protocol-event classifiers produce. The
+/// process exit and `error.code` come from [`RunExitCode`] (the suite codes
+/// 0 to 3); this enum only names what the classifiers found.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CliExitCode {
-    #[allow(dead_code)]
-    Success = 0,
-    Generic = 1,
-    Usage = 2,
-    Auth = 3,
-    Permission = 4,
-    Budget = 5,
-    Sandbox = 6,
-    TimeoutStall = 7,
-    UserAbort = 8,
-    SchemaViolation = 9,
-}
-
-impl CliExitCode {
-    fn as_i32(self) -> i32 {
-        self as i32
-    }
-
-    fn class(self) -> &'static str {
-        match self {
-            CliExitCode::Success => "success",
-            CliExitCode::Generic => "generic",
-            CliExitCode::Usage => "usage",
-            CliExitCode::Auth => "auth",
-            CliExitCode::Permission => "permission",
-            CliExitCode::Budget => "budget",
-            CliExitCode::Sandbox => "sandbox",
-            CliExitCode::TimeoutStall => "timeout_stall",
-            CliExitCode::UserAbort => "user_abort",
-            CliExitCode::SchemaViolation => "schema_violation",
-        }
-    }
+    Generic,
+    Usage,
+    Auth,
+    Permission,
+    Budget,
+    Sandbox,
+    TimeoutStall,
 }
 
 type CliToolFilters = (Option<String>, Vec<String>, Vec<String>);
@@ -104,8 +99,11 @@ const MCP_GATEWAY_TOOLS: [&str; 5] = [
 
 /// Non-matching allowlist entry that keeps a fully-excluded allowlist
 /// non-empty (an empty allowlist would mean "allow everything").
-const CLI_NO_TOOLS_SENTINEL: &str = "__host_no_tools__";
+fn cli_no_tools_sentinel() -> String {
+    format!("__{}_no_tools__", crate::host_identity::app())
+}
 
+#[cfg(test)] // used only by the #[cfg(test)] tool_delta_tests module (clippy sweep)
 fn resolve_cli_tool_filters(
     toolset: Option<&str>,
     allowed_tools: Vec<String>,
@@ -135,9 +133,23 @@ fn resolve_cli_tool_filters_with_mcp(
         .into_iter()
         .map(|capability| capability.name)
         .collect::<Vec<_>>();
+    let (allowed_tools, added_tools, removed_tools) = split_cli_tool_deltas(allowed_tools);
+    // `--tools -name` removes a tool from the default set, `--tools +name` names one
+    // that is already in it: both are deltas, never a plain allowlist.
+    let removed_tools = expand_cli_tool_globs("--tools -name", removed_tools, &catalog)?;
+    let added_tools = expand_cli_tool_globs("--tools +name", added_tools, &catalog)?;
     let mut allowed_tools = expand_cli_tool_globs("--tools", allowed_tools, &catalog)?;
+    if !allowed_tools.is_empty() {
+        // A plain allowlist exists: a `+name` extends it.
+        allowed_tools.extend(added_tools);
+        allowed_tools.sort();
+        allowed_tools.dedup();
+    }
     let mut disallowed_tools =
         expand_cli_tool_globs("--exclude-tools", disallowed_tools, &catalog)?;
+    disallowed_tools.extend(removed_tools);
+    disallowed_tools.sort();
+    disallowed_tools.dedup();
     // Pi keeps MCP tools under `--tools`; the gateway tools are how this
     // runtime reaches them, so they stay in a non-empty allowlist.
     if !allowed_tools.is_empty() {
@@ -170,7 +182,7 @@ fn resolve_cli_tool_filters_with_mcp(
             })
         });
         if allowed_tools.is_empty() {
-            allowed_tools.push(CLI_NO_TOOLS_SENTINEL.to_string());
+            allowed_tools.push(cli_no_tools_sentinel());
         }
     }
     let profile = match toolset.map(str::trim).filter(|value| !value.is_empty()) {
@@ -184,6 +196,27 @@ fn resolve_cli_tool_filters_with_mcp(
     let (allowed_tools, disallowed_tools) =
         api_toolsets::apply_toolset_profile(profile.as_ref(), allowed_tools, disallowed_tools);
     Ok((active_toolset, allowed_tools, disallowed_tools))
+}
+
+/// Split `--tools` entries into plain names, `+name` additions and `-name`
+/// removals (the sign is stripped). With no plain name the allowlist stays
+/// empty, which means "the default tool set", so a list of only deltas edits
+/// that set instead of replacing it.
+fn split_cli_tool_deltas(entries: Vec<String>) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let mut plain = Vec::new();
+    let mut added = Vec::new();
+    let mut removed = Vec::new();
+    for entry in entries {
+        let trimmed = entry.trim();
+        if let Some(name) = trimmed.strip_prefix('+') {
+            added.push(name.trim().to_string());
+        } else if let Some(name) = trimmed.strip_prefix('-') {
+            removed.push(name.trim().to_string());
+        } else {
+            plain.push(entry);
+        }
+    }
+    (plain, added, removed)
 }
 
 /// True for an exclude pattern that covers every MCP tool name (`mcp__*`,
@@ -270,327 +303,79 @@ fn cli_tool_glob_matches(pattern: &str, value: &str) -> bool {
     previous[value.len()]
 }
 
-fn safe_mode_workspace_trust(safe_mode: bool) -> rightkit_agent_policy::WorkspaceTrust {
-    if safe_mode {
-        rightkit_agent_policy::WorkspaceTrust::Untrusted
-    } else {
-        rightkit_agent_policy::WorkspaceTrust::Trusted
-    }
-}
+#[cfg(test)]
+mod tool_delta_tests {
+    use super::*;
 
-fn cli_provider_route(
-    api_key: String,
-    model_id: String,
-    base_url: impl Into<String>,
-    fallback_models: Vec<String>,
-) -> provider_client::ProviderRoute {
-    let mut route = provider_client::ProviderRoute::from_model_auth(
-        model_id,
-        base_url,
-        rightkit_llm::agent_providers::subscription_auth::ModelAuth::api_key(api_key),
-    )
-    .expect("CLI provider route must contain configured API auth and endpoint");
-    route.effort = None;
-    route.thinking_budget_tokens = None;
-    route.disable_thinking = false;
-    route.fallback_models = fallback_models;
-    route.approved_private = false;
-    route
-}
-
-#[derive(Clone)]
-struct CliSubagentSpawner {
-    workspace_root: std::path::PathBuf,
-}
-
-impl CliSubagentSpawner {
-    fn new(workspace_root: std::path::PathBuf) -> Self {
-        Self { workspace_root }
-    }
-}
-
-const DEFAULT_CLI_SUBAGENT_TIMEOUT_SECONDS: u64 = 300;
-const MIN_CLI_SUBAGENT_TIMEOUT_SECONDS: u64 = 60;
-const MAX_CLI_SUBAGENT_TIMEOUT_SECONDS: u64 = 900;
-
-fn cli_subagent_timeout(
-    options: &rightkit_agent_coding_tools::SubagentSpawnOptions,
-) -> std::time::Duration {
-    let env_seconds = std::env::var("RIGHTKIT_CLI_SUBAGENT_TIMEOUT_SECONDS").ok();
-    std::time::Duration::from_secs(cli_subagent_timeout_seconds(
-        options,
-        env_seconds.as_deref(),
-    ))
-}
-
-fn cli_subagent_timeout_seconds(
-    options: &rightkit_agent_coding_tools::SubagentSpawnOptions,
-    env_seconds: Option<&str>,
-) -> u64 {
-    if let Some(raw) = env_seconds {
-        if let Ok(seconds) = raw.trim().parse::<u64>() {
-            if seconds > 0 {
-                return seconds.clamp(
-                    MIN_CLI_SUBAGENT_TIMEOUT_SECONDS,
-                    MAX_CLI_SUBAGENT_TIMEOUT_SECONDS,
-                );
-            }
-        }
-    }
-
-    options
-        .max_iterations
-        .map(|turns| u64::from(turns).saturating_mul(45))
-        .unwrap_or(DEFAULT_CLI_SUBAGENT_TIMEOUT_SECONDS)
-        .clamp(
-            MIN_CLI_SUBAGENT_TIMEOUT_SECONDS,
-            MAX_CLI_SUBAGENT_TIMEOUT_SECONDS,
+    fn filters(tools: &[&str], exclude: &[&str]) -> (Vec<String>, Vec<String>) {
+        let (_, allowed, denied) = resolve_cli_tool_filters(
+            None,
+            tools.iter().map(|s| s.to_string()).collect(),
+            exclude.iter().map(|s| s.to_string()).collect(),
         )
-}
-
-async fn read_cli_child_pipe<R>(mut pipe: R) -> Result<Vec<u8>, std::io::Error>
-where
-    R: tokio::io::AsyncRead + Unpin,
-{
-    use tokio::io::AsyncReadExt;
-
-    let mut buffer = Vec::new();
-    pipe.read_to_end(&mut buffer).await?;
-    Ok(buffer)
-}
-
-async fn join_cli_child_pipe(
-    handle: tokio::task::JoinHandle<Result<Vec<u8>, std::io::Error>>,
-    label: &str,
-) -> Result<Vec<u8>, String> {
-    match handle.await {
-        Ok(Ok(bytes)) => Ok(bytes),
-        Ok(Err(err)) => Err(format!("failed to read subagent {label}: {err}")),
-        Err(err) => Err(format!("subagent {label} reader failed: {err}")),
-    }
-}
-
-fn tail_chars(value: &str, max_chars: usize) -> String {
-    if value.chars().count() <= max_chars {
-        return value.to_string();
+        .expect("filters resolve");
+        (allowed, denied)
     }
 
-    let mut tail = value.chars().rev().take(max_chars).collect::<Vec<_>>();
-    tail.reverse();
-    format!("...{}", tail.into_iter().collect::<String>())
-}
+    #[test]
+    fn a_minus_entry_removes_one_tool_from_the_default_set() {
+        let (allowed, denied) = filters(&["-shell"], &[]);
+        assert!(allowed.is_empty(), "the default set stays: {allowed:?}");
+        assert!(denied.iter().any(|name| name == "shell"));
+    }
 
-impl rightkit_agent_coding_tools::SubagentSpawner for CliSubagentSpawner {
-    fn spawn(
-        &self,
-        role: &str,
-        task: &str,
-        _parent_session_id: &str,
-        options: rightkit_agent_coding_tools::SubagentSpawnOptions,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, String>> + Send>> {
-        let role = role.to_string();
-        let task = task.to_string();
-        let workspace_root = self.workspace_root.clone();
-        Box::pin(async move {
-            let mut registry =
-                rightkit_agent_orchestration::coding::registry::AgentRegistry::with_builtins();
-            let merged_config = load_merged_config_for_workspace(
-                &workspace_root,
-                &std::env::vars().collect::<std::collections::HashMap<_, _>>(),
-            );
-            // Provider is passed through verbatim: `apply_config_overrides`
-            // derives the provider from the override's model when it is empty.
-            // Pre-filling a default provider id here would force every
-            // overridden agent onto a provider the user never configured.
-            let agent_overrides: std::collections::HashMap<String, (String, String)> =
-                merged_config
-                    .orchestration
-                    .agents
-                    .iter()
-                    .map(|(name, ov)| (name.clone(), (ov.model_id.clone(), ov.provider_id.clone())))
-                    .collect();
-            if !agent_overrides.is_empty() {
-                registry.apply_config_overrides(&agent_overrides);
-            }
-            let descriptor = registry
-                .get(&role)
-                .or_else(|| registry.all().iter().find(|agent| agent.role == role))
-                .ok_or_else(|| format!("unknown subagent role: {role}"))?
-                .clone();
-            let exe = std::env::current_exe()
-                .map_err(|e| format!("failed to locate current executable: {e}"))?;
-            let allowed_tools = {
-                let mut names = descriptor.allowed_tools.clone();
-                names.push("list_files".to_string());
-                names.sort();
-                names.dedup();
-                names
-                    .into_iter()
-                    .filter(|name| name != "spawn_subagent")
-                    .collect::<Vec<_>>()
-                    .join(",")
-            };
-            let prompt = format!(
-                "{}\n\nParent-assigned task:\n{}\n\nWorker constraints:\n- Read-only: do not write, patch, format, or refactor files.\n- Do not spawn further subagents.\n- Use tools silently; do not narrate what you are about to do.\n- Your final answer must be findings only: severity, path:line where possible, evidence, why it matters, and remediation.\n- If you cannot finish within the turn budget, return `INCOMPLETE` plus the evidence you actually checked. Do not return a progress preamble as the final answer.",
-                descriptor.system_prompt, task
-            );
+    #[test]
+    fn a_plus_entry_beside_a_minus_entry_is_still_a_delta() {
+        let (allowed, denied) = filters(&["+read_file", "-shell"], &[]);
+        assert!(allowed.is_empty(), "no plain name: {allowed:?}");
+        assert!(denied.iter().any(|name| name == "shell"));
+    }
 
-            let mut argv = vec![
-                "run".to_string(),
-                "--model".to_string(),
-                descriptor.model_id.clone(),
-                "--provider".to_string(),
-                descriptor.provider_id.clone(),
-                "--workspace".to_string(),
-                workspace_root.to_string_lossy().into_owned(),
-                "--bypass-approvals".to_string(),
-                "--stream-json".to_string(),
-                "--allowed-tools".to_string(),
-                allowed_tools,
-                "--disallowed-tools".to_string(),
-                "write_file,apply_patch,spawn_subagent".to_string(),
-                "--pipe".to_string(),
-            ];
-            if let Some(max_turns) = options.max_iterations {
-                argv.push("--max-turns".to_string());
-                argv.push(max_turns.to_string());
-            }
+    #[test]
+    fn a_minus_glob_expands_over_the_catalogue() {
+        let (_, denied) = filters(&["-read_*"], &[]);
+        assert!(denied.iter().any(|name| name == "read_file"), "{denied:?}");
+    }
 
-            use rightkit_sandbox::execution::{
-                CommandLaunchSpec, ProcessLaunchAdapter, ProcessLaunchContext,
-            };
-            let adapter = rightkit_agent_coding_tools::shell::NativeCommandSandboxAdapter;
-            let mut child = adapter
-                .spawn(CommandLaunchSpec {
-                    program: exe.to_string_lossy().into_owned(),
-                    argv,
-                    cwd: workspace_root.to_string_lossy().into_owned(),
-                    context: ProcessLaunchContext {
-                        workspace_root: workspace_root.to_string_lossy().into_owned(),
-                        sandbox_profile: Some("workspace".to_string()),
-                        sandbox_required: true,
-                        network_required: true,
-                    },
-                    env: Vec::new(),
-                })
-                .await
-                .map_err(|e| format!("failed to spawn subagent process: {e}"))?;
-            let stdout_pipe = child
-                .take_stdout()
-                .ok_or_else(|| "failed to capture subagent stdout".to_string())?;
-            let stderr_pipe = child
-                .take_stderr()
-                .ok_or_else(|| "failed to capture subagent stderr".to_string())?;
-            let stdout_task = tokio::spawn(read_cli_child_pipe(stdout_pipe));
-            let stderr_task = tokio::spawn(read_cli_child_pipe(stderr_pipe));
-            if let Some(mut stdin) = child.take_stdin() {
-                use tokio::io::AsyncWriteExt;
-                stdin
-                    .write_all(prompt.as_bytes())
-                    .await
-                    .map_err(|e| format!("failed to write subagent prompt: {e}"))?;
-            }
+    #[test]
+    fn a_plain_allowlist_keeps_working_and_a_plus_entry_extends_it() {
+        let (allowed, denied) = filters(&["read_file", "+list_files"], &[]);
+        assert!(allowed.iter().any(|name| name == "read_file"));
+        assert!(allowed.iter().any(|name| name == "list_files"));
+        assert!(denied.is_empty());
+        // The only plain name is removed again: what is left of the allowlist is the MCP gateway, which an
+        // allowlist keeps (`--tools` keeps MCP tools unless an entry starts with `mcp__`).
+        let (allowed, _) = filters(&["read_file", "-read_file"], &[]);
+        assert!(
+            !allowed.iter().any(|name| name == "read_file"),
+            "{allowed:?}"
+        );
+        assert!(
+            allowed
+                .iter()
+                .all(|name| MCP_GATEWAY_TOOLS.contains(&name.as_str())),
+            "{allowed:?}"
+        );
+    }
 
-            let timeout_duration = cli_subagent_timeout(&options);
-            let status = match tokio::time::timeout(timeout_duration, child.wait()).await {
-                Ok(Ok(status)) => status,
-                Ok(Err(err)) => {
-                    return Err(format!("failed to wait for subagent process: {err}"));
-                }
-                Err(_) => {
-                    let _ = child.cancel().await;
-                    let _ =
-                        tokio::time::timeout(std::time::Duration::from_secs(5), child.wait()).await;
-                    let stdout = join_cli_child_pipe(stdout_task, "stdout")
-                        .await
-                        .unwrap_or_default();
-                    let stderr = join_cli_child_pipe(stderr_task, "stderr")
-                        .await
-                        .unwrap_or_default();
-                    let stdout = String::from_utf8_lossy(&stdout);
-                    let stderr = String::from_utf8_lossy(&stderr);
-                    return Err(format!(
-                        "subagent `{role}` timed out after {}s and was stopped. stdoutTail={}, stderrTail={}",
-                        timeout_duration.as_secs(),
-                        tail_chars(stdout.trim(), 2000),
-                        tail_chars(stderr.trim(), 2000)
-                    ));
-                }
-            };
-            let stdout = join_cli_child_pipe(stdout_task, "stdout").await?;
-            let stderr = join_cli_child_pipe(stderr_task, "stderr").await?;
-            let stderr = String::from_utf8_lossy(&stderr);
-            if status != 0 {
-                let msg = stderr.trim();
-                return Err(if msg.is_empty() {
-                    format!("subagent process exited with status {status}")
-                } else {
-                    format!(
-                        "subagent process exited with status {status}: {}",
-                        tail_chars(msg, 4000)
-                    )
-                });
-            }
+    #[test]
+    fn a_delta_that_names_nothing_known_is_a_usage_error() {
+        let error = resolve_cli_tool_filters(None, vec!["-nosuchtool".into()], vec![])
+            .expect_err("unknown removal");
+        assert!(error.contains("matched no known tools"), "{error}");
+    }
 
-            let stdout = String::from_utf8_lossy(&stdout);
-            let mut visible = String::new();
-            let mut terminal_seen = false;
-            let mut prompt_tokens = 0u64;
-            let mut completion_tokens = 0u64;
-            for line in stdout.lines() {
-                let Ok(event) = serde_json::from_str::<serde_json::Value>(line) else {
-                    continue;
-                };
-                let event_data = cli_stream_event_data(&event);
-                match event_data.get("$kind").and_then(|value| value.as_str()) {
-                    Some("assistantDelta")
-                        if !event_data
-                            .get("isReasoning")
-                            .and_then(|value| value.as_bool())
-                            .unwrap_or(false) =>
-                    {
-                        if let Some(text) = event_data.get("text").and_then(|value| value.as_str())
-                        {
-                            visible.push_str(text);
-                        }
-                    }
-                    Some("assistantMessageCompleted") => terminal_seen = true,
-                    Some("usageUpdated") => {
-                        prompt_tokens = event_data
-                            .get("promptTokens")
-                            .and_then(|value| value.as_u64())
-                            .unwrap_or(prompt_tokens);
-                        completion_tokens = event_data
-                            .get("completionTokens")
-                            .and_then(|value| value.as_u64())
-                            .unwrap_or(completion_tokens);
-                    }
-                    Some("runFailed") | Some("runInterrupted") => {
-                        return Err(format!("subagent run did not complete: {line}"));
-                    }
-                    _ => {}
-                }
-            }
-            let visible = visible.trim();
-            if visible.is_empty() {
-                return Err("subagent completed without visible output".to_string());
-            }
-            if !terminal_seen {
-                return Err("subagent output ended without completion event".to_string());
-            }
-            let (prompt_per_1k, completion_per_1k) =
-                rightkit_llm::agent_providers::price_per_1k(&descriptor.model_id);
-            let estimated_cost_usd = (prompt_tokens as f64 * prompt_per_1k / 1000.0)
-                + (completion_tokens as f64 * completion_per_1k / 1000.0);
-            Ok(format!(
-                "Subagent `{}` using `{}` completed.\nSubagent telemetry: promptTokens={}, completionTokens={}, estimatedCostUsd={:.6}\n\n{}",
-                descriptor.name,
-                descriptor.model_id,
-                prompt_tokens,
-                completion_tokens,
-                estimated_cost_usd,
-                visible
-            ))
-        })
+    #[test]
+    fn deltas_are_split_without_their_sign() {
+        let (plain, added, removed) =
+            split_cli_tool_deltas(vec!["a".into(), "+b".into(), " -c ".into()]);
+        assert_eq!(
+            (plain, added, removed),
+            (
+                vec!["a".to_string()],
+                vec!["b".to_string()],
+                vec!["c".to_string()]
+            )
+        );
     }
 }

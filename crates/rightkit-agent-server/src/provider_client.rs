@@ -33,76 +33,13 @@ use rightkit_llm::agent_providers::{
     ProviderRequestMetadata,
 };
 use rightkit_llm::agent_providers::{
-    CapacityError, CapacityProfileV1, PreparedModalityV1, PreparedProviderRequestV1,
-    PreparedRequestGateV1,
+    CapacityError, PreparedModalityV1, PreparedProviderRequestV1, PreparedRequestGateV1,
 };
 use rightkit_llm::agent_providers::{ExtensionProviderRegistry, ExtensionRegistrationPolicy};
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-
-/// CRA-10 producer (semantic-contracts.md "Model-aware capacity & final
-/// insertion"): builds a [`PreparedProviderRequestV1`] over the exact `wire`
-/// bytes this request will serialize to, and admits it against `profile`
-/// (from `ModelCapability::capacity_profile`) before dispatch. This is the
-/// `provider_client.rs` half of the `HostObservedValueV1` producer named in
-/// this lane's `h9-h10-host-observation` interface-handoff row: it measures
-/// under the mandatory `o200k_base/1` Estimated basis (never provider-
-/// reported, never `bytes/4`) and returns typed `CapacityUnavailable` /
-/// `FinalInsertionOverBudget` instead of a silent send.
-///
-/// `final_image_tokens` is the caller-supplied CRA-10 image accounting
-/// (`o200k_base` measurement of the projection built by
-/// `rightkit_agent_engine_core::image_eviction::PreparedImageHistory::final_image_projection`
-/// plus [`IMAGE_TOKEN_COST`] once per surviving inline image, already
-/// summed by the caller) — pass `0` for text-only requests.
-///
-/// Real provider adapters now own final-body admission and physical
-/// submission observations. This helper remains available to existing
-/// image-projection callers that already hold exact final request bytes.
-fn admit_provider_request_capacity(
-    wire: &[serde_json::Value],
-    route_fingerprint: impl Into<String>,
-    model_id: impl Into<String>,
-    serializer_generation: u64,
-    tool_catalog_generation: Option<u64>,
-    profile: CapacityProfileV1,
-    final_image_tokens: u64,
-) -> Result<(PreparedProviderRequestV1, u64), CapacityError> {
-    let bytes = serde_json::to_vec(wire).unwrap_or_default();
-    let modality = if final_image_tokens > 0 {
-        PreparedModalityV1::TextPlusInlineImages
-    } else {
-        PreparedModalityV1::TextOnly
-    };
-    let prepared = PreparedProviderRequestV1::new(
-        bytes,
-        "application/json",
-        route_fingerprint,
-        model_id,
-        serializer_generation,
-        tool_catalog_generation,
-        modality,
-    );
-    let gate = PreparedRequestGateV1::new(profile);
-    // Base-wire measurement plus the already-summed image projection tokens,
-    // per `effective_limit - reserve - measured_base_wire_tokens` with the
-    // 765-token image provision included in `measured_base_wire_tokens`.
-    let base_measured = gate.admit(&prepared)?;
-    let total_measured = base_measured.saturating_add(final_image_tokens);
-    let budget = gate
-        .profile
-        .window_tokens
-        .saturating_sub(gate.profile.reserve_tokens);
-    if total_measured > budget {
-        return Err(CapacityError::FinalInsertionOverBudget {
-            measured_tokens: total_measured,
-            effective_budget_tokens: budget,
-        });
-    }
-    Ok((prepared, total_measured))
-}
 
 /// Context already pulled for one session's current task. Later model
 /// iterations of the same task reuse it, so the prompt prefix stays
@@ -110,29 +47,18 @@ fn admit_provider_request_capacity(
 /// iteration.
 #[derive(Clone)]
 struct PulledTaskContext {
-    task_digest: String,
+    /// sha256 over session, task digest, workspace root, model, window and reserve: a cached
+    /// entry is reused only when every part is equal.
+    key: String,
     /// Fully formed `<membrane_context>` envelope; `None` when Membrane had
     /// nothing or context is off.
     envelope: Option<String>,
 }
 
+mod workspace_memory;
+
 /// Upper bound on one Membrane CLI context call. A turn never waits longer.
 const CONTEXT_PULL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
-
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-pub(crate) struct RetainedContextRevisionObservationV1 {
-    pub session_id: String,
-    pub task_id: String,
-    pub representation_handle: serde_json::Value,
-    pub source_ref: String,
-    pub source_digest: String,
-    pub serialized_digest: String,
-    pub context_epoch: u64,
-}
-
-pub(crate) type RetainedContextRevisionCallback =
-    Arc<dyn Fn(Option<RetainedContextRevisionObservationV1>) + Send + Sync>;
 
 /// Host-owned synchronous authority. It pulls task context through Pulse's
 /// Membrane CLI (`{app}-membrane-cli`) and injects it into the final user
@@ -145,15 +71,9 @@ pub(crate) struct HostRequestAuthority {
     /// authorization id -> sha256 of the exact context envelope serialized
     /// into that authorized request; joins H9/H10 evidence to delivered bytes.
     delivered: Arc<Mutex<BTreeMap<String, String>>>,
-    #[allow(dead_code)]
-    retention_callback: Arc<Mutex<Option<RetainedContextRevisionCallback>>>,
 }
 
-#[allow(dead_code)]
 pub(crate) struct CompactionDecisionProvider {
-    authority: Arc<HostRequestAuthority>,
-    capacity: rightkit_llm::agent_providers::client::CapacityProfileV1,
-    task_id: String,
     repository_id: String,
 }
 
@@ -213,16 +133,8 @@ fn validate_compaction_federation_decision(
 }
 
 impl CompactionDecisionProvider {
-    pub(crate) fn new(
-        authority: Arc<HostRequestAuthority>,
-        capacity: rightkit_llm::agent_providers::client::CapacityProfileV1,
-        task_id: impl Into<String>,
-        repository_id: impl Into<String>,
-    ) -> Self {
+    pub(crate) fn new(repository_id: impl Into<String>) -> Self {
         Self {
-            authority,
-            capacity,
-            task_id: task_id.into(),
             repository_id: repository_id.into(),
         }
     }
@@ -304,16 +216,11 @@ impl HostRequestAuthority {
             state,
             pulled: Arc::new(Mutex::new(BTreeMap::new())),
             delivered: Arc::new(Mutex::new(BTreeMap::new())),
-            retention_callback: Arc::new(Mutex::new(None)),
         }
     }
 
     fn direct_context(&self) -> bool {
         self.state.uses_direct_context()
-    }
-
-    pub(crate) fn set_retention_callback(&self, callback: RetainedContextRevisionCallback) {
-        *lock_recover(&self.retention_callback, "retained context callback") = Some(callback);
     }
 
     /// Kept for host wiring; the MCP bridge no longer takes part in context.
@@ -322,27 +229,61 @@ impl HostRequestAuthority {
     /// Make the reason a request carries no Membrane context visible in the
     /// session instead of only logging it.
     fn record_context_off(&self, identity: &ProviderRequestIdentityV1, reason: &str) {
-        tracing::warn!(
-            session_id = %identity.session_id,
+        self.record_context_observation(
+            identity,
+            "context_degraded",
+            &format!("Context off for this request: {reason}"),
             reason,
-            "context off for this request: no context injected"
+            None,
         );
+    }
+
+    /// Publish one context observation. `membrane` is what Membrane itself said about the pull
+    /// (its retrieval `reason` and `detail`); they ride in the fields as `membrane_reason` and
+    /// `membrane_detail` (the detail as JSON text) so a reader sees why Membrane chose what it did.
+    fn record_context_observation(
+        &self,
+        identity: &ProviderRequestIdentityV1,
+        kind: &str,
+        summary: &str,
+        reason: &str,
+        membrane: Option<(&Option<String>, &serde_json::Value)>,
+    ) {
+        if kind == "context_degraded" {
+            tracing::warn!(
+                session_id = %identity.session_id,
+                reason,
+                "context off for this request: no context injected"
+            );
+        }
         if let Some(live) = self.state.get_session(&identity.session_id) {
             let conduit = live.conduit.clone();
             let seq = conduit.next_seq();
             let now = rightkit_agent_engine_protocol::time::now_iso();
             let mut fields = std::collections::HashMap::new();
             fields.insert("reason".to_string(), reason.to_string());
+            if let Some((membrane_reason, membrane_detail)) = membrane {
+                if let Some(membrane_reason) = membrane_reason.as_deref() {
+                    fields.insert("membrane_reason".to_string(), membrane_reason.to_string());
+                }
+                if !membrane_detail.is_null() {
+                    fields.insert("membrane_detail".to_string(), membrane_detail.to_string());
+                }
+            }
             conduit.publish(
                 rightkit_agent_engine_protocol::ProtocolEvent::OrchestrationObservationRecorded {
                     session_id: identity.session_id.clone(),
                     seq,
                     created_at: now.clone(),
                     observation: rightkit_agent_engine_protocol::OrchestrationObservation {
-                        id: format!("context-empty-{}", identity.request_id),
-                        kind: "context_degraded".into(),
+                        id: if kind == "context_degraded" {
+                            format!("context-empty-{}", identity.request_id)
+                        } else {
+                            format!("{}-{}", kind.replace('_', "-"), identity.request_id)
+                        },
+                        kind: kind.into(),
                         subject: identity.session_id.clone(),
-                        summary: format!("Context off for this request: {reason}"),
+                        summary: summary.to_string(),
                         fields,
                         created_at: now,
                     },
@@ -392,25 +333,141 @@ impl HostRequestAuthority {
             observed_context_tokens,
         )
         .map(|tokens| tokens as usize);
+        if budget == Some(0) {
+            // Rule 11: no room left in the window, so nothing is pulled (never `--budget 1`).
+            self.record_context_off(
+                &input.identity,
+                "no room left in the model window for context",
+            );
+            return Ok(None);
+        }
         let root = Path::new(&workspace);
-        let pull = match context_backend().context_pull(root, task, budget, Some(root)) {
+        let backend = context_backend();
+        let fill_window = crate::host_options::membrane_context_fills_window();
+        // Rule 42 (B55) is undecided until Pulse's pull is checked for memory items, and until
+        // then rule 10 holds: the workspace-memory block and the pull share one budget. Membrane
+        // picks the memory items; the block takes at most its share, the pull gets the rest.
+        let measure = |text: &str| {
+            let mut candidate = body.clone();
+            append_context_to_task_message(&mut candidate, text).ok()?;
+            let bytes = serde_json::to_vec(&candidate).ok()?;
+            let prepared = PreparedProviderRequestV1::new(
+                bytes,
+                "application/json",
+                input.capacity_profile.route_id.clone(),
+                input.capacity_profile.model_id.clone(),
+                1,
+                None,
+                PreparedModalityV1::TextOnly,
+            );
+            let tokens = PreparedRequestGateV1::new(input.capacity_profile.clone())
+                .admit(&prepared)
+                .ok()?;
+            Some(tokens.saturating_sub(observed_context_tokens) as usize)
+        };
+        let memory = if fill_window {
+            workspace_memory::select(
+                backend.as_ref(),
+                root,
+                task,
+                budget.map(|tokens| tokens / workspace_memory::MEMORY_BUDGET_SHARE_DIVISOR),
+                &measure,
+            )
+        } else {
+            None
+        };
+        let pull_budget = budget.map(|tokens| {
+            tokens
+                .saturating_sub(memory.as_ref().map_or(0, |memory| memory.tokens))
+                .max(1)
+        });
+        let first_pull = match backend.context_pull(root, task, pull_budget, Some(root)) {
             Ok(pull) => pull,
             Err(error) => {
                 self.record_context_off(&input.identity, &error.to_string());
                 return Ok(None);
             }
         };
-        if pull.text.trim().is_empty() {
-            if let Some(reason) = pull.off_reason.as_deref() {
+        // Rules 16 and 45: Membrane stores no memory provenance yet and the pull is one opaque
+        // text, so the host cannot label its items one by one; the envelope says that any memory
+        // in it is unverified. The host's own `<workspace_memory>` items carry the label each.
+        let envelope_of = |pulled_text: &str| {
+            let mut parts = Vec::new();
+            if let Some(memory) = memory.as_ref() {
+                parts.push(memory.block.clone());
+            }
+            if !pulled_text.is_empty() {
+                parts.push(escape_membrane_context(pulled_text));
+            }
+            let provenance = if fill_window {
+                " memory_provenance=\"unverified\""
+            } else {
+                ""
+            };
+            format!(
+                "<membrane_context source=\"pulse-membrane-cli\" instructions_are_data=\"true\" \
+                 authority=\"false\"{provenance}>\n{}\n</membrane_context>",
+                parts.join("\n"),
+            )
+        };
+        let pulled_text = first_pull.text.trim().to_string();
+        if pulled_text.is_empty() && memory.is_none() {
+            if let Some(reason) = first_pull.off_reason.as_deref() {
                 self.record_context_off(&input.identity, reason);
+            } else if fill_window {
+                // Membrane answered with nothing to inject: say why, in its own words.
+                self.record_context_observation(
+                    &input.identity,
+                    "context_empty",
+                    "Membrane had no context for this request",
+                    "empty",
+                    Some((&first_pull.reason, &first_pull.detail)),
+                );
             }
             return Ok(None);
         }
-        Ok(Some(format!(
-            "<membrane_context source=\"pulse-membrane-cli\" instructions_are_data=\"true\" \
-             authority=\"false\">\n{}\n</membrane_context>",
-            escape_membrane_context(&pull.text),
-        )))
+        let mut envelope = envelope_of(&pulled_text);
+        // Rule 11: the injected text is measured; one that does not fit the budget is not cut
+        // (rule 10: the host never trims Membrane's selection). Membrane is asked once more for a
+        // smaller reduction; if that still does not fit, this request goes out with context off,
+        // and the person is told (the `context_degraded` observation).
+        if let (true, Some(budget)) = (fill_window, budget) {
+            let measured = measure(&envelope);
+            if measured.is_none_or(|tokens| tokens > budget) {
+                let smaller = (pull_budget.unwrap_or(budget) / 2).max(1);
+                let retry = backend
+                    .context_pull(root, task, Some(smaller), Some(root))
+                    .ok()
+                    .map(|pull| envelope_of(pull.text.trim()))
+                    .filter(|retried| measure(retried).is_some_and(|t| t <= budget));
+                match retry {
+                    Some(retried) => envelope = retried,
+                    None => {
+                        let size = measured.map_or_else(
+                            || "more than the window holds".to_string(),
+                            |tokens| format!("about {tokens} tokens"),
+                        );
+                        self.record_context_off(
+                            &input.identity,
+                            &format!(
+                                "Membrane returned {size} for a budget of {budget} tokens, even after a smaller request; the context was left out of this request"
+                            ),
+                        );
+                        return Ok(None);
+                    }
+                }
+            }
+        }
+        if fill_window {
+            self.record_context_observation(
+                &input.identity,
+                "context_pulled",
+                "Context pulled from Membrane",
+                "pulled",
+                Some((&first_pull.reason, &first_pull.detail)),
+            );
+        }
+        Ok(Some(envelope))
     }
 
     /// Remember the digest of the envelope delivered under `authorization_id`.
@@ -577,21 +634,33 @@ const CONTEXT_BUDGET_WINDOW_DIVISOR: u64 = 10;
 const CONTEXT_BUDGET_DEFAULT_CAP_TOKENS: u64 = 12_000;
 const CONTEXT_BUDGET_FLOOR_TOKENS: u64 = 1_000;
 
-/// Explicit bounded per-turn context budget in tokens, or `None` when the
-/// operator selected host-fit mode (`RIGHTKIT_CONTEXT_BUDGET_MODE=host_fit`).
-/// `RIGHTKIT_CONTEXT_BUDGET_TOKENS` overrides the default (a tenth of the
-/// window, capped). Never exceeds the remaining window room.
+/// Explicit per-turn context budget in tokens, or `None` when the operator selected host-fit
+/// mode (`<PREFIX>_CONTEXT_BUDGET_MODE=host_fit`). With
+/// `host_options::membrane_context_fills_window` the budget is what is left of the window:
+/// window minus reserved output minus what the request already holds (context-membrane-memory
+/// OD-4, rule 9); `<PREFIX>_CONTEXT_BUDGET_TOKENS` is the ceiling that can only lower it, and `0`
+/// means no room is left (rule 11: nothing is pulled, never `--budget 1`). Otherwise
+/// `<PREFIX>_CONTEXT_BUDGET_TOKENS` overrides the default (a tenth of the window, capped) and the
+/// budget never exceeds the remaining window room.
 pub(crate) fn turn_context_budget(window: u64, reserve: u64, observed: u64) -> Option<u64> {
-    let host_fit = std::env::var("RIGHTKIT_CONTEXT_BUDGET_MODE")
+    let host_fit = std::env::var(rightkit_agent_config::env_name("CONTEXT_BUDGET_MODE"))
         .map(|mode| matches!(mode.trim(), "host_fit" | "host-fit"))
         .unwrap_or(false);
     if host_fit {
         return None;
     }
-    let override_tokens = std::env::var("RIGHTKIT_CONTEXT_BUDGET_TOKENS")
+    let override_tokens = std::env::var(rightkit_agent_config::env_name("CONTEXT_BUDGET_TOKENS"))
         .ok()
         .and_then(|raw| raw.trim().parse::<u64>().ok())
         .filter(|tokens| *tokens > 0);
+    if crate::host_options::membrane_context_fills_window() {
+        return Some(compute_window_fill_budget(
+            window,
+            reserve,
+            observed,
+            override_tokens,
+        ));
+    }
     Some(compute_context_budget(
         window,
         reserve,
@@ -616,6 +685,56 @@ pub(crate) fn compute_context_budget(
     configured.min(remaining).max(1)
 }
 
+/// The window-fill budget formula: `window - reserve - observed`, lowered to `ceiling` when one
+/// is set. Zero when the window has no room left.
+pub(crate) fn compute_window_fill_budget(
+    window: u64,
+    reserve: u64,
+    observed: u64,
+    ceiling: Option<u64>,
+) -> u64 {
+    let remaining = window.saturating_sub(reserve).saturating_sub(observed);
+    ceiling.map_or(remaining, |ceiling| ceiling.min(remaining))
+}
+
+#[cfg(test)]
+mod context_budget_tests {
+    use super::compute_window_fill_budget;
+
+    #[test]
+    fn the_budget_is_what_is_left_of_the_window() {
+        assert_eq!(
+            compute_window_fill_budget(200_000, 20_000, 30_000, None),
+            150_000
+        );
+        assert_eq!(
+            compute_window_fill_budget(1_000_000, 20_000, 0, None),
+            980_000
+        );
+    }
+
+    #[test]
+    fn a_ceiling_only_lowers_it() {
+        assert_eq!(
+            compute_window_fill_budget(200_000, 20_000, 30_000, Some(300)),
+            300
+        );
+        assert_eq!(
+            compute_window_fill_budget(200_000, 20_000, 30_000, Some(900_000)),
+            150_000
+        );
+    }
+
+    #[test]
+    fn no_room_is_zero_not_one() {
+        assert_eq!(compute_window_fill_budget(10_000, 20_000, 0, None), 0);
+        assert_eq!(
+            compute_window_fill_budget(10_000, 2_000, 9_000, Some(500)),
+            0
+        );
+    }
+}
+
 impl RequestAuthorityV1 for HostRequestAuthority {
     fn authorize(
         &self,
@@ -638,11 +757,40 @@ impl RequestAuthorityV1 for HostRequestAuthority {
                     .to_string(),
             });
         }
+        if let Some(reason) = rightkit_memory_client::backend::MembraneHandle::shared().off_reason()
+        {
+            self.record_context_off(&input.identity, &reason);
+            let authorization_id = format!(
+                "membrane-cli:{}:{}:{}",
+                input.identity.session_id, input.identity.request_id, input.identity.generation
+            );
+            return Ok(RequestAuthorityResponseV1 {
+                authorization_id,
+                final_body: serde_json::Value::Object(body),
+            });
+        }
         let task = draft_task_text(&body).unwrap_or_else(|| input.identity.task_id.clone());
         let task_digest = rightkit_fs::digest::sha256_bytes(task.as_bytes());
+        let workspace_root = self
+            .state
+            .get_session(&input.identity.session_id)
+            .map(|live| live.workspace_root.clone())
+            .unwrap_or_default();
+        let key = rightkit_fs::digest::sha256_bytes(
+            format!(
+                "{}\n{}\n{}\n{}\n{}\n{}",
+                input.identity.session_id,
+                task_digest,
+                workspace_root,
+                input.capacity_profile.model_id,
+                input.capacity_profile.window_tokens,
+                input.capacity_profile.reserve_tokens
+            )
+            .as_bytes(),
+        );
         let cached = lock_recover(&self.pulled, "pulled task context")
             .get(&input.identity.session_id)
-            .filter(|pulled| pulled.task_digest == task_digest)
+            .filter(|pulled| pulled.key == key)
             .cloned();
         let envelope = match cached {
             Some(pulled) => pulled.envelope,
@@ -651,7 +799,7 @@ impl RequestAuthorityV1 for HostRequestAuthority {
                 lock_recover(&self.pulled, "pulled task context").insert(
                     input.identity.session_id.clone(),
                     PulledTaskContext {
-                        task_digest,
+                        key,
                         envelope: envelope.clone(),
                     },
                 );
@@ -663,8 +811,9 @@ impl RequestAuthorityV1 for HostRequestAuthority {
             input.identity.session_id, input.identity.request_id, input.identity.generation
         );
         if let Some(envelope) = envelope.as_deref() {
-            append_context_to_task_message(&mut body, envelope)?;
-            self.record_delivered_context(&authorization_id, envelope);
+            if append_context_to_task_message(&mut body, envelope)? {
+                self.record_delivered_context(&authorization_id, envelope);
+            }
         }
         Ok(RequestAuthorityResponseV1 {
             authorization_id,
@@ -679,7 +828,7 @@ impl RequestAuthorityV1 for HostRequestAuthority {
 fn append_context_to_task_message(
     body: &mut serde_json::Map<String, serde_json::Value>,
     envelope: &str,
-) -> Result<(), RequestAuthorityErrorV1> {
+) -> Result<bool, RequestAuthorityErrorV1> {
     let (slot, messages) = provider_conversation_mut(body).ok_or_else(|| {
         RequestAuthorityErrorV1::InvalidResponse {
             reason: "provider draft carried no messages for context delivery".to_string(),
@@ -700,8 +849,9 @@ fn append_context_to_task_message(
         .find(|message| is_user_message(message) && has_text(message))
     {
         append_envelope_text(message, &format!("\n\n{envelope}"), slot == "input");
+        return Ok(true);
     }
-    Ok(())
+    Ok(false)
 }
 
 /// Append envelope text to one message's content: absent content becomes the
@@ -786,19 +936,47 @@ fn draft_task_text(body: &serde_json::Map<String, serde_json::Value>) -> Option<
         .iter()
         .rev()
         .filter(|message| message.get("role").and_then(serde_json::Value::as_str) == Some("user"))
-        .find_map(|message| match message.get("content") {
-            Some(serde_json::Value::String(text)) => Some(text.clone()),
-            Some(serde_json::Value::Array(parts)) => {
-                let text = parts
+        .find_map(|message| {
+            let text = match message.get("content") {
+                Some(serde_json::Value::String(text)) => text.clone(),
+                Some(serde_json::Value::Array(parts)) => parts
                     .iter()
                     .filter_map(|part| part.get("text").and_then(serde_json::Value::as_str))
                     .collect::<Vec<_>>()
-                    .join("\n");
-                (!text.is_empty()).then_some(text)
-            }
-            _ => None,
+                    .join("\n"),
+                _ => return None,
+            };
+            // CTX-11: a turn that holds only reminders, or only the engine's goal reminder, is not
+            // the person's message. Keep looking at earlier turns instead of giving up, which left
+            // the task id as the task text.
+            let text = strip_system_reminders(&text);
+            let own = text.trim();
+            (!own.is_empty()
+                && !own.starts_with(rightkit_agent_engine_core::GOAL_REMINDER_PREFIX.trim_end()))
+            .then_some(text)
         })
-        .filter(|text| !text.trim().is_empty())
+}
+
+/// The person's words only: drop the `<system-reminder>` blocks the host appends
+/// to a user turn (clock, lessons), so Membrane's query and the pull cache key
+/// do not change with the time of day.
+fn strip_system_reminders(text: &str) -> String {
+    const OPEN: &str = "<system-reminder>";
+    const CLOSE: &str = "</system-reminder>";
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find(OPEN) {
+        out.push_str(&rest[..start]);
+        match rest[start..].find(CLOSE) {
+            Some(end) => rest = &rest[start + end + CLOSE.len()..],
+            None => {
+                rest = "";
+                break;
+            }
+        }
+    }
+    out.push_str(rest);
+    out.trim().to_string()
 }
 
 fn current_unix_ms() -> u64 {
@@ -818,6 +996,50 @@ pub struct ProviderRoute {
     pub disable_thinking: bool,
     pub fallback_models: Vec<String>,
     pub approved_private: bool,
+    /// The configured route requires a key (`api-key-required`): with none resolved, the
+    /// request is refused before it leaves the machine instead of going out unauthenticated.
+    pub api_key_required: bool,
+    /// The configured route's compat flags (`prompt-cache-key-mode`,
+    /// `requires-non-null-assistant-content`, `tool-calls`).
+    pub compat: RouteCompatSettings,
+}
+
+/// The wire protocol a configured route asked for.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RouteProtocol {
+    #[default]
+    Default,
+    OpenAi,
+    Anthropic,
+    Invalid,
+}
+
+/// A route's wire compat flags and its wire protocol.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RouteCompatSettings {
+    pub wire: rightkit_llm::agent_providers::RouteCompat,
+    pub protocol: RouteProtocol,
+}
+
+/// The provider client's compat flags for one configured route.
+pub(crate) fn route_compat_of(
+    route: &rightkit_agent_config::ProviderRouteConfig,
+) -> RouteCompatSettings {
+    RouteCompatSettings {
+        wire: rightkit_llm::agent_providers::RouteCompat {
+            prompt_cache_key_mode: rightkit_llm::agent_providers::CacheKeyMode::parse(
+                route.prompt_cache_key_mode.as_deref(),
+            ),
+            requires_non_null_assistant_content: route.requires_non_null_assistant_content,
+            emulate_tool_calls: !route.native_tool_calls(),
+            no_parallel_tool_calls: route.parallel_tool_calls == Some(false),
+        },
+        protocol: match route.wire_protocol() {
+            Ok("anthropic") => RouteProtocol::Anthropic,
+            Ok(_) => RouteProtocol::OpenAi,
+            Err(_) => RouteProtocol::Invalid,
+        },
+    }
 }
 
 impl ProviderRoute {
@@ -865,23 +1087,119 @@ impl ProviderRoute {
             disable_thinking: false,
             fallback_models: Vec::new(),
             approved_private: false,
+            api_key_required: false,
+            compat: Default::default(),
         })
     }
 }
 
 pub type SharedProviderRoute = Arc<Mutex<ProviderRoute>>;
 
+/// Plan on one model, build on another (`[model] plan-model`): while the session's permission mode
+/// is Plan the route answers on `plan_model`; when the mode leaves Plan (the plan was approved) the
+/// model the session had comes back. A `/model` switch made during planning is kept. `saved` holds
+/// the model to restore. The route is read per request, so the change applies from the next one.
+pub(crate) fn apply_plan_model(
+    route: &SharedProviderRoute,
+    mode: rightkit_agent_policy::PermissionMode,
+    plan_model: &str,
+    saved: &mut Option<String>,
+) {
+    let mut route = lock_recover(route, "plan-model route");
+    if mode == rightkit_agent_policy::PermissionMode::Plan {
+        if saved.is_none() && route.model_id != plan_model {
+            *saved = Some(route.model_id.clone());
+            route.model_id = plan_model.to_string();
+        }
+    } else if let Some(original) = saved.take() {
+        if route.model_id == plan_model {
+            route.model_id = original;
+        }
+    }
+}
+
+/// Keep `route` on the plan model for as long as the session is in plan mode (see
+/// [`apply_plan_model`]). The first state is applied before this returns, so the first request
+/// already uses it.
+pub(crate) fn follow_plan_model(
+    route: SharedProviderRoute,
+    mut mode_rx: tokio::sync::watch::Receiver<rightkit_agent_policy::PermissionMode>,
+    plan_model: String,
+) {
+    let mut saved = None;
+    apply_plan_model(
+        &route,
+        *mode_rx.borrow_and_update(),
+        &plan_model,
+        &mut saved,
+    );
+    tokio::spawn(async move {
+        while mode_rx.changed().await.is_ok() {
+            let mode = *mode_rx.borrow_and_update();
+            apply_plan_model(&route, mode, &plan_model, &mut saved);
+        }
+    });
+}
+
+/// The daemon's own provider route as a checked route, for side calls (titles, the dispatch
+/// classifier, skill synthesis) that have no session route of their own.
+pub(crate) fn projection_route(config: &EngineConfig) -> ProviderRoute {
+    ProviderRoute {
+        api_key: config.api_key.clone(),
+        model_id: config.model_id.clone(),
+        base_url: config.base_url.clone(),
+        effort: None,
+        thinking_budget_tokens: None,
+        disable_thinking: false,
+        fallback_models: Vec::new(),
+        approved_private: false,
+        api_key_required: false,
+        compat: configured_compat_for_base_url(&config.base_url),
+    }
+}
+
+/// The compat settings of the configured route whose base URL equals `base_url` (trimmed of
+/// whitespace and a trailing `/`); the smallest map key wins. Default when none matches.
+fn configured_compat_for_base_url(base_url: &str) -> RouteCompatSettings {
+    let normalize = |url: &str| url.trim().trim_end_matches('/').to_string();
+    let wanted = normalize(base_url);
+    let config = rightkit_agent_config::ConfigLoader::new().load_files_default();
+    config
+        .provider_routes
+        .iter()
+        .filter(|(_, entry)| normalize(&entry.base_url) == wanted)
+        .min_by(|(left, _), (right, _)| left.cmp(right))
+        .map(|(_, entry)| route_compat_of(entry))
+        .unwrap_or_default()
+}
+
 /// Complete a small, provider-backed projection without exposing provider
 /// construction to API handlers.
-// `ProviderError` is rightkit-llm's error type (that crate allows this lint for it; `finish` below carries
-// the same allow); it is propagated as-is rather than re-wrapped.
-#[allow(clippy::result_large_err)]
 pub(crate) async fn complete_projection(
     config: &EngineConfig,
     messages: Vec<serde_json::Value>,
-) -> Result<rightkit_llm::agent_providers::CompletedTurn, ProviderError> {
-    OpenAiCompatClient::new(&config.api_key, &config.model_id, &config.base_url)
-        .complete(messages)
+) -> Result<rightkit_llm::agent_providers::CompletedTurn, Box<ProviderError>> {
+    // Same checked path as a turn: the egress check pins the provider's addresses, native
+    // sign-ins resolve, and a route on `api.anthropic.com` speaks the Messages protocol.
+    let mut route = projection_route(config);
+    route.disable_thinking = true;
+    build_attempt_client(&route, None, None, AnthropicOptions::short())
+        .await?
+        .without_reasoning()
+        .complete_with_tools_metadata(messages, Vec::new(), &ProviderRequestMetadata::default())
+        .await
+}
+
+/// One tool-free completion on `route` through the checked path: the egress check pins the
+/// provider's addresses, native sign-ins resolve, and a route on `api.anthropic.com` speaks the
+/// Messages protocol. For daemon-side calls that have no session route (background review).
+pub(crate) async fn complete_on_route(
+    route: &ProviderRoute,
+    messages: Vec<serde_json::Value>,
+) -> Result<rightkit_llm::agent_providers::CompletedTurn, Box<ProviderError>> {
+    build_attempt_client(route, None, None, AnthropicOptions::short())
+        .await?
+        .complete_with_tools_metadata(messages, Vec::new(), &ProviderRequestMetadata::default())
         .await
 }
 
@@ -917,11 +1235,22 @@ pub(crate) fn register_discovered_provider_extensions(
 /// fixed output ceiling, & return a typed result to orchestration callers.
 pub struct DaemonSmallModelClient {
     route: SharedProviderRoute,
+    /// Cheaper model id on the same connection (`[model] small-model`); `None` uses the session's model.
+    model_id: Option<String>,
 }
 
 impl DaemonSmallModelClient {
     pub fn new(route: SharedProviderRoute) -> Self {
-        Self { route }
+        Self {
+            route,
+            model_id: None,
+        }
+    }
+
+    pub fn with_model(mut self, model_id: &str) -> Self {
+        let model_id = model_id.trim();
+        self.model_id = (!model_id.is_empty()).then(|| model_id.to_string());
+        self
     }
 }
 
@@ -946,17 +1275,22 @@ impl rightkit_agent_orchestration::coding::small_model_utility::SmallModelClient
             return Err(SmallModelError::BudgetExceeded);
         }
 
-        let route = lock_recover(&self.route, "small-model provider route").clone();
+        let mut route = lock_recover(&self.route, "small-model provider route").clone();
+        if let Some(model_id) = &self.model_id {
+            route.model_id = model_id.clone();
+            route.fallback_models.clear();
+        }
         // Keyless routes (`api-key-required = false`) are usable here:
         // `build_checked_client` admits them with no Authorization header.
         if route.base_url.trim().is_empty() || route.model_id.trim().is_empty() {
             return Err(SmallModelError::NoRouteAvailable);
         }
 
-        let client = build_checked_client(&route)
+        route.disable_thinking = true;
+        let client = build_attempt_client(&route, None, None, AnthropicOptions::short())
             .await
             .map_err(|error| SmallModelError::ProviderError(error.to_string()))?
-            .with_reasoning_disabled();
+            .without_reasoning();
         let instruction = small_model_instruction(&task);
         let turn = client
             .complete_with_tools_metadata(
@@ -981,6 +1315,77 @@ impl rightkit_agent_orchestration::coding::small_model_utility::SmallModelClient
         let (text, _) = sanitize_provider_content(turn.text, turn.reasoning, false)
             .map_err(SmallModelError::ProviderError)?;
         Ok(parse_small_model_output(task, text))
+    }
+}
+
+/// Backend of the opt-in `advisor` tool (A225): one completion on the session's own connection
+/// with `[orchestration] advisor-model` swapped in, no tools and no reasoning, a fixed output
+/// ceiling, answered as text. Built only when `[features] advisor` is on.
+pub struct DaemonAdvisorBackend {
+    route: SharedProviderRoute,
+    model_id: String,
+}
+
+/// Output ceiling of one advisor verdict, in tokens.
+const ADVISOR_MAX_OUTPUT_TOKENS: u32 = 2_048;
+
+impl DaemonAdvisorBackend {
+    pub fn new(route: SharedProviderRoute, model_id: &str) -> Self {
+        Self {
+            route,
+            model_id: model_id.trim().to_string(),
+        }
+    }
+}
+
+impl rightkit_agent_coding_tools::AdvisorBackend for DaemonAdvisorBackend {
+    fn advise(
+        &self,
+        question: String,
+        transcript: String,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, String>> + Send>> {
+        let route = self.route.clone();
+        let model_id = self.model_id.clone();
+        Box::pin(async move {
+            let mut route = lock_recover(&route, "advisor provider route").clone();
+            if model_id.is_empty() {
+                return Err(
+                    "no advisor model is configured ([orchestration] advisor-model)".to_string(),
+                );
+            }
+            route.model_id = model_id;
+            route.fallback_models.clear();
+            if route.base_url.trim().is_empty() {
+                return Err("the session has no provider route to ask the advisor on".to_string());
+            }
+            let client = build_checked_client(&route)
+                .await
+                .map_err(|error| error.to_string())?
+                .with_reasoning_disabled();
+            let instruction = "You are a senior reviewer asked for a verdict on another assistant's work. \
+                Answer the question directly: start with your verdict, then give the reasons and any concrete \
+                change you would make. You take no action and call no tools.";
+            let user = format!("Conversation so far:\n\n{transcript}\n\nQuestion: {question}");
+            let turn = client
+                .complete_with_tools_metadata(
+                    vec![
+                        serde_json::json!({"role": "system", "content": instruction}),
+                        serde_json::json!({"role": "user", "content": user}),
+                    ],
+                    Vec::new(),
+                    &ProviderRequestMetadata {
+                        max_output_tokens: Some(ADVISOR_MAX_OUTPUT_TOKENS),
+                        ..ProviderRequestMetadata::default()
+                    },
+                )
+                .await
+                .map_err(|error| error.to_string())?;
+            if !turn.tool_calls.is_empty() {
+                return Err("the advisor model answered with a tool call".to_string());
+            }
+            let (text, _) = sanitize_provider_content(turn.text, turn.reasoning, false)?;
+            Ok(text)
+        })
     }
 }
 
@@ -1033,8 +1438,7 @@ impl From<&ProviderRoute> for AnthropicReasoning {
 }
 
 enum ProviderClientInner {
-    Static(OpenAiCompatClient),
-    Anthropic(AnthropicCompatClient),
+    Static(Box<OpenAiCompatClient>),
     Direct {
         route: Arc<Mutex<crate::inference_runtime::ResolvedInferenceRoute>>,
         updates: tokio::sync::Mutex<
@@ -1088,13 +1492,24 @@ pub struct ProviderLlmClient {
     /// Anthropic-protocol requests (the OpenAI path reads the same fields
     /// from `ProviderRoute`).
     anthropic_reasoning: Option<AnthropicReasoning>,
+    /// `run --output-schema`: sent to chat routes as their native structured-output
+    /// parameter on the session's own turns (not on compaction or review requests).
+    response_schema: Option<serde_json::Value>,
     compaction_policy_tx:
         Option<tokio::sync::watch::Sender<rightkit_agent_engine_core::CompactionModelPolicy>>,
+    /// `[orchestration.agents.<role>] compact-window-tokens` of the session's role (0 = none): every policy
+    /// this client publishes is lowered to it.
+    role_compact_window: u64,
+    /// Single-entry `[model-limits]` cache for the per-send policy publish.
+    compaction_limits_cache: Mutex<Option<(String, rightkit_agent_config::ContextLimits)>>,
     lineage_budget: Option<Arc<rightkit_agent_engine_core::LineageBudget>>,
     /// P0-C 2a: session-lifetime, monotonically-growing set of tools
     /// `tool_search` has scoped into visibility. Evaluated only at turn
     /// boundaries (once per `complete_with_metadata` call), never demoted.
     promoted_tools: Mutex<PromotedToolState>,
+    /// Every deferred tool's definition for the current registry, refreshed each turn. Handed to the
+    /// native Anthropic client so promoted tools are surfaced inline rather than by editing `tools`.
+    deferred_tool_defs: Mutex<Vec<serde_json::Value>>,
     /// P0-C 2c/2d: tracks the combined (system-prefix + tool-schema) cache
     /// prefix hash across turns so a change can be attributed to a reason
     /// and reported as a prefix-generation bump in telemetry.
@@ -1109,7 +1524,7 @@ pub struct ProviderLlmClient {
     ///
     /// HCTX-003: convenience diagnostic ONLY. It is a single last-write-wins
     /// slot, so when requests overlap it names whichever request wrote last.
-    /// Closure evidence must use `request_lineage_for`/`lineage_ledger`
+    /// Closure evidence must use `request_lineage_for`
     /// instead, which are request-scoped and unambiguous under concurrency.
     request_lineage: Mutex<Option<ProviderRequestMetadata>>,
     /// Monotonic per-client request ordinal; the request-scoped lineage key.
@@ -1117,6 +1532,9 @@ pub struct ProviderLlmClient {
     /// Bounded request-scoped lineage ledger. Each entry is attributable to
     /// exactly one provider request even when requests overlap in flight.
     lineage_ledger: Mutex<std::collections::VecDeque<ProviderRequestLineage>>,
+    /// Set once this session's thinking prefix mismatch (a 400 naming block_binding) was met:
+    /// from then on every request of this session sends `drop_block`. Not persisted.
+    drop_block: Arc<AtomicBool>,
 }
 
 /// Lineage of ONE provider request, attributable without ambiguity even when
@@ -1147,6 +1565,12 @@ impl ProviderLlmClient {
         authority: Arc<HostRequestAuthority>,
     ) -> Self {
         self.host_request_authority = Some(authority);
+        self
+    }
+
+    /// Ask chat routes for structured output matching `schema` (`None` changes nothing).
+    pub(crate) fn with_response_schema(mut self, schema: Option<serde_json::Value>) -> Self {
+        self.response_schema = schema;
         self
     }
 
@@ -1251,12 +1675,40 @@ impl ProviderLlmClient {
         Ok(client)
     }
 
+    fn anthropic_options(&self, metadata: &LlmRequestMetadata) -> AnthropicOptions {
+        AnthropicOptions {
+            cache_retention: provider_cache_retention(metadata),
+            deferred_tools: lock_recover(&self.deferred_tool_defs, "deferred tool defs").clone(),
+            prefix_mismatch: if self.drop_block.load(Ordering::SeqCst) {
+                rightkit_llm::agent_providers::ThinkingBlockBinding::DropBlock
+            } else {
+                rightkit_llm::agent_providers::ThinkingBlockBinding::Error
+            },
+        }
+    }
+
+    /// The session's flip state and name, for the dynamic attempt loops.
+    fn thinking_flip(&self, metadata: &LlmRequestMetadata) -> ThinkingFlip {
+        ThinkingFlip {
+            drop_block: self.drop_block.clone(),
+            session: metadata
+                .request_identity
+                .as_ref()
+                .map(|identity| identity.session_id.clone())
+                .unwrap_or_default(),
+        }
+    }
+
     fn configure_anthropic_client(
         &self,
         client: AnthropicCompatClient,
         metadata: &LlmRequestMetadata,
     ) -> Result<AnthropicCompatClient, String> {
-        let mut client = client;
+        let options = self.anthropic_options(metadata);
+        let mut client = client
+            .with_cache_retention(options.cache_retention)
+            .with_deferred_tools(options.deferred_tools)
+            .with_retry_notifier(metadata.retry_notifier.clone());
         if let Some(binding) = self.request_authority_binding(metadata)? {
             client = client.with_request_authority(binding);
         } else if self
@@ -1287,7 +1739,7 @@ impl ProviderLlmClient {
     /// through this seam; dynamic/Direct routes do.
     fn telemetry_attribution(&self) -> (Option<String>, Option<String>) {
         match &self.inner {
-            ProviderClientInner::Static(_) | ProviderClientInner::Anthropic(_) => (None, None),
+            ProviderClientInner::Static(_) => (None, None),
             ProviderClientInner::Direct { route, .. } => {
                 let route = lock_recover(route, "inference route");
                 (
@@ -1419,7 +1871,6 @@ impl ProviderLlmClient {
     /// and the cache-prefix generation with an attributable reason on
     /// change. Kept as a separate sink from `PromptOverheadEvent` (see
     /// `rightkit_agent_telemetry::prompt_overhead::CachePrefixEvent` for why).
-    #[allow(clippy::too_many_arguments)]
     fn record_cache_prefix_metric(
         &self,
         tool_defs: &[serde_json::Value],
@@ -1498,6 +1949,8 @@ impl ProviderLlmClient {
 
         // P0-C 2b/2c: canonically-ordered, ceiling-checked tool schema block.
         let tool_registry = lock_recover(&self.tools, "tool registry").clone();
+        *lock_recover(&self.deferred_tool_defs, "deferred tool defs") =
+            rightkit_agent_coding_tools::registry::deferred_tool_defs(tool_registry.as_ref());
         let tool_defs = {
             let promoted = lock_recover(&self.promoted_tools, "promoted tool state");
             tool_defs_for_messages_checked(tool_registry.as_ref(), &promoted)
@@ -1546,7 +1999,11 @@ impl ProviderLlmClient {
             context_fingerprint: metadata.context_fingerprint.clone(),
             tool_catalog_generation: Some(catalog_snapshot.generation),
             tool_catalog_digest: Some(catalog_snapshot.digest_hex),
-            response_schema: None,
+            // Only engine turns carry an identity; the compaction summarizer must stay prose.
+            response_schema: metadata
+                .request_identity
+                .as_ref()
+                .and_then(|_| self.response_schema.clone()),
             retry_notifier: metadata.retry_notifier.clone(),
         };
         *lock_recover(&self.request_lineage, "provider request lineage") =
@@ -1574,63 +2031,26 @@ impl ProviderLlmClient {
         Ok((tool_defs, request_metadata, lineage))
     }
 
-    /// Convenience diagnostic. Ambiguous when requests overlap - do not use it
-    /// as closure evidence; use `request_lineage_for` instead.
-    pub(crate) fn request_lineage_snapshot(&self) -> Option<ProviderRequestMetadata> {
-        lock_recover(&self.request_lineage, "provider request lineage").clone()
-    }
-
-    /// Request-scoped lineage for one specific provider request.
-    pub(crate) fn request_lineage_for(&self, ordinal: u64) -> Option<ProviderRequestLineage> {
-        lock_recover(&self.lineage_ledger, "provider lineage ledger")
-            .iter()
-            .find(|entry| entry.request_ordinal == ordinal)
-            .cloned()
-    }
-
-    /// All retained request-scoped lineages, oldest first.
-    pub(crate) fn lineage_ledger(&self) -> Vec<ProviderRequestLineage> {
-        lock_recover(&self.lineage_ledger, "provider lineage ledger")
-            .iter()
-            .cloned()
-            .collect()
-    }
-
     pub fn new(inner: OpenAiCompatClient, tools: Arc<ToolRegistry>) -> Self {
         Self {
-            inner: ProviderClientInner::Static(inner),
+            inner: ProviderClientInner::Static(Box::new(inner)),
             tools: Mutex::new(tools),
             host_request_authority: None,
             anthropic_reasoning: None,
+            response_schema: None,
             compaction_policy_tx: None,
+            role_compact_window: 0,
+            compaction_limits_cache: Mutex::new(None),
             lineage_budget: None,
             promoted_tools: Mutex::new(PromotedToolState::new()),
+            deferred_tool_defs: Mutex::new(Vec::new()),
             cache_prefix: Mutex::new(CachePrefixTracker::default()),
             promotion_events_total: AtomicU64::new(0),
             tool_catalog_tracker: Mutex::new(ToolCatalogGenerationTracker::default()),
             request_lineage: Mutex::new(None),
             request_ordinal: AtomicU64::new(0),
             lineage_ledger: Mutex::new(std::collections::VecDeque::new()),
-        }
-    }
-
-    /// Direct Anthropic-compatible routes use their own wire protocol while
-    /// returning the same engine-facing completed turn as OpenAI-compatible routes.
-    pub fn new_anthropic(inner: AnthropicCompatClient, tools: Arc<ToolRegistry>) -> Self {
-        Self {
-            inner: ProviderClientInner::Anthropic(inner),
-            tools: Mutex::new(tools),
-            host_request_authority: None,
-            anthropic_reasoning: None,
-            compaction_policy_tx: None,
-            lineage_budget: None,
-            promoted_tools: Mutex::new(PromotedToolState::new()),
-            cache_prefix: Mutex::new(CachePrefixTracker::default()),
-            promotion_events_total: AtomicU64::new(0),
-            tool_catalog_tracker: Mutex::new(ToolCatalogGenerationTracker::default()),
-            request_lineage: Mutex::new(None),
-            request_ordinal: AtomicU64::new(0),
-            lineage_ledger: Mutex::new(std::collections::VecDeque::new()),
+            drop_block: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -1658,15 +2078,20 @@ impl ProviderLlmClient {
             tools: Mutex::new(tools),
             host_request_authority: None,
             anthropic_reasoning: None,
+            response_schema: None,
             compaction_policy_tx: None,
+            role_compact_window: 0,
+            compaction_limits_cache: Mutex::new(None),
             lineage_budget: None,
             promoted_tools: Mutex::new(PromotedToolState::new()),
+            deferred_tool_defs: Mutex::new(Vec::new()),
             cache_prefix: Mutex::new(CachePrefixTracker::default()),
             promotion_events_total: AtomicU64::new(0),
             tool_catalog_tracker: Mutex::new(ToolCatalogGenerationTracker::default()),
             request_lineage: Mutex::new(None),
             request_ordinal: AtomicU64::new(0),
             lineage_ledger: Mutex::new(std::collections::VecDeque::new()),
+            drop_block: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -1679,15 +2104,20 @@ impl ProviderLlmClient {
             tools: Mutex::new(tools),
             host_request_authority: None,
             anthropic_reasoning: None,
+            response_schema: None,
             compaction_policy_tx: None,
+            role_compact_window: 0,
+            compaction_limits_cache: Mutex::new(None),
             lineage_budget: None,
             promoted_tools: Mutex::new(PromotedToolState::new()),
+            deferred_tool_defs: Mutex::new(Vec::new()),
             cache_prefix: Mutex::new(CachePrefixTracker::default()),
             promotion_events_total: AtomicU64::new(0),
             tool_catalog_tracker: Mutex::new(ToolCatalogGenerationTracker::default()),
             request_lineage: Mutex::new(None),
             request_ordinal: AtomicU64::new(0),
             lineage_ledger: Mutex::new(std::collections::VecDeque::new()),
+            drop_block: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -1707,21 +2137,52 @@ impl ProviderLlmClient {
             tools: Mutex::new(tools),
             host_request_authority: None,
             anthropic_reasoning: None,
+            response_schema: None,
             compaction_policy_tx: Some(compaction_policy_tx),
+            role_compact_window: 0,
+            compaction_limits_cache: Mutex::new(None),
             lineage_budget: Some(lineage_budget),
             promoted_tools: Mutex::new(PromotedToolState::new()),
+            deferred_tool_defs: Mutex::new(Vec::new()),
             cache_prefix: Mutex::new(CachePrefixTracker::default()),
             promotion_events_total: AtomicU64::new(0),
             tool_catalog_tracker: Mutex::new(ToolCatalogGenerationTracker::default()),
             request_lineage: Mutex::new(None),
             request_ordinal: AtomicU64::new(0),
             lineage_ledger: Mutex::new(std::collections::VecDeque::new()),
+            drop_block: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Lower every compaction policy this client publishes to the role's own window.
+    pub fn with_role_compact_window(mut self, window: u64) -> Self {
+        self.role_compact_window = window;
+        self
     }
 
     fn publish_active_compaction_policy(&self, model_id: &str) {
         if let Some(compaction_policy_tx) = &self.compaction_policy_tx {
-            let _ = compaction_policy_tx.send(compaction_policy_for_model(model_id));
+            let limits = self.context_limits_for_send(model_id);
+            let policy = compaction_policy_with_limits(model_id, limits);
+            let policy = lower_policy_to_window(policy, self.role_compact_window);
+            if compaction_policy_tx.send(policy).is_err() {
+                tracing::debug!(model_id, "compaction policy has no receiver");
+            }
+        }
+    }
+
+    /// Process-cwd `[model-limits]`, cached per process and per model id: a send never reloads
+    /// config files, and an edit is picked up on the next model switch or new session.
+    fn context_limits_for_send(&self, model_id: &str) -> rightkit_agent_config::ContextLimits {
+        let mut cached = lock_recover(&self.compaction_limits_cache, "provider.context_limits");
+        match cached.as_ref() {
+            Some((id, limits)) if id.as_str() == model_id => *limits,
+            _ => {
+                let limits =
+                    crate::main_runtime::load_current_merged_config().context_limits_for(model_id);
+                *cached = Some((model_id.to_owned(), limits));
+                limits
+            }
         }
     }
 }
@@ -1769,6 +2230,7 @@ fn combined_stable_prefix_key(
 ) -> Option<String> {
     let base = base?;
     let tool_bytes = serde_json::to_vec(tool_defs).unwrap_or_default();
+    // fnv1a: key is sent to the provider as a prompt_cache_key (persisted provider slots); switching changes the value
     let tool_hash = rightkit_agent_engine_core::cache::fnv1a(&String::from_utf8_lossy(&tool_bytes));
     Some(format!("{base}:tools:{tool_hash:016x}"))
 }
@@ -1942,10 +2404,37 @@ async fn current_inference_route(
     current.clone()
 }
 
+/// Catalogue policy for `model_id` with the process-cwd `[model-limits]` applied. Out-of-root
+/// callers (daemon session start) use this; the per-send publish uses a cached copy of the limits.
 pub(crate) fn compaction_policy_for_model(
     model_id: &str,
 ) -> rightkit_agent_engine_core::CompactionModelPolicy {
-    rightkit_llm::agent_providers::compaction_capability(model_id).map_or_else(
+    let limits = crate::main_runtime::load_current_merged_config().context_limits_for(model_id);
+    compaction_policy_with_limits(model_id, limits)
+}
+
+/// Lower a compaction policy to a role's own window (`compact-window-tokens`): a larger value, a zero, or a
+/// model that already has a smaller window leaves the policy as it is, so a child can compact early but never
+/// plan past what its model holds.
+pub(crate) fn lower_policy_to_window(
+    policy: rightkit_agent_engine_core::CompactionModelPolicy,
+    window: u64,
+) -> rightkit_agent_engine_core::CompactionModelPolicy {
+    if window == 0 {
+        return policy;
+    }
+    match policy.context_window_tokens {
+        Some(model_window) if window >= model_window => policy,
+        _ => policy.with_user_limits(Some(window), None),
+    }
+}
+
+/// Catalogue policy for `model_id` with `limits` (user `[model-limits]`) applied over it.
+pub(crate) fn compaction_policy_with_limits(
+    model_id: &str,
+    limits: rightkit_agent_config::ContextLimits,
+) -> rightkit_agent_engine_core::CompactionModelPolicy {
+    let catalogue = rightkit_llm::agent_providers::compaction_capability(model_id).map_or_else(
         || rightkit_agent_engine_core::CompactionModelPolicy::unknown(model_id),
         |capability| {
             rightkit_agent_engine_core::CompactionModelPolicy::known(
@@ -1956,34 +2445,10 @@ pub(crate) fn compaction_policy_for_model(
                 capability.compaction_max_output_tokens,
             )
         },
-    )
-}
-
-// `ProviderError` is rightkit-llm's error type (that crate allows this lint for it; `finish` below carries
-// the same allow); it is propagated as-is rather than re-wrapped.
-#[allow(clippy::result_large_err)]
-fn capacity_profile_for_inference_route(
-    route: &crate::inference_runtime::ResolvedInferenceRoute,
-) -> Result<CapacityProfileV1, ProviderError> {
-    let capability =
-        rightkit_llm::agent_providers::compaction_capability(&route.selection.model_id)
-            .ok_or_else(|| {
-                ProviderError::Capacity(CapacityError::CapacityUnavailable {
-                    route_id: route.fingerprint.clone(),
-                    reason: format!(
-                        "loaded model catalog has no capacity profile for {}",
-                        route.selection.model_id
-                    ),
-                })
-            })?;
-    Ok(capability.capacity_profile(
-        route.fingerprint.clone(),
-        Some(
-            rightkit_llm::agent_providers::model_metadata::catalog_status()
-                .payload_sha256
-                .clone(),
-        ),
-    ))
+    );
+    // The user's `[model-limits]` override the catalogue and give an uncatalogued model a known
+    // window; default limits leave the catalogue policy standing.
+    catalogue.with_user_limits(limits.context_window, limits.compaction_trigger_percent)
 }
 
 fn build_client(route: &ProviderRoute) -> OpenAiCompatClient {
@@ -1997,6 +2462,7 @@ fn build_client(route: &ProviderRoute) -> OpenAiCompatClient {
     if route.disable_thinking {
         client = client.with_reasoning_disabled();
     }
+    client = client.with_compat(route.compat.wire);
     client
 }
 
@@ -2004,10 +2470,9 @@ fn build_client(route: &ProviderRoute) -> OpenAiCompatClient {
 /// the HTTP client to exactly those validated addresses. This closes DNS-rebinding
 /// gaps between route rehydration and request execution while retaining
 /// explicit persisted private-route approval.
-// `ProviderError` is rightkit-llm's error type (that crate allows this lint for it; `finish` below carries
-// the same allow); it is propagated as-is rather than re-wrapped.
-#[allow(clippy::result_large_err)]
-async fn build_checked_client(route: &ProviderRoute) -> Result<OpenAiCompatClient, ProviderError> {
+async fn build_checked_client(
+    route: &ProviderRoute,
+) -> Result<OpenAiCompatClient, Box<ProviderError>> {
     // Native provider auth is resolved only at request construction. This
     // keeps OAuth refresh inside broker's per-provider lock and leaves
     // arbitrary/custom routes on their caller-supplied key path.
@@ -2020,12 +2485,12 @@ async fn build_checked_client(route: &ProviderRoute) -> Result<OpenAiCompatClien
     if let Some(provider) = native_auth {
         let resolved_auth = crate::api_provider_auth::resolve_provider_model_auth(provider)
             .await
-            .map_err(ProviderError::Provider)?;
+            .map_err(|message| Box::new(ProviderError::Provider(message)))?;
         if resolved_auth.is_none() && effective_api_key.trim().is_empty() {
-            return Err(ProviderError::Provider(format!(
+            return Err(Box::new(ProviderError::Provider(format!(
                 "{provider} is signed out; run `{app} provider login {provider}`",
                 app = crate::host_identity::app()
-            )));
+            ))));
         }
         if let Some(auth) = resolved_auth {
             if let Some(api_key) = auth.api_key.filter(|value| !value.trim().is_empty()) {
@@ -2038,6 +2503,14 @@ async fn build_checked_client(route: &ProviderRoute) -> Result<OpenAiCompatClien
                 auth_headers.extend(headers);
             }
         }
+    }
+    if route.api_key_required && native_auth.is_none() && effective_api_key.trim().is_empty() {
+        return Err(Box::new(ProviderError::Provider(format!(
+            "no API key for the route at {}: set the variable its `api-key-env` names \
+             (a {key_env}), or save a key for it in Settings > Providers",
+            route.base_url,
+            key_env = rightkit_agent_config::env_name("<NAME>_API_KEY")
+        ))));
     }
     // An empty key here can only come from a route that declared
     // `api-key-required = false`: `engine_config_for_route` refuses
@@ -2052,19 +2525,24 @@ async fn build_checked_client(route: &ProviderRoute) -> Result<OpenAiCompatClien
         )
     });
 
-    let url = url::Url::parse(&effective_base_url)
-        .map_err(|error| ProviderError::Provider(format!("invalid provider URL: {error}")))?;
+    let url = url::Url::parse(&effective_base_url).map_err(|error| {
+        Box::new(ProviderError::Provider(format!(
+            "invalid provider URL: {error}"
+        )))
+    })?;
     let host = url
         .host_str()
-        .ok_or_else(|| ProviderError::Provider("provider URL has no host".into()))?;
+        .ok_or_else(|| Box::new(ProviderError::Provider("provider URL has no host".into())))?;
     let port = url
         .port_or_known_default()
-        .ok_or_else(|| ProviderError::Provider("provider URL has no port".into()))?;
+        .ok_or_else(|| Box::new(ProviderError::Provider("provider URL has no port".into())))?;
     let addresses =
         rightkit_agent_policy::resolve_provider_endpoint(host, port, route.approved_private)
             .await
             .map_err(|error| {
-                ProviderError::Provider(format!("provider egress rejected: {error}"))
+                Box::new(ProviderError::Provider(format!(
+                    "provider egress rejected: {error}"
+                )))
             })?;
     if let Some(provider_slug) =
         rightkit_llm::agent_providers::token_plan_provider_for_base_url(&effective_base_url)
@@ -2072,15 +2550,26 @@ async fn build_checked_client(route: &ProviderRoute) -> Result<OpenAiCompatClien
         rightkit_llm::agent_providers::token_plan_auth::reserve_daemon_text_quota(provider_slug)
             .await
             .map_err(|error| {
-                ProviderError::Provider(format!("token-plan route unavailable: {error}"))
+                Box::new(ProviderError::Provider(format!(
+                    "token-plan route unavailable: {error}"
+                )))
             })?;
     }
 
     let mut public_headers = BTreeMap::new();
-    if let Some(homepage) = crate::host_identity::host().homepage() {
-        public_headers.insert("HTTP-Referer".to_string(), homepage.to_string());
+    // Attribution headers go to every OpenAI-compatible endpoint, or to OpenRouter only when the
+    // host set `attribution_for_openrouter_only` (the stricter reading).
+    if !rightkit_llm::agent_providers::host::host_options().attribution_for_openrouter_only
+        || rightkit_llm::agent_providers::client::url_is_openrouter(&effective_base_url)
+    {
+        if let Some(homepage) = crate::host_identity::host().homepage() {
+            public_headers.insert("HTTP-Referer".to_string(), homepage.to_string());
+        }
+        public_headers.insert(
+            "X-Title".to_string(),
+            rightkit_agent_config::app_name().to_string(),
+        );
     }
-    public_headers.insert("X-Title".to_string(), "RightKit".to_string());
     public_headers.extend(auth_headers);
     let mut client = OpenAiCompatClient::new_direct(
         route.model_id.clone(),
@@ -2098,6 +2587,7 @@ async fn build_checked_client(route: &ProviderRoute) -> Result<OpenAiCompatClien
     if route.disable_thinking {
         client = client.with_reasoning_disabled();
     }
+    client = client.with_compat(route.compat.wire);
     Ok(client)
 }
 
@@ -2124,11 +2614,16 @@ fn configured_image_budget_policy(
     let profile = image_provider_profile(base_url);
     let suffix = profile.as_str().to_ascii_uppercase();
     let configured = |kind: &str| {
-        std::env::var(format!(
-            "RIGHTKIT_IMAGE_REQUEST_{kind}_WATER_BYTES_{suffix}"
-        ))
+        std::env::var(rightkit_agent_config::env_name(&format!(
+            "IMAGE_REQUEST_{kind}_WATER_BYTES_{suffix}"
+        )))
         .ok()
-        .or_else(|| std::env::var(format!("RIGHTKIT_IMAGE_REQUEST_{kind}_WATER_BYTES")).ok())
+        .or_else(|| {
+            std::env::var(rightkit_agent_config::env_name(&format!(
+                "IMAGE_REQUEST_{kind}_WATER_BYTES"
+            )))
+            .ok()
+        })
         .and_then(|value| value.parse::<usize>().ok())
     };
     let base = rightkit_llm::agent_providers::find_provider_by_base_url(base_url).map_or_else(
@@ -2150,16 +2645,240 @@ fn configured_image_budget_policy(
 // ordered-fallback chain. The classifier maps onto rightkit-llm `FailoverOn::Custom`
 // (failover.rs:95-100) once the async chain is ported.
 
+/// The client for one fallback attempt: OpenAI-style chat completions, or the native Anthropic
+/// Messages API. Anthropic's OpenAI-compatibility endpoint supports no prompt caching (nor extended
+/// thinking), so a route on `api.anthropic.com` uses the native protocol. Both variants expose the
+/// same completed-turn and stream methods.
+enum AttemptClient {
+    OpenAi(OpenAiCompatClient),
+    Anthropic(AnthropicCompatClient),
+}
+
+impl AttemptClient {
+    /// No reasoning on a short side call. The Anthropic client already has thinking off when its
+    /// route sets `disable_thinking`.
+    fn without_reasoning(self) -> Self {
+        match self {
+            Self::OpenAi(client) => Self::OpenAi(client.with_reasoning_disabled()),
+            anthropic => anthropic,
+        }
+    }
+
+    async fn complete_with_tools_metadata(
+        self,
+        wire: Vec<serde_json::Value>,
+        tool_defs: Vec<serde_json::Value>,
+        metadata: &ProviderRequestMetadata,
+    ) -> Result<rightkit_llm::agent_providers::CompletedTurn, Box<ProviderError>> {
+        match self {
+            Self::OpenAi(client) => client
+                .complete_with_tools_metadata(wire, tool_defs, metadata)
+                .await
+                .map_err(Box::new),
+            Self::Anthropic(client) => client
+                .complete_with_tools(wire, tool_defs, metadata.max_output_tokens)
+                .await
+                .map_err(Box::new),
+        }
+    }
+
+    async fn stream_with_tools_metadata(
+        self,
+        wire: Vec<serde_json::Value>,
+        tool_defs: Vec<serde_json::Value>,
+        metadata: &ProviderRequestMetadata,
+    ) -> Result<rightkit_llm::agent_providers::ProviderResponseStream, Box<ProviderError>> {
+        match self {
+            Self::OpenAi(client) => client
+                .stream_with_tools_metadata(wire, tool_defs, metadata)
+                .await
+                .map_err(Box::new),
+            Self::Anthropic(client) => client
+                .with_retry_notifier(metadata.retry_notifier.clone())
+                .stream_with_tools(wire, tool_defs, metadata.max_output_tokens)
+                .await
+                .map_err(Box::new),
+        }
+    }
+}
+
+/// The provider-side cache lifetime for a request: what the engine asked for, five minutes by default.
+/// What the native Anthropic client needs beyond the route: how long to cache, and every deferred tool.
+#[derive(Clone)]
+struct AnthropicOptions {
+    cache_retention: rightkit_llm::agent_providers::CacheRetention,
+    deferred_tools: Vec<serde_json::Value>,
+    /// What the native client sends as `thinking.block_binding.prefix_mismatch_behavior`.
+    pub prefix_mismatch: rightkit_llm::agent_providers::ThinkingBlockBinding,
+}
+
+/// One session's thinking prefix flip: the shared flag and the session name for the log line.
+#[derive(Clone)]
+struct ThinkingFlip {
+    drop_block: Arc<AtomicBool>,
+    session: String,
+}
+
+/// Flip the session to `drop_block` when `error` is the thinking binding mismatch. True when the
+/// caller should retry the same attempt once with `DropBlock`. Every other error, a session
+/// already flipped, and `<PREFIX>_THINKING_PREFIX_FLIP=0` return false.
+fn take_thinking_flip(flip: &ThinkingFlip, error: &ProviderError) -> bool {
+    if !rightkit_llm::agent_providers::is_thinking_binding_mismatch(error) {
+        return false;
+    }
+    if std::env::var(rightkit_agent_config::env_name("THINKING_PREFIX_FLIP"))
+        .is_ok_and(|value| value == "0")
+    {
+        return false;
+    }
+    if flip.drop_block.swap(true, Ordering::SeqCst) {
+        return false;
+    }
+    let detail = error.to_string();
+    tracing::warn!(
+        session = %flip.session,
+        detail = %detail,
+        "thinking prefix mismatch: this session now sends drop_block"
+    );
+    true
+}
+
+/// Log the `input_transformations` the provider reported for one request.
+fn log_input_transformations(model: &str, items: &serde_json::Value) {
+    tracing::info!(model, items = %items, "input_transformations");
+}
+
+impl AnthropicOptions {
+    /// A side call: the five-minute cache and no deferred tools.
+    fn short() -> Self {
+        Self {
+            cache_retention: rightkit_llm::agent_providers::CacheRetention::Short,
+            deferred_tools: Vec::new(),
+            prefix_mismatch: rightkit_llm::agent_providers::ThinkingBlockBinding::Error,
+        }
+    }
+}
+
+fn provider_cache_retention(
+    metadata: &LlmRequestMetadata,
+) -> rightkit_llm::agent_providers::CacheRetention {
+    use rightkit_agent_engine_core::CacheRetention as Wanted;
+    match metadata.cache_retention {
+        Some(Wanted::None) => rightkit_llm::agent_providers::CacheRetention::None,
+        Some(Wanted::Short) | None => rightkit_llm::agent_providers::CacheRetention::Short,
+        Some(Wanted::Long) => rightkit_llm::agent_providers::CacheRetention::Long,
+    }
+}
+
+/// Whether a route speaks the native Anthropic Messages protocol: its host is Anthropic's own
+/// API (always, even with protocol `openai`), or its protocol is `anthropic`. An unrecognised
+/// protocol is an error.
+fn route_protocol_is_anthropic(route: &ProviderRoute) -> Result<bool, Box<ProviderError>> {
+    if route.compat.protocol == RouteProtocol::Invalid {
+        return Err(Box::new(ProviderError::Provider(format!(
+            "the route at {} has an unrecognised protocol; use \"openai\" or \"anthropic\"",
+            route.base_url
+        ))));
+    }
+    let anthropic_host = url::Url::parse(&route.base_url)
+        .ok()
+        .and_then(|url| {
+            url.host_str()
+                .map(|host| host.eq_ignore_ascii_case("api.anthropic.com"))
+        })
+        .unwrap_or(false);
+    if anthropic_host {
+        return Ok(true);
+    }
+    Ok(route.compat.protocol == RouteProtocol::Anthropic)
+}
+
+/// The native Anthropic client for a route: the provider host is re-resolved and pinned exactly as
+/// `build_checked_client` does, and the key goes in `x-api-key`.
+async fn build_checked_anthropic_client(
+    route: &ProviderRoute,
+) -> Result<AnthropicCompatClient, Box<ProviderError>> {
+    let api_key = route.api_key.trim();
+    if route.api_key_required && api_key.is_empty() {
+        return Err(Box::new(ProviderError::Provider(format!(
+            "no API key for the route at {}: set the variable its `api-key-env` names \
+             (a {key_env}), or save a key for it in Settings > Providers",
+            route.base_url,
+            key_env = rightkit_agent_config::env_name("<NAME>_API_KEY")
+        ))));
+    }
+    let url = url::Url::parse(&route.base_url).map_err(|error| {
+        Box::new(ProviderError::Provider(format!(
+            "invalid provider URL: {error}"
+        )))
+    })?;
+    let host = url
+        .host_str()
+        .ok_or_else(|| Box::new(ProviderError::Provider("provider URL has no host".into())))?;
+    let port = url
+        .port_or_known_default()
+        .ok_or_else(|| Box::new(ProviderError::Provider("provider URL has no port".into())))?;
+    let addresses =
+        rightkit_agent_policy::resolve_provider_endpoint(host, port, route.approved_private)
+            .await
+            .map_err(|error| {
+                Box::new(ProviderError::Provider(format!(
+                    "provider egress rejected: {error}"
+                )))
+            })?;
+    let auth_header = (!api_key.is_empty()).then(|| ("x-api-key".to_string(), api_key.to_string()));
+    let mut client = AnthropicCompatClient::new_direct(
+        route.model_id.clone(),
+        route.base_url.clone(),
+        auth_header,
+        BTreeMap::new(),
+        &addresses,
+    );
+    if let Some(effort) = &route.effort {
+        client = client.with_effort(effort.clone());
+    }
+    if let Some(tokens) = route.thinking_budget_tokens {
+        client = client.with_thinking_budget_tokens(tokens);
+    }
+    if route.disable_thinking {
+        client = client.with_thinking_disabled();
+    }
+    Ok(client)
+}
+
 /// Build one fallback attempt's client with the request authority (or direct
 /// dispatch) and submission observer applied. Shared by every attempt site.
-// `ProviderError` is rightkit-llm's error type (that crate allows this lint for it; `finish` below carries
-// the same allow); it is propagated as-is rather than re-wrapped.
-#[allow(clippy::result_large_err)]
 async fn build_attempt_client(
     route: &ProviderRoute,
     request_authority: Option<&RequestAuthorityBindingV1>,
     submission_observer: Option<&rightkit_llm::agent_providers::transport::SubmissionObserver>,
-) -> Result<OpenAiCompatClient, ProviderError> {
+    options: AnthropicOptions,
+) -> Result<AttemptClient, Box<ProviderError>> {
+    let anthropic = route_protocol_is_anthropic(route)?;
+    static INPUT_TRANSFORMATION_LOGGER: std::sync::Once = std::sync::Once::new();
+    INPUT_TRANSFORMATION_LOGGER.call_once(|| {
+        if !rightkit_llm::agent_providers::set_input_transformation_logger(
+            log_input_transformations,
+        ) {
+            tracing::debug!("input transformation logger already installed");
+        }
+    });
+    if anthropic {
+        let mut client = build_checked_anthropic_client(route)
+            .await?
+            .with_cache_retention(options.cache_retention)
+            .with_deferred_tools(options.deferred_tools)
+            .with_thinking_block_binding(options.prefix_mismatch);
+        if let Some(binding) = request_authority {
+            client = client.with_request_authority(binding.clone());
+        } else {
+            client = client.with_direct_dispatch();
+        }
+        if let Some(observer) = submission_observer {
+            client = client.with_submission_observer(observer.clone());
+        }
+        return Ok(AttemptClient::Anthropic(client));
+    }
     let mut client = build_checked_client(route).await?;
     if let Some(binding) = request_authority {
         client = client.with_request_authority(binding.clone());
@@ -2169,7 +2888,46 @@ async fn build_attempt_client(
     if let Some(observer) = submission_observer {
         client = client.with_submission_observer(observer.clone());
     }
-    Ok(client)
+    Ok(AttemptClient::OpenAi(client))
+}
+
+/// Output tokens assumed for a metered call that sets no ceiling of its own.
+const ASSUMED_CALL_OUTPUT_TOKENS: u64 = 32_000;
+
+/// Upper estimate of one metered call in microdollars: the serialized request at two bytes per
+/// token and the dearest input rate (a 1-hour cache write is 2x), plus the output ceiling.
+fn estimated_call_microusd(
+    routes: &[ProviderRoute],
+    request_bytes: usize,
+    max_output_tokens: Option<u32>,
+) -> u64 {
+    let prompt_tokens = (request_bytes as f64) / 2.0;
+    let output_tokens = max_output_tokens.map_or(ASSUMED_CALL_OUTPUT_TOKENS, u64::from) as f64;
+    routes
+        .iter()
+        .filter(|route| {
+            rightkit_llm::agent_providers::is_priced_model(&route.model_id)
+                && !rightkit_llm::agent_providers::is_subscription_billed_route(&route.base_url)
+        })
+        .map(|route| {
+            let (prompt_price, completion_price) =
+                rightkit_llm::agent_providers::price_per_1k(&route.model_id);
+            let cost = prompt_tokens / 1000.0 * prompt_price * 2.0
+                + output_tokens / 1000.0 * completion_price;
+            rightkit_agent_engine_core::usd_to_microusd(cost).unwrap_or(1)
+        })
+        .max()
+        .unwrap_or(1)
+}
+
+/// How each attempt of a dynamic-route request builds its client and tracks a thinking-block
+/// rebind: the request authority and submission observer applied to the client, the Anthropic
+/// options, and the turn's thinking-flip state.
+struct AttemptWiring {
+    request_authority: Option<RequestAuthorityBindingV1>,
+    submission_observer: Option<rightkit_llm::agent_providers::transport::SubmissionObserver>,
+    options: AnthropicOptions,
+    thinking_flip: ThinkingFlip,
 }
 
 /// CR-09/CR-11: the single route-selection-plus-budget attempt loop used by
@@ -2181,12 +2939,13 @@ async fn build_attempt_client(
 /// produced it (for compaction-policy publication and cost pricing), and the
 /// still-open reservation — reconciling it is the caller's job, because only
 /// the caller knows when the real cost is known: immediately for a completed
-/// turn, only at stream-terminus for a streamed one (see `StreamBudgetGuard`).
+/// turn, only at stream-terminus for a streamed one (see `dynamic_stream_with_fallback`).
 async fn attempt_dynamic_route<T, F, Fut>(
     lineage_budget: Option<&Arc<rightkit_agent_engine_core::LineageBudget>>,
+    request_bytes: usize,
+    max_output_tokens: Option<u32>,
     route: &SharedProviderRoute,
-    request_authority: Option<RequestAuthorityBindingV1>,
-    submission_observer: Option<rightkit_llm::agent_providers::transport::SubmissionObserver>,
+    wiring: AttemptWiring,
     mut op: F,
 ) -> Result<
     (
@@ -2197,38 +2956,61 @@ async fn attempt_dynamic_route<T, F, Fut>(
     String,
 >
 where
-    F: FnMut(OpenAiCompatClient) -> Fut,
-    Fut: std::future::Future<Output = Result<T, ProviderError>>,
+    F: FnMut(AttemptClient) -> Fut,
+    Fut: std::future::Future<Output = Result<T, Box<ProviderError>>>,
 {
+    let AttemptWiring {
+        request_authority,
+        submission_observer,
+        options,
+        thinking_flip,
+    } = wiring;
     let route = lock_recover(route, "route").clone();
     let routes = fallback_attempt_routes(&route);
     let is_metered = routes.iter().any(|route| {
         rightkit_llm::agent_providers::is_priced_model(&route.model_id)
             && !rightkit_llm::agent_providers::is_subscription_billed_route(&route.base_url)
     });
-    let reservation = if is_metered {
-        lineage_budget
-            .map(|budget| budget.reserve_remaining())
-            .transpose()?
-    } else {
-        None
+    let reservation = match (is_metered, lineage_budget) {
+        (true, Some(budget)) => Some(
+            budget
+                .reserve_estimate_wait(estimated_call_microusd(
+                    &routes,
+                    request_bytes,
+                    max_output_tokens,
+                ))
+                .await?,
+        ),
+        _ => None,
     };
+    let mut options = options;
     let mut prior_fallback_error: Option<String> = None;
     for (index, attempt_route) in routes.iter().enumerate() {
-        let result = match build_attempt_client(
-            attempt_route,
-            request_authority.as_ref(),
-            submission_observer.as_ref(),
-        )
-        .await
-        {
-            Ok(client) => op(client).await,
-            Err(error) => return Err(error.to_string()),
+        let result = loop {
+            let result = match build_attempt_client(
+                attempt_route,
+                request_authority.as_ref(),
+                submission_observer.as_ref(),
+                options.clone(),
+            )
+            .await
+            {
+                Ok(client) => op(client).await,
+                Err(error) => return Err(llm_error_message(&error)),
+            };
+            if let Err(error) = &result {
+                if take_thinking_flip(&thinking_flip, error) {
+                    options.prefix_mismatch =
+                        rightkit_llm::agent_providers::ThinkingBlockBinding::DropBlock;
+                    continue;
+                }
+            }
+            break result;
         };
         match result {
             Ok(value) => return Ok((value, attempt_route.clone(), reservation)),
             Err(error) => {
-                let error_text = error.to_string();
+                let error_text = llm_error_message(&error);
                 let has_next = index + 1 < routes.len();
                 if has_next && provider_error_allows_model_fallback(&error) {
                     prior_fallback_error =
@@ -2259,41 +3041,70 @@ async fn dynamic_stream_with_fallback(
     wire: Vec<serde_json::Value>,
     tool_defs: Vec<serde_json::Value>,
     request_metadata: ProviderRequestMetadata,
-    request_authority: Option<RequestAuthorityBindingV1>,
-    submission_observer: Option<rightkit_llm::agent_providers::transport::SubmissionObserver>,
+    wiring: AttemptWiring,
 ) -> Result<rightkit_llm::agent_providers::ProviderResponseStream, String> {
+    let AttemptWiring {
+        request_authority,
+        submission_observer,
+        options,
+        thinking_flip,
+    } = wiring;
     let route = lock_recover(route, "route").clone();
     let routes = fallback_attempt_routes(&route);
     let is_metered = routes.iter().any(|route| {
         rightkit_llm::agent_providers::is_priced_model(&route.model_id)
             && !rightkit_llm::agent_providers::is_subscription_billed_route(&route.base_url)
     });
-    let reservation = if is_metered {
-        lineage_budget
-            .map(|budget| budget.reserve_remaining())
-            .transpose()?
-    } else {
-        None
+    let request_bytes = serde_json::to_string(&wire).map_or(0, |text| text.len())
+        + serde_json::to_string(&tool_defs).map_or(0, |text| text.len());
+    let max_output_tokens = request_metadata.max_output_tokens;
+    let reservation = match (is_metered, lineage_budget) {
+        (true, Some(budget)) => Some(
+            budget
+                .reserve_estimate_wait(estimated_call_microusd(
+                    &routes,
+                    request_bytes,
+                    max_output_tokens,
+                ))
+                .await?,
+        ),
+        _ => None,
     };
 
+    let mut options = options;
     let mut prior_fallback_error = None;
     let mut first_stream = None;
     let mut first_route = None;
     let mut next_index = 0usize;
     for (index, attempt_route) in routes.iter().enumerate() {
-        let result = match build_attempt_client(
-            attempt_route,
-            request_authority.as_ref(),
-            submission_observer.as_ref(),
-        )
-        .await
-        {
-            Ok(client) => {
-                client
-                    .stream_with_tools_metadata(wire.clone(), tool_defs.clone(), &request_metadata)
-                    .await
+        let result = loop {
+            let result = match build_attempt_client(
+                attempt_route,
+                request_authority.as_ref(),
+                submission_observer.as_ref(),
+                options.clone(),
+            )
+            .await
+            {
+                Ok(client) => {
+                    client
+                        .stream_with_tools_metadata(
+                            wire.clone(),
+                            tool_defs.clone(),
+                            &request_metadata,
+                        )
+                        .await
+                }
+                Err(error) => return Err(llm_error_message(&error)),
+            };
+            if let Err(error) = &result {
+                if take_thinking_flip(&thinking_flip, error) {
+                    options.prefix_mismatch =
+                        rightkit_llm::agent_providers::ThinkingBlockBinding::DropBlock;
+                    continue;
+                }
             }
-            Err(error) => return Err(error.to_string()),
+            break result;
         };
         match result {
             Ok(stream) => {
@@ -2308,8 +3119,14 @@ async fn dynamic_stream_with_fallback(
                     continue;
                 }
                 return Err(prior_fallback_error.map_or_else(
-                    || error.to_string(),
-                    |prior| format!("{prior}; {} failed: {error}", attempt_route.model_id),
+                    || llm_error_message(&error),
+                    |prior| {
+                        format!(
+                            "{prior}; {} failed: {}",
+                            attempt_route.model_id,
+                            llm_error_message(&error)
+                        )
+                    },
                 ));
             }
         }
@@ -2340,6 +3157,7 @@ async fn dynamic_stream_with_fallback(
                     &next_route,
                     request_authority.as_ref(),
                     submission_observer.as_ref(),
+                    options.clone(),
                 )
                 .await
                 {
@@ -2360,7 +3178,7 @@ async fn dynamic_stream_with_fallback(
                         if stream_error_allows_fallback(false, !routes.is_empty(), &error) {
                             continue 'attempts;
                         }
-                        yield Err(error);
+                        yield Err(*error);
                         return;
                     }
                 }
@@ -2490,44 +3308,29 @@ fn priced_turn_cost_microusd(
     }
     let (prompt_price, completion_price) =
         rightkit_llm::agent_providers::price_per_1k(&route.model_id);
-    let cost = (prompt_tokens as f64 / 1000.0) * prompt_price
-        + (completion_tokens as f64 / 1000.0) * completion_price
-        + (cache_read_tokens as f64 / 1000.0) * prompt_price * 0.1
-        + (cache_creation_tokens as f64 / 1000.0) * prompt_price * 1.25;
+    // Cache reads and writes are priced per model (0.025x to 0.1x for reads). A
+    // flat 0.1x made read-heavy runs reach the cost ceiling several times early.
+    let (cache_read_price, cache_write_price) =
+        rightkit_llm::agent_providers::cache_price_per_1k(&route.model_id)
+            .unwrap_or((prompt_price * 0.1, prompt_price * 1.25));
+    let (input_factor, output_factor) =
+        match rightkit_llm::agent_providers::long_context_tier(&route.model_id) {
+            Some((threshold, input, output))
+                if u64::from(prompt_tokens)
+                    + u64::from(cache_read_tokens)
+                    + u64::from(cache_creation_tokens)
+                    > threshold =>
+            {
+                (input, output)
+            }
+            _ => (1.0, 1.0),
+        };
+    let cost = ((prompt_tokens as f64 / 1000.0) * prompt_price
+        + (cache_read_tokens as f64 / 1000.0) * cache_read_price
+        + (cache_creation_tokens as f64 / 1000.0) * cache_write_price)
+        * input_factor
+        + (completion_tokens as f64 / 1000.0) * completion_price * output_factor;
     rightkit_agent_engine_core::usd_to_microusd(cost).unwrap_or(0)
-}
-
-/// CR-09/CR-11: reconciles a streamed turn's lineage reservation exactly
-/// once — on the `Usage` event, where actual token counts (and therefore
-/// cost) become known, mirroring `complete_with_metadata`'s reconciliation.
-/// If the stream is dropped before ever reaching `Usage` (aborted mid-turn,
-/// or errored before usage arrived), `reservation` is still `Some` and its
-/// own `Drop` releases the full held amount back to the budget — so an
-/// aborted stream never leaves a dangling reservation (invariant 4).
-struct StreamBudgetGuard {
-    reservation: Option<rightkit_agent_engine_core::LineageReservation>,
-    route: ProviderRoute,
-}
-
-impl StreamBudgetGuard {
-    fn reconcile_usage(
-        &mut self,
-        prompt_tokens: u32,
-        completion_tokens: u32,
-        cache_read_tokens: u32,
-        cache_creation_tokens: u32,
-    ) {
-        if let Some(reservation) = self.reservation.take() {
-            let actual_microusd = priced_turn_cost_microusd(
-                &self.route,
-                prompt_tokens,
-                completion_tokens,
-                cache_read_tokens,
-                cache_creation_tokens,
-            );
-            reservation.reconcile_microusd(actual_microusd);
-        }
-    }
 }
 
 fn fallback_attempt_routes(route: &ProviderRoute) -> Vec<ProviderRoute> {
@@ -2540,6 +3343,8 @@ fn fallback_attempt_routes(route: &ProviderRoute) -> Vec<ProviderRoute> {
         disable_thinking: route.disable_thinking,
         fallback_models: Vec::new(),
         approved_private: route.approved_private,
+        api_key_required: false,
+        compat: route.compat,
     }];
     for model in fallback_models_for_primary(&route.fallback_models, &route.model_id) {
         routes.push(ProviderRoute {
@@ -2551,6 +3356,8 @@ fn fallback_attempt_routes(route: &ProviderRoute) -> Vec<ProviderRoute> {
             disable_thinking: route.disable_thinking,
             fallback_models: Vec::new(),
             approved_private: route.approved_private,
+            api_key_required: false,
+            compat: route.compat,
         });
     }
     routes
@@ -2570,14 +3377,18 @@ fn fallback_models_for_primary(models: &[String], primary: &str) -> Vec<String> 
 
 /// A second route is a second paid request for the same turn, so it is allowed only when the first provably did no
 /// work: the request never left (connect failure, pre-send capacity refusal) or the provider gave an explicit
-/// refusal (HTTP 400, 401 or 403, or the typed `Auth`). Everything else may have been delivered and billed, or is
+/// refusal (HTTP 400, 401 or 403, the typed `Auth`, or `QuotaExceeded`: a quota/billing refusal is definite and
+/// unbilled, and another route or account may have credit). Everything else may have been delivered and billed, or is
 /// not a definite refusal, and gets no fallback: 408, 425, 429 (typed `RateLimited` too), any 5xx, a post-send
-/// `Network` error, a cut stream (`Sse`), `DeliveryUncertain`, and an in-body `Provider` error.
+/// `Network` error, a cut stream (`Sse`), `DeliveryUncertain`, and an in-body `Provider` error. A retryable 5xx
+/// (500, 502, 503, 504, 529) on the shared stream-establishment ladder was already retried on the same route, so
+/// the turn is given up rather than failed over; any other 5xx, and a 5xx on a path with no ladder (Codex
+/// streams, non-streamed requests), may have been billed.
 fn provider_error_allows_model_fallback(error: &ProviderError) -> bool {
     match error {
         ProviderError::Http { status, .. } => matches!(*status, 400 | 401 | 403),
         ProviderError::NotDelivered(_) | ProviderError::Auth => true,
-        // A quota or billing refusal is a definite refusal: the request was answered at once, unbilled.
+        // A quota/billing refusal is definite and unbilled; another route or account may have credit.
         ProviderError::QuotaExceeded(_) => true,
         // The request reached the provider before these, or the refusal is not definite: never replay it.
         ProviderError::RateLimited { .. }
@@ -2601,6 +3412,40 @@ fn stream_error_allows_fallback(
     !emitted_visible_or_side_effect && has_next_route && provider_error_allows_model_fallback(error)
 }
 
+/// The text a `ProviderError` carries to the engine. The engine classifies overflow from this string, so a
+/// provider-reported context overflow (for example a Groq 400 "reduce the length of the messages") gets a stable
+/// "context length exceeded" prefix and compacts instead of failing the run.
+fn llm_error_message(error: &ProviderError) -> String {
+    if rightkit_llm::agent_providers::transport::classify_context_overflow(error) {
+        format!("context length exceeded: {error}")
+    } else {
+        error.to_string()
+    }
+}
+
+/// A completion the model declined: Anthropic ends it with `stop_reason: "refusal"` and no content. It is
+/// reported as what it is (and never re-asked) instead of as a reasoning-only reply.
+const MODEL_REFUSAL_MESSAGE: &str =
+    "the model declined to answer this request (stop_reason: refusal); rephrase it or try another model";
+
+fn is_refusal_finish(reason: &Option<String>) -> bool {
+    reason
+        .as_deref()
+        .is_some_and(|reason| reason.eq_ignore_ascii_case("refusal"))
+}
+
+/// The provider stopped at its output limit. A reply cut there may have nothing visible left (a
+/// cut-off tool call is dropped by the adapter, EFF-009); that is not a reasoning-only reply, so it
+/// reaches the engine as an empty, incomplete turn and gets the output-limit retry.
+fn is_output_limit_finish(reason: &Option<String>) -> bool {
+    reason.as_deref().is_some_and(|reason| {
+        matches!(
+            reason.trim().to_ascii_lowercase().as_str(),
+            "length" | "max_tokens" | "max_output_tokens" | "token_limit" | "output_limit"
+        )
+    })
+}
+
 fn sanitize_provider_content(
     text: String,
     reasoning: Option<String>,
@@ -2620,10 +3465,7 @@ fn sanitize_provider_content(
     };
 
     if text.trim().is_empty() && !has_tool_calls {
-        return Err(
-            "provider returned no visible content or tool calls after reasoning was separated"
-                .to_string(),
-        );
+        return Err(rightkit_llm::agent_providers::transport::REASONING_ONLY_MESSAGE.to_string());
     }
 
     Ok((text, reasoning))
@@ -2809,8 +3651,12 @@ impl IncrementalContentNormalizer {
         self.has_tool_calls = true;
     }
 
-    #[allow(clippy::result_large_err)]
-    fn finish(&mut self) -> Result<(String, Option<String>), ProviderError> {
+    /// Whether the turn produced any visible text or tool call so far.
+    fn produced_output(&self) -> bool {
+        self.visible_started || self.has_tool_calls
+    }
+
+    fn finish(&mut self, cut_off: bool) -> Result<(String, Option<String>), &'static str> {
         let mut output = String::new();
         if !self.candidate.is_empty() {
             let candidate = std::mem::take(&mut self.candidate);
@@ -2823,11 +3669,8 @@ impl IncrementalContentNormalizer {
         // whitespace is discarded as it arrives; this tail is discarded only
         // now, after the provider has declared the turn finished.
         self.leading_or_trailing_whitespace.clear();
-        if !self.visible_started && !self.has_tool_calls {
-            return Err(ProviderError::Provider(
-                "provider returned no visible content or tool calls after reasoning was separated"
-                    .into(),
-            ));
+        if !self.visible_started && !self.has_tool_calls && !cut_off {
+            return Err(rightkit_llm::agent_providers::transport::REASONING_ONLY_MESSAGE);
         }
         let provider = self.provider_reasoning.trim();
         let inline = self.inline_reasoning.trim();
@@ -2889,14 +3732,22 @@ fn normalize_provider_stream(
                 rightkit_llm::agent_providers::ProviderStreamEvent::UsageDetail { reasoning_tokens } => {
                     yield rightkit_llm::agent_providers::ProviderStreamEvent::UsageDetail { reasoning_tokens };
                 }
-                // Produced only when a host turns on `usage_and_rate_limit_events` or
-                // `partial_tool_argument_events`; this client turns neither on and the engine stream
-                // has no event for them.
-                rightkit_llm::agent_providers::ProviderStreamEvent::UsageCost { .. }
-                | rightkit_llm::agent_providers::ProviderStreamEvent::RateLimit(_)
-                | rightkit_llm::agent_providers::ProviderStreamEvent::ToolArgumentsPartial { .. } => {}
+                rightkit_llm::agent_providers::ProviderStreamEvent::UsageCost { cost_usd } => {
+                    yield rightkit_llm::agent_providers::ProviderStreamEvent::UsageCost { cost_usd };
+                }
+                rightkit_llm::agent_providers::ProviderStreamEvent::RateLimit(limit) => {
+                    yield rightkit_llm::agent_providers::ProviderStreamEvent::RateLimit(limit);
+                }
+                partial @ rightkit_llm::agent_providers::ProviderStreamEvent::ToolArgumentsPartial { .. } => {
+                    yield partial;
+                }
                 rightkit_llm::agent_providers::ProviderStreamEvent::Finished(reason) => {
-                    let (text, reasoning) = normalizer.finish()?;
+                    if is_refusal_finish(&reason) && !normalizer.produced_output() {
+                        Err(ProviderError::Provider(MODEL_REFUSAL_MESSAGE.into()))?;
+                    }
+                    let (text, reasoning) = normalizer
+                        .finish(is_output_limit_finish(&reason))
+                        .map_err(|message| ProviderError::Provider(message.into()))?;
                     if !text.is_empty() {
                         yield rightkit_llm::agent_providers::ProviderStreamEvent::Text(text);
                     }
@@ -2938,18 +3789,10 @@ impl LlmClient for ProviderLlmClient {
 
         let (turn, billed_route, reservation) = match &self.inner {
             ProviderClientInner::Static(client) => (
-                self.configure_openai_client(client.clone(), metadata)?
+                self.configure_openai_client(OpenAiCompatClient::clone(client), metadata)?
                     .complete_with_tools_metadata(wire, tool_defs, &request_metadata)
                     .await
-                    .map_err(|e| e.to_string())?,
-                None,
-                None,
-            ),
-            ProviderClientInner::Anthropic(client) => (
-                self.configure_anthropic_client(client.clone(), metadata)?
-                    .complete_with_tools(wire, tool_defs, request_metadata.max_output_tokens)
-                    .await
-                    .map_err(|e| e.to_string())?,
+                    .map_err(|e| llm_error_message(&e))?,
                 None,
                 None,
             ),
@@ -3015,7 +3858,7 @@ impl LlmClient for ProviderLlmClient {
                         .await
                     }
                 }
-                .map_err(|error| error.to_string())?;
+                .map_err(|error| llm_error_message(&error))?;
                 (completed, None, None)
             }
             ProviderClientInner::Dynamic { route, admission } => {
@@ -3026,11 +3869,19 @@ impl LlmClient for ProviderLlmClient {
                 // The gate is released immediately; `_active` alone is held
                 // across the request.
                 let _active = acquire_dynamic_route_admission(admission).await;
+                let request_bytes = serde_json::to_string(&wire).map_or(0, |text| text.len())
+                    + serde_json::to_string(&tool_defs).map_or(0, |text| text.len());
                 let (turn, attempt_route, reservation) = attempt_dynamic_route(
                     self.lineage_budget.as_ref(),
+                    request_bytes,
+                    request_metadata.max_output_tokens,
                     route,
-                    request_authority,
-                    submission_observer,
+                    AttemptWiring {
+                        request_authority,
+                        submission_observer,
+                        options: self.anthropic_options(metadata),
+                        thinking_flip: self.thinking_flip(metadata),
+                    },
                     |client| {
                         let wire = wire.clone();
                         let tool_defs = tool_defs.clone();
@@ -3064,8 +3915,17 @@ impl LlmClient for ProviderLlmClient {
             reservation.reconcile_microusd(actual_microusd);
         }
 
-        let (text, reasoning) =
-            sanitize_provider_content(turn.text, turn.reasoning, !turn.tool_calls.is_empty())?;
+        if is_refusal_finish(&turn.finish_reason)
+            && turn.text.trim().is_empty()
+            && turn.tool_calls.is_empty()
+        {
+            return Err(MODEL_REFUSAL_MESSAGE.to_string());
+        }
+        let (text, reasoning) = sanitize_provider_content(
+            turn.text,
+            turn.reasoning,
+            !turn.tool_calls.is_empty() || is_output_limit_finish(&turn.finish_reason),
+        )?;
 
         Ok(LlmResponse {
             text,
@@ -3092,15 +3952,10 @@ impl LlmClient for ProviderLlmClient {
 
         let provider_stream = match &self.inner {
             ProviderClientInner::Static(client) => self
-                .configure_openai_client(client.clone(), metadata)?
+                .configure_openai_client(OpenAiCompatClient::clone(client), metadata)?
                 .stream_with_tools_metadata(wire, tool_defs, &request_metadata)
                 .await
-                .map_err(|error| error.to_string())?,
-            ProviderClientInner::Anthropic(client) => self
-                .configure_anthropic_client(client.clone(), metadata)?
-                .stream_with_tools(wire, tool_defs, request_metadata.max_output_tokens)
-                .await
-                .map_err(|error| error.to_string())?,
+                .map_err(|error| llm_error_message(&error))?,
             ProviderClientInner::Dynamic { route, admission } => {
                 // CR-09/CR-11: use the stream-specific counterpart to the
                 // completed route loop. It performs the same reservation and
@@ -3128,8 +3983,12 @@ impl LlmClient for ProviderLlmClient {
                     wire,
                     tool_defs,
                     request_metadata,
-                    request_authority,
-                    submission_observer,
+                    AttemptWiring {
+                        request_authority,
+                        submission_observer,
+                        options: self.anthropic_options(metadata),
+                        thinking_flip: self.thinking_flip(metadata),
+                    },
                 )
                 .await?;
                 match active {
@@ -3193,7 +4052,7 @@ impl LlmClient for ProviderLlmClient {
                         )?
                         .stream_with_tools_metadata(wire, tool_defs, &request_metadata)
                         .await
-                        .map_err(|error| error.to_string())?,
+                        .map_err(|error| llm_error_message(&error))?,
                     crate::inference_runtime::InferenceProtocol::AnthropicCompatible => self
                         .configure_anthropic_client(
                             AnthropicCompatClient::new_direct(
@@ -3207,7 +4066,7 @@ impl LlmClient for ProviderLlmClient {
                         )?
                         .stream_with_tools(wire, tool_defs, request_metadata.max_output_tokens)
                         .await
-                        .map_err(|error| error.to_string())?,
+                        .map_err(|error| llm_error_message(&error))?,
                 };
                 Box::pin(async_stream::try_stream! {
                     let _active = active;
@@ -3221,44 +4080,57 @@ impl LlmClient for ProviderLlmClient {
         };
 
         let provider_stream = normalize_provider_stream(provider_stream);
-        Ok(Box::pin(provider_stream.filter_map(|event| {
-            std::future::ready(match event {
-                Err(error) => Some(Err(error.to_string())),
-                Ok(event) => match event {
+        Ok(Box::pin(provider_stream.map(|event| {
+            event
+                .map(|event| match event {
                     rightkit_llm::agent_providers::ProviderStreamEvent::Text(text) => {
-                        Some(Ok(LlmStreamEvent::Text(text)))
+                        LlmStreamEvent::Text(text)
                     }
                     rightkit_llm::agent_providers::ProviderStreamEvent::Reasoning(text) => {
-                        Some(Ok(LlmStreamEvent::Reasoning(text)))
+                        LlmStreamEvent::Reasoning(text)
                     }
                     rightkit_llm::agent_providers::ProviderStreamEvent::ToolCall(call) => {
-                        Some(Ok(LlmStreamEvent::ToolCall(call)))
+                        LlmStreamEvent::ToolCall(call)
                     }
                     rightkit_llm::agent_providers::ProviderStreamEvent::Usage {
                         prompt_tokens,
                         completion_tokens,
                         cache_read_tokens,
                         cache_creation_tokens,
-                    } => Some(Ok(LlmStreamEvent::Usage {
+                    } => LlmStreamEvent::Usage {
                         prompt_tokens,
                         completion_tokens,
                         cache_read_tokens,
                         cache_creation_tokens,
-                    })),
+                    },
                     rightkit_llm::agent_providers::ProviderStreamEvent::UsageDetail {
                         reasoning_tokens,
-                    } => Some(Ok(LlmStreamEvent::UsageDetail { reasoning_tokens })),
-                    rightkit_llm::agent_providers::ProviderStreamEvent::Finished(reason) => {
-                        Some(Ok(LlmStreamEvent::Finished(reason)))
+                    } => LlmStreamEvent::UsageDetail { reasoning_tokens },
+                    rightkit_llm::agent_providers::ProviderStreamEvent::UsageCost { cost_usd } => {
+                        LlmStreamEvent::UsageCost { cost_usd }
                     }
-                    // Dropped by `normalize_provider_stream`; no engine event carries them.
-                    rightkit_llm::agent_providers::ProviderStreamEvent::UsageCost { .. }
-                    | rightkit_llm::agent_providers::ProviderStreamEvent::RateLimit(_)
-                    | rightkit_llm::agent_providers::ProviderStreamEvent::ToolArgumentsPartial {
-                        ..
-                    } => None,
-                },
-            })
+                    rightkit_llm::agent_providers::ProviderStreamEvent::RateLimit(limit) => {
+                        LlmStreamEvent::RateLimit {
+                            remaining_requests: limit.remaining_requests,
+                            remaining_tokens: limit.remaining_tokens,
+                            reset_requests_secs: limit.reset_requests_secs,
+                            reset_tokens_secs: limit.reset_tokens_secs,
+                        }
+                    }
+                    rightkit_llm::agent_providers::ProviderStreamEvent::Finished(reason) => {
+                        LlmStreamEvent::Finished(reason)
+                    }
+                    rightkit_llm::agent_providers::ProviderStreamEvent::ToolArgumentsPartial {
+                        id,
+                        name,
+                        arguments_json,
+                    } => LlmStreamEvent::ToolArgumentsPartial {
+                        id,
+                        name,
+                        arguments_json,
+                    },
+                })
+                .map_err(|error| llm_error_message(&error))
         })))
     }
 
@@ -3278,9 +4150,44 @@ impl LlmClient for ProviderLlmClient {
         lock_recover(&self.promoted_tools, "promoted tool state").clone()
     }
 
+    /// Which provider (the route's host) and model the reply came from. Only routes that can
+    /// change mid-session report it; a fixed client has nothing to distinguish. Reported only
+    /// when the host wants it on replies (`host_options::message_origin_on_replies`).
+    fn message_origin(&self) -> Option<rightkit_agent_engine_protocol::MessageOrigin> {
+        if !crate::host_options::message_origin_on_replies() {
+            return None;
+        }
+        let host = |url: &str| {
+            url.split("://")
+                .nth(1)
+                .unwrap_or(url)
+                .split('/')
+                .next()
+                .unwrap_or_default()
+                .to_string()
+        };
+        match &self.inner {
+            ProviderClientInner::Dynamic { route, .. } => {
+                let route = lock_recover(route, "route");
+                Some(rightkit_agent_engine_protocol::MessageOrigin {
+                    provider: host(&route.base_url),
+                    model: route.model_id.clone(),
+                })
+            }
+            ProviderClientInner::Direct { route, .. } => {
+                let route = lock_recover(route, "session.inference_route");
+                Some(rightkit_agent_engine_protocol::MessageOrigin {
+                    provider: host(&route.endpoint),
+                    model: route.selection.model_id.clone(),
+                })
+            }
+            ProviderClientInner::Static(_) => None,
+        }
+    }
+
     /// Live route identity for prompt-cache break attribution: a PATCHed model
     /// or route changes this between requests, which is an expected break.
-    /// Fixed-model clients (`Static`, `Anthropic`) cannot switch.
+    /// Fixed-model clients (`Static`) cannot switch.
     fn active_route_label(&self) -> Option<String> {
         match &self.inner {
             ProviderClientInner::Dynamic { route, .. } => {
@@ -3291,16 +4198,13 @@ impl LlmClient for ProviderLlmClient {
                     .fingerprint
                     .clone(),
             ),
-            ProviderClientInner::Static(_) | ProviderClientInner::Anthropic(_) => None,
+            ProviderClientInner::Static(_) => None,
         }
     }
 
     fn image_budget_policy(&self) -> rightkit_agent_engine_core::image_eviction::ImageBudgetPolicy {
         match &self.inner {
             ProviderClientInner::Static(client) => {
-                configured_image_budget_policy(client.base_url())
-            }
-            ProviderClientInner::Anthropic(client) => {
                 configured_image_budget_policy(client.base_url())
             }
             ProviderClientInner::Direct { route, .. } => configured_image_budget_policy(
@@ -3342,10 +4246,6 @@ impl LlmClient for ProviderLlmClient {
             ProviderClientInner::Static(client) => {
                 client.request_body_bytes(wire, tool_defs, &request_metadata)
             }
-            ProviderClientInner::Anthropic(_) => {
-                serde_json::to_vec(&serde_json::json!({"messages": wire, "tools": tool_defs}))
-                    .map(|body| body.len())
-            }
             ProviderClientInner::Direct { route, .. } => {
                 let route = lock_recover(route, "session.inference_route");
                 if matches!(
@@ -3373,5 +4273,60 @@ impl LlmClient for ProviderLlmClient {
             body_bytes: bytes,
             basis: ImageAccountingBasis::OpenAiChatCompletionsJsonV1,
         }
+    }
+}
+
+#[cfg(test)]
+mod plan_model_tests {
+    use super::*;
+    use rightkit_agent_policy::PermissionMode;
+
+    fn route(model: &str) -> SharedProviderRoute {
+        Arc::new(Mutex::new(
+            ProviderRoute::from_model_auth(
+                model,
+                "http://127.0.0.1:9/v1",
+                rightkit_llm::agent_providers::subscription_auth::ModelAuth::api_key(
+                    "k".to_string(),
+                ),
+            )
+            .expect("route"),
+        ))
+    }
+
+    fn model_of(route: &SharedProviderRoute) -> String {
+        route.lock().unwrap().model_id.clone()
+    }
+
+    #[test]
+    fn plan_mode_uses_the_plan_model_and_approval_restores_the_session_model() {
+        let route = route("build-model");
+        let mut saved = None;
+        apply_plan_model(&route, PermissionMode::Plan, "plan-model", &mut saved);
+        assert_eq!(model_of(&route), "plan-model");
+        // A repeated plan state changes nothing and does not lose the model to restore.
+        apply_plan_model(&route, PermissionMode::Plan, "plan-model", &mut saved);
+        assert_eq!(model_of(&route), "plan-model");
+        apply_plan_model(&route, PermissionMode::Ask, "plan-model", &mut saved);
+        assert_eq!(model_of(&route), "build-model");
+        assert_eq!(saved, None);
+    }
+
+    #[test]
+    fn a_model_switch_made_while_planning_is_kept() {
+        let route = route("build-model");
+        let mut saved = None;
+        apply_plan_model(&route, PermissionMode::Plan, "plan-model", &mut saved);
+        route.lock().unwrap().model_id = "user-picked".to_string();
+        apply_plan_model(&route, PermissionMode::Ask, "plan-model", &mut saved);
+        assert_eq!(model_of(&route), "user-picked");
+    }
+
+    #[test]
+    fn other_modes_leave_the_route_alone() {
+        let route = route("build-model");
+        let mut saved = None;
+        apply_plan_model(&route, PermissionMode::Ask, "plan-model", &mut saved);
+        assert_eq!(model_of(&route), "build-model");
     }
 }

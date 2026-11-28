@@ -55,7 +55,8 @@ async fn validate_tool_schema_handler(
     State(state): State<DaemonState>,
     Json(body): Json<ValidateToolSchemaRequest>,
 ) -> Result<Json<ValidateToolSchemaResponse>, StatusCode> {
-    let registry = ToolRegistry::build_default_with_plugins(state.plugin_dir);
+    let mut registry = ToolRegistry::build_default_with_plugins(state.plugin_dir);
+    crate::host_options::apply_tool_registry_controls(&mut registry);
     let Some(tool) = registry.get(&body.tool_name) else {
         return Err(StatusCode::NOT_FOUND);
     };
@@ -71,7 +72,8 @@ async fn validate_tool_schema_handler(
 }
 
 fn tool_schema_rows(state: &DaemonState) -> Vec<ToolSchemaRow> {
-    let registry = ToolRegistry::build_default_with_plugins(state.plugin_dir.clone());
+    let mut registry = ToolRegistry::build_default_with_plugins(state.plugin_dir.clone());
+    crate::host_options::apply_tool_registry_controls(&mut registry);
     let categories: HashMap<_, _> = registry
         .capabilities()
         .into_iter()

@@ -1,4 +1,5 @@
 include!("routes.rs");
+include!("workspace_skills.rs");
 include!("openapi_components_core.rs");
 include!("openapi_components_governance.rs");
 include!("openapi.rs");

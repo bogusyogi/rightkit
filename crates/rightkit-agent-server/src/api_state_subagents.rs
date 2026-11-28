@@ -12,20 +12,10 @@ pub(crate) fn configured_provider_api_key_without_fallback(
     provider_id: &str,
     route: &rightkit_agent_config::ProviderRouteConfig,
 ) -> String {
-    if let Some(env_name) = route
-        .api_key_env
-        .as_deref()
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-    {
-        if let Ok(value) = std::env::var(env_name) {
-            let trimmed = value.trim();
-            if !trimmed.is_empty() {
-                return trimmed.to_string();
-            }
-        }
-    }
-    rightkit_llm::agent_providers::load_api_key(provider_id).unwrap_or_default()
+    // Providers R4: on a host with no OS credential store, a route's `api-key-env` that is a
+    // `<PREFIX>_<NAME>_API_KEY` name is read (environment, then `.env`); otherwise the key
+    // saved under the route id. The same resolution the CLI path uses.
+    crate::main_runtime::route_api_key(provider_id, route).unwrap_or_default()
 }
 
 /// Daemon-owned implementation of the engine's typed child-control seam.
@@ -152,6 +142,16 @@ impl DaemonSubagentSupervisor {
     }
 }
 
+/// Woken after the session engine's terminal status write so `wait_for`
+/// re-checks at once (F-11). Other status writers do not notify, so waiters
+/// also poll once a second: notify plus a 1 s poll.
+pub(crate) static SUBAGENT_STATUS_CHANGED: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+/// How long `wait_for` treats an unresolvable pre-allocated `sub-*` id as
+/// "not registered yet" before returning the resolve error (a mistyped id or
+/// one from before a daemon restart must not pin the parent turn forever).
+const SUBAGENT_REGISTRATION_GRACE: std::time::Duration = std::time::Duration::from_secs(30);
+
 impl rightkit_agent_coding_tools::SubagentSupervisor for DaemonSubagentSupervisor {
     fn wait_for(
         &self,
@@ -168,35 +168,92 @@ impl rightkit_agent_coding_tools::SubagentSupervisor for DaemonSubagentSuperviso
         let supervisor = self.clone();
         let parent_session_id = parent_session_id.to_string();
         Box::pin(async move {
-            let mut resolved = Vec::with_capacity(agent_paths.len());
-            for path in agent_paths {
-                let session_id = supervisor.resolve_path(&parent_session_id, &path).await?;
-                resolved.push((path, session_id));
-            }
+            // F-11: event-driven. A pre-allocated child id (`sub-<ms>-<n>`) may
+            // not be resolvable until the spawner registers it, so resolution
+            // is retried on the same wake loop instead of failing at once.
             let started = std::time::Instant::now();
+            let mut resolved: Vec<(String, Option<String>)> =
+                agent_paths.into_iter().map(|path| (path, None)).collect();
             loop {
+                // Arm the wakeup BEFORE reading status so a write between the
+                // read and the await is never missed.
+                let notified = SUBAGENT_STATUS_CHANGED.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
+                let elapsed = started.elapsed();
+                let registration_grace = timeout_ms
+                    .map(std::time::Duration::from_millis)
+                    .map_or(SUBAGENT_REGISTRATION_GRACE, |t| {
+                        t.min(SUBAGENT_REGISTRATION_GRACE)
+                    });
+                let in_grace = elapsed < registration_grace;
                 let mut outcomes = Vec::with_capacity(resolved.len());
                 let mut pending = false;
-                for (path, session_id) in &resolved {
-                    match supervisor.terminal_status(session_id).await? {
-                        Some(status) => {
+                for (path, session_id) in resolved.iter_mut() {
+                    let preallocated = path
+                        .rsplit('/')
+                        .next()
+                        .is_some_and(|segment| segment.starts_with("sub-"));
+                    let sid = match session_id.clone() {
+                        Some(sid) => sid,
+                        None => {
+                            match supervisor.resolve_path(&parent_session_id, path.as_str()).await {
+                            Ok(sid) => {
+                                *session_id = Some(sid.clone());
+                                sid
+                            }
+                            Err(_)
+                                // A pre-allocated child id may not be registered
+                                // yet; tolerate that for a bounded grace only.
+                                if preallocated && in_grace =>
+                            {
+                                pending = true;
+                                continue;
+                            }
+                            Err(error) => return Err(error),
+                        }
+                        }
+                    };
+                    match supervisor.terminal_status(&sid).await {
+                        Ok(Some(status)) => {
                             outcomes.push(rightkit_agent_coding_tools::SubagentWaitOutcome {
                                 agent_path: path.clone(),
                                 status,
                             })
                         }
-                        None => pending = true,
+                        Ok(None) => pending = true,
+                        Err(error)
+                            if preallocated
+                                && in_grace
+                                && error.starts_with("unknown subagent session") =>
+                        {
+                            pending = true
+                        }
+                        Err(error) => return Err(error),
                     }
                 }
                 if !pending {
                     return Ok(outcomes);
                 }
-                if timeout_ms.is_some_and(|timeout| {
-                    started.elapsed() >= std::time::Duration::from_millis(timeout)
-                }) {
-                    return Err("timed out waiting for subagent terminal status".to_string());
+                let remaining = match timeout_ms {
+                    Some(timeout) => {
+                        let timeout = std::time::Duration::from_millis(timeout);
+                        if elapsed >= timeout {
+                            return Err(
+                                "timed out waiting for subagent terminal status".to_string()
+                            );
+                        }
+                        timeout - elapsed
+                    }
+                    None => std::time::Duration::from_secs(1),
+                };
+                // Safety tick covers status writes made by paths that do not
+                // call `SUBAGENT_STATUS_CHANGED.notify_waiters()`.
+                let tick = remaining.min(std::time::Duration::from_secs(1));
+                tokio::select! {
+                    _ = &mut notified => {}
+                    _ = tokio::time::sleep(tick) => {}
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
             }
         })
     }
@@ -253,17 +310,18 @@ pub(crate) struct SessionRuntimeOptions {
     pub(crate) allowed_tools: Vec<String>,
     pub(crate) disallowed_tools: Vec<String>,
     pub(crate) toolset: Option<String>,
-    /// Independent verifier selected by a resolved role pack. This remains
-    /// child-local until the engine's verifier runner consumes it.
-    pub(crate) verifier_model: Option<String>,
-    pub(crate) verifier_is_independent: Option<bool>,
+    /// Tool profile that narrows this session's own tools only. Unlike `allowed_tools`/`toolset`
+    /// (a ceiling every child inherits), children do not inherit it: an orchestrator that may not
+    /// read files can still spawn a reader that can. Set from `run --own-toolset` or a role's
+    /// `[orchestration.agents.<role>] toolset`.
+    pub(crate) own_toolset: Option<String>,
     pub(crate) active_skills: Vec<String>,
     pub(crate) execution_backend: Option<String>,
     pub(crate) execution_workspace_id: Option<String>,
     pub(crate) execution_workspace_path: Option<PathBuf>,
     pub(crate) execution_network_profile: Option<String>,
     /// Root conductor for this session. Omitted/persisted legacy sessions are
-    /// always native RightKit sessions, never implicitly delegated to a
+    /// always native host sessions, never implicitly delegated to a
     /// vendor CLI.
     pub(crate) driver_kind: String,
     pub(crate) mcp_channel: String,
@@ -280,11 +338,27 @@ pub(crate) struct SessionRuntimeOptions {
     pub(crate) system_prompt: Option<String>,
     /// CLI prompt suffix, including structured-output constraints.
     pub(crate) append_system_prompt: Option<String>,
+    /// JSON Schema from `run --output-schema`, sent to the provider as its native structured-output parameter.
+    pub(crate) output_schema: Option<serde_json::Value>,
     /// Additional instruction roots for the canonical instruction loader.
     pub(crate) add_dir: Vec<String>,
     pub(crate) bare: bool,
+    /// Context fork (the spawn tool's `fork: true`): the child engine starts from these
+    /// messages (the parent's completed transcript) before its task arrives.
+    pub(crate) fork_seed: Option<Vec<rightkit_agent_engine_protocol::TranscriptMessage>>,
+    /// The parent's rendered system prompt, set for a context fork: the child sends exactly these
+    /// bytes (and keeps the parent's tool lists, no role narrowing), so its first request reads the
+    /// parent's prompt cache.
+    pub(crate) fork_system_prompt: Option<String>,
     pub(crate) no_mcp: bool,
     pub(crate) mcp_config: Option<String>,
+    /// `POST /sessions` `trustWorkspace` request: grants this one session workspace trust (policy
+    /// trust and config layer). Set only by the create handler; never persisted, never inherited.
+    pub(crate) trust_workspace: bool,
+    /// Config-layer-only grant: the workspace layer loads whole but policy trust is untouched. A
+    /// sub-agent of a granted session inherits this (so its model route resolves), never the
+    /// policy grant.
+    pub(crate) config_grant: bool,
     pub(crate) lineage_budget: Option<Arc<rightkit_agent_engine_core::LineageBudget>>,
     /// Fable max-effort mode: force high reasoning effort and inject the
     /// constraint-rich [`FABLE_DIRECTIVE`] into the system prompt.
@@ -313,7 +387,10 @@ pub(crate) fn record_engine_unavailable_reason(reason: impl Into<String>) {
 pub(crate) fn missing_provider_key_message() -> String {
     match ENGINE_UNAVAILABLE_REASON.get() {
         Some(reason) => format!("Local engine is running, but no model provider is active: {reason}"),
-        None => "Local engine is running, but no model provider is active. Configure a provider API key or a local provider route, then restart RightKit.".to_string(),
+        None => format!(
+            "Local engine is running, but no model provider is active. Configure a provider API key or a local provider route, then restart {}.",
+            rightkit_agent_config::app_name()
+        ),
     }
 }
 
@@ -343,11 +420,20 @@ pub(crate) struct SubagentFork {
     model: Option<String>,
     fallback_models: Vec<String>,
     toolset: Option<String>,
-    verifier_model: Option<String>,
-    verifier_is_independent: Option<bool>,
+    own_toolset: Option<String>,
     effort: Option<String>,
     inference_selection: Option<crate::inference_runtime::InferenceSelection>,
     inference_fingerprint: Option<String>,
+    /// Zero-context child (the spawn tool's `bare: true`): no instruction files, skills,
+    /// plugin prompts, persona, instincts or environment snapshot.
+    bare: bool,
+    /// The parent's completed transcript when the spawn asked for a context fork.
+    fork_seed: Option<Vec<rightkit_agent_engine_protocol::TranscriptMessage>>,
+    /// The parent's rendered system prompt when the spawn asked for a context fork.
+    fork_system_prompt: Option<String>,
+    /// The parent session carries the config-layer grant (`trustWorkspace`); the child's config
+    /// layer loads whole too. Policy trust is not inherited.
+    config_grant: bool,
 }
 
 impl SubagentFork {
@@ -363,8 +449,7 @@ impl SubagentFork {
             disallowed_tools: self.disallowed_tools.clone(),
             fallback_models: self.fallback_models.clone(),
             toolset: self.toolset.clone(),
-            verifier_model: self.verifier_model.clone(),
-            verifier_is_independent: self.verifier_is_independent,
+            own_toolset: self.own_toolset.clone(),
             effort: self.effort.clone(),
             budget_ceiling_usd: self.budget_ceiling_usd,
             lineage_budget: self.lineage_budget.clone(),
@@ -377,6 +462,10 @@ impl SubagentFork {
             disable_thinking: self.disable_thinking,
             safe_mode: self.safe_mode,
             brief_default: self.brief_default,
+            bare: self.bare,
+            fork_seed: self.fork_seed.clone(),
+            fork_system_prompt: self.fork_system_prompt.clone(),
+            config_grant: self.config_grant,
             ..SessionRuntimeOptions::default()
         }
     }
@@ -399,6 +488,181 @@ impl SubagentFork {
             "messageCount": message_count,
         })
     }
+}
+
+/// The parent's transcript as a forked child starts from it: every message up to, not including,
+/// the first assistant message whose tool calls have no result yet (the in-flight call, which
+/// includes the spawn itself). A provider rejects a call without its result, and the parent's own
+/// pending work is not the child's to finish.
+fn fork_seed_from(
+    parent: &Arc<LiveSession>,
+) -> Vec<rightkit_agent_engine_protocol::TranscriptMessage> {
+    use rightkit_agent_engine_protocol::TranscriptMessage;
+    let transcript = lock_recover(&parent.transcript, "session.transcript").clone();
+    let answered = |id: &str, from: usize| {
+        transcript[from..].iter().any(|later| {
+            matches!(later, TranscriptMessage::Tool { tool_call_id, .. } if tool_call_id == id)
+        })
+    };
+    let cut = transcript
+        .iter()
+        .enumerate()
+        .find(|(index, message)| match message {
+            TranscriptMessage::Assistant { tool_calls, .. } => tool_calls
+                .iter()
+                .any(|call| !answered(&call.id, *index + 1)),
+            _ => false,
+        })
+        .map(|(index, _)| index)
+        .unwrap_or(transcript.len());
+    // The parent's provider requests carry each user turn with its system reminder (the time of the
+    // turn and the session's posture); the transcript keeps the bare text. The child's first request
+    // must start with the same bytes for the provider's cache to read the shared prefix, so every
+    // user turn gets the reminder it was sent with (the posture is the session's current one).
+    // The session's posture is stated on the first turn (and again when it changes, which the
+    // transcript does not record): the seed states it on the first user turn only.
+    let state_note = crate::api::session_state_text(parent);
+    let mut first_user_turn = true;
+    transcript[..cut]
+        .iter()
+        .map(|message| match message {
+            TranscriptMessage::User {
+                id,
+                created_at,
+                content,
+                trust,
+                pinned,
+                attachments,
+            } if !content.contains("<system-reminder>") => {
+                let reminder = crate::api::user_turn_reminder_with_state_at(
+                    created_at,
+                    &[],
+                    if std::mem::take(&mut first_user_turn) {
+                        state_note.as_deref()
+                    } else {
+                        None
+                    },
+                );
+                TranscriptMessage::User {
+                    id: id.clone(),
+                    created_at: created_at.clone(),
+                    content: crate::api::decorate_user_payload_with_system_reminder(
+                        content, &reminder,
+                    ),
+                    trust: trust.clone(),
+                    pinned: *pinned,
+                    attachments: attachments.clone(),
+                }
+            }
+            other => other.clone(),
+        })
+        .collect()
+}
+
+/// Longest piece of one earlier user message the summary start keeps, in characters.
+const HANDOFF_SUMMARY_ITEM_CHARS: usize = 500;
+
+/// The summary start (`handoff_summary: true`): one user message listing every earlier user message of the
+/// parent, each cut to [`HANDOFF_SUMMARY_ITEM_CHARS`] characters, oldest first. It is built from the transcript
+/// alone: no model call, nothing invented. Empty when the parent has no user message yet.
+pub(crate) fn handoff_summary_seed(
+    transcript: &[rightkit_agent_engine_protocol::TranscriptMessage],
+) -> Vec<rightkit_agent_engine_protocol::TranscriptMessage> {
+    use rightkit_agent_engine_protocol::TranscriptMessage;
+    let items: Vec<String> = transcript
+        .iter()
+        .filter_map(|message| match message {
+            TranscriptMessage::User { content, .. } if !content.trim().is_empty() => {
+                let text = content.trim();
+                let cut: String = text.chars().take(HANDOFF_SUMMARY_ITEM_CHARS).collect();
+                let marker = if text.chars().count() > HANDOFF_SUMMARY_ITEM_CHARS {
+                    "..."
+                } else {
+                    ""
+                };
+                Some(format!("- {cut}{marker}"))
+            }
+            _ => None,
+        })
+        .collect();
+    if items.is_empty() {
+        return Vec::new();
+    }
+    vec![TranscriptMessage::User {
+        id: format!(
+            "handoff-summary-{}",
+            rightkit_agent_engine_protocol::uuid_v7()
+        ),
+        created_at: rightkit_agent_engine_protocol::now_iso(),
+        content: format!(
+            "Summary of the parent session so far (what the user asked, oldest first):\n{}",
+            items.join("\n")
+        ),
+        trust: None,
+        pinned: false,
+        attachments: Vec::new(),
+    }]
+}
+
+/// The durable form of a fork seed: one stored event per message (seq 1..), so a child resumed
+/// after a restart rebuilds the parent's messages from its own log, the way a normal fork's
+/// copied events do (`fork_session_once`). System and compaction markers have no stored form
+/// here and are left out.
+pub(crate) fn fork_seed_events(
+    session_id: &str,
+    seed: &[rightkit_agent_engine_protocol::TranscriptMessage],
+) -> Vec<(i64, String, String)> {
+    use rightkit_agent_engine_protocol::{AssistantMessagePhase, ProtocolEvent, TranscriptMessage};
+    let mut out = Vec::new();
+    for message in seed {
+        let seq = out.len() as i64 + 1;
+        let (kind, mut event) = match message {
+            TranscriptMessage::User {
+                created_at,
+                content,
+                trust,
+                attachments,
+                ..
+            } => (
+                "userMessageSubmitted",
+                ProtocolEvent::UserMessageSubmitted {
+                    session_id: session_id.to_string(),
+                    seq,
+                    created_at: created_at.clone(),
+                    text: content.clone(),
+                    nonce: None,
+                    trust: trust.clone(),
+                    attachments: attachments.clone(),
+                },
+            ),
+            TranscriptMessage::Assistant { created_at, .. } => (
+                "assistantMessageCompleted",
+                ProtocolEvent::AssistantMessageCompleted {
+                    session_id: session_id.to_string(),
+                    seq,
+                    created_at: created_at.clone(),
+                    message: message.clone(),
+                    phase: AssistantMessagePhase::Interim,
+                },
+            ),
+            TranscriptMessage::Tool { created_at, .. } => (
+                "toolResultAdded",
+                ProtocolEvent::ToolResultAdded {
+                    session_id: session_id.to_string(),
+                    seq,
+                    created_at: created_at.clone(),
+                    result: message.clone(),
+                },
+            ),
+            _ => continue,
+        };
+        event.canonicalize_identity(seq);
+        let Ok(payload) = serde_json::to_string(&event) else {
+            continue;
+        };
+        out.push((seq, kind.to_string(), payload));
+    }
+    out
 }
 
 /// Return the native route requested for this one spawn, if any. A bare
@@ -424,18 +688,30 @@ pub(crate) fn native_spawn_route(
     ))
 }
 
-#[allow(clippy::too_many_arguments)]
+/// The identity a sub-agent fork is created with: its session id, its parent's, its role, its
+/// task and the workspace root it works in.
+pub(crate) struct SubagentIdentity {
+    pub(crate) sub_session_id: String,
+    pub(crate) parent_session_id: String,
+    pub(crate) role: String,
+    pub(crate) task: String,
+    pub(crate) workspace_root: String,
+}
+
 pub(crate) fn build_subagent_fork(
-    sub_session_id: String,
-    parent_session_id: String,
-    role: String,
-    task: String,
-    workspace_root: String,
+    identity: SubagentIdentity,
     parent_session: Option<&Arc<LiveSession>>,
     options: &rightkit_agent_coding_tools::SubagentSpawnOptions,
     brief_default: bool,
     inherited_model: Option<String>,
 ) -> SubagentFork {
+    let SubagentIdentity {
+        sub_session_id,
+        parent_session_id,
+        role,
+        task,
+        workspace_root,
+    } = identity;
     let requested_budget = options
         .budget_microusd
         .map(|micros| micros as f64 / 1_000_000.0);
@@ -465,6 +741,12 @@ pub(crate) fn build_subagent_fork(
             (provider_id, model)
         }
     };
+    // The parent's inference selection and fingerprint describe the parent's route only; a child
+    // on a different model or provider must re-resolve its own route (also on resume).
+    let same_route_as_parent = parent_session.is_some_and(|p| {
+        model.as_deref() == Some(lock_recover(&p.model, "session.model").as_str())
+            && *lock_recover(&p.provider_id, "session.provider_id") == provider_id
+    });
     SubagentFork {
         sub_session_id,
         parent_session_id,
@@ -495,23 +777,47 @@ pub(crate) fn build_subagent_fork(
         },
         lineage_budget: parent_session.map(|parent| parent.lineage_budget.clone()),
         brief_default,
+        bare: options.bare,
+        fork_seed: if options.fork {
+            parent_session.map(fork_seed_from)
+        } else if options.handoff_summary {
+            parent_session
+                .map(|parent| {
+                    handoff_summary_seed(&lock_recover(&parent.transcript, "session.transcript"))
+                })
+                .filter(|seed| !seed.is_empty())
+        } else {
+            None
+        },
+        fork_system_prompt: if options.fork {
+            parent_session.and_then(|parent| {
+                lock_recover(&parent.rendered_system_prompt, "session.system_prompt").clone()
+            })
+        } else {
+            None
+        },
+        config_grant: parent_session
+            .is_some_and(|parent| crate::daemon_state::session_config_granted(&parent.id)),
         provider_id,
         model,
         fallback_models: Vec::new(),
         toolset: None,
-        verifier_model: None,
-        verifier_is_independent: None,
+        own_toolset: None,
         effort: parent_session.and_then(|p| lock_recover(&p.effort, "session.effort").clone()),
-        inference_selection: parent_session.and_then(|parent| {
-            lock_recover(&parent.inference_selection, "session.inference_selection").clone()
-        }),
-        inference_fingerprint: parent_session.and_then(|parent| {
-            lock_recover(
-                &parent.inference_fingerprint,
-                "session.inference_fingerprint",
-            )
-            .clone()
-        }),
+        inference_selection: parent_session
+            .filter(|_| same_route_as_parent)
+            .and_then(|parent| {
+                lock_recover(&parent.inference_selection, "session.inference_selection").clone()
+            }),
+        inference_fingerprint: parent_session
+            .filter(|_| same_route_as_parent)
+            .and_then(|parent| {
+                lock_recover(
+                    &parent.inference_fingerprint,
+                    "session.inference_fingerprint",
+                )
+                .clone()
+            }),
     }
 }
 
@@ -519,6 +825,20 @@ impl SubagentFork {
     /// Bind runtime fields represented by `SessionRuntimeOptions`. Resolution
     /// already validated model, persona & verifier references; retain each
     /// assignment so a child cannot silently fall back after admission.
+    /// Run the child on one resolved split-mode route: the model and the provider that serves it,
+    /// instead of the provider derived from the model slug.
+    pub(crate) fn use_route(&mut self, model: &str, provider_id: &str) {
+        // A route that differs from the inherited parent route must not keep the parent's
+        // inference selection or fingerprint: resume would rebuild the parent's route from them.
+        if self.model.as_deref() != Some(model) || self.provider_id.as_deref() != Some(provider_id)
+        {
+            self.inference_selection = None;
+            self.inference_fingerprint = None;
+        }
+        self.model = Some(model.to_string());
+        self.provider_id = Some(provider_id.to_string());
+    }
+
     pub(crate) fn apply_resolved_role_pack(
         &mut self,
         resolved: &rightkit_agent_orchestration::coding::role_pack::ResolvedRolePack,
@@ -575,15 +895,24 @@ impl SubagentFork {
             .iter()
             .map(|model| model.id.clone())
             .collect();
-        self.toolset = Some(toolset);
+        // Issue 489: the pack's toolset name maps to a real profile, applied as this child's
+        // own limit (not the ceiling its children inherit). An unmapped name is used as a
+        // profile id and fails closed if it is not one.
+        let profile = crate::api_toolsets::role_pack_toolset_profile(&toolset)
+            .map(str::to_string)
+            .unwrap_or(toolset);
+        if profile == "verifier" {
+            // The verifier spawns nothing, so the ceiling name is safe to set; the shell
+            // reads it to withhold workspace write access.
+            self.toolset = Some(profile.clone());
+        }
+        self.own_toolset = Some(profile);
         self.mcp_channel = mcp_binding.channels.first().cloned().ok_or_else(|| {
             format!(
                 "role pack '{}' has no bound MCP channel",
                 resolved.pack.role
             )
         })?;
-        self.verifier_model = Some(verifier_model.to_string());
-        self.verifier_is_independent = Some(resolved.verifier_binding.independent);
         self.effort = Some(resolved.pack.reasoning.clone());
         self.max_iterations = Some(
             self.max_iterations
@@ -621,24 +950,12 @@ fn effective_child_permission_mode(
         (None, requested) => requested,
     };
 
-    // A sub-agent has no interactive surface: its approval events go to its own
-    // conduit, which no UI subscribes to, so an inherited `Ask` guarantees the
-    // first gated tool blocks until it is denied by timeout. That is what wedged
-    // conductor runs on their first `shell` call.
-    //
-    // Children therefore run non-interactively under `AutoSafe`: command-aware
-    // classification lets read-only work (`ls`, `find`, `git status`) proceed,
-    // while destructive and process-control commands still require an approval
-    // — and, absent a responder, are denied rather than run. Deny rules,
-    // workspace trust, the destructive guard and durable-write provenance all
-    // still apply. `AcceptEdits` would not do: it still asks for every shell
-    // call, which is the exact hang. Stricter explicit requests (Plan) are kept.
-    match inherited {
-        Some(rightkit_agent_policy::PermissionMode::Ask) => {
-            Some(rightkit_agent_policy::PermissionMode::AutoSafe)
-        }
-        other => other,
-    }
+    // A child of an Ask-mode parent stays in Ask: it is never raised above its
+    // parent. Its conduit has no human subscriber, so the engine denies each
+    // gated call at once as `unattended` (a tool error the child reads) and the
+    // child carries on; nothing waits for an answer. Read-only tools need no
+    // approval in Ask, as for the parent.
+    inherited
 }
 
 fn permission_mode_rank(mode: rightkit_agent_policy::PermissionMode) -> u8 {
@@ -686,24 +1003,61 @@ fn effective_child_disallowed_tools(
     disallowed
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Which sub-agent a runtime span is about: the parent and child sessions, the role and task,
+/// and the workspace the span is recorded against.
+pub(crate) struct SubagentSpanSubject<'a> {
+    pub(crate) parent_session_id: &'a str,
+    pub(crate) sub_session_id: &'a str,
+    pub(crate) role: &'a str,
+    pub(crate) task: &'a str,
+    pub(crate) workspace: &'a str,
+}
+
+/// How the sub-agent executes: the backend, workspace id and network profile it inherited, and
+/// the MCP channel it reports on.
+pub(crate) struct SubagentSpanExecution<'a> {
+    pub(crate) execution_backend: Option<&'a str>,
+    pub(crate) execution_workspace_id: Option<&'a str>,
+    pub(crate) execution_network_profile: Option<&'a str>,
+    pub(crate) mcp_channel: Option<&'a str>,
+}
+
+/// One runtime span: the middleware phase and status it records, the span it nests under, the
+/// message shown with it, and the extra attributes merged into it.
+pub(crate) struct SubagentSpan<'a> {
+    pub(crate) phase: MiddlewarePhase,
+    pub(crate) status: &'a str,
+    pub(crate) parent_span_id: Option<&'a str>,
+    pub(crate) message: Option<&'a str>,
+    pub(crate) extra: serde_json::Value,
+}
+
 pub(crate) fn record_subagent_runtime_span(
     state: &DaemonState,
-    phase: MiddlewarePhase,
-    status: &str,
-    parent_session_id: &str,
-    parent_span_id: Option<&str>,
-    sub_session_id: &str,
-    role: &str,
-    task: &str,
-    workspace: &str,
-    execution_backend: Option<&str>,
-    execution_workspace_id: Option<&str>,
-    execution_network_profile: Option<&str>,
-    mcp_channel: Option<&str>,
-    message: Option<&str>,
-    extra: serde_json::Value,
+    subject: SubagentSpanSubject<'_>,
+    execution: SubagentSpanExecution<'_>,
+    span: SubagentSpan<'_>,
 ) -> Option<String> {
+    let SubagentSpanSubject {
+        parent_session_id,
+        sub_session_id,
+        role,
+        task,
+        workspace,
+    } = subject;
+    let SubagentSpanExecution {
+        execution_backend,
+        execution_workspace_id,
+        execution_network_profile,
+        mcp_channel,
+    } = execution;
+    let SubagentSpan {
+        phase,
+        status,
+        parent_span_id,
+        message,
+        extra,
+    } = span;
     let definitions =
         lock_recover(&state.runtime_middleware, "runtime_middleware").enabled_for_phase(phase);
     if definitions.is_empty() {
@@ -772,6 +1126,101 @@ fn api_middleware_phase_key(phase: MiddlewarePhase) -> &'static str {
 // collide with an explicit caller-supplied worktree path.
 const POOLED_WORKTREE_CLEANUP_PREFIX: &str = "\0pool:";
 
+/// What a finished sub-agent's worktree still holds that exists nowhere else: uncommitted
+/// changes, and commits no branch, tag or the parent's HEAD can reach (a detached or pooled
+/// checkout). `None` when removing the worktree loses nothing. When git cannot answer for a
+/// worktree that still exists, the answer is "it may": removal is the one step that cannot be
+/// undone.
+pub(crate) async fn subagent_worktree_unmerged_work(
+    parent_workspace: &str,
+    cleanup_path: &str,
+) -> Option<String> {
+    let path = cleanup_path
+        .strip_prefix(POOLED_WORKTREE_CLEANUP_PREFIX)
+        .unwrap_or(cleanup_path);
+    if !std::path::Path::new(path).exists() {
+        return None;
+    }
+    let git = |args: Vec<String>| async move {
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        crate::api_environments::run_managed_process("git", &args, parent_workspace)
+            .await
+            .ok()
+            .filter(|out| out.success)
+            .map(|out| out.stdout)
+    };
+    let in_worktree = |rest: &[&str]| {
+        let mut args = vec!["-C".to_string(), path.to_string()];
+        args.extend(rest.iter().map(|s| s.to_string()));
+        args
+    };
+    let Some(status) = git(in_worktree(&[
+        "--no-optional-locks",
+        "status",
+        "--porcelain",
+    ]))
+    .await
+    else {
+        return Some(format!(
+            "its state could not be read, so it was kept at {path}"
+        ));
+    };
+    let uncommitted = status
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .count();
+    let parent_head = git(vec!["rev-parse".into(), "HEAD".into()])
+        .await
+        .map(|head| head.trim().to_string())
+        .filter(|head| !head.is_empty());
+    let mut ahead_args = vec![
+        "rev-list",
+        "--count",
+        "HEAD",
+        "--not",
+        "--branches",
+        "--remotes",
+        "--tags",
+    ];
+    if let Some(head) = parent_head.as_deref() {
+        ahead_args.push(head);
+    }
+    let unreachable = match git(in_worktree(&ahead_args)).await {
+        Some(count) => count.trim().parse::<u64>().unwrap_or(1),
+        None => 1,
+    };
+    if uncommitted == 0 && unreachable == 0 {
+        return None;
+    }
+    let mut holds = Vec::new();
+    if uncommitted > 0 {
+        holds.push(format!("{uncommitted} uncommitted change(s)"));
+    }
+    if unreachable > 0 {
+        holds.push(format!("{unreachable} commit(s) on no branch"));
+    }
+    Some(format!("it holds {} at {path}", holds.join(" and ")))
+}
+
+/// Completion-time cleanup of a `cleanup: true` worktree. A worktree that still holds work found
+/// nowhere else is kept, and the returned note says so for the parent: a sub-agent's edits must
+/// not vanish with its checkout. A pooled checkout that is kept stays leased, so the pool does
+/// not hand it out or reset it.
+pub(crate) async fn cleanup_finished_subagent_worktree(
+    parent_workspace: &str,
+    path: &str,
+) -> Option<String> {
+    match subagent_worktree_unmerged_work(parent_workspace, path).await {
+        Some(held) => Some(format!(
+            "The sub-agent's worktree was NOT removed: {held}. Merge or copy what you need from it, then remove it with `git worktree remove`; removing it now would discard that work."
+        )),
+        None => {
+            cleanup_subagent_worktree(parent_workspace, path).await;
+            None
+        }
+    }
+}
+
 pub(crate) async fn cleanup_subagent_worktree(parent_workspace: &str, path: &str) {
     if let Some(pooled_path) = path.strip_prefix(POOLED_WORKTREE_CLEANUP_PREFIX) {
         let parent = PathBuf::from(parent_workspace);
@@ -795,10 +1244,10 @@ pub(crate) fn open_subagent_worktree_pool(
     parent_workspace: &std::path::Path,
 ) -> Result<rightkit_agent_coding_tools::worktree_pool::WorktreePool, String> {
     let pool_dir = parent_workspace
-        .join(crate::host_identity::home_dir())
+        .join(rightkit_agent_config::state_dir_name())
         .join("subagent-worktree-pool");
     let state_dir = parent_workspace
-        .join(crate::host_identity::home_dir())
+        .join(rightkit_agent_config::state_dir_name())
         .join("subagent-worktree-pool-state");
     rightkit_agent_coding_tools::worktree_pool::WorktreePool::open(
         parent_workspace,
@@ -839,7 +1288,7 @@ pub(crate) async fn prepare_subagent_workspace(
     let path = worktree
         .path
         .clone()
-        .unwrap_or_else(|| default_subagent_worktree_path(role, sub_id));
+        .unwrap_or_else(|| default_subagent_worktree_path(parent_workspace, role, sub_id));
     let parent = PathBuf::from(parent_workspace);
     if parent_workspace.trim().is_empty() {
         return Err("sub-agent worktree requested but parent workspace is empty".into());
@@ -917,7 +1366,12 @@ pub(crate) async fn prepare_subagent_workspace(
     }
 }
 
-fn default_subagent_worktree_path(role: &str, sub_id: &str) -> String {
+/// Where a sub-agent's own worktree goes when the caller names no path: inside the project,
+/// under `<state folder name>/worktrees/`. It used to go under the system temp folder, which the
+/// sandbox does not let `git` write to, so every such spawn failed with "could not create
+/// leading directories ... Permission denied". The folder carries an ignore file so the
+/// worktrees never show as untracked files in the project.
+fn default_subagent_worktree_path(parent_workspace: &str, role: &str, sub_id: &str) -> String {
     let safe_role: String = role
         .chars()
         .map(|c| {
@@ -928,39 +1382,39 @@ fn default_subagent_worktree_path(role: &str, sub_id: &str) -> String {
             }
         })
         .collect();
-    std::env::temp_dir()
-        .join(format!(
-            "{app}-subagent-{safe_role}-{sub_id}",
-            app = crate::host_identity::app()
-        ))
+    let base = PathBuf::from(parent_workspace)
+        .join(rightkit_agent_config::state_dir_name())
+        .join("worktrees");
+    if std::fs::create_dir_all(&base).is_ok() {
+        let ignore = base.join(".gitignore");
+        if !ignore.exists() {
+            // Best effort: a failure only means the worktrees show as untracked.
+            if let Err(error) = std::fs::write(&ignore, "*\n") {
+                tracing::debug!(path = %ignore.display(), %error, "worktree ignore file not written");
+            }
+        }
+    }
+    base.join(format!("{safe_role}-{sub_id}"))
         .to_string_lossy()
         .into_owned()
 }
 
-async fn interrupted_journal_markers(
-    journal_dir: &FsPath,
+/// The system note a resumed session gets when its last turn never finished
+/// (its stored status is `interrupted`) and the host keeps no turn journal: the
+/// crash record is the session status plus the EVT-006 effect reconciliation, so
+/// the note names the last activity time, not a turn id.
+pub(crate) fn interrupted_session_note(
     session_id: &str,
-) -> Vec<TranscriptMessage> {
-    crate::journal::ExecutionJournal::interrupted_runs(journal_dir, session_id)
-        .await
-        .into_iter()
-        .map(|run| {
-            let mut content = format!(
-                "Recovery note: the previous agent turn was interrupted before a clean run_end. turn_id={} started_at={}. Review the workspace, transcript, and tool side effects before retrying; do not assume partial side effects were rolled back.",
-                run.turn_id, run.started_at
-            );
-            if let Some(preview) = run.user_message_preview.as_deref().filter(|s| !s.is_empty()) {
-                content.push_str("\nInterrupted prompt preview: ");
-                content.push_str(preview);
-            }
-            TranscriptMessage::System {
-                id: format!("journal-interrupted-{}", run.turn_id),
-                created_at: now_iso(),
-                content,
-                pinned: true,
-            }
-        })
-        .collect()
+    last_active_at: &str,
+) -> TranscriptMessage {
+    TranscriptMessage::System {
+        id: format!("interrupted-{session_id}"),
+        created_at: now_iso(),
+        content: format!(
+            "Recovery note: the previous agent turn was interrupted before it finished (the session was last active at {last_active_at}). Review the workspace, transcript, and tool side effects before retrying; do not assume partial side effects were rolled back."
+        ),
+        pinned: true,
+    }
 }
 
 // ── B3 / C3 run-budget ledger ───────────────────────────────────────────────────
@@ -975,7 +1429,9 @@ async fn interrupted_journal_markers(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RunSubagentBudget {
     /// Max **simultaneous** sub-agents the run may keep in flight. A spawn
-    /// that would exceed this limit is refused synchronously.
+    /// that would exceed this limit is refused at once, except a background spawn
+    /// (`SubagentSpawnOptions::queue_when_full`), which waits for a free slot (up to
+    /// 30 minutes, interrupt-aware; see `admit_subagent_budget`).
     pub concurrent_max: u32,
     /// Max sub-agents the run may accept across its **entire lifetime**.
     /// Counts retries, restarts, and completions equally; only declined
@@ -1050,9 +1506,6 @@ pub struct RunBudgetLedger {
     /// so the lock overhead stays minimal.
     cumulative_used: u32,
     concurrent_in_flight: u32,
-    /// Children whose slot has already been released, so cancel and
-    /// completion racing on the same child release it exactly once.
-    released: std::collections::HashSet<String>,
 }
 
 impl RunBudgetLedger {
@@ -1061,18 +1514,7 @@ impl RunBudgetLedger {
             budget,
             cumulative_used: 0,
             concurrent_in_flight: 0,
-            released: std::collections::HashSet::new(),
         }
-    }
-
-    /// Release the concurrent slot held by `child_id` at most once. Returns
-    /// `false` (and changes nothing) on a repeat release.
-    pub fn mark_completed_once(&mut self, child_id: &str) -> bool {
-        if !self.released.insert(child_id.to_string()) {
-            return false;
-        }
-        self.mark(SubagentLifecycleMark::Completed);
-        true
     }
 
     pub fn cumulative_used(&self) -> u32 {
@@ -1091,6 +1533,13 @@ impl RunBudgetLedger {
         if self.cumulative_used == 0 {
             self.cumulative_used = persisted_cumulative.unwrap_or(0);
         }
+    }
+
+    /// Start a new run with a fresh cumulative count (orchestration rule 6): the
+    /// cumulative limit is per run, so earlier goals in the same chat do not use
+    /// it up. Workers still in flight keep their slots.
+    pub fn reset_cumulative(&mut self) {
+        self.cumulative_used = 0;
     }
 
     /// Try to admit a new sub-agent. Returns a [`BudgetDecision`] and

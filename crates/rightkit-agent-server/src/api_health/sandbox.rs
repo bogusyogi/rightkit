@@ -12,7 +12,7 @@ fn optional_workspace_root(value: Option<&str>) -> Option<PathBuf> {
 
 fn sandbox_settings_path(workspace_root: &FsPath) -> PathBuf {
     workspace_root
-        .join(crate::host_identity::home_dir())
+        .join(rightkit_agent_config::state_dir_name())
         .join("sandbox-settings.json")
 }
 
@@ -48,7 +48,7 @@ fn load_sandbox_settings(
 fn resolve_sandbox_settings(
     saved: Option<&SandboxSettingsRecord>,
 ) -> rightkit_agent_policy::SandboxPolicyResolution {
-    let operator = std::env::var("RIGHTKIT_SANDBOX_TIER").ok();
+    let operator = std::env::var(rightkit_agent_config::env_name("SANDBOX_TIER")).ok();
     rightkit_agent_policy::resolve_sandbox_policy(
         operator.as_deref(),
         saved.map(|record| record.tier.as_str()),

@@ -31,15 +31,15 @@ use crate::api::DaemonState;
 
 /// Root directory holding one SQLite file per team:
 /// `<root>/<team_id>.sqlite`. Overridable for tests/CI via
-/// `RIGHTKIT_PEER_TEAM_STORE_ROOT`.
+/// `<PREFIX>_PEER_TEAM_STORE_ROOT` (the host's environment prefix).
 fn peer_team_store_root() -> PathBuf {
-    std::env::var_os("RIGHTKIT_PEER_TEAM_STORE_ROOT")
+    std::env::var_os(rightkit_agent_config::env_name("PEER_TEAM_STORE_ROOT"))
         .map(PathBuf::from)
         .or_else(|| rightkit_agent_config::state_root().map(|root| root.join("peer-teams")))
         .unwrap_or_else(|| {
             std::env::current_dir()
                 .unwrap_or_else(|_| PathBuf::from("."))
-                .join(crate::host_identity::home_dir())
+                .join(rightkit_agent_config::state_dir_name())
                 .join("peer-teams")
         })
 }

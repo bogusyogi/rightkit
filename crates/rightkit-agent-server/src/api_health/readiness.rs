@@ -37,7 +37,11 @@ fn row_provider_key(state: &DaemonState) -> ReadinessRow {
             "provider-key",
             "Provider API key",
             "no provider API key configured",
-            "Set OPENROUTER_API_KEY or add an OpenRouter key in Settings > Providers",
+            if crate::host_options::provider_keys_from_environment() {
+                "Set OPENROUTER_API_KEY or add an OpenRouter key in Settings > Providers"
+            } else {
+                "Add an OpenRouter key in Settings > Providers"
+            },
         )
     }
 }
@@ -125,6 +129,13 @@ fn row_mcp(state: &DaemonState) -> ReadinessRow {
 }
 
 fn row_license(state: &DaemonState) -> ReadinessRow {
+    if !state.license_enforced {
+        return ReadinessRow::ready(
+            "license",
+            "License",
+            "Pro features available to everyone (licence not enforced)",
+        );
+    }
     let features = state.current_license_features();
     if features.is_empty() {
         ReadinessRow::warn(

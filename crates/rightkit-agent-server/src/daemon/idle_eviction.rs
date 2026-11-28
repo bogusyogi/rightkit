@@ -20,18 +20,6 @@ struct DrainState {
     fenced: bool,
 }
 
-/// Error returned when a mutation tries to begin after eviction fencing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MutationAdmissionError;
-
-impl std::fmt::Display for MutationAdmissionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("daemon mutation admission is fenced for idle eviction")
-    }
-}
-
-impl std::error::Error for MutationAdmissionError {}
-
 /// Error returned when the existing mutation set does not drain in time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MutationDrainTimeout;
@@ -46,10 +34,8 @@ impl std::error::Error for MutationDrainTimeout {}
 
 /// Admission fence shared by mutating handlers and an idle sweep.
 ///
-/// The double check in [`MutationDrainFence::begin_mutation`] closes the race
-/// in which a mutation observes an open gate immediately before the sweep
-/// fences it.  The permit is RAII-based, so a handler that returns through an
-/// error path still releases its count.
+/// The sweep fences the gate, then waits for the admitted mutation count to
+/// reach zero before it rechecks and evicts.
 #[derive(Debug, Clone, Default)]
 pub struct MutationDrainFence {
     state: Arc<(Mutex<DrainState>, Condvar)>,
@@ -58,24 +44,6 @@ pub struct MutationDrainFence {
 impl MutationDrainFence {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    pub fn begin_mutation(&self) -> Result<MutationPermit, MutationAdmissionError> {
-        let (lock, _) = &*self.state;
-        let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if state.fenced {
-            return Err(MutationAdmissionError);
-        }
-        state.active_mutations += 1;
-        // A sweep may fence between the first check and increment.  Re-check
-        // while holding the same mutex used by the sweeper.
-        if state.fenced {
-            state.active_mutations -= 1;
-            return Err(MutationAdmissionError);
-        }
-        Ok(MutationPermit {
-            state: Arc::clone(&self.state),
-        })
     }
 
     /// Fence new mutations and wait for admitted mutations to finish.
@@ -124,22 +92,6 @@ impl MutationDrainFence {
     }
 }
 
-/// Permit held for the duration of one daemon mutation.
-pub struct MutationPermit {
-    state: Arc<(Mutex<DrainState>, Condvar)>,
-}
-
-impl Drop for MutationPermit {
-    fn drop(&mut self) {
-        let (lock, condition) = &*self.state;
-        let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        state.active_mutations = state.active_mutations.saturating_sub(1);
-        if state.active_mutations == 0 {
-            condition.notify_all();
-        }
-    }
-}
-
 /// Guard held while the caller performs the final whole-tree recheck and
 /// eviction. Dropping it reopens mutation admission even on an error path.
 pub struct MutationDrainGuard {
@@ -153,6 +105,14 @@ impl Drop for MutationDrainGuard {
         state.fenced = false;
         condition.notify_all();
     }
+}
+
+/// The mutation fence an idle sweep raises before it evicts, and how long it waits for admitted
+/// mutations to drain.
+#[derive(Debug, Clone, Copy)]
+pub struct EvictionDrain<'a> {
+    pub fence: &'a MutationDrainFence,
+    pub timeout: Duration,
 }
 
 /// Counts and failure visibility for one idle sweep.
@@ -174,13 +134,11 @@ pub struct IdleEvictionSweepReport {
 /// it receives the same policy and timestamp so descendants can be checked
 /// with [`super::residency::can_passivate_session`]. `evict_worker` must stop
 /// the complete worker tree, not only its root session.
-#[allow(clippy::too_many_arguments)]
 pub fn run_idle_eviction_sweep<W, Workers, Refresh, Passivate, Evict>(
     workers: Workers,
     policy: IdleEvictionMinutes,
     now_ms: u128,
-    drain: &MutationDrainFence,
-    drain_timeout: Duration,
+    drain: EvictionDrain<'_>,
     mut refresh: Refresh,
     mut passivate_children: Passivate,
     mut evict_worker: Evict,
@@ -192,6 +150,10 @@ where
     Passivate: FnMut(&W, &WorkerResidencySnapshot, IdleEvictionMinutes, u128) -> Result<(), String>,
     Evict: FnMut(&W) -> Result<(), String>,
 {
+    let EvictionDrain {
+        fence: drain,
+        timeout: drain_timeout,
+    } = drain;
     let mut report = IdleEvictionSweepReport::default();
     let mut refreshed: Vec<(W, WorkerResidencySnapshot)> = Vec::new();
     for worker in workers {
@@ -247,6 +209,68 @@ where
     report
 }
 
+/// Worker-id prefix for the claims [`claim_idle_root_sessions`] makes.
+const IDLE_ROOT_WORKER_PREFIX: &str = "idle-root:";
+
+/// Make idle root sessions eviction candidates for the next sweep.
+///
+/// The sweep only evaluates supervisor workers, and plain sessions are never
+/// claimed by one, so without this pass they stay resident for the daemon's
+/// lifetime. A root session is claimed while it has no active turn, no human
+/// (SSE/TUI) subscriber (an open TUI/desktop view holds one) and no attached
+/// client, and the claim is released as soon as any of those stops being true.
+///
+/// Only human subscribers count: internal subscriptions (the session's
+/// projection task, the scheduler) are permanent receivers on the conduit, so
+/// `subscriber_count()` is never zero for a live session.
+///
+/// Known race: a subscriber arriving between this pass and the sweep in the
+/// same tick is not re-checked under the mutation fence; the next tick
+/// releases the claim.
+pub(crate) fn claim_idle_root_sessions(state: &crate::api::DaemonState) {
+    // Root sessions in memory with a turn/subscriber-idle flag; the sessions
+    // lock is dropped before the supervisor is touched.
+    let roots: Vec<(String, bool)> = {
+        let sessions = crate::api::lock_recover(&state.sessions, "sessions");
+        sessions
+            .iter()
+            .filter(|(_, session)| session.parent_session_id.is_none())
+            .map(|(id, session)| {
+                let idle = !session.live_turn_handle.is_active()
+                    && session.conduit.human_subscriber_count() == 0;
+                (id.clone(), idle)
+            })
+            .collect()
+    };
+    let idle_roots: std::collections::HashMap<String, bool> = roots
+        .into_iter()
+        .map(|(id, idle)| {
+            let idle = idle && crate::api_clients::supervisor_attached_client_count(&id) == 0;
+            (id, idle)
+        })
+        .collect();
+
+    let owners = crate::api_clients::supervisor_worker_owners();
+    for owner in &owners {
+        if owner.worker_id.0.starts_with(IDLE_ROOT_WORKER_PREFIX)
+            && !idle_roots
+                .get(owner.session_id.0.as_str())
+                .copied()
+                .unwrap_or(false)
+        {
+            crate::api_clients::supervisor_release_worker(&owner.worker_id.0);
+        }
+    }
+    for (id, idle) in &idle_roots {
+        if *idle && !owners.iter().any(|owner| &owner.session_id.0 == id) {
+            crate::api_clients::supervisor_claim_worker(
+                &format!("{IDLE_ROOT_WORKER_PREFIX}{id}"),
+                id,
+            );
+        }
+    }
+}
+
 /// A repeating, unref-equivalent idle sweep timer.
 ///
 /// Tokio tasks do not keep the process alive after the runtime begins
@@ -281,11 +305,6 @@ impl IdleEvictionLoop {
             cancel: Some(cancel),
             task,
         }
-    }
-
-    pub fn stop(mut self) {
-        self.cancel.take();
-        self.task.abort();
     }
 }
 

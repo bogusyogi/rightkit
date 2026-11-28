@@ -16,10 +16,6 @@ impl DaemonState {
                 rightkit_memory_client::membrane::OFF_REASON,
             ),
         );
-        let memory_provenance =
-            rightkit_memory_client::memory_provenance::MemoryProvenanceStore::from_backend(
-                memory_backend.clone(),
-            );
         let instincts = crate::store_write::load_instincts(&default_instincts_store_path());
         let driver_host = match rightkit_agent_coding_tools::process_resource_authority::process_resource_governor() {
             Some(governor) => crate::driver_host_runtime::DriverHostRuntime::new().with_process_launch(
@@ -46,7 +42,6 @@ impl DaemonState {
             .expect("built-in CLI registry must register atomically");
         let cli_registry_provider_ids = cli_registry.provider_ids().into_iter().collect();
         Self {
-            context_mode: crate::cli::ContextMode::Membrane,
             context_degraded: None,
             external_observations: Arc::new(Mutex::new(
                 crate::daemon::external_observations::ExternalObservationLoop::new(),
@@ -59,7 +54,9 @@ impl DaemonState {
             mcp_pool: Arc::new(rightkit_mcp::agent_mcp::McpTransportPool::default()),
             driver_host,
             cli_registry,
-            inference_scheduler: crate::inference_runtime::InferenceScheduler::new(4),
+            inference_scheduler: crate::inference_runtime::InferenceScheduler::new(
+                crate::inference_runtime::default_active_stream_limit(),
+            ),
             cli_executor: None,
             cli_bridge: None,
             qualification_bindings: Arc::new(std::sync::RwLock::new(HashSet::new())),
@@ -92,6 +89,7 @@ impl DaemonState {
             engine_cfg: None,
             licensed_features: Arc::new(Mutex::new(initial_license_features())),
             license_gate: None,
+            license_enforced: crate::host_options::license_enforced(),
             agent_registry: Arc::new(AgentRegistry::with_builtins()),
             settings: Arc::new(Mutex::new(DaemonSettingsStore::default())),
             bound_port: 0,
@@ -105,12 +103,12 @@ impl DaemonState {
             membrane: Arc::new(rightkit_memory_client::membrane::Unavailable),
             transcript_exporter: None,
             mutation_diagnostics: None,
-            memory_provenance,
             instincts: Arc::new(Mutex::new(instincts)),
             audit: crate::audit::AuditLog::new(),
             observations: crate::observation::ObservationStore::new(),
             rollouts: crate::rollout_store::RolloutStore::new(),
             storage: None,
+            storage_open_failure: None,
             cli_recovery_live_generations: Arc::new(
                 crate::cli_recovery_runtime::LiveGenerationTable::new(),
             ),
@@ -140,7 +138,6 @@ impl DaemonState {
             denial_tracker: Arc::new(Mutex::new(rightkit_agent_policy::DenialTracker::new())),
             workspace_trust_store: Arc::new(Mutex::new(workspace_trust_store)),
             workspace_trust_store_path,
-            journal_dir: crate::journal::ExecutionJournal::journals_dir(),
             runtime_middleware: Arc::new(Mutex::new(
                 rightkit_agent_engine_runtime_middleware::RuntimeMiddlewareRegistry::default(),
             )),
@@ -152,9 +149,7 @@ impl DaemonState {
             },
             specs: Arc::new(Mutex::new(rightkit_evidence::SpecStore::new())),
             spec_store_path: None,
-            execution_backends: Arc::new(Mutex::new(
-                rightkit_sandbox::execution::ExecutionBackendRegistry::default(),
-            )),
+            execution_backends: Arc::new(Mutex::new(default_execution_registry())),
             recipes: Arc::new(Mutex::new(RecipeStore::new())),
             recipe_store_path: None,
             presence: Arc::new(rightkit_daemon::loopback::Presence::new(
@@ -174,21 +169,6 @@ impl DaemonState {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn with_license_features<I, S>(self, features: I) -> Self
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<str>,
-    {
-        let normalized = features
-            .into_iter()
-            .map(|feature| feature.as_ref().trim().to_ascii_lowercase())
-            .filter(|feature| !feature.is_empty())
-            .collect::<HashSet<_>>();
-        *lock_recover(&self.licensed_features, "licensed_features") = normalized;
-        self
-    }
-
     /// Attach the daemon's licence gate. From then on Pro features come only from the verified
     /// licence record, read live; the fixed set is ignored.
     pub fn with_license_gate(mut self, gate: Arc<crate::license::LicenseGate>) -> Self {
@@ -205,6 +185,9 @@ impl DaemonState {
     }
 
     pub fn has_license_feature(&self, feature: &str) -> bool {
+        if !self.license_enforced {
+            return true;
+        }
         let feature = feature.trim().to_ascii_lowercase();
         match &self.license_gate {
             Some(gate) => gate.has_feature(&feature),
@@ -214,14 +197,12 @@ impl DaemonState {
 
     pub(crate) fn dispatch_classifier(&self) -> Option<Arc<dyn DispatchClassifier>> {
         let cfg = self.engine_cfg.clone()?;
-        let client = rightkit_llm::agent_providers::OpenAiCompatClient::new(
-            &cfg.api_key,
-            &cfg.model_id,
-            &cfg.base_url,
-        );
+        // The dynamic client takes the checked path every turn uses (egress pin, native sign-in,
+        // the Messages protocol on `api.anthropic.com`).
+        let route = Arc::new(Mutex::new(crate::provider_client::projection_route(&cfg)));
         let llm: Arc<dyn rightkit_agent_engine_core::llm::LlmClient> =
-            Arc::new(crate::provider_client::ProviderLlmClient::new(
-                client,
+            Arc::new(crate::provider_client::ProviderLlmClient::new_dynamic(
+                route,
                 Arc::new(rightkit_agent_coding_tools::ToolRegistry::new()),
             ));
         Some(Arc::new(LlmDispatchClassifier { llm }))
@@ -254,52 +235,6 @@ impl DaemonState {
         self
     }
 
-    #[allow(dead_code)]
-    pub fn with_team_store_path(mut self, path: impl Into<PathBuf>) -> Self {
-        let path = path.into();
-        let teams = load_team_store(&path);
-        self.team_store_path = path;
-        self.live_teams = Arc::new(Mutex::new(teams));
-        self
-    }
-
-    #[allow(dead_code)]
-    pub fn with_message_store_path(mut self, path: impl Into<PathBuf>) -> Self {
-        let path = path.into();
-        let history = load_message_history_store(&path);
-        self.message_store_path = path;
-        self.message_history = Arc::new(Mutex::new(history));
-        self
-    }
-
-    #[allow(dead_code)]
-    pub fn with_permission_rule_store_path(mut self, path: impl Into<PathBuf>) -> Self {
-        let path = path.into();
-        let store = load_permission_rule_store(&path);
-        self.permission_rule_store_path = path;
-        self.permission_rule_store = Arc::new(Mutex::new(store));
-        self
-    }
-
-    #[allow(dead_code)]
-    pub fn with_permission_denial_store_path(mut self, path: impl Into<PathBuf>) -> Self {
-        let path = path.into();
-        let denials = load_permission_denial_store(&path);
-        self.permission_denial_store_path = path;
-        self.permission_denials = Arc::new(Mutex::new(denials));
-        self
-    }
-
-    #[allow(dead_code)]
-    pub fn with_workspace_trust_store_path(mut self, path: impl Into<PathBuf>) -> Self {
-        let path = path.into();
-        let store = load_workspace_trust_store(&path);
-        self.workspace_trust_store_path = path;
-        self.workspace_trust_store = Arc::new(Mutex::new(store));
-        self
-    }
-
-    #[allow(dead_code)]
     pub fn with_recipe_store_path(mut self, path: impl Into<PathBuf>) -> Self {
         let path = path.into();
         let recipes = load_recipe_store(&path);
@@ -308,7 +243,6 @@ impl DaemonState {
         self
     }
 
-    #[allow(dead_code)]
     pub fn with_skillopt_store_path(mut self, path: impl Into<PathBuf>) -> Self {
         let path = path.into();
         let runs = crate::api_runtime::load_skillopt_store(&path);
@@ -317,18 +251,11 @@ impl DaemonState {
         self
     }
 
-    #[allow(dead_code)]
     pub fn with_spec_store_path(mut self, path: impl Into<PathBuf>) -> Self {
         let path = path.into();
         let specs = crate::api_specs::load_spec_store(&path);
         self.spec_store_path = Some(path);
         self.specs = Arc::new(Mutex::new(specs));
-        self
-    }
-
-    #[allow(dead_code)]
-    pub fn with_journal_dir(mut self, path: impl Into<PathBuf>) -> Self {
-        self.journal_dir = Some(path.into());
         self
     }
 
@@ -350,16 +277,26 @@ impl DaemonState {
             delivered_session_ids,
             error,
         };
-        let snapshot = {
-            let mut history = lock_recover(&self.message_history, "message_history");
-            history.push(row);
-            if history.len() > 500 {
-                let keep_from = history.len().saturating_sub(500);
-                history.drain(0..keep_from);
+        // Several processes share this file: the row is appended to the list on disk under the
+        // cross-process lock (never this process's list written whole), and the list as written
+        // becomes the held one.
+        match append_message_history_row(
+            &self.message_store_path,
+            &self.message_history,
+            row.clone(),
+        ) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                // Not written: this process still lists the message, as before.
+                let mut history = lock_recover(&self.message_history, "message_history");
+                history.push(row);
+                if history.len() > 500 {
+                    let keep_from = history.len().saturating_sub(500);
+                    history.drain(0..keep_from);
+                }
+                Err(error)
             }
-            history.clone()
-        };
-        write_message_history_store(&self.message_store_path, &snapshot)
+        }
     }
 
     pub(crate) fn seed_persistent_permission_rules(
@@ -367,12 +304,18 @@ impl DaemonState {
         rules: &mut rightkit_agent_policy::RuleStore,
         workspace_root: &str,
     ) {
+        // Another process of the host may have added a rule (a deny) since this one read the file:
+        // a session started now gets the rules as they are on disk. One `stat` when unchanged.
+        crate::api_stores::refresh_permission_rule_store(
+            &self.permission_rule_store_path,
+            &self.permission_rule_store,
+        );
         let store = lock_recover(&self.permission_rule_store, "permission_rule_store").clone();
-        let empty = Vec::new();
-        let project_rules = store.projects.get(workspace_root).unwrap_or(&empty);
+        // Matched by normalised workspace key (trailing separators, case, links), not raw text.
+        let project_rules = crate::api_permissions::project_rules_for(&store, workspace_root);
         for (source, persisted) in [
             (rightkit_agent_policy::RuleSource::User, &store.user),
-            (rightkit_agent_policy::RuleSource::Project, project_rules),
+            (rightkit_agent_policy::RuleSource::Project, &project_rules),
         ] {
             let parsed: Option<Vec<rightkit_agent_policy::Rule>> = persisted
                 .iter()
@@ -410,11 +353,9 @@ impl DaemonState {
         &self,
         workspace_root: &str,
     ) -> rightkit_agent_policy::WorkspaceTrust {
-        let key = workspace_trust_key(workspace_root);
         let store = lock_recover(&self.workspace_trust_store, "workspace_trust_store");
-        store
-            .projects
-            .get(&key)
+        // Rule 60: the nearest recorded ancestor decides.
+        rightkit_agent_config::nearest_trust_record(workspace_root, |key| store.projects.get(key))
             .and_then(|record| parse_workspace_trust_label(&record.trust))
             .unwrap_or(rightkit_agent_policy::WorkspaceTrust::Untrusted)
     }
@@ -471,26 +412,6 @@ impl StoredCliLaunchContexts {
             contexts.remove(binding_id);
         }
     }
-
-    pub(crate) fn gateway_credentials(&self, binding_id: &str) -> Option<(String, String)> {
-        let contexts = self.contexts.read().ok()?;
-        let context = &contexts.get(binding_id)?.context;
-        let capability = context
-            .mcp_server
-            .env
-            .iter()
-            .find(|(name, _)| name == "RIGHTKIT_GATEWAY_TOKEN")?
-            .1
-            .clone();
-        let instance = context
-            .mcp_server
-            .env
-            .iter()
-            .find(|(name, _)| name == "RIGHTKIT_DRIVER_INSTANCE_SECRET")?
-            .1
-            .clone();
-        Some((capability, instance))
-    }
 }
 
 impl rightkit_agents::driver_host::cli_runtime::CliExecutorLaunchContextProvider
@@ -531,6 +452,28 @@ impl rightkit_agents::driver_host::cli_runtime::CliExecutorLaunchContextProvider
                     "launch context does not belong to requested session and agent",
                 ),
             );
+        }
+        if provider_id.as_str() == "claude" {
+            // Claude keeps no stored profile row: its sign-in is the person's own Claude Code
+            // folder, picked per chat, and the engine built this context from that account when
+            // it opened the runtime (`apply_claude_account`). Two chats can run on two folders
+            // under the one profile id, so there is no single stored home to compare with.
+            let profile = &scoped.context.profile;
+            if profile.id.as_str() != profile_id.as_str()
+                || profile.provider_id.as_str() != provider_id.as_str()
+                || !profile.signed_in
+                || profile.auth_mode
+                    != rightkit_agents::driver_host::cli_runtime::CliAuthMode::NativeCliAccount
+                || !profile.managed_home.is_dir()
+            {
+                return Err(
+                    rightkit_agents::driver_host::cli_runtime::AgentRuntimeError::new(
+                        "profile_not_eligible",
+                        "the chat's Claude account holds no sign-in",
+                    ),
+                );
+            }
+            return Ok(scoped.context);
         }
         let store = self.storage.try_lock().map_err(|_| {
             rightkit_agents::driver_host::cli_runtime::AgentRuntimeError::new(
@@ -577,4 +520,20 @@ impl rightkit_agents::driver_host::cli_runtime::CliExecutorLaunchContextProvider
         }
         Ok(scoped.context)
     }
+}
+
+/// The default execution registry. rightkit-sandbox's local backend names its workspace root
+/// `<default state folder>/workspaces/{workspaceId}`; the host's on-disk execution workspaces live
+/// under its own state folder, so the root is set here to that folder's name.
+fn default_execution_registry() -> rightkit_sandbox::execution::ExecutionBackendRegistry {
+    let mut registry = rightkit_sandbox::execution::ExecutionBackendRegistry::default();
+    for backend in &mut registry.backends {
+        if backend.id == "local" {
+            backend.workspace_layout.root = format!(
+                "{}/workspaces/{{workspaceId}}",
+                rightkit_agent_config::state_dir_name()
+            );
+        }
+    }
+    registry
 }

@@ -33,13 +33,16 @@ pub(crate) fn reconcile_interrupted_effects(
                 call,
                 ..
             } if sid == session_id => {
-                starts.insert(call.id.clone(), (row.seq, created_at, call));
+                if !settled.contains(&call.id) {
+                    starts.insert(call.id.clone(), (row.seq, created_at, call));
+                }
             }
             ProtocolEvent::ToolResultAdded {
                 session_id: sid,
                 result: TranscriptMessage::Tool { tool_call_id, .. },
                 ..
             } if sid == session_id => {
+                starts.remove(&tool_call_id);
                 settled.insert(tool_call_id);
             }
             _ => {}
@@ -151,7 +154,7 @@ fn builders_from_events(
                 proposed_change,
                 policy_source,
                 middleware_decisions,
-                ..
+                effects,
             } => {
                 let builder = out
                     .entry(call.id.clone())
@@ -171,6 +174,7 @@ fn builders_from_events(
                         "proposedChange": proposed_change,
                         "policySource": policy_source,
                         "middlewareDecisions": middleware_decisions,
+                        "effects": effects,
                     }),
                 ));
             }
@@ -189,21 +193,42 @@ fn builders_from_events(
                         "denied".to_string()
                     };
                     builder.approval_id = Some(tool_call_id.clone());
-                    let mut payload = serde_json::json!({
-                        "toolCallId": tool_call_id,
-                        "approved": approved,
-                    });
-                    // Same shape as the wire: `reason` is present only on a denial that carries one.
-                    if let Some(reason) = reason {
-                        payload["reason"] = serde_json::json!(reason);
-                    }
                     builder.events.push(invocation_event_row(
                         &session_id,
                         &tool_call_id,
                         seq,
                         "toolApprovalResolved",
                         &created_at,
-                        payload,
+                        serde_json::json!({
+                            "toolCallId": tool_call_id,
+                            "approved": approved,
+                            "reason": reason,
+                        }),
+                    ));
+                }
+            }
+            ProtocolEvent::ToolPolicyEvent {
+                session_id,
+                seq,
+                created_at,
+                tool_call_id,
+                policy_source,
+                kind,
+                cause,
+            } => {
+                if let Some(builder) = out.get_mut(&tool_call_id) {
+                    builder.events.push(invocation_event_row(
+                        &session_id,
+                        &tool_call_id,
+                        seq,
+                        "toolPolicyEvent",
+                        &created_at,
+                        serde_json::json!({
+                            "toolCallId": tool_call_id,
+                            "policySource": policy_source,
+                            "kind": kind,
+                            "cause": cause,
+                        }),
                     ));
                 }
             }

@@ -9,7 +9,7 @@
 
 use super::ApiEndpoint;
 
-pub(super) const ENDPOINT_GROUP_11_RUN_CHANGES: [ApiEndpoint; 7] = [
+pub(super) const ENDPOINT_GROUP_11_RUN_CHANGES: [ApiEndpoint; 9] = [
     ApiEndpoint {
         method: "POST",
         path: "/run-changes/capture",
@@ -29,6 +29,16 @@ pub(super) const ENDPOINT_GROUP_11_RUN_CHANGES: [ApiEndpoint; 7] = [
         method: "POST",
         path: "/run-changes/undo",
         summary: "Replay the captured inverse op against the live workspace; rejects if the observed fingerprint no longer matches the live file",
+    },
+    ApiEndpoint {
+        method: "POST",
+        path: "/run-changes/proposal",
+        summary: "Keep or discard a change a sub-agent proposed to this chat",
+    },
+    ApiEndpoint {
+        method: "POST",
+        path: "/run-changes/hunk",
+        summary: "Keep or undo one hunk of a file change (a held sub-agent change keeps it into the project; an applied change undoes it in the working file)",
     },
     ApiEndpoint {
         method: "POST",

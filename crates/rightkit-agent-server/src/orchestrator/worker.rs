@@ -5,11 +5,24 @@ const CONDUCTOR_RUNTIME_MODEL_IDS: [&str; 3] =
 // context — make this context-relative if the catalog ever outgrows it.
 const CATALOG_BUDGET_CHARS: usize = 4000;
 
+/// Precedence: the model the session was explicitly created with (any id) >
+/// a live session model the conductor runtime supports > the configured
+/// conductor descriptor model (`[orchestration.agents.conductor]` or role
+/// default) > the engine default. A non-explicit live model is only the
+/// workspace chat default, so it is trusted only when listed in
+/// `CONDUCTOR_RUNTIME_MODEL_IDS`.
 fn resolve_conductor_runtime_model(
+    explicit_session_model: Option<&str>,
     live_session_model: &str,
     configured_conductor_model: &str,
     engine_default_model: Option<&str>,
 ) -> String {
+    if let Some(explicit) = explicit_session_model
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+    {
+        return explicit.to_string();
+    }
     let live_session_model = live_session_model.trim();
     if CONDUCTOR_RUNTIME_MODEL_IDS.contains(&live_session_model) {
         return live_session_model.to_string();
@@ -21,6 +34,21 @@ fn resolve_conductor_runtime_model(
     }
 
     engine_default_model.unwrap_or_default().trim().to_string()
+}
+
+/// Add one attempt's typed-mutation count to the run's per-task evidence map
+/// that `finalize_goal` reads. Retries of one task accumulate; an attempt with
+/// no mutations still creates the entry so the task is itemized.
+fn record_task_typed_evidence(
+    evidence: &std::sync::Mutex<std::collections::HashMap<String, u32>>,
+    task_id: &str,
+    typed_mutations: u32,
+) {
+    let mut map = evidence
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let entry = map.entry(task_id.to_string()).or_insert(0);
+    *entry = entry.saturating_add(typed_mutations);
 }
 
 /// A [`Worker`] that executes a task by spawning a real `SessionEngine` agent.
@@ -37,16 +65,35 @@ pub struct SpawnWorker {
 impl Worker for SpawnWorker {
     async fn run(&self, task: &WorkerTask) -> WorkerResult {
         let failure_kind_slot = crate::daemon_state::SubagentFailureKindSlot::default();
+        // Allocate the child id up front so this task's typed mutations can be
+        // read off the child session afterwards (audit 2026-11-05
+        // orchestration H2: nothing wrote `task_typed_evidence`).
+        let child_session_id = crate::daemon_state::next_subagent_id();
+        let options = rightkit_agent_coding_tools::SubagentSpawnOptions {
+            child_session_id: Some(child_session_id.clone()),
+            ..Default::default()
+        };
         let outcome = self
             .state
             .spawn_with_failure_kind(
                 &task.agent,
                 &task.payload,
                 &self.parent_session_id,
-                rightkit_agent_coding_tools::SubagentSpawnOptions::default(),
+                options,
                 failure_kind_slot.clone(),
             )
             .await;
+        // Work a failed attempt already landed is still workspace evidence, so
+        // record on both outcomes.
+        if let (Some(parent), Some(child)) = (
+            self.state.get_session(&self.parent_session_id),
+            self.state.get_session(&child_session_id),
+        ) {
+            let count = child
+                .typed_mutations
+                .load(std::sync::atomic::Ordering::Relaxed);
+            record_task_typed_evidence(&parent.task_typed_evidence, &task.task_id, count);
+        }
         let typed_failure_kind: Option<String> = failure_kind_slot
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -107,7 +154,7 @@ impl Worker for SpawnWorker {
 
 /// Which bucket a sub-agent spawn error falls into: a resource ceiling that
 /// merely cut the work off (rate limit, wall-clock, context/budget), or a
-/// genuine unrecovered API/provider error. Reuses `rightkit_agent_engine_core`'s
+/// genuine unrecovered API/provider error. Reuses the engine core's
 /// `classify_failure` keyword vocabulary — the same one `RunFailed.kind`
 /// already surfaces — so this is one taxonomy, not two.
 pub(crate) enum SubagentErrorKind {
@@ -226,5 +273,44 @@ fn action_label(line: &str) -> Option<String> {
         Some("verify".to_string())
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod task_typed_evidence_tests {
+    //! Audit 2026-11-05 orchestration H2: the per-task evidence map that
+    //! `finalize_goal` itemizes on must actually be written.
+    use super::record_task_typed_evidence;
+    use rightkit_agent_orchestration::coding::unbacked_work_gate::TaskEvidence;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    #[test]
+    fn records_and_accumulates_per_task() {
+        let map = Mutex::new(HashMap::new());
+        record_task_typed_evidence(&map, "t1", 2);
+        record_task_typed_evidence(&map, "t1", 1);
+        record_task_typed_evidence(&map, "t2", 0);
+        let map = map.into_inner().unwrap();
+        assert_eq!(map.get("t1"), Some(&3));
+        assert_eq!(map.get("t2"), Some(&0), "a zero attempt is still itemized");
+    }
+
+    #[test]
+    fn recorded_writer_task_counts_as_backed_evidence() {
+        let map = Mutex::new(HashMap::new());
+        record_task_typed_evidence(&map, "t1", 1);
+        let typed = *map.lock().unwrap().get("t1").unwrap();
+        // Same construction `finalize_goal` uses for a jury-accepted claim.
+        let evidence = TaskEvidence::new("t1", typed, true);
+        assert!(evidence.is_backed());
+    }
+
+    #[test]
+    fn saturates_instead_of_overflowing() {
+        let map = Mutex::new(HashMap::new());
+        record_task_typed_evidence(&map, "t1", u32::MAX);
+        record_task_typed_evidence(&map, "t1", 5);
+        assert_eq!(map.lock().unwrap().get("t1"), Some(&u32::MAX));
     }
 }

@@ -25,15 +25,19 @@ impl DaemonState {
             self.spawn_with_timeout("auditor", &jp_auditor, session_id, gate_timeout),
         );
         let mut verdicts: Vec<JurorVerdict> = Vec::new();
+        let mut missing_jurors: Vec<String> = Vec::new();
         for (jr, result) in ["challenger", "auditor"].iter().zip([r0, r1]) {
-            if let Ok(t) = result {
-                let (approve, confidence) = parse_verdict(&t);
-                verdicts.push(JurorVerdict {
-                    juror: jr.to_string(),
-                    approve,
-                    confidence,
-                    reasoning: t,
-                });
+            match result {
+                Ok(t) => {
+                    let (approve, confidence) = parse_verdict(&t);
+                    verdicts.push(JurorVerdict {
+                        juror: jr.to_string(),
+                        approve,
+                        confidence,
+                        reasoning: t,
+                    });
+                }
+                Err(reason) => missing_jurors.push(juror_no_verdict_line(jr, &reason)),
             }
         }
         // Fail-safe: no juror responded → do not block the build on infra failure.
@@ -68,14 +72,18 @@ impl DaemonState {
         let approved = matches!(decision, JuryDecision::Approved { .. });
         let approve_count = verdicts.iter().filter(|v| v.approve).count();
         if let Some(session) = self.get_session(session_id) {
-            let summary = format!(
+            let mut summary = format!(
                 "plan-jury {approve_count}/{} approve, decision {decision:?}",
                 verdicts.len()
             );
+            for line in &missing_jurors {
+                summary.push('\n');
+                summary.push_str(line);
+            }
             push_artifact(
                 &session,
                 ProtocolArtifact {
-                    id: format!("art-{}", now_millis()),
+                    id: crate::daemon_state::next_artifact_id(),
                     path: String::new(),
                     kind: "plan_jury".into(),
                     content_hash: content_hash(plan_text),

@@ -42,7 +42,7 @@ fn delivery_file_path(
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| {
-            root.join(crate::host_identity::home_dir())
+            root.join(rightkit_agent_config::state_dir_name())
                 .join("schedule-deliveries")
                 .join(format!(
                     "{}-{}.txt",
@@ -64,7 +64,7 @@ fn delivery_file_path(
 }
 
 fn remote_deliveries_path(root: &Path) -> PathBuf {
-    root.join(crate::host_identity::home_dir())
+    root.join(rightkit_agent_config::state_dir_name())
         .join("remote-deliveries.json")
 }
 

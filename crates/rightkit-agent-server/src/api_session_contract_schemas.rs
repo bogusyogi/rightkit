@@ -167,3 +167,7 @@ pub(crate) fn task_nodes_response_schema() -> Value {
 pub(crate) fn instruction_status_response_schema() -> Value {
     json!({"$ref": "#/components/schemas/InstructionStatus"})
 }
+
+pub(crate) fn session_pending_response_schema() -> Value {
+    json!({"$ref": "#/components/schemas/SessionPendingResponse"})
+}

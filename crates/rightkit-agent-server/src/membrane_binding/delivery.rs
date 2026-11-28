@@ -3,7 +3,6 @@
 //! These are wire shapes only.  Selection of representations and all packet
 //! planning semantics remain in Membrane.
 
-use super::unavailable::UnavailableStateV1;
 use rightkit_agent_telemetry::{
     ContextObservationCoverage as ObservationCoverage, RemainingContextCeilingV1,
 };
@@ -318,15 +317,6 @@ impl AuthenticatedH8PlanDeliveryV1 {
             .map(|bytes| digest_bytes(&bytes))
             .unwrap_or_else(|_| "sha256:".to_string())
     }
-}
-
-/// Delivery may be unavailable without turning absence into an empty plan.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[allow(clippy::large_enum_variant)]
-pub enum H8PlanDeliveryV1 {
-    Delivered(AuthenticatedH8PlanDeliveryV1),
-    Unavailable(UnavailableStateV1),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

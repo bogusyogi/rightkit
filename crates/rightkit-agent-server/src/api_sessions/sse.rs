@@ -1,9 +1,9 @@
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{
         sse::{Event, KeepAlive, KeepAliveStream, Sse},
-        IntoResponse, Json, Response,
+        Json,
     },
 };
 use std::convert::Infallible;
@@ -57,20 +57,24 @@ pub(crate) async fn get_events_sse(
     State(state): State<DaemonState>,
     Path(id): Path<String>,
     Query(q): Query<AfterQuery>,
+    headers: HeaderMap,
 ) -> Result<
     Sse<KeepAliveStream<tokio_stream::wrappers::ReceiverStream<Result<Event, Infallible>>>>,
     StatusCode,
 > {
-    // `StatusCode` renders the same empty-body 404 the boxed-away `Response` did.
     let live = state.get_session(&id).ok_or(StatusCode::NOT_FOUND)?;
+    // A negative cursor means "from the start", as `/events/replay` already treats it.
+    // A standard SSE client reconnects with `Last-Event-ID` (the `id:` of the last frame it
+    // read, which is that event's seq) on the URL it first opened; the later cursor wins.
+    let after = clamp_cursor(q.after).max(last_event_id(&headers));
 
     // Subscribe FIRST so any event that arrives between this call and
     // our history replay is captured by the live subscription. Without
     // this ordering an SSE reconnect with a `lastSeq` cursor loses every
     // event the conductor publishes while the history query runs.
-    let mut sub = live.conduit.subscribe();
+    let mut sub = live.conduit.subscribe_human();
     let session_id = live.id.clone();
-    let replay = live.conduit.replay_after(q.after);
+    let replay = live.conduit.replay_after(after);
 
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, Infallible>>(128);
 
@@ -89,8 +93,10 @@ pub(crate) async fn get_events_sse(
             resync @ ConduitReplay::ResyncRequired { .. } => {
                 let event = replay_resync_event(&session_id, &resync)
                     .expect("ResyncRequired replay always produces a resync signal");
-                let data = serde_json::to_string(&event).unwrap_or_default();
-                let _ = tx.send(Ok(Event::default().data(data))).await;
+                if let Some(data) = frame_data(&event) {
+                    // No `id:` on a control signal: its seq is not a cursor.
+                    let _ = tx.send(Ok(Event::default().data(data))).await;
+                }
                 return;
             }
         };
@@ -113,22 +119,39 @@ pub(crate) async fn get_events_sse(
         //     flowed, deriving from `q.after` would force an unnecessarily
         //     old (and, combined with CR-02's filter, duplicate-prone)
         //     catch-up point.
-        let mut last_delivered_seq = q.after;
+        let mut last_delivered_seq = after;
         for event in history {
             let seq = seq_of(&event);
-            let data = serde_json::to_string(&event).unwrap_or_default();
+            // A frame that cannot be serialized ends the stream: the client reconnects from its
+            // cursor. An empty `data:` frame would be applied as an event and lose this one.
+            let Some(data) = frame_data(&event) else {
+                return;
+            };
             if !kind_matches(&data, &q.kind) {
                 last_delivered_seq = last_delivered_seq.max(seq);
                 continue;
             }
-            if tx.send(Ok(Event::default().data(data))).await.is_err() {
+            if tx
+                .send(Ok(Event::default().id(seq.to_string()).data(data)))
+                .await
+                .is_err()
+            {
                 return;
             }
             last_delivered_seq = last_delivered_seq.max(seq);
         }
         // Then stream live events as they arrive.
         loop {
-            let event = match sub.recv().await {
+            // A disconnected client drops `rx`; without watching `tx.closed()`
+            // this task parks in `recv()` until the next publish, keeping its
+            // human-subscriber guard (the session reads as attended and is never
+            // idle-evicted) and its `live` session handle alive. `recv` is
+            // cancel-safe (tokio broadcast).
+            let received = tokio::select! {
+                _ = tx.closed() => return,
+                received = sub.recv() => received,
+            };
+            let event = match received {
                 ConduitReceive::Event(event) => event,
                 // The client's cursor is stale: name the gap with the same
                 // terminal resync signal so it can resync from durable
@@ -163,8 +186,9 @@ pub(crate) async fn get_events_sse(
                             )
                         }
                     };
-                    let data = serde_json::to_string(&event).unwrap_or_default();
-                    let _ = tx.send(Ok(Event::default().data(data))).await;
+                    if let Some(data) = frame_data(&event) {
+                        let _ = tx.send(Ok(Event::default().data(data))).await;
+                    }
                     return;
                 }
                 ConduitReceive::Closed => return,
@@ -179,14 +203,22 @@ pub(crate) async fn get_events_sse(
             if durable && seq <= last_delivered_seq {
                 continue;
             }
-            let data = serde_json::to_string(&event).unwrap_or_default();
+            let Some(data) = frame_data(&event) else {
+                return;
+            };
             if !kind_matches(&data, &q.kind) {
                 if durable {
                     last_delivered_seq = last_delivered_seq.max(seq);
                 }
                 continue;
             }
-            if tx.send(Ok(Event::default().data(data))).await.is_err() {
+            // Only a durable event is a cursor; a live projection carries no `id:`.
+            let frame = if durable {
+                Event::default().id(seq.to_string()).data(data)
+            } else {
+                Event::default().data(data)
+            };
+            if tx.send(Ok(frame)).await.is_err() {
                 return;
             }
             if durable {
@@ -198,6 +230,26 @@ pub(crate) async fn get_events_sse(
     let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
+/// The JSON of one stream frame, or `None` when it cannot be serialized (the caller closes the stream).
+fn frame_data<T: serde::Serialize>(event: &T) -> Option<String> {
+    serde_json::to_string(event).ok()
+}
+
+/// The cursor a reconnecting SSE client names in `Last-Event-ID` (0 when absent or not a number).
+fn last_event_id(headers: &HeaderMap) -> i64 {
+    headers
+        .get("last-event-id")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse::<i64>().ok())
+        .unwrap_or(0)
+        .max(0)
+}
+
+/// A negative `after` is read as 0 (client API R14).
+fn clamp_cursor(after: i64) -> i64 {
+    after.max(0)
+}
+
 /// Rows returned when a scrollback request names no explicit limit.
 ///
 /// Sized to comfortably fill a tall terminal in one round trip without
@@ -313,18 +365,7 @@ pub(crate) async fn get_events_replay_page(
         ));
     }
 
-    let mut events = Vec::with_capacity(page.rows.len());
-    for row in &page.rows {
-        match serde_json::from_str::<ProtocolEvent>(&row.payload_json) {
-            Ok(event) => events.push(event),
-            Err(error) => {
-                return Err(history_catch_up_error(
-                    &id,
-                    format!("stored event payload failed to decode: {error}"),
-                ));
-            }
-        }
-    }
+    let (events, skipped_seqs) = decode_page_rows(&id, &page.rows);
 
     let (ring_contiguous, high_water) = match state.get_session(&id) {
         Some(live) => (
@@ -344,10 +385,91 @@ pub(crate) async fn get_events_replay_page(
         "next": page.next,
         "complete": complete,
         "highWaterMark": high_water,
+        "skippedSeqs": skipped_seqs,
     })))
 }
 
+/// Decode a page of stored rows, skipping (and reporting) any row this build
+/// cannot decode: a newer build's event kind, or the `quarantinedPayload`
+/// marker that replaces a torn row (its bytes are in `events_quarantine`).
+/// Such rows stay in the log on purpose, so failing the page would fail every
+/// page that covers them for good; the resume fold skips the same rows.
+fn decode_page_rows(
+    session_id: &str,
+    rows: &[rightkit_agent_engine_storage::EventRow],
+) -> (Vec<ProtocolEvent>, Vec<i64>) {
+    let mut events = Vec::with_capacity(rows.len());
+    let mut skipped = Vec::new();
+    for row in rows {
+        match serde_json::from_str::<ProtocolEvent>(&row.payload_json) {
+            Ok(event) => events.push(event),
+            Err(error) => {
+                tracing::warn!(session_id, seq = row.seq, %error,
+                    "skipping undecodable durable event in an events page");
+                skipped.push(row.seq);
+            }
+        }
+    }
+    (events, skipped)
+}
+
+/// Events one forward `/events/history` answer carries when the caller names no `limit` (API-11).
+/// A longer tail is reached by repeating the request with `after=` the `x-next-after` response
+/// header, while `x-has-more` says `true`.
+const DEFAULT_HISTORY_PAGE: usize = 1000;
+/// The most a caller can ask for in one `/events/history` answer. A caller that names a `limit`
+/// above the default (the journeys use 2000) still gets it, up to this ceiling.
+const MAX_HISTORY_PAGE: usize = 5000;
+
+/// The route: forward reads (no `before`) are bounded by `limit` (default [`DEFAULT_HISTORY_PAGE`],
+/// ceiling [`MAX_REPLAY_PAGE`]). The body stays the bare array old callers decode; the cursor is in
+/// the headers `x-next-after` (the last returned seq, to pass as `after`) and `x-has-more`.
 pub(crate) async fn get_events_history(
+    State(state): State<DaemonState>,
+    Path(id): Path<String>,
+    Query(q): Query<AfterQuery>,
+) -> Result<(axum::http::HeaderMap, Json<Vec<ProtocolEvent>>), (StatusCode, Json<serde_json::Value>)>
+{
+    let backward = q.before.is_some();
+    let limit = match q.limit {
+        None | Some(0) => DEFAULT_HISTORY_PAGE,
+        Some(n) => n.min(MAX_HISTORY_PAGE),
+    };
+    let after = q.after;
+    let query = AfterQuery {
+        after: q.after,
+        kind: q.kind.clone(),
+        before: q.before,
+        // One row past the page tells whether a tail remains. A kind filter runs after the read,
+        // so it reads everything and the page is cut after filtering.
+        limit: if backward {
+            q.limit
+        } else if q.kind.is_some() {
+            None
+        } else {
+            Some(limit + 1)
+        },
+    };
+    let Json(mut events) = get_events_history_all(State(state), Path(id), Query(query)).await?;
+    let mut headers = axum::http::HeaderMap::new();
+    if !backward {
+        let has_more = events.len() > limit;
+        events.truncate(limit);
+        let next = events.last().map(seq_of).unwrap_or(after);
+        if let Ok(value) = axum::http::HeaderValue::from_str(&next.to_string()) {
+            headers.insert("x-next-after", value);
+        }
+        headers.insert(
+            "x-has-more",
+            axum::http::HeaderValue::from_static(if has_more { "true" } else { "false" }),
+        );
+    }
+    Ok((headers, Json(events)))
+}
+
+/// The same read without the default bound: the in-process callers that must see the whole tail
+/// (`main_runtime_session_host`) use it. An explicit `limit` still applies.
+pub(crate) async fn get_events_history_all(
     State(state): State<DaemonState>,
     Path(id): Path<String>,
     Query(q): Query<AfterQuery>,
@@ -355,6 +477,7 @@ pub(crate) async fn get_events_history(
     // Durable ledger is canonical across daemon restart. A rehydrated live
     // session may exist with an empty conduit, so preferring it here loses
     // history precisely when clients reconnect after a restart.
+    let mut stored_rows = false;
     let stored = if let Some(storage) = state.storage.clone() {
         let id2 = id.clone();
         let before = q.before;
@@ -392,34 +515,22 @@ pub(crate) async fn get_events_history(
         .and_then(|inner| inner);
 
         let rows = query.map_err(|detail| history_catch_up_error(&id, detail))?;
-        let mut decoded = Vec::with_capacity(rows.len());
-        for row in &rows {
-            match serde_json::from_str::<ProtocolEvent>(&row.payload_json) {
-                Ok(event) => decoded.push(event),
-                // A row that fails to decode is a storage-side corruption
-                // fault, not "no event here" — CR-05 requires this to
-                // surface as a terminal continuity error too, rather than
-                // being silently dropped from the page.
-                Err(error) => {
-                    return Err(history_catch_up_error(
-                        &id,
-                        format!("stored event payload failed to decode: {error}"),
-                    ));
-                }
-            }
-        }
-        decoded
+        // The bare-array response has no room for `skippedSeqs`; skipped rows
+        // are logged. A page of only skipped rows still answers from storage,
+        // never from the live conduit.
+        stored_rows = !rows.is_empty();
+        decode_page_rows(&id, &rows).0
     } else {
         Vec::new()
     };
-    let durable_exists = if stored.is_empty() {
+    let durable_exists = if !stored_rows {
         session_has_durable_history(&state, &id)
             .await
             .map_err(|detail| history_catch_up_error(&id, detail))?
     } else {
         true
     };
-    let events = if !stored.is_empty() {
+    let events = if stored_rows {
         stored
     } else if q.before.is_some() && durable_exists {
         // EVT-004: a backward page that came back empty means the client has
