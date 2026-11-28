@@ -10564,15 +10564,17 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ai-accounts"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "rightkit-app-host",
  "rightkit-child-process",
  "rightkit-fs",
+ "rightkit-time",
  "serde",
  "serde_json",
  "sysinfo",
  "thiserror 2.0.21",
+ "zstd",
 ]
 
 [[package]]

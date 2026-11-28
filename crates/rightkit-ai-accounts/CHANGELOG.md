@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5
+
+- Added: `desktop_usage_cache`, the usage responses Claude Desktop caches on Windows (`Cache\Cache_Data`, Chromium's block-file backend): `usage_responses(cache_dir, organizations)` returns each live `GET /api/organizations/<org>/usage` response for those organizations with the date from its own `Date:` header and the body as JSON (zstd decoded, bounded), and `is_account_id`. Read-only through shared handles; no token, cookie or credential is read. Moved from Pulse's `windows/src/desktop.rs` with its hand-written zstd decoder replaced by the `zstd` crate (bogusyogi/pulse#643).
+
 ## 0.1.4
 
 - Fixed: `sync::claude_running_for(root)` counted a Claude Desktop that names no data folder as using every `root`. Such a Desktop runs on the platform default folder (account slots are always started with `--user-data-dir`), so it now counts only when `root` is that default; with no platform default it still counts. With Desktop open on the host, `claude restore` into any other folder refused with `claude_running` (Pulse's `claude_accounts_cli_journey` on the Mac, bogusyogi/pulse#643).
