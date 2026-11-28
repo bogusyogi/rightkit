@@ -1,6 +1,5 @@
 //! Skill manifest loading from TOML frontmatter in markdown files.
 
-#![allow(clippy::empty_line_after_doc_comments)]
 mod github_url;
 mod parser;
 
@@ -13,9 +12,49 @@ use thiserror::Error;
 
 use crate::trigger::{TriggerBinder, TriggerError};
 use parser::{
-    default_skill_priority, extract_frontmatter, parse_gate_mode, parse_inline_list,
-    parse_skill_category, parse_skill_lifecycle, split_yaml, unquote,
+    default_skill_priority, extract_frontmatter, fold_yaml_multiline, parse_gate_mode,
+    parse_inline_list, parse_known_lifecycle, parse_skill_category, parse_skill_lifecycle,
+    split_yaml, unquote,
 };
+
+/// The key under `metadata:` that held this product's fields before the host named itself, still
+/// read by the default host.
+const LEGACY_DEFAULT_METADATA_KEY: &str = "rightkit-agent";
+
+/// Internal section marker while the YAML reader is inside the host's own `metadata:` block.
+const HOST_METADATA_SECTION: &str = "metadata.host";
+
+/// Whether `key`, found under `metadata:` in a skill file, names the host's own section: the
+/// host's slug (`coderight` for a host named `CODERIGHT`), resolved on every call so a host that
+/// names itself at start-up is honoured. The default host (slug `rightkit`) also reads
+/// `rightkit-agent`.
+fn is_host_metadata_key(key: &str) -> bool {
+    let slug = rightkit_agent_config::host_slug();
+    key == slug
+        || (slug.eq_ignore_ascii_case(rightkit_agent_config::DEFAULT_ENV_PREFIX)
+            && key == LEGACY_DEFAULT_METADATA_KEY)
+}
+
+/// Move the host's own `[metadata.<slug>]` table of a native TOML manifest to `metadata.host`,
+/// the field [`SkillPackageMetadata`] deserialises. An explicit `metadata.host` wins.
+fn adopt_host_metadata_key(root: &mut toml::Table) {
+    let Some(toml::Value::Table(metadata)) = root.get_mut("metadata") else {
+        return;
+    };
+    if metadata.contains_key("host") {
+        return;
+    }
+    let Some(key) = metadata
+        .keys()
+        .find(|key| is_host_metadata_key(key))
+        .cloned()
+    else {
+        return;
+    };
+    if let Some(section) = metadata.remove(&key) {
+        metadata.insert("host".to_string(), section);
+    }
+}
 
 /// Errors that can occur while loading or validating a skill manifest.
 #[derive(Debug, Error)]
@@ -34,12 +73,9 @@ pub enum SkillError {
     Install(String),
 }
 
-/// A skill manifest. Parsed from either Anthropic-style YAML frontmatter
-/// (`---` delimited — the `SKILL.md` standard) or the host app's native TOML
-/// frontmatter (`+++` delimited, which adds the trigger DSL).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Runtime effects a skill declares: tool allow/deny lists and execution guidance.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
-#[derive(Default)]
 pub struct SkillEffects {
     /// Guidance execution mode the skill wants the agent to adopt when it
     /// fires, e.g. "review", "test-first", "plan-first", or "careful".
@@ -108,6 +144,9 @@ pub struct HostSkillMetadata {
     pub benchmark_ids: Vec<String>,
 }
 
+/// A skill manifest. Parsed from either Anthropic-style YAML frontmatter
+/// (`---` delimited — the `SKILL.md` standard) or the host's native TOML
+/// frontmatter (`+++` delimited, which adds the trigger DSL).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SkillManifest {
     /// The skill's unique name.
@@ -183,7 +222,7 @@ pub struct SkillManifest {
 
 impl SkillManifest {
     /// Parse a skill from a markdown file, auto-detecting the frontmatter style:
-    /// `---` → Anthropic `SKILL.md` (YAML), `+++` → the host app native (TOML).
+    /// `---` → Anthropic `SKILL.md` (YAML), `+++` → the host's native (TOML).
     pub fn from_markdown(text: &str) -> Result<SkillManifest, SkillError> {
         let trimmed = text.trim_start_matches(['\n', '\r', ' ']);
         if trimmed.starts_with("---") {
@@ -207,6 +246,7 @@ impl SkillManifest {
         let mut trigger = String::new();
         let mut enabled = true; // an authored SKILL.md is active by default
         let mut lifecycle = SkillLifecycle::Active;
+        let mut lifecycle_declared = false;
         let mut version = None;
         let mut author = None;
         let mut compatibility = Vec::new();
@@ -220,7 +260,7 @@ impl SkillManifest {
         let mut path_affinity = Vec::new();
         let mut effects = SkillEffects::default();
         let mut section = String::new();
-        for line in front.lines() {
+        for line in fold_yaml_multiline(front).iter() {
             if line.trim().is_empty() || line.trim_start().starts_with('#') {
                 continue;
             }
@@ -232,14 +272,14 @@ impl SkillManifest {
             let key = k.trim();
             let v = unquote(v.trim());
             if v.is_empty() {
-                if section == "metadata" && key == "rightkit-agent" {
-                    section = "metadata.rightkit".to_string();
+                if section == "metadata" && is_host_metadata_key(key) {
+                    section = HOST_METADATA_SECTION.to_string();
                 } else if indent == 0 {
                     section = key.to_string();
                 }
                 continue;
             }
-            if section == "metadata.rightkit"
+            if section == HOST_METADATA_SECTION
                 && matches!(
                     key,
                     "category"
@@ -273,8 +313,25 @@ impl SkillManifest {
                 "name" => name = Some(v),
                 "description" => description = Some(v),
                 "trigger" => trigger = v,
-                "enabled" => enabled = v != "false",
-                "lifecycle" | "status" => lifecycle = parse_skill_lifecycle(&v),
+                "enabled" => {
+                    enabled = matches!(
+                        v.trim().to_ascii_lowercase().as_str(),
+                        "true" | "yes" | "on" | "1"
+                    )
+                }
+                "lifecycle" => {
+                    lifecycle = parse_skill_lifecycle(&v);
+                    lifecycle_declared = true;
+                }
+                // `status` is an older spelling of `lifecycle`. It never overrides a `lifecycle`
+                // line (governance rewrites that line to quarantine a skill), and a value that is
+                // not a lifecycle name changes nothing.
+                "status" => {
+                    let known = parse_known_lifecycle(&v).filter(|_| !lifecycle_declared);
+                    if let Some(known) = known {
+                        lifecycle = known;
+                    }
+                }
                 "version" => version = Some(v),
                 "author" => author = Some(v),
                 "compatibility" => compatibility = parse_inline_list(&v),
@@ -297,7 +354,9 @@ impl SkillManifest {
                     path_affinity = parse_inline_list(&v)
                 }
                 "execution_mode" | "executionMode" => effects.execution_mode = v,
-                "allowed_tools" | "allowedTools" => effects.allowed_tools = parse_inline_list(&v),
+                "allowed_tools" | "allowedTools" | "allowed-tools" => {
+                    effects.allowed_tools = parse_inline_list(&v)
+                }
                 "disallowed_tools" | "disallowedTools" | "denied_tools" | "deniedTools" => {
                     effects.disallowed_tools = parse_inline_list(&v)
                 }
@@ -337,8 +396,12 @@ impl SkillManifest {
     /// block delimited by `+++` lines. The remaining body is ignored for now.
     pub fn from_frontmatter(text: &str) -> Result<SkillManifest, SkillError> {
         let frontmatter = extract_frontmatter(text)?;
-        let manifest: SkillManifest =
+        let mut table: toml::Table =
             toml::from_str(frontmatter).map_err(|e| SkillError::Toml(e.to_string()))?;
+        adopt_host_metadata_key(&mut table);
+        let manifest: SkillManifest = table
+            .try_into()
+            .map_err(|e| SkillError::Toml(e.to_string()))?;
         Ok(manifest)
     }
 
@@ -392,7 +455,7 @@ pub fn discover_skill_roots(roots: &[(SkillSourceScope, PathBuf)]) -> Vec<Discov
         collect_skill_candidates(&canonical_root, &canonical_root, 0, &mut candidates);
         candidates.sort();
         for path in candidates {
-            let Ok(raw) = std::fs::read_to_string(&path) else {
+            let Some(raw) = read_bounded_skill_source(&path) else {
                 continue;
             };
             let Ok(manifest) = SkillManifest::from_markdown(&raw) else {
@@ -415,6 +478,25 @@ pub fn discover_skill_roots(roots: &[(SkillSourceScope, PathBuf)]) -> Vec<Discov
     by_name.into_values().collect()
 }
 
+/// Read a skill source only when it is a regular file (symlinks are followed; discovery
+/// roots legitimately symlink) no larger than the install-path size limit. FIFOs, devices
+/// and oversized files are treated as unreadable and never loaded whole.
+pub fn read_bounded_skill_source(path: &Path) -> Option<String> {
+    use std::io::Read;
+    let limit = crate::registry_install::MAX_SKILL_SOURCE_BYTES;
+    let meta = std::fs::metadata(path).ok()?;
+    if !meta.is_file() || meta.len() > limit as u64 {
+        return None;
+    }
+    let file = std::fs::File::open(path).ok()?;
+    if !file.metadata().ok()?.is_file() {
+        return None;
+    }
+    let mut raw = String::new();
+    file.take(limit as u64 + 1).read_to_string(&mut raw).ok()?;
+    (raw.len() <= limit).then_some(raw)
+}
+
 fn collect_skill_candidates(
     canonical_root: &Path,
     directory: &Path,
@@ -427,7 +509,10 @@ fn collect_skill_candidates(
     let Ok(entries) = std::fs::read_dir(directory) else {
         return;
     };
-    for entry in entries.flatten() {
+    // Name order, so the candidate cap keeps the same files on every run.
+    let mut entries: Vec<_> = entries.flatten().collect();
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in entries {
         if out.len() >= 256 {
             break;
         }

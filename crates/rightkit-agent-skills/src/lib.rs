@@ -1,4 +1,4 @@
-//! host_skills — skill manifests and the trigger DSL.
+//! rightkit-agent-skills — skill manifests and the trigger DSL.
 //!
 //! Skills carry TOML frontmatter with a `trigger` expression written in a
 //! small boolean DSL. This crate provides a hand-written lexer, recursive
@@ -11,6 +11,7 @@ pub mod manifest;
 pub mod registry_catalog;
 pub mod registry_install;
 pub mod routing;
+pub mod shared_roots;
 pub mod trigger;
 
 pub use commands::{CommandAction, CommandInfo, CommandRegistry, CommandResult, SlashCommand};
@@ -19,6 +20,12 @@ pub use manifest::{
     SkillGateMode, SkillLifecycle, SkillManifest, SkillPackageMetadata,
 };
 pub use routing::PathAffinityRouter;
+pub use shared_roots::{
+    discover_project_skill_candidates, materialize_activated_project_skills,
+    project_shared_skill_dir, project_skill_roots, skill_digest, user_claude_skill_dir,
+    user_shared_skill_dir, ActivationStore, ProjectSkillCandidate, PROJECT_SKILL_DIRS,
+    SHARED_SKILL_DIR,
+};
 pub use trigger::{
     evaluate_trigger, evaluate_with_regex, CmpOp, CompiledTrigger, Expr, TriggerBinder,
     TriggerContext, TriggerError,

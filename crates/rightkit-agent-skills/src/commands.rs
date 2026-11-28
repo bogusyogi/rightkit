@@ -3,7 +3,7 @@
 //! ## P1-1 / CR-24: this module is THE one command authority
 //!
 //! [`COMMAND_SPECS`] below is the single authoritative table for every verb
-//! the host app exposes: canonical name, aliases, scope/effect/mid-turn
+//! the host exposes: canonical name, aliases, scope/effect/mid-turn
 //! metadata, argument schema, help grouping, surface reachability, and —
 //! for every row reachable from the daemon's HTTP slash API — the
 //! executable handler itself (`daemon_handler`). One row owns metadata plus
@@ -11,13 +11,13 @@
 //! table and nothing else.
 //!
 //! Dependency direction is `bins -> crates`, so the table lives HERE (in
-//! `host_skills`) where both consumers can reach it without a cycle:
+//! `rightkit-agent-skills`) where both consumers can reach it without a cycle:
 //!
-//! - the binary's `host-app/src/command_registry.rs` is a thin view:
+//! - the host binary's command registry module is a thin view:
 //!   it re-exports [`COMMAND_SPECS`] as `COMMAND_REGISTRY` and layers
 //!   enforcement helpers (`enforce_mid_turn`, `CommandRouter`) on top. It
 //!   holds no independent command-name table.
-//! - the daemon's HTTP slash surface (`host-app/src/api_commands.rs`)
+//! - the host daemon's HTTP slash surface
 //!   lists and dispatches through this table: aliases are normalized to
 //!   canonical names *before* execution (via [`resolve_query`]), and every
 //!   row with a [`CommandSpec::daemon_handler`] has a live executor, so no
@@ -26,6 +26,7 @@
 mod builtins;
 
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 /// A parsed slash command from user input.
 #[derive(Debug, Clone)]
@@ -79,6 +80,9 @@ pub enum CommandAction {
     ClearChat,
     /// Compact the current context.
     CompactContext,
+    /// Compact the current context steering the summary with the user's own
+    /// text (`/compact <instructions>`). Consumed by the daemon dispatcher.
+    CompactContextWith(String),
     /// Switch to a different session (value is session ID).
     SwitchSession(String),
     /// List all available sessions.
@@ -207,15 +211,52 @@ pub struct CommandSpec {
     pub args: &'static [ArgSpec],
     pub renderer: RendererHint,
     pub help_group: HelpGroup,
-    /// One-line description for help text.
-    pub summary: &'static str,
+    /// One-line description for help text, as a template: `{cli}` and `{app}` stand for the host's
+    /// command-line name and display name. Read it through [`CommandSpec::summary`].
+    pub summary_template: &'static str,
     /// Where this command is reachable: CLI subcommand, interactive slash
     /// command, or both.
     pub surfaces: Surfaces,
-    /// Usage text for listings/help (`/model [model]`, `host app serve`, …).
-    pub usage: &'static str,
+    /// Usage text for listings/help (`/model [model]`, `{cli} serve`, …), as a template with the
+    /// same placeholders as `summary_template`. Read it through [`CommandSpec::usage`].
+    pub usage_template: &'static str,
     /// The daemon slash-API executor for this row, if it has one.
     pub daemon_handler: Option<DaemonHandler>,
+}
+
+impl CommandSpec {
+    /// The one-line description with the host's names filled in: `{cli}` becomes the host's
+    /// command-line name ([`rightkit_agent_config::host_slug`]) and `{app}` its display name
+    /// ([`rightkit_agent_config::app_name`]). Resolved on every call, so a host that names itself at
+    /// start-up is honoured whenever it is read.
+    pub fn summary(&self) -> Cow<'static, str> {
+        render_template(self.summary_template)
+    }
+
+    /// The usage text with the host's names filled in, resolved like [`CommandSpec::summary`].
+    pub fn usage(&self) -> Cow<'static, str> {
+        render_template(self.usage_template)
+    }
+}
+
+/// Fill the host's names into `template`: `{cli}` becomes the host's command-line name
+/// ([`rightkit_agent_config::host_slug`]), `{app}` its display name
+/// ([`rightkit_agent_config::app_name`]) and `{state_dir}` its workspace state folder
+/// ([`rightkit_agent_config::state_dir_name`]). Any other brace text is left as written. Read at
+/// each call, never cached, so the result follows a host that names itself after start-up begins.
+pub fn render_host_names(template: &str) -> String {
+    template
+        .replace("{cli}", &rightkit_agent_config::host_slug())
+        .replace("{app}", rightkit_agent_config::app_name())
+        .replace("{state_dir}", rightkit_agent_config::state_dir_name())
+}
+
+fn render_template(template: &'static str) -> Cow<'static, str> {
+    if template.contains('{') {
+        Cow::Owned(render_host_names(template))
+    } else {
+        Cow::Borrowed(template)
+    }
 }
 
 /// Resolve an exact canonical name or alias (with or without a leading `/`)
@@ -353,9 +394,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         ],
         renderer: RendererHint::Table,
         help_group: HelpGroup::Common,
-        summary: "List active and dormant background sessions.",
+        summary_template: "List active and dormant background sessions.",
         surfaces: BOTH,
-        usage: "/session list [--status] [--tag] [--json]",
+        usage_template: "/session list [--status] [--tag] [--json]",
         daemon_handler: Some(builtins::sessions_handler),
     },
     CommandSpec {
@@ -370,23 +411,23 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         ],
         renderer: RendererHint::Stream,
         help_group: HelpGroup::Common,
-        summary: "Resume a dormant session and forward stdin/stdout interactively.",
+        summary_template: "Resume a dormant session and forward stdin/stdout interactively.",
         surfaces: BOTH,
-        usage: "/resume [session_id|--last]",
+        usage_template: "/resume [session_id|--last]",
         daemon_handler: Some(builtins::resume_handler),
     },
     CommandSpec {
         name: "/agents",
-        aliases: &[],
+        aliases: &["/subagents"],
         scope: CommandScope::Session,
         effect: CommandEffect::Read,
         valid_mid_turn: true,
         args: NO_ARGS,
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Open the subagent picker: live status, read-only transcript, stop.",
+        summary_template: "Open the subagent picker: live status, read-only transcript, stop.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/agents",
+        usage_template: "/agents",
         daemon_handler: Some(tui_surface_guidance_handler),
     },
     CommandSpec {
@@ -398,9 +439,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Stream,
         help_group: HelpGroup::Common,
-        summary: "Run a one-shot agent session in the terminal.",
+        summary_template: "Run a one-shot agent session in the terminal.",
         surfaces: CLI_ONLY,
-        usage: "rightkit-agent run",
+        usage_template: "{cli} run",
         daemon_handler: None,
     },
     CommandSpec {
@@ -412,9 +453,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Status,
         help_group: HelpGroup::Common,
-        summary: "Start a new session (the old one stays in history/resume).",
+        summary_template: "Start a new session (the old one stays in history/resume).",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/clear",
+        usage_template: "/clear",
         daemon_handler: Some(builtins::clear_handler),
     },
     CommandSpec {
@@ -430,9 +471,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         }],
         renderer: RendererHint::Picker,
         help_group: HelpGroup::Common,
-        summary: "Switch the model for the next turn without ending the session.",
+        summary_template: "Switch the model for the next turn without ending the session.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/model [model]",
+        usage_template: "/model [model]",
         daemon_handler: Some(builtins::model_handler),
     },
     CommandSpec {
@@ -448,10 +489,48 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         }],
         renderer: RendererHint::Status,
         help_group: HelpGroup::Common,
-        summary: "Set reasoning effort for the next turn without ending the session.",
+        summary_template: "Set reasoning effort for the next turn without ending the session.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/effort [low|medium|high]",
+        usage_template: "/effort [low|medium|high]",
         daemon_handler: Some(effort_guidance_handler),
+    },
+    CommandSpec {
+        name: "/preset",
+        aliases: &[],
+        scope: CommandScope::Session,
+        effect: CommandEffect::Mutate,
+        // Model, effort and mode apply from the next turn, like `/model` and `/effort`.
+        valid_mid_turn: true,
+        args: &[ArgSpec {
+            name: "name",
+            help: "Preset to apply. Omit to list the presets of this user and project.",
+            required: false,
+        }],
+        renderer: RendererHint::Status,
+        help_group: HelpGroup::Common,
+        summary_template: "List presets, or apply one: model, effort and permission mode now; tools and prompt from the next new chat.",
+        surfaces: INTERACTIVE_ONLY,
+        usage_template: "/preset [name]",
+        daemon_handler: Some(tui_surface_guidance_handler),
+    },
+    CommandSpec {
+        name: "/side",
+        aliases: &["/btw"],
+        scope: CommandScope::Session,
+        effect: CommandEffect::Read,
+        // A fork copies the chat, which is refused while a turn writes to it.
+        valid_mid_turn: false,
+        args: &[ArgSpec {
+            name: "question",
+            help: "A quick question, asked on a throwaway fork of this chat.",
+            required: true,
+        }],
+        renderer: RendererHint::Status,
+        help_group: HelpGroup::Common,
+        summary_template: "Ask a quick question on a throwaway fork; the answer shows here and is not added to this chat.",
+        surfaces: INTERACTIVE_ONLY,
+        usage_template: "/side <question>",
+        daemon_handler: Some(tui_surface_guidance_handler),
     },
     CommandSpec {
         name: "/repo",
@@ -468,9 +547,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         }],
         renderer: RendererHint::Picker,
         help_group: HelpGroup::Common,
-        summary: "Select the repository root this session's turns run against.",
+        summary_template: "Select the repository root this session's turns run against.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/repo [path]",
+        usage_template: "/repo [path]",
         daemon_handler: Some(repo_guidance_handler),
     },
     CommandSpec {
@@ -482,9 +561,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: &[ArgSpec { name: "set|edit|pause|resume|clear|<text>", help: "Goal action or the goal text.", required: false }],
         renderer: RendererHint::Status,
         help_group: HelpGroup::Common,
-        summary: "Set, edit, pause, resume or clear this chat's goal; progress shows in the footer.",
+        summary_template: "Set, edit, pause, resume or clear this chat's goal; progress shows in the footer.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/goal [set <text>|edit <text>|pause|resume|clear]",
+        usage_template: "/goal [set <text>|edit <text>|pause|resume|clear]",
         daemon_handler: Some(tui_surface_guidance_handler),
     },
     CommandSpec {
@@ -496,9 +575,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: &[ArgSpec { name: "path", help: "Workspace to trust; omit for this chat.", required: false }],
         renderer: RendererHint::Status,
         help_group: HelpGroup::Common,
-        summary: "Trust this workspace using persisted workspace policy.",
+        summary_template: "Trust this workspace using persisted workspace policy.",
         surfaces: BOTH,
-        usage: "/trust | rightkit-agent trust [path]",
+        usage_template: "/trust | {cli} trust [path]",
         daemon_handler: Some(tui_surface_guidance_handler),
     },
     CommandSpec {
@@ -510,9 +589,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Inspect Adapt reports from completed sessions.",
+        summary_template: "Inspect Adapt reports from completed sessions.",
         surfaces: BOTH,
-        usage: "/insights | rightkit-agent insights",
+        usage_template: "/insights | {cli} insights",
         daemon_handler: Some(tui_surface_guidance_handler),
     },
     CommandSpec {
@@ -524,9 +603,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Picker,
         help_group: HelpGroup::Common,
-        summary: "View and edit TUI settings (theme, notify, vim, status line, keys).",
+        summary_template: "View and edit TUI settings (theme, notify, vim, status line, keys).",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/config",
+        usage_template: "/config",
         daemon_handler: Some(tui_surface_guidance_handler),
     },
     CommandSpec {
@@ -538,9 +617,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: &[ArgSpec { name: "auto|dark|light", help: "Theme to apply and remember.", required: false }],
         renderer: RendererHint::Status,
         help_group: HelpGroup::Common,
-        summary: "Show or set the TUI theme.",
+        summary_template: "Show or set the TUI theme.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/theme [auto|dark|light]",
+        usage_template: "/theme [auto|dark|light]",
         daemon_handler: Some(tui_surface_guidance_handler),
     },
     CommandSpec {
@@ -552,9 +631,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: &[ArgSpec { name: "on|off", help: "Vim composer mode.", required: false }],
         renderer: RendererHint::Status,
         help_group: HelpGroup::Common,
-        summary: "Toggle Vim editing in the composer.",
+        summary_template: "Toggle Vim editing in the composer.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/vim [on|off]",
+        usage_template: "/vim [on|off]",
         daemon_handler: Some(tui_surface_guidance_handler),
     },
     CommandSpec {
@@ -566,9 +645,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Picker,
         help_group: HelpGroup::Common,
-        summary: "Open the project and chat browser (Ctrl+B toggles the sidebar).",
+        summary_template: "Open the project and chat browser (Ctrl+B toggles the sidebar).",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/projects",
+        usage_template: "/projects",
         daemon_handler: Some(tui_surface_guidance_handler),
     },
     CommandSpec {
@@ -580,9 +659,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Table,
         help_group: HelpGroup::Common,
-        summary: "Show the live model catalog and visibility/cycle set.",
+        summary_template: "Show the live model catalog and visibility/cycle set.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/models",
+        usage_template: "/models",
         daemon_handler: Some(builtins::models_handler),
     },
     CommandSpec {
@@ -594,9 +673,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Picker,
         help_group: HelpGroup::Common,
-        summary: "Providers & account — sign in, API keys, models",
+        summary_template: "Providers & account — sign in, API keys, models",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/providers",
+        usage_template: "/providers",
         daemon_handler: Some(providers_guidance_handler),
     },
     CommandSpec {
@@ -608,9 +687,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Status,
         help_group: HelpGroup::Common,
-        summary: "Permission mode: read-only planning; nothing is changed until you approve a plan.",
+        summary_template: "Permission mode: read-only planning; nothing is changed until you approve a plan.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/plan",
+        usage_template: "/plan",
         daemon_handler: Some(permission_mode_guidance_handler),
     },
     CommandSpec {
@@ -622,9 +701,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Status,
         help_group: HelpGroup::Common,
-        summary: "Permission mode: ask before edits and commands (default).",
+        summary_template: "Permission mode: ask before edits and commands (default).",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/ask",
+        usage_template: "/ask",
         daemon_handler: Some(permission_mode_guidance_handler),
     },
     CommandSpec {
@@ -636,9 +715,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Status,
         help_group: HelpGroup::Common,
-        summary: "Permission mode: auto-apply file edits; commands still ask.",
+        summary_template: "Permission mode: auto-apply file edits; commands still ask.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/accept-edits",
+        usage_template: "/accept-edits",
         daemon_handler: Some(permission_mode_guidance_handler),
     },
     CommandSpec {
@@ -650,9 +729,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Status,
         help_group: HelpGroup::Common,
-        summary: "Permission mode: auto-approve safe actions; destructive ones still ask.",
+        summary_template: "Permission mode: auto-approve safe actions; destructive ones still ask.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/auto",
+        usage_template: "/auto",
         daemon_handler: Some(permission_mode_guidance_handler),
     },
     CommandSpec {
@@ -664,9 +743,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Status,
         help_group: HelpGroup::Common,
-        summary: "Permission mode: approve everything (locked workspaces stay blocked).",
+        summary_template: "Permission mode: approve everything (locked workspaces stay blocked).",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/yolo",
+        usage_template: "/yolo",
         daemon_handler: Some(permission_mode_guidance_handler),
     },
     CommandSpec {
@@ -675,13 +754,27 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         scope: CommandScope::Session,
         effect: CommandEffect::Mutate,
         valid_mid_turn: false,
+        args: &[ArgSpec { name: "instructions", help: "What the summary should keep (your own words).", required: false }],
+        renderer: RendererHint::Status,
+        help_group: HelpGroup::Common,
+        summary_template: "Compact the conversation history; optional text says what the summary must keep.",
+        surfaces: INTERACTIVE_ONLY,
+        usage_template: "/compact [instructions]",
+        daemon_handler: Some(builtins::compact_handler),
+    },
+    CommandSpec {
+        name: "/tree",
+        aliases: &[],
+        scope: CommandScope::Daemon,
+        effect: CommandEffect::Read,
+        valid_mid_turn: true,
         args: NO_ARGS,
         renderer: RendererHint::Status,
         help_group: HelpGroup::Common,
-        summary: "Compact the conversation history.",
+        summary_template: "Show the fork tree around this chat.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/compact",
-        daemon_handler: Some(builtins::compact_handler),
+        usage_template: "/tree",
+        daemon_handler: None,
     },
     CommandSpec {
         name: "/fork",
@@ -692,9 +785,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: &[ArgSpec { name: "--title", help: "Title for the forked session.", required: false }],
         renderer: RendererHint::Status,
         help_group: HelpGroup::Common,
-        summary: "Fork a session into a new idle session with parent lineage.",
+        summary_template: "Fork a session; `/fork back N` branches before your Nth-last message.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/fork [--title]",
+        usage_template: "/fork [session] | /fork back [N]",
         daemon_handler: Some(builtins::fork_handler),
     },
     CommandSpec {
@@ -706,9 +799,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: &[ArgSpec { name: "--all", help: "Show advanced commands too.", required: false }],
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Show available commands, grouped.",
+        summary_template: "Show available commands, grouped.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/help [--all]",
+        usage_template: "/help [--all]",
         daemon_handler: Some(builtins::help_handler),
     },
     CommandSpec {
@@ -720,9 +813,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Run first-run onboarding: pick a route, store a credential, probe readiness.",
+        summary_template: "Run first-run onboarding: pick a route, store a credential, probe readiness.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/onboard",
+        usage_template: "/onboard",
         daemon_handler: Some(builtins::onboard_handler),
     },
     CommandSpec {
@@ -734,9 +827,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Status,
         help_group: HelpGroup::Common,
-        summary: "Quit Agent",
+        summary_template: "Quit {app}",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/quit",
+        usage_template: "/quit",
         daemon_handler: Some(builtins::quit_handler),
     },
     CommandSpec {
@@ -748,9 +841,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Status,
         help_group: HelpGroup::Common,
-        summary: "Fork a session into a new idle session with parent lineage.",
+        summary_template: "Fork a session into a new idle session with parent lineage.",
         surfaces: CLI_ONLY,
-        usage: "rightkit-agent fork",
+        usage_template: "{cli} fork",
         daemon_handler: None,
     },
     // ---- diagnostics & runtime inspection ---------------------------
@@ -763,9 +856,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Preflight: check whether the engine is ready to run.",
+        summary_template: "Preflight: check whether the engine is ready to run.",
         surfaces: BOTH,
-        usage: "/doctor",
+        usage_template: "/doctor",
         daemon_handler: Some(builtins::doctor_handler),
     },
     CommandSpec {
@@ -777,9 +870,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Show daemon status.",
+        summary_template: "Show daemon status.",
         surfaces: BOTH,
-        usage: "/status",
+        usage_template: "/status",
         daemon_handler: Some(builtins::status_handler),
     },
     CommandSpec {
@@ -788,12 +881,12 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         scope: CommandScope::Daemon,
         effect: CommandEffect::Mutate,
         valid_mid_turn: true,
-        args: NO_ARGS,
+        args: &[ArgSpec { name: "mode", help: "plan, ask, accept-edits or auto-safe; never bypass.", required: false }],
         renderer: RendererHint::Table,
         help_group: HelpGroup::Common,
-        summary: "Inspect and adjust live session permissions.",
+        summary_template: "Inspect live session permissions, or set the mode (plan, ask, accept-edits, auto-safe).",
         surfaces: BOTH,
-        usage: "/permissions",
+        usage_template: "/permissions [plan|ask|accept-edits|auto-safe|session-id]",
         daemon_handler: Some(builtins::permissions_handler),
     },
     CommandSpec {
@@ -805,9 +898,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Table,
         help_group: HelpGroup::Common,
-        summary: "Govern local skills, proposals, benchmark gates, and training runs.",
+        summary_template: "Govern local skills, proposals, benchmark gates, and training runs.",
         surfaces: BOTH,
-        usage: "/skills",
+        usage_template: "/skills",
         daemon_handler: Some(builtins::skills_handler),
     },
     CommandSpec {
@@ -819,10 +912,28 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Inspect daemon hook readiness without exposing hook values.",
+        summary_template: "Inspect daemon hook readiness without exposing hook values.",
         surfaces: BOTH,
-        usage: "/hooks",
+        usage_template: "/hooks",
         daemon_handler: Some(builtins::hooks_handler),
+    },
+    CommandSpec {
+        name: "/browser-consent",
+        aliases: &[],
+        scope: CommandScope::Daemon,
+        effect: CommandEffect::Mutate,
+        valid_mid_turn: false,
+        args: &[ArgSpec {
+            name: "subcommand",
+            help: "list, sources, grant <chrome|edge> <domain[,domain...]> [profile], or revoke <id>.",
+            required: false,
+        }],
+        renderer: RendererHint::Table,
+        help_group: HelpGroup::Common,
+        summary_template: "List, grant and revoke the browser sign-in consent the agent browser may use (per domain, revocable).",
+        surfaces: INTERACTIVE_ONLY,
+        usage_template: "/browser-consent [list|sources|grant <chrome|edge> <domain[,domain...]> [profile]|revoke <id>]",
+        daemon_handler: Some(builtins::browser_consent_handler),
     },
     CommandSpec {
         name: "/mcp",
@@ -833,9 +944,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Table,
         help_group: HelpGroup::Common,
-        summary: "Manage MCP servers through the running daemon.",
+        summary_template: "Manage MCP servers through the running daemon.",
         surfaces: BOTH,
-        usage: "/mcp",
+        usage_template: "/mcp",
         daemon_handler: Some(builtins::mcp_handler),
     },
     CommandSpec {
@@ -847,9 +958,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "List Agent tool capabilities from the real runtime registry.",
+        summary_template: "List {app} tool capabilities from the real runtime registry.",
         surfaces: BOTH,
-        usage: "/caps",
+        usage_template: "/caps",
         daemon_handler: Some(builtins::caps_handler),
     },
     CommandSpec {
@@ -861,9 +972,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: &[ArgSpec { name: "workspace", help: "Workspace root.", required: false }],
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Show current runtime and workspace context.",
+        summary_template: "Show current runtime and workspace context.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/context [workspace]",
+        usage_template: "/context [workspace]",
         daemon_handler: Some(builtins::context_handler),
     },
     CommandSpec {
@@ -875,9 +986,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Show current memory context.",
+        summary_template: "Show current memory context.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/memory",
+        usage_template: "/memory",
         daemon_handler: Some(builtins::memory_handler),
     },
     CommandSpec {
@@ -889,23 +1000,23 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: &[ArgSpec { name: "workspace", help: "Workspace root.", required: false }],
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Show loaded project instruction sources.",
+        summary_template: "Show loaded project instruction sources.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/instructions [workspace]",
+        usage_template: "/instructions [workspace]",
         daemon_handler: Some(builtins::instructions_handler),
     },
     CommandSpec {
         name: "/rename",
-        aliases: &[],
+        aliases: &["/title"],
         scope: CommandScope::Session,
         effect: CommandEffect::Mutate,
         valid_mid_turn: false,
         args: &[ArgSpec { name: "arguments", help: "Session or workspace action arguments.", required: false }],
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Rename this chat.",
+        summary_template: "Rename this chat.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/rename [arguments]",
+        usage_template: "/rename [arguments]",
         daemon_handler: Some(tui_surface_guidance_handler),
     },
     CommandSpec {
@@ -917,23 +1028,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: &[ArgSpec { name: "arguments", help: "Session or workspace action arguments.", required: false }],
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Copy this chat transcript to clipboard.",
+        summary_template: "Copy this chat transcript to clipboard.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/copy [arguments]",
-        daemon_handler: Some(tui_surface_guidance_handler),
-    },
-    CommandSpec {
-        name: "/clone",
-        aliases: &[],
-        scope: CommandScope::Session,
-        effect: CommandEffect::Mutate,
-        valid_mid_turn: false,
-        args: &[ArgSpec { name: "arguments", help: "Session or workspace action arguments.", required: false }],
-        renderer: RendererHint::Text,
-        help_group: HelpGroup::Common,
-        summary: "Clone this chat into a separate session.",
-        surfaces: INTERACTIVE_ONLY,
-        usage: "/clone [arguments]",
+        usage_template: "/copy [arguments]",
         daemon_handler: Some(tui_surface_guidance_handler),
     },
     CommandSpec {
@@ -945,9 +1042,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: &[ArgSpec { name: "arguments", help: "Session or workspace action arguments.", required: false }],
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Archive a chat.",
+        summary_template: "Archive a chat.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/archive [arguments]",
+        usage_template: "/archive [arguments]",
         daemon_handler: Some(tui_surface_guidance_handler),
     },
     CommandSpec {
@@ -959,9 +1056,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: &[ArgSpec { name: "arguments", help: "Session or workspace action arguments.", required: false }],
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Delete a chat after confirmation.",
+        summary_template: "Delete a chat after confirmation.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/delete [arguments]",
+        usage_template: "/delete [arguments]",
         daemon_handler: Some(tui_surface_guidance_handler),
     },
     CommandSpec {
@@ -973,9 +1070,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: &[ArgSpec { name: "arguments", help: "Session or workspace action arguments.", required: false }],
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Create project instructions using current workspace.",
+        summary_template: "Create project instructions using current workspace.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/init [arguments]",
+        usage_template: "/init [arguments]",
         daemon_handler: Some(tui_surface_guidance_handler),
     },
     CommandSpec {
@@ -987,9 +1084,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: &[ArgSpec { name: "arguments", help: "Session or workspace action arguments.", required: false }],
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Switch this chat to another workspace.",
+        summary_template: "Switch this chat to another workspace.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/cd [arguments]",
+        usage_template: "/cd [arguments]",
         daemon_handler: Some(tui_surface_guidance_handler),
     },
     CommandSpec {
@@ -1001,9 +1098,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: &[ArgSpec { name: "arguments", help: "Session or workspace action arguments.", required: false }],
         renderer: RendererHint::Picker,
         help_group: HelpGroup::Common,
-        summary: "Inspect current session or open session picker.",
+        summary_template: "Inspect current session or open session picker.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/session [arguments]",
+        usage_template: "/session [arguments]",
         daemon_handler: Some(tui_surface_guidance_handler),
     },
     CommandSpec {
@@ -1015,9 +1112,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: &[ArgSpec { name: "arguments", help: "Session or workspace action arguments.", required: false }],
         renderer: RendererHint::Picker,
         help_group: HelpGroup::Common,
-        summary: "Inspect and manage workspace worktrees.",
+        summary_template: "Inspect and manage workspace worktrees.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/worktree [arguments]",
+        usage_template: "/worktree [arguments]",
         daemon_handler: Some(tui_surface_guidance_handler),
     },
     // ---- transcripts & exports --------------------------------------
@@ -1030,9 +1127,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: &[ArgSpec { name: "--json", help: "Export as JSON.", required: false }],
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Export a session transcript from the daemon.",
+        summary_template: "Export a session transcript from the daemon.",
         surfaces: BOTH,
-        usage: "/export [--json]",
+        usage_template: "/export [--json]",
         daemon_handler: Some(builtins::export_handler),
     },
     CommandSpec {
@@ -1044,9 +1141,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Summarize the active session transcript.",
+        summary_template: "Summarize the active session transcript.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/summary",
+        usage_template: "/summary",
         daemon_handler: Some(builtins::summary_handler),
     },
     // ---- conductor flows ---------------------------------------------
@@ -1059,9 +1156,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Stream,
         help_group: HelpGroup::Common,
-        summary: "Ask the auditor for a current-diff code review.",
+        summary_template: "Ask the auditor for a current-diff code review.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/review [focus]",
+        usage_template: "/review [focus]",
         daemon_handler: Some(builtins::review_handler),
     },
     CommandSpec {
@@ -1073,9 +1170,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Stream,
         help_group: HelpGroup::Common,
-        summary: "Ask the auditor for a whole-repo audit, optionally fixing what it finds.",
+        summary_template: "Ask the auditor for a whole-repo audit, optionally fixing what it finds.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/audit [fix] [focus]",
+        usage_template: "/audit [fix] [focus]",
         daemon_handler: Some(builtins::audit_handler),
     },
     CommandSpec {
@@ -1087,9 +1184,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Stream,
         help_group: HelpGroup::Common,
-        summary: "Map the repository with researcher and architect roles.",
+        summary_template: "Map the repository with researcher and architect roles.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/blueprint [focus]",
+        usage_template: "/blueprint [focus]",
         daemon_handler: Some(builtins::blueprint_handler),
     },
     CommandSpec {
@@ -1101,9 +1198,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Stream,
         help_group: HelpGroup::Common,
-        summary: "Run the architect method: explore, ADR, TDD plan, challenger gate.",
+        summary_template: "Run the architect method: explore, ADR, TDD plan, challenger gate.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/architect [focus]",
+        usage_template: "/architect [focus]",
         daemon_handler: Some(builtins::architect_handler),
     },
     CommandSpec {
@@ -1115,9 +1212,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Stream,
         help_group: HelpGroup::Common,
-        summary: "Run diff-scoped audit lenses then commit+push.",
+        summary_template: "Commit the working changes with a generated message (approval-gated, no push).",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/commit [focus]",
+        usage_template: "/commit [focus]",
         daemon_handler: Some(builtins::commit_handler),
     },
     CommandSpec {
@@ -1129,9 +1226,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Status,
         help_group: HelpGroup::Common,
-        summary: "Run memory dream consolidation now.",
+        summary_template: "Run memory dream consolidation now.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/dream now",
+        usage_template: "/dream now",
         daemon_handler: Some(builtins::dream_handler),
     },
     // ---- panels & inventories ----------------------------------------
@@ -1144,10 +1241,66 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Ask the agent for a git diff review.",
+        summary_template: "Open the diff viewer for the working tree changes.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/diff",
+        usage_template: "/diff",
         daemon_handler: Some(builtins::diff_handler),
+    },
+    CommandSpec {
+        name: "/observability",
+        aliases: &["/obs"],
+        scope: CommandScope::Client,
+        effect: CommandEffect::Read,
+        valid_mid_turn: true,
+        args: NO_ARGS,
+        renderer: RendererHint::Text,
+        help_group: HelpGroup::Advanced,
+        summary_template: "Show tool timings, token counts and cost for this session.",
+        surfaces: INTERACTIVE_ONLY,
+        usage_template: "/observability",
+        daemon_handler: Some(tui_surface_guidance_handler),
+    },
+    CommandSpec {
+        name: "/raw",
+        aliases: &[],
+        scope: CommandScope::Client,
+        effect: CommandEffect::Read,
+        valid_mid_turn: true,
+        args: NO_ARGS,
+        renderer: RendererHint::Text,
+        help_group: HelpGroup::Advanced,
+        summary_template: "Switch between the full layout and the plain layout (flat rows, no animation), as --plain does at launch.",
+        surfaces: INTERACTIVE_ONLY,
+        usage_template: "/raw",
+        daemon_handler: Some(tui_surface_guidance_handler),
+    },
+    CommandSpec {
+        name: "/ci",
+        aliases: &[],
+        scope: CommandScope::Client,
+        effect: CommandEffect::Read,
+        valid_mid_turn: true,
+        args: NO_ARGS,
+        renderer: RendererHint::Text,
+        help_group: HelpGroup::Advanced,
+        summary_template: "Show the pull request and check status for this branch.",
+        surfaces: INTERACTIVE_ONLY,
+        usage_template: "/ci",
+        daemon_handler: Some(tui_surface_guidance_handler),
+    },
+    CommandSpec {
+        name: "/changes",
+        aliases: &[],
+        scope: CommandScope::Client,
+        effect: CommandEffect::Read,
+        valid_mid_turn: true,
+        args: &[ArgSpec { name: "next|prev|accept|revert|comment <line> <text>|send", help: "Move through or decide the hunks, comment on a line, or send comments to the agent; omit to load the changes.", required: false }],
+        renderer: RendererHint::Text,
+        help_group: HelpGroup::Advanced,
+        summary_template: "Review uncommitted changes hunk by hunk.",
+        surfaces: INTERACTIVE_ONLY,
+        usage_template: "/changes [next|prev|accept|revert|comment <line> <text>|send]",
+        daemon_handler: Some(tui_surface_guidance_handler),
     },
     CommandSpec {
         name: "/plugin",
@@ -1158,9 +1311,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Show installed plugin or marketplace state.",
+        summary_template: "Show installed plugin state.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/plugin [marketplace [query]]",
+        usage_template: "/plugin",
         daemon_handler: Some(builtins::plugin_handler),
     },
     CommandSpec {
@@ -1172,9 +1325,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Show installed plugin or marketplace state.",
+        summary_template: "Show installed plugin state; `/plugins ui [slot]` shows the UI slots they declare.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/plugins [marketplace [query]]",
+        usage_template: "/plugins [ui [slot]]",
         daemon_handler: Some(builtins::plugins_handler),
     },
     CommandSpec {
@@ -1186,9 +1339,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Show team definitions.",
+        summary_template: "Show team definitions.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/teams",
+        usage_template: "/teams",
         daemon_handler: Some(builtins::teams_handler),
     },
     CommandSpec {
@@ -1200,9 +1353,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Show inter-session message history.",
+        summary_template: "Show inter-session message history.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/messages",
+        usage_template: "/messages",
         daemon_handler: Some(builtins::messages_handler),
     },
     CommandSpec {
@@ -1214,9 +1367,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Inspect durable events for the active session.",
+        summary_template: "Inspect durable events for the active session.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/logs",
+        usage_template: "/logs",
         daemon_handler: Some(tui_surface_guidance_handler),
     },
     CommandSpec {
@@ -1228,9 +1381,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: &[ArgSpec { name: "session-id", help: "Session id.", required: false }],
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Show current session token and cost usage.",
+        summary_template: "Show current session token and cost usage.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/usage [session-id]",
+        usage_template: "/usage [session-id]",
         daemon_handler: Some(builtins::usage_handler),
     },
     CommandSpec {
@@ -1242,9 +1395,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: &[ArgSpec { name: "workspace", help: "Workspace root.", required: false }],
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Show workspace schedules.",
+        summary_template: "Show workspace schedules.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/schedules [workspace]",
+        usage_template: "/schedules [workspace]",
         daemon_handler: Some(builtins::schedules_panel_handler),
     },
     CommandSpec {
@@ -1256,9 +1409,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Show task graph guidance.",
+        summary_template: "Show task graph guidance.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/tasks",
+        usage_template: "/tasks",
         daemon_handler: Some(builtins::tasks_handler),
     },
     CommandSpec {
@@ -1270,9 +1423,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Show benchmark history.",
+        summary_template: "Show benchmark history.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/benchmarks",
+        usage_template: "/benchmarks",
         daemon_handler: Some(builtins::benchmarks_handler),
     },
     CommandSpec {
@@ -1284,10 +1437,192 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "List or run benchmark tasks.",
+        summary_template: "List or run benchmark tasks.",
         surfaces: INTERACTIVE_ONLY,
-        usage: "/terminal-bench [tasks] | /terminal-bench run <task-id> <agent> <session-id>",
+        usage_template: "/terminal-bench [tasks] | /terminal-bench run <task-id> <agent> <session-id>",
         daemon_handler: Some(builtins::terminal_bench_handler),
+    },
+    CommandSpec {
+        name: "/reload",
+        aliases: &[],
+        scope: CommandScope::Daemon,
+        effect: CommandEffect::Mutate,
+        valid_mid_turn: false,
+        args: NO_ARGS,
+        renderer: RendererHint::Status,
+        help_group: HelpGroup::Common,
+        summary_template: "Reload the configuration files for this chat's workspace.",
+        surfaces: INTERACTIVE_ONLY,
+        usage_template: "/reload",
+        daemon_handler: Some(session_scoped_guidance_handler),
+    },
+    CommandSpec {
+        name: "/clone",
+        aliases: &[],
+        scope: CommandScope::Daemon,
+        effect: CommandEffect::Mutate,
+        valid_mid_turn: false,
+        args: NO_ARGS,
+        renderer: RendererHint::Status,
+        help_group: HelpGroup::Common,
+        summary_template: "Copy this chat into a new session (like /fork, no title).",
+        surfaces: INTERACTIVE_ONLY,
+        usage_template: "/clone",
+        daemon_handler: Some(session_scoped_guidance_handler),
+    },
+    CommandSpec {
+        name: "/recap",
+        aliases: &[],
+        scope: CommandScope::Daemon,
+        effect: CommandEffect::Read,
+        valid_mid_turn: false,
+        args: NO_ARGS,
+        renderer: RendererHint::Text,
+        help_group: HelpGroup::Common,
+        summary_template: "Summarize this chat so far with the small model (one model call, only when you run it).",
+        surfaces: INTERACTIVE_ONLY,
+        usage_template: "/recap",
+        daemon_handler: Some(session_scoped_guidance_handler),
+    },
+    CommandSpec {
+        name: "/skill-doctor",
+        aliases: &[],
+        scope: CommandScope::Daemon,
+        effect: CommandEffect::Read,
+        valid_mid_turn: true,
+        args: NO_ARGS,
+        renderer: RendererHint::Table,
+        help_group: HelpGroup::Common,
+        summary_template: "List installed skills this chat never used, with their context cost.",
+        surfaces: INTERACTIVE_ONLY,
+        usage_template: "/skill-doctor",
+        daemon_handler: Some(session_scoped_guidance_handler),
+    },
+    CommandSpec {
+        name: "/pwd",
+        aliases: &[],
+        scope: CommandScope::Daemon,
+        effect: CommandEffect::Read,
+        valid_mid_turn: true,
+        args: NO_ARGS,
+        renderer: RendererHint::Text,
+        help_group: HelpGroup::Common,
+        summary_template: "Print this chat's workspace folder.",
+        surfaces: INTERACTIVE_ONLY,
+        usage_template: "/pwd",
+        daemon_handler: Some(session_scoped_guidance_handler),
+    },
+    CommandSpec {
+        name: "/ps",
+        aliases: &[],
+        scope: CommandScope::Daemon,
+        effect: CommandEffect::Read,
+        valid_mid_turn: true,
+        args: NO_ARGS,
+        renderer: RendererHint::Table,
+        help_group: HelpGroup::Common,
+        summary_template: "List this chat's background terminals (process, status, last output line).",
+        surfaces: INTERACTIVE_ONLY,
+        usage_template: "/ps",
+        daemon_handler: Some(session_scoped_guidance_handler),
+    },
+    CommandSpec {
+        name: "/statusline",
+        aliases: &[],
+        scope: CommandScope::Session,
+        effect: CommandEffect::Mutate,
+        valid_mid_turn: true,
+        args: &[ArgSpec { name: "items", help: "Comma list of footer items, or all.", required: false }],
+        renderer: RendererHint::Text,
+        help_group: HelpGroup::Common,
+        summary_template: "Show or choose the footer items.",
+        surfaces: INTERACTIVE_ONLY,
+        usage_template: "/statusline [items|all]",
+        daemon_handler: Some(session_scoped_guidance_handler),
+    },
+    CommandSpec {
+        name: "/experimental",
+        aliases: &[],
+        scope: CommandScope::Daemon,
+        effect: CommandEffect::Read,
+        valid_mid_turn: true,
+        args: NO_ARGS,
+        renderer: RendererHint::Table,
+        help_group: HelpGroup::Common,
+        summary_template: "List the feature flags and whether each is on.",
+        surfaces: INTERACTIVE_ONLY,
+        usage_template: "/experimental",
+        daemon_handler: Some(session_scoped_guidance_handler),
+    },
+    CommandSpec {
+        name: "/debug-config",
+        aliases: &[],
+        scope: CommandScope::Daemon,
+        effect: CommandEffect::Read,
+        valid_mid_turn: true,
+        args: NO_ARGS,
+        renderer: RendererHint::Text,
+        help_group: HelpGroup::Common,
+        summary_template: "Show which configuration files were read, in order.",
+        surfaces: INTERACTIVE_ONLY,
+        usage_template: "/debug-config",
+        daemon_handler: Some(session_scoped_guidance_handler),
+    },
+    CommandSpec {
+        name: "/warnings",
+        aliases: &[],
+        scope: CommandScope::Daemon,
+        effect: CommandEffect::Read,
+        valid_mid_turn: true,
+        args: NO_ARGS,
+        renderer: RendererHint::Table,
+        help_group: HelpGroup::Common,
+        summary_template: "List this chat's warnings (retries, failures, budget, rate limits).",
+        surfaces: INTERACTIVE_ONLY,
+        usage_template: "/warnings",
+        daemon_handler: Some(session_scoped_guidance_handler),
+    },
+    CommandSpec {
+        name: "/daemon",
+        aliases: &[],
+        scope: CommandScope::Daemon,
+        effect: CommandEffect::Read,
+        valid_mid_turn: true,
+        args: NO_ARGS,
+        renderer: RendererHint::Text,
+        help_group: HelpGroup::Common,
+        summary_template: "Show which host runs this chat (in-process or daemon), its port and database.",
+        surfaces: INTERACTIVE_ONLY,
+        usage_template: "/daemon",
+        daemon_handler: Some(session_scoped_guidance_handler),
+    },
+    CommandSpec {
+        name: "/rollout",
+        aliases: &[],
+        scope: CommandScope::Daemon,
+        effect: CommandEffect::Read,
+        valid_mid_turn: true,
+        args: NO_ARGS,
+        renderer: RendererHint::Text,
+        help_group: HelpGroup::Common,
+        summary_template: "Show where this chat's durable event log lives and how long it is.",
+        surfaces: INTERACTIVE_ONLY,
+        usage_template: "/rollout",
+        daemon_handler: Some(session_scoped_guidance_handler),
+    },
+    CommandSpec {
+        name: "/feedback",
+        aliases: &[],
+        scope: CommandScope::Daemon,
+        effect: CommandEffect::Mutate,
+        valid_mid_turn: false,
+        args: &[ArgSpec { name: "text", help: "What you want to report.", required: false }],
+        renderer: RendererHint::Text,
+        help_group: HelpGroup::Common,
+        summary_template: "Write a feedback note to a local file; nothing is sent anywhere.",
+        surfaces: INTERACTIVE_ONLY,
+        usage_template: "/feedback [text]",
+        daemon_handler: Some(session_scoped_guidance_handler),
     },
     // ---- install & service --------------------------------------------
     CommandSpec {
@@ -1299,9 +1634,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Status,
         help_group: HelpGroup::Advanced,
-        summary: "Install the engine as a background service.",
+        summary_template: "Install the engine as a background service.",
         surfaces: BOTH,
-        usage: "/install",
+        usage_template: "/install",
         daemon_handler: Some(builtins::install_handler),
     },
     // ---- remaining CLI verbs (already CLI-only) -----------------------
@@ -1314,9 +1649,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Print the merged configuration.",
+        summary_template: "Print the merged configuration.",
         surfaces: CLI_ONLY,
-        usage: "rightkit-agent config",
+        usage_template: "{cli} config",
         daemon_handler: None,
     },
     CommandSpec {
@@ -1328,9 +1663,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Stream,
         help_group: HelpGroup::Common,
-        summary: "Run the HTTP daemon.",
+        summary_template: "Run the HTTP daemon.",
         surfaces: CLI_ONLY,
-        usage: "rightkit-agent serve",
+        usage_template: "{cli} serve",
         daemon_handler: None,
     },
     // ---- provider --------------------------------------------------------
@@ -1347,9 +1682,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: &[ArgSpec { name: "provider", help: "Provider id.", required: true }],
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Read provider key configuration status.",
+        summary_template: "Read provider key configuration status.",
         surfaces: CLI_ONLY,
-        usage: "rightkit-agent provider status <provider>",
+        usage_template: "{cli} provider status <provider>",
         daemon_handler: None,
     },
     CommandSpec {
@@ -1361,9 +1696,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: &[ArgSpec { name: "provider", help: "Provider id.", required: true }],
         renderer: RendererHint::Status,
         help_group: HelpGroup::Common,
-        summary: "Connect a provider.",
+        summary_template: "Connect a provider.",
         surfaces: CLI_ONLY,
-        usage: "rightkit-agent provider connect <provider>",
+        usage_template: "{cli} provider connect <provider>",
         daemon_handler: None,
     },
     CommandSpec {
@@ -1375,9 +1710,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: &[ArgSpec { name: "provider", help: "Provider id.", required: true }],
         renderer: RendererHint::Table,
         help_group: HelpGroup::Common,
-        summary: "List models available through a provider.",
+        summary_template: "List models available through a provider.",
         surfaces: CLI_ONLY,
-        usage: "rightkit-agent provider models <provider>",
+        usage_template: "{cli} provider models <provider>",
         daemon_handler: None,
     },
     CommandSpec {
@@ -1393,9 +1728,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         ],
         renderer: RendererHint::Status,
         help_group: HelpGroup::Common,
-        summary: "Toggle a model's visibility for a provider.",
+        summary_template: "Toggle a model's visibility for a provider.",
         surfaces: CLI_ONLY,
-        usage: "rightkit-agent provider set-visibility <provider> <model> --visible <bool>",
+        usage_template: "{cli} provider set-visibility <provider> <model> --visible <bool>",
         daemon_handler: None,
     },
     // Executed locally by the CLI (`Command::Models`); the live account
@@ -1410,9 +1745,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: &[ArgSpec { name: "--provider", help: "Provider id (default: the configured provider).", required: false }],
         renderer: RendererHint::Text,
         help_group: HelpGroup::Common,
-        summary: "Print the models a configured provider can serve, one per line.",
+        summary_template: "Print the models a configured provider can serve, one per line.",
         surfaces: CLI_ONLY,
-        usage: "rightkit-agent models [--provider <id>]",
+        usage_template: "{cli} models [--provider <id>]",
         daemon_handler: None,
     },
     // ---- advanced group -------------------------------------------------
@@ -1425,9 +1760,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Stream,
         help_group: HelpGroup::Advanced,
-        summary: "Run a multi-agent conductor session against a goal.",
+        summary_template: "Run a multi-agent conductor session against a goal.",
         surfaces: CLI_ONLY,
-        usage: "rightkit-agent conduct",
+        usage_template: "{cli} conduct",
         daemon_handler: None,
     },
     CommandSpec {
@@ -1439,9 +1774,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Text,
         help_group: HelpGroup::Advanced,
-        summary: "Installed-runtime acceptance controls.",
+        summary_template: "Installed-runtime acceptance controls.",
         surfaces: CLI_ONLY,
-        usage: "rightkit-agent cli-runtime",
+        usage_template: "{cli} cli-runtime",
         daemon_handler: None,
     },
     CommandSpec {
@@ -1453,9 +1788,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Text,
         help_group: HelpGroup::Advanced,
-        summary: "Print a machine-readable attach payload for IDE, web, mobile, or remote clients.",
+        summary_template: "Print a machine-readable attach payload for IDE, web, mobile, or remote clients.",
         surfaces: BOTH,
-        usage: "/handoff",
+        usage_template: "/handoff",
         daemon_handler: Some(builtins::handoff_handler),
     },
     CommandSpec {
@@ -1467,9 +1802,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Table,
         help_group: HelpGroup::Advanced,
-        summary: "Approve or reject governed learning proposals.",
+        summary_template: "Approve or reject governed learning proposals.",
         surfaces: CLI_ONLY,
-        usage: "rightkit-agent learning",
+        usage_template: "{cli} learning",
         daemon_handler: None,
     },
     CommandSpec {
@@ -1481,9 +1816,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Text,
         help_group: HelpGroup::Advanced,
-        summary: "Create, inspect, analyze, and trace feature specs.",
+        summary_template: "Create, inspect, analyze, and trace feature specs.",
         surfaces: BOTH,
-        usage: "/spec [list|new|status|analyze|trace] ...",
+        usage_template: "/spec [list|new|status|analyze|trace] ...",
         daemon_handler: Some(builtins::spec_handler),
     },
     CommandSpec {
@@ -1495,9 +1830,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Table,
         help_group: HelpGroup::Advanced,
-        summary: "Inspect and control workspace schedules.",
+        summary_template: "Inspect and control workspace schedules.",
         surfaces: CLI_ONLY,
-        usage: "rightkit-agent schedule",
+        usage_template: "{cli} schedule",
         daemon_handler: None,
     },
     CommandSpec {
@@ -1509,9 +1844,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Text,
         help_group: HelpGroup::Advanced,
-        summary: "Validate, render, run, and deeplink portable recipes/runbooks.",
+        summary_template: "Validate, render, run, and deeplink portable recipes/runbooks.",
         surfaces: CLI_ONLY,
-        usage: "rightkit-agent recipe",
+        usage_template: "{cli} recipe",
         daemon_handler: None,
     },
     CommandSpec {
@@ -1523,9 +1858,9 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         args: NO_ARGS,
         renderer: RendererHint::Text,
         help_group: HelpGroup::Advanced,
-        summary: "Inspect remote-control integrations such as Telegram.",
+        summary_template: "Inspect remote-control integrations such as Telegram.",
         surfaces: CLI_ONLY,
-        usage: "rightkit-agent remote",
+        usage_template: "{cli} remote",
         daemon_handler: None,
     },
 ];
@@ -1533,23 +1868,25 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
 /// `/repo` executes inside the interactive session host (which owns the
 /// selected repository root and session admission). The daemon answers
 /// honestly rather than pretending to hold TUI-local selection state.
-fn repo_guidance_handler(_args: &[String]) -> CommandResult {
+fn repo_guidance_handler(_: &[String]) -> CommandResult {
     CommandResult {
         success: true,
-        output: "Repository selection runs inside the Host session (`/repo [path]`); \
-                 the daemon carries no interactive repository picker state."
-            .into(),
+        output: render_host_names(
+            "Repository selection runs inside the {app} session (`/repo [path]`); \
+             the daemon carries no interactive repository picker state.",
+        ),
         action: CommandAction::None,
     }
 }
 
 /// TUI-local surfaces (`/goal`, `/config`, `/theme`, `/vim`, `/projects`) run
 /// inside the interactive session host, which owns the view and goal wiring.
-fn tui_surface_guidance_handler(_args: &[String]) -> CommandResult {
+fn tui_surface_guidance_handler(_: &[String]) -> CommandResult {
     CommandResult {
         success: true,
-        output: "This command runs inside the interactive Agent terminal session; the daemon slash surface holds no TUI view state."
-            .into(),
+        output: render_host_names(
+            "This command runs inside the interactive {app} terminal session; the daemon slash surface holds no TUI view state.",
+        ),
         action: CommandAction::None,
     }
 }
@@ -1557,12 +1894,13 @@ fn tui_surface_guidance_handler(_args: &[String]) -> CommandResult {
 /// `/effort` mutates the next turn's reasoning effort through the session's
 /// validated route updater in the session host; the daemon surface answers
 /// honestly when that updater is not what received the request.
-fn effort_guidance_handler(_args: &[String]) -> CommandResult {
+fn effort_guidance_handler(_: &[String]) -> CommandResult {
     CommandResult {
         success: true,
-        output: "Reasoning effort is selected in the Host session (`/effort low|medium|high`); \
-                 it applies to the next admitted turn."
-            .into(),
+        output: render_host_names(
+            "Reasoning effort is selected in the {app} session (`/effort low|medium|high`); \
+             it applies to the next admitted turn.",
+        ),
         action: CommandAction::None,
     }
 }
@@ -1570,25 +1908,39 @@ fn effort_guidance_handler(_args: &[String]) -> CommandResult {
 /// `/providers` owns the session's per-provider model-visibility manager;
 /// the daemon surface answers honestly — the picker and its durable file
 /// live in the session host, not here.
-fn providers_guidance_handler(_args: &[String]) -> CommandResult {
+fn providers_guidance_handler(_: &[String]) -> CommandResult {
     CommandResult {
         success: true,
-        output: "Provider inspection and per-model visibility are managed in the Host session (`/providers`); \
-                 the daemon carries no interactive provider picker state."
-            .into(),
+        output: render_host_names(
+            "Provider inspection and per-model visibility are managed in the {app} session (`/providers`); \
+             the daemon carries no interactive provider picker state.",
+        ),
         action: CommandAction::None,
     }
 }
 
 /// `/ask`, `/accept-edits`, `/auto`, `/yolo` switch the live session's
-/// permission mode inside the the host app session host; the daemon's slash
+/// permission mode inside the host's session host; the daemon's slash
 /// surface points at the session-scoped permission-mode endpoint instead.
-fn permission_mode_guidance_handler(_args: &[String]) -> CommandResult {
+fn permission_mode_guidance_handler(_: &[String]) -> CommandResult {
     CommandResult {
         success: true,
-        output: "Permission modes are switched in the Host session (`/ask`, `/accept-edits`, \
-                 `/auto`, `/yolo`) or via `POST /sessions/{id}/permission-mode`; the change applies \
-                 to the next turn."
+        output: render_host_names(
+            "Permission modes are switched in the {app} session (`/ask`, `/accept-edits`, \
+             `/auto`, `/yolo`) or via `POST /sessions/{id}/permission-mode`; the change applies \
+             to the next turn.",
+        ),
+        action: CommandAction::None,
+    }
+}
+
+/// Commands that read or change one live chat: the daemon's own dispatcher
+/// (`execute_daemon_command`) answers them with the chat's id; reaching this
+/// fallback means no chat id came with the request.
+fn session_scoped_guidance_handler(_: &[String]) -> CommandResult {
+    CommandResult {
+        success: false,
+        output: "This command works on one chat; run it inside a session, or pass `sessionId` to POST /commands/execute."
             .into(),
         action: CommandAction::None,
     }
@@ -1599,7 +1951,10 @@ type CommandHandler = dyn Fn(&[String]) -> CommandResult + Send + Sync;
 
 pub struct CommandDefinition {
     pub name: &'static str,
+    /// Description text; may carry the `{cli}` and `{app}` placeholders of
+    /// [`render_host_names`], filled in when [`CommandRegistry::list`] reads it.
     pub description: &'static str,
+    /// Usage text; may carry the same placeholders as `description`.
     pub usage: &'static str,
     pub handler: Box<CommandHandler>,
 }
@@ -1636,8 +1991,8 @@ impl CommandRegistry {
             let bare: &'static str = spec.name.trim_start_matches('/');
             registry.register(CommandDefinition {
                 name: bare,
-                description: spec.summary,
-                usage: spec.usage,
+                description: spec.summary_template,
+                usage: spec.usage_template,
                 handler: Box::new(handler),
             });
             for alias in spec.aliases {
@@ -1647,8 +2002,8 @@ impl CommandRegistry {
                 }
                 registry.register(CommandDefinition {
                     name: alias_bare,
-                    description: spec.summary,
-                    usage: spec.usage,
+                    description: spec.summary_template,
+                    usage: spec.usage_template,
                     handler: Box::new(handler),
                 });
             }
@@ -1688,8 +2043,8 @@ impl CommandRegistry {
             .iter()
             .map(|c| CommandInfo {
                 name: c.name,
-                description: c.description,
-                usage: c.usage,
+                description: render_host_names(c.description),
+                usage: render_host_names(c.usage),
             })
             .collect()
     }
@@ -1705,6 +2060,8 @@ impl Default for CommandRegistry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommandInfo {
     pub name: &'static str,
-    pub description: &'static str,
-    pub usage: &'static str,
+    /// Description with the host's names filled in.
+    pub description: String,
+    /// Usage with the host's names filled in.
+    pub usage: String,
 }
