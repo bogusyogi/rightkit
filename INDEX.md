@@ -8,7 +8,7 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 6.
+Flagged mismatches: 1.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`; its old `rightkit` alias is retired); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
@@ -264,7 +264,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `@rightkit/agent-ui-settings` | npm | 0.1.1 | none recorded | 0.1.1 | staged, never published |  | agent-ui-settings | Settings panes for coding-agent UIs. |
 | `@rightkit/agent-ui-web` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | agent-ui-web | Browser client for a coding-agent daemon: transcript, input bar, diff, model and usage panels. |
 | `@rightkit/agent-ui-workbench` | npm | 0.1.1 | none recorded | 0.1.1 | staged, never published |  | agent-ui-workbench | Workbench and runtime panels for coding-agent UIs. |
-| `@rightkit/app-update` | npm | 0.4.8 | 0.4.4 | 0.4.7 | **MISMATCH staged 0.4.7 != source 0.4.8** |  | update-policy | Shared runtime update policy helper for Right Suite Tauri apps. |
+| `@rightkit/app-update` | npm | 0.4.8 | 0.4.4 | 0.4.8 | staged, not yet published |  | update-policy | Shared runtime update policy helper for Right Suite Tauri apps. |
 | `@rightkit/ax` | npm | 0.3.2 | 0.3.2 | 0.3.2 | ok | right-ax | agent-experience-gates | Suite-wide agent-experience (AX) + agent-plugins.org conformance layer: plugin scaffolding/validation and AXA-1 static/conformance/behavioral gates over one product's MCP/CLI surface. |
 | `@rightkit/blender-worker` | npm | 0.1.1 | none recorded | 0.1.1 | staged, never published |  |  | Blender render worker (Python): job protocol, scene authoring, product review and look development, shipped as source for a host to install. |
 | `@rightkit/build-control-policy` | private | 0.1.5-phase1 | none recorded |  | private | rightkit-host-gate |  | `ownership-write-hook-cli.mjs` adds secondary feedback for Claude `Write`/`Edit`/`MultiEdit` and shell (`Bash`) calls, and for Codex `apply_patch` and shell (`exec_command`) calls. Both adapters deny writes targeting ownership exception or platform trust records. `ownership-session-hook-cli.mjs` adds the current RightKit ownership index at session start. Hook feedback is fail-open for ambiguous edits; build admission remains authoritative. |
@@ -281,7 +281,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `@rightkit/legal` | npm | 0.6.4 | 0.6.3 | 0.6.4 | staged, not yet published | legal-snapshot, generate-npm-license-appendix, rightkit-legal | legal-assent | Legal manifest, assent receipt, and release-contract primitives for proprietary Right Suite desktop apps. |
 | `@rightkit/legal-ui` | npm | 0.4.2 | 0.4.2 | 0.4.2 | ok |  | legal-ui | The one first-run / re-acceptance legal gate screen for Right Suite desktop apps. |
 | `@rightkit/library-ui` | npm | 0.2.6 | none recorded | 0.2.6 | staged, never published |  | library-ui | Library list and reader over a host-supplied LibrarySource (no IPC); ScrapeRight queue screens on ./queue. |
-| `@rightkit/license` | npm | 0.3.6 | 0.3.3 | 0.3.5 | **MISMATCH staged 0.3.5 != source 0.3.6** |  | licensing | Native licence invoke client & safe display views for Right Suite apps. |
+| `@rightkit/license` | npm | 0.3.6 | 0.3.3 | 0.3.6 | staged, not yet published |  | licensing | Native licence invoke client & safe display views for Right Suite apps. |
 | `@rightkit/logs` | npm | 0.1.7 | 0.1.6 | 0.1.7 | staged, not yet published |  | structured-logging | Local-only structured logging and diagnostics client for Right Suite apps. |
 | `@rightkit/mail-ui` | npm | 0.2.2 | 0.2.1 | 0.2.2 | staged, not yet published |  | mail-ui | Mail client UI: inbox, reader, compose editor, recipients, attachments, account switcher and the mail store. |
 | `@rightkit/markdown-editor` | npm | 0.2.0 | none recorded | 0.2.0 | staged, never published |  | markdown-editor | Markdown and MDX editor: ProseMirror WYSIWYG, source mode, math, diagrams and properties panel. |
@@ -294,14 +294,14 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `@rightkit/platform-ui` | npm | 0.4.5 | 0.4.2 | 0.4.5 | staged, not yet published |  | platform-ui | Brand-neutral platform, shortcut, and window-control primitives for Right Suite apps. |
 | `@rightkit/qa` | npm | 0.7.0 | 0.7.0 | 0.7.0 | ok | rightkit-qa-journeys | qa-evidence | Shared QA evidence, ownership, browser helpers, and release-backdoor guards for Right Suite apps. |
 | `@rightkit/qa-chrome` | npm | 0.1.12 | 0.1.12 | 0.1.12 | ok | rightkit-qa-chrome | browser-qa | Zero-dependency Chrome for Testing resolver, launcher and graceful close for Right Suite QA harnesses. |
-| `@rightkit/react-shell` | npm | 0.7.10 | 0.7.7 | 0.7.9 | **MISMATCH staged 0.7.9 != source 0.7.10** |  | app-shell-ui | Brand-neutral React frame for Right Suite desktop apps: optional fused sidebar+titlebar layout with slots, command palette, shortcut registry/help, toasts, modals, context menus, ui kit, theme hooks. |
+| `@rightkit/react-shell` | npm | 0.7.10 | 0.7.7 | 0.7.10 | staged, not yet published |  | app-shell-ui | Brand-neutral React frame for Right Suite desktop apps: optional fused sidebar+titlebar layout with slots, command palette, shortcut registry/help, toasts, modals, context menus, ui kit, theme hooks. |
 | `@rightkit/release` | npm | 0.6.93 | 0.6.92 | 0.6.93 | staged, not yet published | right-release, rightkit-gate, rightkit-linux-setup, rightkit-agent-hook | release-tooling | Portable release CLI/SDK with fail-closed public GitHub Releases and private R2 + RightApps distribution. |
 | `@rightkit/send-ui` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  |  | Nearby sharing UI for rightkit-send: devices, incoming requests, transfers and per-device trust, over the crate's JSON command surface. |
-| `@rightkit/settings-ui` | npm | 0.7.8 | 0.7.4 | 0.7.7 | **MISMATCH staged 0.7.7 != source 0.7.8** |  | settings-ui | Settings panel frame, search and standard sections (appearance, updates, license, legal, diagnostics, models, API keys, about) persisted through rightkit-app-settings. The panel shell and primitives (/core) need only React. |
+| `@rightkit/settings-ui` | npm | 0.7.8 | 0.7.4 | 0.7.8 | staged, not yet published |  | settings-ui | Settings panel frame, search and standard sections (appearance, updates, license, legal, diagnostics, models, API keys, about) persisted through rightkit-app-settings. The panel shell and primitives (/core) need only React. |
 | `@rightkit/social-ui` | npm | 0.2.1 | none recorded | 0.2.1 | staged, never published |  | social-ui | Social media management UI: accounts, drafts, approvals and analytics screens with their data layer. |
 | `@rightkit/sync-worker` | private | 0.1.0 | none recorded |  | private |  | sync-worker | Cloudflare Worker (D1 + R2) implementing the server side of rightkit-sync-http/1: opaque encrypted records, per-account auth, version preconditions, paged change feeds, rate limits, account erase and tombstone compaction. |
 | `@rightkit/system-ui` | npm | 0.2.2 | none recorded | 0.2.2 | staged, never published |  | system-ui | System views (storage, cleanup, duplicates, drive health, apps, activity) and chart helpers for desktop utility apps, over typed clients the host supplies. |
-| `@rightkit/tauri` | npm | 0.4.7 | 0.4.3 | 0.4.6 | **MISMATCH staged 0.4.6 != source 0.4.7** |  | tauri-host-adapters | Typed host adapters for shared Right Suite Tauri commands. |
+| `@rightkit/tauri` | npm | 0.4.7 | 0.4.3 | 0.4.7 | staged, not yet published |  | tauri-host-adapters | Typed host adapters for shared Right Suite Tauri commands. |
 | `@rightkit/tauri-shell` | npm | 0.1.4 | 0.1.3 | 0.1.4 | staged, not yet published |  | desktop-shell | Typed renderer bridge for the rightkit-tauri-shell Tauri crate: window controls, menu/tray events, deep links, autostart, rich clipboard, engine calls. |
 | `@rightkit/terminal-ui` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published |  | terminal-ui-components | Persistent terminal pane and its React hook. |
 | `@rightkit/theme` | npm | 0.3.4 | 0.3.4 | 0.3.4 | ok | rightkit-theme | theme-ui | Brand file to CSS tokens generator for Right Suite apps: light/dark/system, derived dark accent, WCAG contrast and hard-coded-colour checks, runtime brand application. |

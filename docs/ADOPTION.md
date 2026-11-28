@@ -63,7 +63,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-agent-tools` | crates.io | 0.4.4 | 0.4.3 | 4 | cutright, genright, heardright, legion | 1 vendored copy; 1 stale; 2 ahead of published |
 | `rightkit-agent-transcript` | crates.io | 0.1.4 | none recorded | 0 | none | - |
 | `rightkit-agents` | crates.io | 0.3.0 | 0.2.0 | 2 | coderight, legion | 2 ahead of published |
-| `rightkit-ai-accounts` | crates.io | 0.1.4 | none recorded | 0 | none | - |
+| `rightkit-ai-accounts` | crates.io | 0.1.5 | none recorded | 0 | none | - |
 | `rightkit-ai-keys` | crates.io | 0.1.1 | 0.1.1 | 1 | heardright | - |
 | `rightkit-align` | private | 0.1.0 | none recorded | 0 | none | 1 vendored copy |
 | `rightkit-android` | crates.io | 0.3.3 | 0.3.0 | 0 | none | - |
