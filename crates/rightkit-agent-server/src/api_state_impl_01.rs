@@ -46,7 +46,6 @@ impl DaemonState {
             .expect("built-in CLI registry must register atomically");
         let cli_registry_provider_ids = cli_registry.provider_ids().into_iter().collect();
         Self {
-            context_mode: crate::cli::ContextMode::Membrane,
             context_degraded: None,
             external_observations: Arc::new(Mutex::new(
                 crate::daemon::external_observations::ExternalObservationLoop::new(),
@@ -423,28 +422,6 @@ impl StoredCliLaunchContexts {
         if let Ok(mut contexts) = self.contexts.write() {
             contexts.remove(binding_id);
         }
-    }
-
-    pub(crate) fn gateway_credentials(&self, binding_id: &str) -> Option<(String, String)> {
-        let contexts = self.contexts.read().ok()?;
-        let context = &contexts.get(binding_id)?.context;
-        let token_name = rightkit_agent_config::env_name("GATEWAY_TOKEN");
-        let secret_name = rightkit_agent_config::env_name("DRIVER_INSTANCE_SECRET");
-        let capability = context
-            .mcp_server
-            .env
-            .iter()
-            .find(|(name, _)| *name == token_name)?
-            .1
-            .clone();
-        let instance = context
-            .mcp_server
-            .env
-            .iter()
-            .find(|(name, _)| *name == secret_name)?
-            .1
-            .clone();
-        Some((capability, instance))
     }
 }
 

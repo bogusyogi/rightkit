@@ -231,11 +231,6 @@ impl DaemonState {
         self
     }
 
-    pub(crate) fn with_context_mode(mut self, mode: crate::cli::ContextMode) -> Self {
-        self.context_mode = mode;
-        self
-    }
-
     pub(crate) fn with_context_degraded(mut self, reason: impl Into<String>) -> Self {
         self.context_degraded = Some(reason.into());
         self

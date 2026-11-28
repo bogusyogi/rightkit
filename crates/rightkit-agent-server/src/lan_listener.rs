@@ -195,7 +195,7 @@ fn advertise(ip: IpAddr, port: u16) -> Result<(), String> {
     let service = service_type()?;
     let host = host_label();
     let properties = [
-        ("version", env!("CARGO_PKG_VERSION")),
+        ("version", crate::host_identity::version()),
         ("path", "/web"),
         ("auth", "guest-link"),
     ];

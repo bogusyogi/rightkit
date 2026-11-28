@@ -104,9 +104,6 @@ pub enum Command {
     Onboard,
     /// Run the HTTP daemon (what Tauri spawns). Prints the startup contract line first.
     Serve {
-        /// Deprecated and ignored. When context is unavailable the turn runs visibly degraded.
-        #[arg(long, value_enum, default_value_t = cli_definitions_command_run::ContextMode::Membrane, hide = true)]
-        context_mode: cli_definitions_command_run::ContextMode,
         /// Port to bind (0 = OS-assigned).
         #[arg(long, default_value_t = 0)]
         port: u16,
@@ -592,12 +589,6 @@ pub enum Command {
         #[command(subcommand)]
         command: ExecutionCommand,
     },
-    /// Installed-runtime acceptance controls. Intended for the host's matrix,
-    /// not for synthetic fixture validation.
-    CliRuntime {
-        #[command(subcommand)]
-        command: CliRuntimeCommand,
-    },
     /// Run {APP_NAME} as a stdio MCP server exposing its tool registry.
     McpServer {
         /// Workspace root exposed to tools (default: current directory).
@@ -700,23 +691,6 @@ pub enum MigrateCommand {
         /// unrelated daemon database.
         #[arg(long)]
         db: String,
-    },
-}
-
-#[derive(Subcommand, Debug, PartialEq)]
-pub enum CliRuntimeCommand {
-    /// Execute one real authenticated-CLI matrix scenario through daemon runtime.
-    MatrixCell {
-        #[arg(long)]
-        provider: String,
-        #[arg(long)]
-        scenario: String,
-        #[arg(long)]
-        workspace: String,
-        #[arg(long)]
-        child_provider: Option<String>,
-        #[arg(long)]
-        json: bool,
     },
 }
 

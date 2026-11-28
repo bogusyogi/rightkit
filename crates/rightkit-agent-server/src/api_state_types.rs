@@ -452,8 +452,6 @@ pub(crate) type SessionPluginUnloadMap = std::collections::HashMap<String, (Vec<
 
 #[derive(Clone)]
 pub struct DaemonState {
-    /// Explicit context admission policy. Production defaults to Membrane.
-    pub context_mode: crate::cli::ContextMode,
     /// Set when Membrane context was unavailable and turns run visibly degraded.
     pub context_degraded: Option<String>,
     /// PL-009 durable observation loop shared by daemon callers.

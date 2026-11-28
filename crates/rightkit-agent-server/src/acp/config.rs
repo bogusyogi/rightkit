@@ -29,8 +29,9 @@ pub fn handle_initialize(params: Value) -> Result<Value, acp::AcpError> {
         serde_json::from_value(params).map_err(|e| acp::AcpError::invalid_params(e.to_string()))?;
     if request.protocol_version != acp::ACP_PROTOCOL_VERSION {
         return Err(acp::AcpError::invalid_params(format!(
-            "unsupported ACP protocol version {}; RightKit supports only {}",
+            "unsupported ACP protocol version {}; {} supports only {}",
             request.protocol_version,
+            crate::host_identity::app(),
             acp::ACP_PROTOCOL_VERSION
         ))
         .with_data(json!({

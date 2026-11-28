@@ -579,8 +579,10 @@ pub(crate) fn run_daemon_idle_eviction_sweep(
         workers,
         policy,
         now_ms,
-        idle_mutation_fence(),
-        Duration::from_secs(5),
+        crate::daemon::idle_eviction::EvictionDrain {
+            fence: idle_mutation_fence(),
+            timeout: Duration::from_secs(5),
+        },
         |worker| Ok(build_worker_residency_snapshot(state, worker)),
         |worker, _snapshot, policy, now_ms| passivate_idle_children(state, worker, policy, now_ms),
         |worker| {

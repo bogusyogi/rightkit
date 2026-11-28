@@ -96,20 +96,19 @@ use rightkit_agent_engine_protocol::{
     ContentTrust, ProtocolEvent, TranscriptMessage, TrustEnvelope,
 };
 use rightkit_agent_engine_runtime_middleware::{MiddlewarePhase, RuntimeSpan};
-use rightkit_agent_host_traits::skill_host::{CommandAction, CommandResult, SlashCommand};
 use rightkit_agent_orchestration::coding::registry::AgentRegistry;
 use rightkit_agent_orchestration::coding::{
     ClassifierComplexity, ClassifierOutcome, DispatchClassifier, DispatchDecision, DispatchRouter,
     ExecutionStrategy, JudgeSource,
 };
 use rightkit_agent_recipes::RecipeStore;
+use rightkit_agent_skills::{CommandAction, CommandResult, SlashCommand};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path as FsPath, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
-use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
 use crate::api_benchmarks::benchmark_routes;
 use crate::api_clients::client_routes;
@@ -181,6 +180,8 @@ mod api_session_context;
 mod api_session_contract;
 #[path = "api_session_utils.rs"]
 mod api_session_utils;
+#[path = "api_slash_local_commands.rs"]
+mod api_slash_local_commands;
 #[path = "api_slash_session_commands.rs"]
 mod api_slash_session_commands;
 #[path = "api_state.rs"]
@@ -193,12 +194,12 @@ pub(crate) static SHUTDOWN_SETTLING: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
 pub use api_router::build_router;
-// A loopback host applies its own CORS; the router still carries a CORS layer of its own, so the
-// origin list has to leave this private module for a host config to read it.
+// The loopback host applies the CORS policy before this router, so the origin list has to leave
+// this private module for the host config to read it.
 pub(crate) use api_router::allowed_origins;
 pub(crate) use api_session_bindings::{
     ensure_bound_spec_can_complete, session_binding_row, session_spec_completion_summary,
-    session_workspace_root, update_session_spec_binding, ListSessionsQuery, SessionSearchQuery,
+    session_workspace_root, update_session_spec_binding, SessionSearchQuery,
 };
 pub(crate) use api_session_config::{
     api_workspace_root, build_session_tool_registry_for_plugins, compose_agent_persona,
@@ -218,8 +219,8 @@ pub(crate) use api_session_context::{
     compose_session_system_prompt, decorate_user_payload_with_system_reminder,
     direct_message_engine_payload, discover_instruction_files, dynamic_user_turn_reminder,
     execute_daemon_command, get_instructions_handler, goal_state_from_row, instinct_guidance_block,
-    instinct_rules_within_cap, load_instruction_context, load_stored_artifacts, now_iso,
-    now_millis, persist_artifacts_snapshot, plugin_prompt_context, push_session_artifact,
+    instinct_rules_within_cap, load_stored_artifacts, now_iso, now_millis,
+    persist_artifacts_snapshot, plugin_prompt_context, push_session_artifact,
     remote_channel_engine_payload, retrieve_session_memory, session_posture_block,
     session_state_note, session_state_text, shipping_prompt_digest, trust_envelope,
     user_turn_reminder_at, user_turn_reminder_with_state_at, SessionPromptParts,
@@ -244,6 +245,11 @@ pub(crate) use api_session_utils::{
     spawn_partial_reply_snapshotter, summarize_text, task_node_json, task_record_json,
     transcript_created_at, transcript_for_session, untrusted_policy_action, update_session_effort,
     update_session_model, update_session_route, workspace_tasks_path, EditGoal,
+};
+pub(crate) use api_slash_local_commands::{
+    command_agents, command_clone, command_daemon, command_debug_config, command_experimental,
+    command_feedback, command_ps, command_pwd, command_recap, command_reload, command_rename,
+    command_rollout, command_skill_doctor, command_statusline, command_warnings, STATUSLINE_ITEMS,
 };
 pub(crate) use api_slash_session_commands::{command_effort, command_model, command_usage};
 pub(crate) use api_state::{

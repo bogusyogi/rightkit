@@ -22,9 +22,6 @@ pub struct LaunchCli {
     /// Reduce terminal animation.
     #[arg(long = "reduced-motion")]
     pub reduced_motion: bool,
-    /// Deprecated and ignored. When context is unavailable the turn runs visibly degraded.
-    #[arg(long, value_enum, hide = true)]
-    pub context_mode: Option<cli_definitions_command_run::ContextMode>,
     /// `-p` only: perform the call. `-p` does the work with no flag, so
     /// `--yes` changes nothing there; it only completes `--permission-mode
     /// bypass`, which needs a trusted workspace and `--yes` in the same call.

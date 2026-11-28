@@ -41,7 +41,7 @@ async fn health() -> Json<HealthResponse> {
     Json(HealthResponse {
         ok: true,
         service: crate::host_identity::prefixed("daemon"),
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        version: crate::host_identity::version().to_string(),
         contract_version: rightkit_agent_engine_api_platform::health::CONTRACT_VERSION,
         protocol_version: rightkit_agent_engine_api_platform::health::PROTOCOL_VERSION,
     })
@@ -315,8 +315,8 @@ async fn create_diagnostics_bundle(
     let (log_sources, temporary_log) = diagnostics_log_sources(&dir);
     let options = rightkit_crash::SupportBundleOptions {
         app_name: rightkit_agent_config::app_name().to_string(),
-        app_version: env!("CARGO_PKG_VERSION").to_string(),
-        build: env!("CARGO_PKG_VERSION").to_string(),
+        app_version: crate::host_identity::version().to_string(),
+        build: crate::host_identity::version().to_string(),
         crash_dir,
         log_sources,
         settings: json!({ "surface": "daemon" }),
@@ -554,7 +554,7 @@ async fn machine_status(State(state): State<DaemonState>) -> impl IntoResponse {
         storage_available,
         storage_read_pool_idle,
         provider_key_storage,
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        version: crate::host_identity::version().to_string(),
         degraded_reasons,
     };
     (StatusCode::OK, Json(json!(payload))).into_response()
@@ -586,7 +586,7 @@ async fn machine_info(State(state): State<DaemonState>) -> impl IntoResponse {
         .map(|pool| pool.idle_len());
     let payload = MachineInfoResponse {
         service: crate::host_identity::prefixed("daemon"),
-        version: env!("CARGO_PKG_VERSION").to_string(),
+        version: crate::host_identity::version().to_string(),
         contract_version: rightkit_agent_engine_api_platform::health::CONTRACT_VERSION,
         protocol_version: rightkit_agent_engine_api_platform::health::PROTOCOL_VERSION,
         os: std::env::consts::OS.to_string(),

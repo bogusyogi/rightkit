@@ -4,7 +4,7 @@ async fn cli_info(json: bool) -> i32 {
         .unwrap_or_else(|_| ".".to_string());
     let mut body = serde_json::json!({
         "schema_version": crate::host_identity::schema("cli.info.v1"),
-        "version": env!("CARGO_PKG_VERSION"),
+        "version": crate::host_identity::version(),
         "cwd": cwd,
         "daemon": {
             "running": false,
@@ -43,7 +43,7 @@ async fn cli_info(json: bool) -> i32 {
         println!(
             "{} {}",
             rightkit_agent_config::app_name(),
-            env!("CARGO_PKG_VERSION")
+            crate::host_identity::version()
         );
         println!("cwd: {}", body["cwd"].as_str().unwrap_or("."));
         if body["daemon"]["running"].as_bool().unwrap_or(false) {
@@ -113,6 +113,17 @@ async fn cli_mcp(command: McpCommand) -> i32 {
                 mcp_management_query(None, workspace_root.as_deref())
             );
             daemon_get_pretty_json(&path, "mcp servers").await
+        }
+        McpCommand::Status => {
+            // `/mcp/server/status` exists only where the host runs a stand-alone MCP server.
+            if !crate::host_options::mcp_public_server() {
+                eprintln!(
+                    "{}: `mcp status` is not available: this build runs no stand-alone MCP server",
+                    crate::host_identity::app()
+                );
+                return 2;
+            }
+            daemon_get_pretty_json("/mcp/server/status", "mcp status").await
         }
         McpCommand::Get {
             name,
@@ -235,6 +246,46 @@ async fn cli_mcp(command: McpCommand) -> i32 {
 async fn cli_plugin(command: PluginCommand) -> i32 {
     match command {
         PluginCommand::List { json: _json } => daemon_get_pretty_json("/plugins", "plugins").await,
+        PluginCommand::Marketplace => {
+            daemon_get_pretty_json("/plugins/marketplace", "plugin marketplace").await
+        }
+        PluginCommand::InstallMarketplace {
+            id,
+            expected_sha256,
+            overwrite,
+            allow_file_urls,
+        } => {
+            let body = serde_json::json!({
+                "trustAccepted": true,
+                "expectedSha256": expected_sha256,
+                "overwrite": overwrite,
+                "allowFileUrls": allow_file_urls,
+                "fileUrlTrustAccepted": allow_file_urls,
+            });
+            daemon_post_pretty_json(
+                &format!("/plugins/marketplace/{}/install", url_encode_component(&id)),
+                body,
+                "plugin marketplace install",
+            )
+            .await
+        }
+        PluginCommand::MarketplaceSync {
+            catalog_url,
+            expected_sha256,
+            allow_unsigned,
+            allow_file_urls,
+        } => {
+            let body = serde_json::json!({
+                "catalogUrl": catalog_url,
+                "expectedSha256": expected_sha256,
+                "trustAccepted": true,
+                "requireSigned": !allow_unsigned,
+                "allowFileUrls": allow_file_urls,
+                "fileUrlTrustAccepted": allow_file_urls,
+            });
+            daemon_post_pretty_json("/plugins/marketplace/sync", body, "plugin marketplace sync")
+                .await
+        }
         PluginCommand::Reload => {
             daemon_post_pretty_json("/plugins/reload", serde_json::json!({}), "plugin reload").await
         }

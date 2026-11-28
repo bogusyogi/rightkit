@@ -189,8 +189,8 @@ impl Drop for PresenceGuard {
 /// directly so they report the true current state rather than mutating it.
 pub(crate) async fn resolve_daemon_or_autostart() -> Option<(String, String)> {
     if let Some(found) = resolve_daemon() {
-        let explicit_daemon = std::env::var_os(rightkit_agent_config::env_name("DAEMON_URL"))
-            .is_some()
+        let explicit_daemon = crate::host_options::daemon_endpoint_from_environment()
+            && std::env::var_os(rightkit_agent_config::env_name("DAEMON_URL")).is_some()
             && std::env::var_os(rightkit_agent_config::env_name("DAEMON_TOKEN")).is_some();
         if explicit_daemon || daemon_health_ok(&found.0).await {
             return Some(found);

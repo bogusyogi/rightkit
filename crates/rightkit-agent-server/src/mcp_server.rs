@@ -29,7 +29,9 @@ fn no_session_refusal() -> String {
 }
 
 pub struct McpServerOptions {
-    pub workspace: PathBuf,
+    /// The folder a stand-alone server (no `--session-id`, host option `mcp_public_server`) exposes;
+    /// `None` is the current directory. A session-bound server and the vendor helper ignore it.
+    pub workspace: Option<PathBuf>,
     pub allow_mutate: bool,
     pub session_id: Option<String>,
 }
@@ -211,11 +213,11 @@ pub async fn run_reader<R: BufRead, W: std::io::Write>(
         return 1;
     }
     let inline = if gateway.is_none() {
-        match crate::main_runtime::InlineMcpProjection::build(
-            &options.workspace,
-            options.allow_mutate,
-        )
-        .await
+        let workspace = options.workspace.clone().unwrap_or_else(|| {
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+        });
+        match crate::main_runtime::InlineMcpProjection::build(&workspace, options.allow_mutate)
+            .await
         {
             Ok(inline) => Some(inline),
             Err(error) => {
@@ -464,7 +466,7 @@ impl McpStdioServer {
         });
         let host = RightKitMcpServer::new(
             crate::host_identity::app(),
-            env!("CARGO_PKG_VERSION"),
+            crate::host_identity::version(),
             backend,
             policy,
         );
@@ -476,13 +478,12 @@ impl McpStdioServer {
     }
 
     pub(crate) async fn for_vendor(
-        workspace: PathBuf,
         inline: crate::main_runtime::InlineMcpProjection,
     ) -> Result<Self, String> {
         let inline_tools = inline.tools().await?;
         Ok(Self::new(
             McpServerOptions {
-                workspace,
+                workspace: None,
                 allow_mutate: true,
                 session_id: None,
             },
@@ -581,17 +582,6 @@ fn error_response(id: Option<Value>, code: i64, message: impl Into<String>) -> V
             "message": message.into(),
         }
     })
-}
-
-// The vendor MCP pipe (Windows) answers each request through this server (rightkit-agents `VendorMcpHandler`).
-#[cfg(windows)]
-impl rightkit_agents::vendor_mcp_pipe::VendorMcpHandler for McpStdioServer {
-    fn handle_request(
-        &mut self,
-        request: Value,
-    ) -> impl std::future::Future<Output = Option<Value>> + Send {
-        McpStdioServer::handle_request(self, request)
-    }
 }
 
 #[cfg(test)]

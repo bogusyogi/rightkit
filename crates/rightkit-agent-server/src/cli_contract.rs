@@ -456,7 +456,7 @@ pub(crate) fn manifest() -> Value {
         "schema": CONTRACT_SCHEMA,
         "schema_version": CONTRACT_SCHEMA,
         "app": app,
-        "app_version": env!("CARGO_PKG_VERSION"),
+        "app_version": crate::host_identity::version(),
         "bundle_id": format!("app.{app}"),
         "platforms": QUALIFIED_PLATFORMS,
         "exit_codes": {

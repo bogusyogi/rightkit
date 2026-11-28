@@ -20,18 +20,6 @@ struct DrainState {
     fenced: bool,
 }
 
-/// Error returned when a mutation tries to begin after eviction fencing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MutationAdmissionError;
-
-impl std::fmt::Display for MutationAdmissionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("daemon mutation admission is fenced for idle eviction")
-    }
-}
-
-impl std::error::Error for MutationAdmissionError {}
-
 /// Error returned when the existing mutation set does not drain in time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MutationDrainTimeout;
@@ -46,10 +34,8 @@ impl std::error::Error for MutationDrainTimeout {}
 
 /// Admission fence shared by mutating handlers and an idle sweep.
 ///
-/// The double check in [`MutationDrainFence::begin_mutation`] closes the race
-/// in which a mutation observes an open gate immediately before the sweep
-/// fences it.  The permit is RAII-based, so a handler that returns through an
-/// error path still releases its count.
+/// The sweep fences the gate, then waits for the admitted mutation count to
+/// reach zero before it rechecks and evicts.
 #[derive(Debug, Clone, Default)]
 pub struct MutationDrainFence {
     state: Arc<(Mutex<DrainState>, Condvar)>,
@@ -58,24 +44,6 @@ pub struct MutationDrainFence {
 impl MutationDrainFence {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    pub fn begin_mutation(&self) -> Result<MutationPermit, MutationAdmissionError> {
-        let (lock, _) = &*self.state;
-        let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if state.fenced {
-            return Err(MutationAdmissionError);
-        }
-        state.active_mutations += 1;
-        // A sweep may fence between the first check and increment.  Re-check
-        // while holding the same mutex used by the sweeper.
-        if state.fenced {
-            state.active_mutations -= 1;
-            return Err(MutationAdmissionError);
-        }
-        Ok(MutationPermit {
-            state: Arc::clone(&self.state),
-        })
     }
 
     /// Fence new mutations and wait for admitted mutations to finish.
@@ -124,22 +92,6 @@ impl MutationDrainFence {
     }
 }
 
-/// Permit held for the duration of one daemon mutation.
-pub struct MutationPermit {
-    state: Arc<(Mutex<DrainState>, Condvar)>,
-}
-
-impl Drop for MutationPermit {
-    fn drop(&mut self) {
-        let (lock, condition) = &*self.state;
-        let mut state = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        state.active_mutations = state.active_mutations.saturating_sub(1);
-        if state.active_mutations == 0 {
-            condition.notify_all();
-        }
-    }
-}
-
 /// Guard held while the caller performs the final whole-tree recheck and
 /// eviction. Dropping it reopens mutation admission even on an error path.
 pub struct MutationDrainGuard {
@@ -153,6 +105,14 @@ impl Drop for MutationDrainGuard {
         state.fenced = false;
         condition.notify_all();
     }
+}
+
+/// The mutation fence an idle sweep raises before it evicts, and how long it waits for admitted
+/// mutations to drain.
+#[derive(Debug, Clone, Copy)]
+pub struct EvictionDrain<'a> {
+    pub fence: &'a MutationDrainFence,
+    pub timeout: Duration,
 }
 
 /// Counts and failure visibility for one idle sweep.
@@ -174,13 +134,11 @@ pub struct IdleEvictionSweepReport {
 /// it receives the same policy and timestamp so descendants can be checked
 /// with [`super::residency::can_passivate_session`]. `evict_worker` must stop
 /// the complete worker tree, not only its root session.
-#[allow(clippy::too_many_arguments)]
 pub fn run_idle_eviction_sweep<W, Workers, Refresh, Passivate, Evict>(
     workers: Workers,
     policy: IdleEvictionMinutes,
     now_ms: u128,
-    drain: &MutationDrainFence,
-    drain_timeout: Duration,
+    drain: EvictionDrain<'_>,
     mut refresh: Refresh,
     mut passivate_children: Passivate,
     mut evict_worker: Evict,
@@ -192,6 +150,10 @@ where
     Passivate: FnMut(&W, &WorkerResidencySnapshot, IdleEvictionMinutes, u128) -> Result<(), String>,
     Evict: FnMut(&W) -> Result<(), String>,
 {
+    let EvictionDrain {
+        fence: drain,
+        timeout: drain_timeout,
+    } = drain;
     let mut report = IdleEvictionSweepReport::default();
     let mut refreshed: Vec<(W, WorkerResidencySnapshot)> = Vec::new();
     for worker in workers {
@@ -343,11 +305,6 @@ impl IdleEvictionLoop {
             cancel: Some(cancel),
             task,
         }
-    }
-
-    pub fn stop(mut self) {
-        self.cancel.take();
-        self.task.abort();
     }
 }
 

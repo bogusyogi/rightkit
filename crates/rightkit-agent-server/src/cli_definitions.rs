@@ -14,9 +14,7 @@ include!("cli_definitions_skills_learning_diag.rs");
 pub mod command_registry;
 
 pub(crate) use cli_definitions_command_run::RunArgs as CliRunArgs;
-pub(crate) use cli_definitions_command_run::{
-    warn_deprecated_context_mode_flag, CliColor, CliPermissionMode, ContextMode, OutputFormat,
-};
+pub(crate) use cli_definitions_command_run::{CliColor, CliPermissionMode, OutputFormat};
 
 /// Whether `run`, `review` and `recipe run` auto-approve edit-class actions: their own
 /// `--auto-approve`, or the global `--yes` on a host that sets
@@ -35,6 +33,15 @@ pub(crate) fn effective_auto_approve(auto_approve: bool, yes: bool) -> bool {
 /// command (`Cli::from_arg_matches`), not through the bare derive, so the help names the host.
 pub(crate) fn localized_command() -> clap::Command {
     localize_command(<Cli as clap::CommandFactory>::command())
+        .version(crate::host_identity::version())
+}
+
+/// The command line of a bare launch (flags only, no subcommand), localized like
+/// [`localized_command`]. Parse [`LaunchCli`] through it (`LaunchCli::from_arg_matches`), not
+/// through the bare derive, so its help names the host.
+pub(crate) fn localized_launch_command() -> clap::Command {
+    localize_command(<LaunchCli as clap::CommandFactory>::command())
+        .version(crate::host_identity::version())
 }
 
 fn localize_text(text: &str) -> String {

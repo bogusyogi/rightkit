@@ -49,10 +49,19 @@ struct PredecessorTarget {
     executable: std::path::PathBuf,
 }
 
+/// Start time of `identity`'s process as Unix epoch milliseconds.
+fn identity_start_epoch_ms(identity: &AdoptedIdentity) -> Option<u128> {
+    identity
+        .start_time()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|elapsed| elapsed.as_millis())
+}
+
 impl PredecessorTarget {
     fn capture(pid: u32) -> Option<Self> {
         let identity = AdoptedIdentity::capture(NonZeroU32::new(pid)?).ok()??;
-        let boot_epoch = crate::main_runtime::identity_start_epoch_ms(&identity)?;
+        let boot_epoch = identity_start_epoch_ms(&identity)?;
         let executable = std::fs::canonicalize(identity.exe()?).ok()?;
         Some(Self {
             identity,

@@ -676,6 +676,9 @@ pub(crate) async fn execute_daemon_command(
             Some(command_handoff(state, &cmd.args, active_session_id).await)
         }
         "mcp" => Some(command_mcp(state, &cmd.args).await),
+        "browser-consent" if crate::host_options::browser_consent_routes() => {
+            Some(crate::api_browser_consent::command_browser_consent(&cmd.args).await)
+        }
         "plugin" | "plugins" => Some(command_plugins(state, &cmd.args, active_session_id).await),
         "teams" => Some(render_teams_command(state)),
         "messages" => Some(render_messages_command(state)),

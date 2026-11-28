@@ -373,7 +373,7 @@ pub(crate) fn command_daemon(state: &DaemonState) -> CommandResult {
     ok(format!(
         "**Host:** {host}\nPort: {}\nVersion: {}\nProcess id: {}\nDatabase: {}",
         state.bound_port,
-        env!("CARGO_PKG_VERSION"),
+        crate::host_identity::version(),
         std::process::id(),
         state.database_path
     ))
@@ -514,7 +514,7 @@ pub(crate) fn command_feedback(args: &[String], session_id: Option<&str>) -> Com
     let body = format!(
         "# {} feedback\n\nVersion: {}\nSession: {}\nWritten: {}\n\n{note}\n",
         rightkit_agent_config::app_name(),
-        env!("CARGO_PKG_VERSION"),
+        crate::host_identity::version(),
         session_id.unwrap_or("-"),
         now_iso()
     );

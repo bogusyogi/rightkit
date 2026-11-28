@@ -61,6 +61,18 @@ where
     Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit())
 }
 
+/// Parse a bare launch (flags only) through the host-localized launch command, exiting with the
+/// usage or help text like `Parser::parse_from`.
+fn parse_launch_cli<I, T>(args: I) -> LaunchCli
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    use clap::FromArgMatches;
+    let matches = crate::cli::localized_launch_command().get_matches_from(args);
+    LaunchCli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit())
+}
+
 /// [`parse_cli`] returning the clap error instead of exiting.
 fn try_parse_cli<I, T>(args: I) -> Result<Cli, clap::Error>
 where
@@ -219,7 +231,7 @@ fn run_main() {
         // (mutually exclusive permission flags, flag values).
         // Parsed from the real `args_os`, so an argument that is not valid Unicode is a clap
         // usage error (exit 2), never a panic or a silently altered value.
-        let mut launch = LaunchCli::parse_from(cli_args_os());
+        let mut launch = parse_launch_cli(cli_args_os());
         apply_config_flags_or_exit(
             &launch.config_override,
             launch.ignore_user_config,
@@ -1487,7 +1499,6 @@ async fn async_main(mut cli: Cli) {
             }
             cli_exit(0);
         }
-        Command::CliRuntime { .. } => cli_exit(host_only_command_unavailable("cli-runtime")),
         Command::Fork {
             session_id,
             last,
@@ -1570,6 +1581,7 @@ async fn async_main(mut cli: Cli) {
             provider,
             workspace,
             safe_mode,
+            auto_approve,
             permission_mode,
             stream_json,
             max_turns,
@@ -1590,6 +1602,9 @@ async fn async_main(mut cli: Cli) {
                 }
                 if permission_mode.is_some() {
                     rejected.push("--permission-mode");
+                }
+                if auto_approve {
+                    rejected.push("--auto-approve");
                 }
 
                 if !rejected.is_empty() {
@@ -1621,6 +1636,12 @@ async fn async_main(mut cli: Cli) {
                 );
                 cli_exit(2);
             }
+            // `--auto-approve` (and the global `--yes` on a host that reads it as that flag) is the
+            // accept-edits mode unless a mode is named.
+            let permission_mode = permission_mode.or_else(|| {
+                crate::cli::effective_auto_approve(auto_approve, yes)
+                    .then_some(rightkit_agent_policy::PermissionMode::AcceptEdits)
+            });
             let scope = match review_scope(base.as_deref(), uncommitted, commit.as_deref()) {
                 Ok(scope) => scope,
                 Err(message) => {
@@ -1689,16 +1710,18 @@ async fn async_main(mut cli: Cli) {
             cli_exit(code);
         }
         Command::McpServer {
+            workspace,
             allow_mutate,
             session_id,
-            ..
         } => {
+            let workspace = workspace.map(std::path::PathBuf::from);
             let presence = if cli_host_route == CliHostRoute::ServiceProjection {
                 crate::cli_presence::attach_cli_presence("mcp-server").await
             } else {
                 None
             };
             let code = mcp_server::run_stdio(mcp_server::McpServerOptions {
+                workspace,
                 allow_mutate,
                 session_id,
             })

@@ -432,7 +432,7 @@ pub(crate) async fn run_rpc(run_args: Vec<String>, approval_timeout: std::time::
                             id,
                             json!({
                                 "protocol": protocol(),
-                                "serverInfo": {"name": crate::host_identity::app(), "version": env!("CARGO_PKG_VERSION")},
+                                "serverInfo": {"name": crate::host_identity::app(), "version": crate::host_identity::version()},
                                 "methods": ["initialize", "prompt", "abort", "ping", "shutdown", "approval/respond"],
                                 "notifications": ["event", "approval/request", "approval/expired"],
                                 "approvalTimeoutSecs": approval_timeout.as_secs(),

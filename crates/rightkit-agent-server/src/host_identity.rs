@@ -38,6 +38,7 @@ pub struct HostIdentity {
     github_client_id: Option<String>,
     homepage: Option<String>,
     harness_radar: Option<HarnessRadarData>,
+    version: &'static str,
 }
 
 impl HostIdentity {
@@ -61,6 +62,7 @@ impl HostIdentity {
             github_client_id: None,
             homepage: None,
             harness_radar: None,
+            version: env!("CARGO_PKG_VERSION"),
             app,
         }
     }
@@ -109,6 +111,14 @@ impl HostIdentity {
         self
     }
 
+    /// The app's own version (its crate's `env!("CARGO_PKG_VERSION")`): reported by `--version`,
+    /// the health and status routes, the crash reports, the MCP server info and the call journal.
+    /// Without one the version of this library is reported.
+    pub fn with_version(mut self, version: &'static str) -> Self {
+        self.version = version;
+        self
+    }
+
     /// The app name.
     pub fn app(&self) -> &str {
         &self.app
@@ -142,6 +152,11 @@ impl HostIdentity {
     /// The app's homepage, if it has one.
     pub fn homepage(&self) -> Option<&str> {
         self.homepage.as_deref()
+    }
+
+    /// The app's version.
+    pub fn version(&self) -> &'static str {
+        self.version
     }
 
     /// The harness-radar watch-list, if the app has one.
@@ -184,6 +199,11 @@ pub(crate) fn home_dir() -> &'static str {
 /// The `~/.config` folder name.
 pub(crate) fn config_dir() -> &'static str {
     host().config_dir()
+}
+
+/// The app's version, for every place the server reports one.
+pub(crate) fn version() -> &'static str {
+    host().version()
 }
 
 /// A wire schema id or a label in the app's namespace: `{app}.{name}`.

@@ -2,7 +2,7 @@
 
 Agent server host: daemon API routes, CLI and interactive-session runtime and session hosting for coding-agent applications.
 
-Call `run(identity, skill_catalog, skill_host)` from a thin binary. Moved into RightKit from the CodeRight engine binary on 2026-11-01.
+Call `run(identity)` from a thin binary. Moved into RightKit from the CodeRight engine binary on 2026-11-01; CodeRight's current binary (36356aa9b) is merged in (0.3.0).
 
 ## Host identity
 
@@ -13,10 +13,16 @@ let identity = HostIdentity::new("myapp")          // everything derives from th
     .with_github_client_id("<public client id>")   // optional: Github sign-in
     .with_homepage("https://example.com/myapp")    // optional: provider attribution
     .with_harness_radar(watch_list);               // optional: /runtime/harness-radar
-rightkit_agent_server::run(identity, skill_catalog, skill_host);
+rightkit_agent_server::run(identity);
 ```
 
 An app that keeps existing data passes its old name and gets the same paths, ids, headers and digests as before. In this crate's docs and help text `{app}` stands for the app name.
+
+Before `run`, the host names its environment prefix, state folder and display name (`rightkit_agent_config::ensure_host_names`), calls `rightkit_agent_server::scrub_inherited_licence_env()`, and sets the options of the shared crates it wants. `with_version(env!("CARGO_PKG_VERSION"))` makes the server report the host's version.
+
+## Host options
+
+`host_options` holds the conventions one host wants and another may not (guest links and the LAN listener, the `rpc`, `ssh` and `contract` commands, the cloud workspace routes, bundled skills, tool registry controls, `/web` client files, and a dozen smaller ones). Each is set once, before `run`, and reads as this crate's own behaviour when nobody sets it.
 
 ## Features
 

@@ -410,7 +410,7 @@ fn workflow_schedule_cutover(
 
 pub(crate) fn workflow_schedule_cutover_enabled() -> bool {
     matches!(
-        std::env::var("RIGHTKIT_WORKFLOW_SCHEDULE_CUTOVER").as_deref(),
+        std::env::var(rightkit_agent_config::env_name("WORKFLOW_SCHEDULE_CUTOVER")).as_deref(),
         Ok("1") | Ok("true") | Ok("TRUE")
     )
 }

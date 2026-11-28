@@ -82,7 +82,7 @@ pub fn host_license_service(
         &service_name(port),
         "engine-license",
         SERVICE_RANK,
-        env!("CARGO_PKG_VERSION"),
+        crate::host_identity::version(),
     )
     .map_err(|error| error.to_string())?;
     let registration = Registration::new(identity)

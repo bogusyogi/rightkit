@@ -167,14 +167,22 @@ pub fn detect_from_config<B: rightkit_llm::agent_providers::KeyStoreBackend>(
         .any(|route| !route.api_key_required && route.model == config.model.default_model);
     // A route that names an environment variable holding its key is a configured credential
     // (headless/CI and shell-profile workflows use it instead of the keychain) when the host
-    // allows provider keys from the environment; presence only, the value is never read.
+    // allows provider keys from the environment. The name is looked up through the host's
+    // credential source, the same authority that reads the key at run time, so a name that
+    // authority refuses never counts here either.
     let env_keyed_route = crate::host_options::provider_keys_from_environment()
         && config.provider_routes.values().any(|route| {
             route
                 .api_key_env
                 .as_deref()
-                .and_then(|name| std::env::var(name).ok())
-                .is_some_and(|value| !value.trim().is_empty())
+                .map(str::trim)
+                .and_then(|name| {
+                    rightkit_llm::agent_providers::host_credentials::host()
+                        .route_key(name)
+                        .ok()
+                        .flatten()
+                })
+                .is_some_and(|found| !found.value.trim().is_empty())
         });
     let has_credential = credential_free_route
         || env_keyed_route

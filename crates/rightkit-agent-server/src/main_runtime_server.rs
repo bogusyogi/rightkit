@@ -485,33 +485,24 @@ async fn serve(
         eprintln!("[serve] provider extension registration unavailable: {error}");
     }
 
-    // FM-145: the daemon decides Pro itself. A release daemon opens the licence record the shell's
-    // licence owner maintains (locators only: no token, key or device id is ever passed in) and
-    // verifies it live through `EngineEntitlements`, so a refresh, revocation or new activation
-    // needs no restart. Without locators (a CLI or standalone daemon) it stays on the Free tier.
-    // The owner delivers its snapshot over the daemon's private IPC (`license.snapshot`), which
-    // identifies the peer process (rightkit#1501); the service stays published while this function
-    // runs and is released when it returns.
-    let mut _license_service: Option<rightkit_daemon::Service> = None;
-    {
-        if let Some(locators) = crate::license::launch_locators() {
-            match crate::license::LicenseGate::open(locators) {
-                Ok(gate) => {
-                    let gate = std::sync::Arc::new(gate);
-                    state = state.with_license_gate(gate.clone());
-                    match crate::license_ipc::host_license_service(gate, locators, actual_port) {
-                        Ok(service) => _license_service = service,
-                        Err(error) => eprintln!(
-                            "[license] licence snapshot service unavailable, running as Free: {error}"
-                        ),
-                    }
-                }
-                Err(error) => {
-                    eprintln!("[license] licence gate unavailable, running as Free: {error}")
-                }
+    // FM-145: the daemon decides Pro itself from the entitlement snapshot the licence owner (the
+    // desktop shell) delivers over the daemon's current-user-only local transport, service
+    // `engine-license-<port>`, method `license.snapshot`; the peer is verified by executable and
+    // code signature before a byte of the frame is read. Until the first accepted delivery, and
+    // whenever the snapshot is absent, forged, expired or unreadable, the gate is Free (fail
+    // closed). The gate is attached for every daemon; a daemon started without the licence owner's
+    // executable and a signing identity (a CLI or standalone `serve`) hosts no service and stays
+    // Free. The service stays published while this function runs and is released when it returns.
+    let license_gate = std::sync::Arc::new(crate::license::LicenseGate::new());
+    state = state.with_license_gate(license_gate.clone());
+    let _license_service =
+        match crate::license_ipc::host_launch_license_service(license_gate, actual_port) {
+            Ok(service) => service,
+            Err(error) => {
+                eprintln!("[license] licence service unavailable, running as Free: {error}");
+                None
             }
-        }
-    }
+        };
 
     // FM-100: eagerly initialize the global single-flight MCP pool at daemon
     // startup so concurrent session loads dedupe to one in-flight build (the

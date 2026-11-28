@@ -5,7 +5,7 @@
 //! workspace is trusted, the project's `.claude/commands/` and
 //! `.{app}/commands/` (later roots override earlier ones). Parsing,
 //! discovery, `$ARGUMENTS`/`$1..$n` and `@file` live in
-//! `rightkit_agent_host_traits::skill_host::custom_commands`; a host that sets
+//! `rightkit_agent_skills::custom_commands`; a host that sets
 //! `host_options::custom_command_template_arguments` uses this file's own template substitution
 //! (`substitute`: `$@`, `${@:N:L}`, `${N:-default}`) instead; `!{cmd}` and backtick-bang run through
 //! the policy-backed `inline_shell_runner::expand_custom_command`, so an
@@ -18,11 +18,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use rightkit_agent_host_traits::skill_host::custom_commands::{
+use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
+use rightkit_agent_skills::custom_commands::{
     discover, expand_file_references, listing, resolve, substitute_arguments, CommandScope,
     CustomCommand,
 };
-use rightkit_agent_policy::{PermissionMode, WorkspaceTrust};
 
 /// Per-turn settings from a command's frontmatter, tied to the prompt it expanded to.
 /// `allowed_tools` holds host tool names (already mapped from Claude Code names).

@@ -310,10 +310,6 @@ pub(crate) struct SessionRuntimeOptions {
     pub(crate) allowed_tools: Vec<String>,
     pub(crate) disallowed_tools: Vec<String>,
     pub(crate) toolset: Option<String>,
-    /// Independent verifier selected by a resolved role pack. This remains
-    /// child-local until the engine's verifier runner consumes it.
-    pub(crate) verifier_model: Option<String>,
-    pub(crate) verifier_is_independent: Option<bool>,
     /// Tool profile that narrows this session's own tools only. Unlike `allowed_tools`/`toolset`
     /// (a ceiling every child inherits), children do not inherit it: an orchestrator that may not
     /// read files can still spawn a reader that can. Set from `run --own-toolset` or a role's
@@ -424,8 +420,6 @@ pub(crate) struct SubagentFork {
     model: Option<String>,
     fallback_models: Vec<String>,
     toolset: Option<String>,
-    verifier_model: Option<String>,
-    verifier_is_independent: Option<bool>,
     own_toolset: Option<String>,
     effort: Option<String>,
     inference_selection: Option<crate::inference_runtime::InferenceSelection>,
@@ -455,8 +449,6 @@ impl SubagentFork {
             disallowed_tools: self.disallowed_tools.clone(),
             fallback_models: self.fallback_models.clone(),
             toolset: self.toolset.clone(),
-            verifier_model: self.verifier_model.clone(),
-            verifier_is_independent: self.verifier_is_independent,
             own_toolset: self.own_toolset.clone(),
             effort: self.effort.clone(),
             budget_ceiling_usd: self.budget_ceiling_usd,
@@ -810,8 +802,6 @@ pub(crate) fn build_subagent_fork(
         model,
         fallback_models: Vec::new(),
         toolset: None,
-        verifier_model: None,
-        verifier_is_independent: None,
         own_toolset: None,
         effort: parent_session.and_then(|p| lock_recover(&p.effort, "session.effort").clone()),
         inference_selection: parent_session
@@ -923,8 +913,6 @@ impl SubagentFork {
                 resolved.pack.role
             )
         })?;
-        self.verifier_model = Some(verifier_model.to_string());
-        self.verifier_is_independent = Some(resolved.verifier_binding.independent);
         self.effort = Some(resolved.pack.reasoning.clone());
         self.max_iterations = Some(
             self.max_iterations

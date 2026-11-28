@@ -120,7 +120,6 @@ fn openapi_operation(endpoint: &ApiEndpoint, openapi_path: &str, method: &str) -
                 | "/runtime/context/adapt/insights"
                 | "/runtime/context/adapt/apply-taste"
                 | "/runtime/context/adapt/recall"
-                | "/sessions/{id}/clone"
         );
         operation.insert(
             "requestBody".to_string(),
@@ -190,15 +189,33 @@ fn unavailable_response_schema(method: &str, path: &str) -> Option<Value> {
     }
 }
 
+/// A header name of the host's namespace as the contract writes it (`X-<App>-<Name>`): the name
+/// [`crate::host_identity::header`] gives, each dash-separated word capitalised.
+fn host_header_title(name: &str) -> String {
+    crate::host_identity::header(name)
+        .split('-')
+        .map(|word| {
+            let mut chars = word.chars();
+            chars
+                .next()
+                .map(|first| first.to_ascii_uppercase().to_string() + chars.as_str())
+                .unwrap_or_default()
+        })
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
 fn trigger_delivery_header_parameters(path: &str) -> Vec<Value> {
     let (signature, delivery, event) = match path {
-        "/triggers/{id}/deliver/github" => {
-            ("X-Hub-Signature-256", "X-GitHub-Delivery", "X-GitHub-Event")
-        }
+        "/triggers/{id}/deliver/github" => (
+            "X-Hub-Signature-256".to_string(),
+            "X-GitHub-Delivery".to_string(),
+            "X-GitHub-Event".to_string(),
+        ),
         "/triggers/{id}/deliver/generic" => (
-            "X-RightKit-Signature-256",
-            "X-RightKit-Delivery-Id",
-            "X-RightKit-Event",
+            host_header_title("signature-256"),
+            host_header_title("delivery-id"),
+            host_header_title("event"),
         ),
         _ => return Vec::new(),
     };

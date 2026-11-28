@@ -10954,7 +10954,7 @@ fn welcome_lines(
             "Right",
             Style::default().fg(theme.accent()).add_modifier(bold),
         ),
-        Span::styled(format!("  {}", env!("CARGO_PKG_VERSION")), dim),
+        Span::styled(format!("  {}", crate::host_identity::version()), dim),
     ])];
     if model.trim().is_empty() {
         lines.push(Line::from(vec![

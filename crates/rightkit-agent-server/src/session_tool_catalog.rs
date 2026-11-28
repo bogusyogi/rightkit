@@ -179,6 +179,11 @@ pub(crate) fn build_session_tool_registry_for_plugins(
         }
     }
 
+    // A host that must control tools the shared tools crate registers (its media tools take a
+    // model-chosen `binary` and `extra_args`) replaces them here, once per registry. Only tools
+    // already registered are replaced, so no filter above is widened.
+    crate::host_options::apply_tool_registry_controls(&mut registry);
+
     // Final authoritative policy, applied AFTER the builders: build_for_allowed
     // unions ALWAYS_ON tools and expands group aliases (shell -> powershell,
     // git -> git_read/...) onto the filtered selection, so a deny checked only

@@ -1,4 +1,4 @@
-use rightkit_agent_host_traits::skill_host::{CommandAction, CommandResult};
+use rightkit_agent_skills::{CommandAction, CommandResult};
 use std::path::PathBuf;
 use std::sync::Arc;
 

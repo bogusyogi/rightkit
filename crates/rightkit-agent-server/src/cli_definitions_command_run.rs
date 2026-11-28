@@ -3,9 +3,6 @@
 
 #[derive(clap::Args, Debug, Clone, PartialEq)]
 pub struct RunArgs {
-    /// Deprecated and ignored. When context is unavailable the turn runs visibly degraded.
-    #[arg(long, value_enum, default_value_t = ContextMode::Membrane, hide = true)]
-    pub context_mode: ContextMode,
     /// The prompt. Optional when stdin or a session-only mode supplies it.
     #[arg(required_unless_present_any = ["pipe", "session_id", "print", "input_format"])]
     pub prompt: Option<String>,
@@ -288,34 +285,6 @@ pub enum CliColor {
     Never,
     #[default]
     Auto,
-}
-
-#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[clap(rename_all = "kebab-case")]
-pub enum ContextMode {
-    #[default]
-    Membrane,
-    Direct,
-}
-
-impl ContextMode {
-    /// The effective internal context mode. The `--context-mode` flag is a
-    /// deprecated no-op; Membrane is always attempted and unavailable
-    /// context degrades visibly at runtime, never to a shadow store.
-    pub fn effective() -> Self {
-        Self::Membrane
-    }
-}
-
-/// Print the one-line deprecation warning when argv still carries the
-/// removed `--context-mode` flag. The flag keeps parsing so scripts do not break.
-pub fn warn_deprecated_context_mode_flag() {
-    if std::env::args().any(|arg| arg == "--context-mode" || arg.starts_with("--context-mode=")) {
-        eprintln!(
-            "warning: --context-mode is deprecated and ignored; {} runs visibly degraded when context is unavailable.",
-            rightkit_agent_config::app_name()
-        );
-    }
 }
 
 #[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq, Default)]
