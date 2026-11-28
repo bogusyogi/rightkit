@@ -69,10 +69,23 @@ fn removed_flags() -> Vec<(&'static [&'static str], &'static str)> {
 }
 
 fn hide_removed_items(mut command: clap::Command) -> clap::Command {
-    fn hide_at(command: clap::Command, path: &[&str]) -> clap::Command {
+    fn hide_at(command: clap::Command, path: &[&'static str]) -> clap::Command {
         match path {
             [] => command,
-            [last] => command.mut_subcommand(*last, |sub| sub.hide(true)),
+            // The removed command is replaced by a hidden stand-in with the same name, no alias,
+            // no help flag and one catch-all argument, so any way of typing it parses and is
+            // then refused by `reject_removed_items` as an unknown subcommand.
+            [last] => command.mut_subcommand(*last, |_| {
+                clap::Command::new(*last)
+                    .hide(true)
+                    .disable_help_flag(true)
+                    .arg(
+                        clap::Arg::new("removed_command_arguments")
+                            .num_args(0..)
+                            .trailing_var_arg(true)
+                            .allow_hyphen_values(true),
+                    )
+            }),
             [first, rest @ ..] => command.mut_subcommand(*first, |sub| hide_at(sub, rest)),
         }
     }
@@ -107,9 +120,17 @@ pub(crate) fn reject_removed_items(
     matches: &clap::ArgMatches,
     command: &clap::Command,
 ) -> Result<(), clap::Error> {
-    let refuse = |kind: clap::error::ErrorKind, text: String| {
-        let mut command = command.clone();
-        Err(command.error(kind, text))
+    // The error is raised on the command that owns the removed item, so its usage line is the
+    // one clap would print for an unknown subcommand or flag there.
+    let refuse = |owner: &[&str], kind: clap::error::ErrorKind, text: String| {
+        let mut owning = command.clone();
+        for segment in owner {
+            match owning.find_subcommand(segment) {
+                Some(sub) => owning = sub.clone(),
+                None => break,
+            }
+        }
+        Err(owning.error(kind, text))
     };
     for path in removed_subcommands() {
         let mut current = matches;
@@ -125,6 +146,7 @@ pub(crate) fn reject_removed_items(
         }
         if present {
             return refuse(
+                &path[..path.len().saturating_sub(1)],
                 clap::error::ErrorKind::InvalidSubcommand,
                 format!(
                     "unrecognized subcommand '{}'",
@@ -150,6 +172,7 @@ pub(crate) fn reject_removed_items(
             && current.value_source(id) == Some(clap::parser::ValueSource::CommandLine)
         {
             return refuse(
+                path,
                 clap::error::ErrorKind::UnknownArgument,
                 format!("unexpected argument '--{}' found", id.replace('_', "-")),
             );

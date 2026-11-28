@@ -208,7 +208,11 @@ fn host_header_title(name: &str) -> String {
             .join("-")
     }
     let app = rightkit_agent_config::app_name();
-    if !app.is_empty() && app.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+    // The display spelling is used only when it is the app id in another letter case, so the
+    // document never names a header the server does not read.
+    if app.eq_ignore_ascii_case(crate::host_identity::app())
+        && app.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
         format!("X-{app}-{}", capitalised(name))
     } else {
         capitalised(&crate::host_identity::header(name))

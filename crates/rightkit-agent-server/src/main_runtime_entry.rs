@@ -699,11 +699,10 @@ async fn run_print_launch(launch: LaunchCli, prompt: String) {
 /// commands, not start a session with the word as the prompt.
 const DELETED_COMMANDS: &[&str] = &["cli-runtime", "__dogfood-inventory"];
 
-/// [`DELETED_COMMANDS`] plus the commands this host's options removed (`acp-server` and its alias
-/// `acp` when `host_options::acp_server` is off).
+/// [`DELETED_COMMANDS`] plus the command this host's options removed (`acp-server` when
+/// `host_options::acp_server` is off; its alias `acp` goes with it and is then an ordinary word).
 fn deleted_command(name: &str) -> bool {
-    DELETED_COMMANDS.contains(&name)
-        || (!crate::host_options::acp_server() && matches!(name, "acp-server" | "acp"))
+    DELETED_COMMANDS.contains(&name) || (!crate::host_options::acp_server() && name == "acp-server")
 }
 
 fn interactive_layout_invocation(args: &[String]) -> bool {

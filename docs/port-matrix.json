@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-11-25T12:12:17Z",
-  "rightkitHead": "751cb0492f0b98caa25dfabff0c66f22caf8e75c",
+  "generatedAt": "2026-11-28T09:07:50Z",
+  "rightkitHead": "41539d567ceb5e1fbda60181e66d3b4f69340f6a",
   "legend": [
     {
       "state": "current",
@@ -137,7 +137,7 @@
       "group": "mandatory-set app",
       "dir": "/Volumes/D/claude/coderight",
       "present": true,
-      "head": "58136ce0256a86accb6e839d8883d59a203ce8f7",
+      "head": "36356aa9bcfb0e038fc5816acb3eb4274c1f5d0b",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -157,9 +157,9 @@
         "problems": []
       },
       "scan": {
-        "manifests": 26,
+        "manifests": 23,
         "parseErrors": 0,
-        "pins": 91,
+        "pins": 102,
         "vendored": 0
       },
       "progress": {
@@ -172,14 +172,14 @@
           "openRows": [],
           "ownersRequired": 30,
           "ownersPinned": 30,
-          "ownersCurrent": 13,
-          "percent": 43
+          "ownersCurrent": 5,
+          "percent": 17
         },
         "addons": {
           "total": 84,
-          "pinned": 25,
-          "current": 0,
-          "stale": 6,
+          "pinned": 23,
+          "current": 3,
+          "stale": 0,
           "local": 0
         },
         "exceptions": {
@@ -191,8 +191,8 @@
         },
         "releasePin": {
           "state": "stale",
-          "req": "0.6.75",
-          "latest": "0.6.79",
+          "req": "0.6.89",
+          "latest": "0.6.92",
           "current": false,
           "dev": true
         },
@@ -228,7 +228,7 @@
             },
             {
               "name": "@rightkit/tauri",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -262,7 +262,7 @@
           "owners": [
             {
               "name": "rightkit-job-queue",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "rightkit-child-process",
@@ -279,7 +279,7 @@
           "owners": [
             {
               "name": "rightkit-job-queue",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "rightkit-sidecar",
@@ -348,7 +348,7 @@
           "owners": [
             {
               "name": "rightkit-db",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -361,11 +361,11 @@
           "owners": [
             {
               "name": "rightkit-app-settings",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "@rightkit/settings-ui",
-              "state": "current"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -378,7 +378,7 @@
           "owners": [
             {
               "name": "rightkit-credentials",
-              "state": "current"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -391,7 +391,7 @@
           "owners": [
             {
               "name": "rightkit-license",
-              "state": "current"
+              "state": "ahead"
             },
             {
               "name": "rightkit-device",
@@ -412,7 +412,7 @@
           "owners": [
             {
               "name": "rightkit-license",
-              "state": "current"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -425,7 +425,7 @@
           "owners": [
             {
               "name": "@rightkit/legal",
-              "state": "current"
+              "state": "ahead"
             },
             {
               "name": "@rightkit/legal-ui",
@@ -433,7 +433,7 @@
             },
             {
               "name": "@rightkit/onboarding",
-              "state": "current"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -450,7 +450,7 @@
             },
             {
               "name": "@rightkit/logs",
-              "state": "current"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -463,7 +463,7 @@
           "owners": [
             {
               "name": "rightkit-crash",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -476,7 +476,7 @@
           "owners": [
             {
               "name": "rightkit-http",
-              "state": "current"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -489,7 +489,7 @@
           "owners": [
             {
               "name": "@rightkit/app-update",
-              "state": "current"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -575,14 +575,14 @@
           "system": "swiftpm",
           "name": "CodeRightMac",
           "pinKind": "tag",
-          "pinVersion": "0.9.6",
+          "pinVersion": "0.9.5",
           "pinRef": "",
-          "requirement": "exact 0.9.6",
+          "requirement": "exact 0.9.5",
           "products": [
             "RightKitAppleCredentials"
           ],
           "state": "ahead",
-          "detail": "0.9.6 > 0.9.0"
+          "detail": "0.9.5 > 0.9.0"
         }
       ],
       "rkReady": [],
@@ -654,7 +654,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.57",
-          "latest": "0.6.79",
+          "latest": "0.6.92",
           "current": false,
           "dev": true
         },
@@ -1079,7 +1079,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.57",
-          "latest": "0.6.79",
+          "latest": "0.6.92",
           "current": false,
           "dev": true
         },
@@ -1440,7 +1440,7 @@
       "group": "mandatory-set app",
       "dir": "/Volumes/D/claude/heardright",
       "present": true,
-      "head": "100fc45dd733d3b2d500fc107116f32dfbd08e2c",
+      "head": "0b5caee3262cfd3f14b655ba7e272b7b3fc05e86",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -1452,56 +1452,51 @@
       "agentSurface": {
         "row": "M22",
         "status": "recorded",
-        "role": "absent",
-        "entrypoints": [],
+        "role": "host",
+        "entrypoints": [
+          "tauri-app-next/src-tauri/src/agent_tools.rs#start",
+          "tauri-app-next/src-tauri/src/agent_tools.rs#profile"
+        ],
         "unverifiedEntrypoints": 0,
         "problems": []
       },
       "scan": {
-        "manifests": 18,
+        "manifests": 11,
         "parseErrors": 0,
-        "pins": 105,
+        "pins": 74,
         "vendored": 0
       },
       "progress": {
         "foundation": {
           "profile": "desktop",
           "rowsTotal": 21,
-          "rowsDeclared": 20,
+          "rowsDeclared": 21,
           "rowsRuled": 0,
-          "rowsOpen": 1,
-          "openRows": [
-            {
-              "id": "M22",
-              "name": "Agent surface",
-              "missing": [
-                "rightkit-agent-tools"
-              ]
-            }
-          ],
+          "rowsOpen": 0,
+          "openRows": [],
           "ownersRequired": 30,
-          "ownersPinned": 29,
-          "ownersCurrent": 6,
-          "percent": 20
+          "ownersPinned": 30,
+          "ownersCurrent": 5,
+          "percent": 17
         },
         "addons": {
           "total": 84,
-          "pinned": 23,
-          "current": 1,
-          "stale": 15,
+          "pinned": 25,
+          "current": 5,
+          "stale": 0,
           "local": 0
         },
         "exceptions": {
-          "total": 10,
-          "open": 10,
+          "total": 0,
+          "open": 0,
           "expired": 0,
           "withoutIssueOrExpiry": 0,
           "unmatched": 0
         },
         "releasePin": {
           "state": "stale",
-          "req": "0.6.52",
-          "latest": "0.6.79",
+          "req": "0.6.90",
+          "latest": "0.6.92",
           "current": false,
           "dev": true
         },
@@ -1529,15 +1524,15 @@
           "owners": [
             {
               "name": "rightkit-tauri-shell",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "rightkit-device",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "@rightkit/tauri",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -1550,15 +1545,15 @@
           "owners": [
             {
               "name": "@rightkit/react-shell",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "@rightkit/platform-ui",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "@rightkit/theme",
-              "state": "stale"
+              "state": "current"
             }
           ],
           "missing": []
@@ -1571,11 +1566,11 @@
           "owners": [
             {
               "name": "rightkit-job-queue",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "rightkit-child-process",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -1588,7 +1583,7 @@
           "owners": [
             {
               "name": "rightkit-job-queue",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "rightkit-sidecar",
@@ -1605,7 +1600,7 @@
           "owners": [
             {
               "name": "rightkit-child-process",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -1618,7 +1613,7 @@
           "owners": [
             {
               "name": "rightkit-daemon",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -1631,7 +1626,7 @@
           "owners": [
             {
               "name": "rightkit-daemon",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -1644,7 +1639,7 @@
           "owners": [
             {
               "name": "rightkit-fs",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -1657,7 +1652,7 @@
           "owners": [
             {
               "name": "rightkit-db",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -1670,11 +1665,11 @@
           "owners": [
             {
               "name": "rightkit-app-settings",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "@rightkit/settings-ui",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -1687,7 +1682,7 @@
           "owners": [
             {
               "name": "rightkit-credentials",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -1700,15 +1695,15 @@
           "owners": [
             {
               "name": "rightkit-license",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "rightkit-device",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "@rightkit/license",
-              "state": "current"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -1721,7 +1716,7 @@
           "owners": [
             {
               "name": "rightkit-license",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -1734,15 +1729,15 @@
           "owners": [
             {
               "name": "@rightkit/legal",
-              "state": "current"
+              "state": "ahead"
             },
             {
               "name": "@rightkit/legal-ui",
-              "state": "stale"
+              "state": "current"
             },
             {
               "name": "@rightkit/onboarding",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -1755,11 +1750,11 @@
           "owners": [
             {
               "name": "rightkit-logs",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "@rightkit/logs",
-              "state": "current"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -1772,7 +1767,7 @@
           "owners": [
             {
               "name": "rightkit-crash",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -1785,7 +1780,7 @@
           "owners": [
             {
               "name": "rightkit-http",
-              "state": "current"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -1798,7 +1793,7 @@
           "owners": [
             {
               "name": "@rightkit/app-update",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -1824,11 +1819,11 @@
           "owners": [
             {
               "name": "rightkit-qa",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "@rightkit/qa",
-              "state": "stale"
+              "state": "current"
             },
             {
               "name": "@rightkit/qa-chrome",
@@ -1840,17 +1835,15 @@
         {
           "id": "M22",
           "name": "Agent surface",
-          "status": "open",
+          "status": "declared",
           "ratified": false,
           "owners": [
             {
               "name": "rightkit-agent-tools",
-              "state": "missing"
+              "state": "ahead"
             }
           ],
-          "missing": [
-            "rightkit-agent-tools"
-          ]
+          "missing": []
         }
       ],
       "appleTargets": [
@@ -1859,41 +1852,49 @@
           "system": "xcodegen",
           "name": "HeardRightNative",
           "pinKind": "tag",
-          "pinVersion": "0.8.1",
+          "pinVersion": "0.9.5",
           "pinRef": "",
-          "requirement": "exact 0.8.1",
+          "requirement": "exact 0.9.5",
           "products": [
+            "RightKitAccount",
             "RightKitAppleCredentials",
+            "RightKitAudio",
             "RightKitCloudSync",
             "RightKitCredentials",
             "RightKitDiagnostics",
             "RightKitImportQueue",
             "RightKitIntents",
+            "RightKitLLM",
             "RightKitLicense",
             "RightKitLiveActivity",
             "RightKitPurchases",
             "RightKitSpeech",
             "RightKitStore",
             "RightKitUI",
+            "RightKitVoiceCommand",
             "RightKitWatchBridge"
           ],
-          "state": "stale",
-          "detail": "0.8.1→0.9.0"
+          "state": "ahead",
+          "detail": "0.9.5 > 0.9.0"
         },
         {
           "file": "tauri-app-next/macos-native/HeardRightPillMac/Package.swift",
           "system": "swiftpm",
           "name": "HeardRightPillMac",
           "pinKind": "tag",
-          "pinVersion": "0.9.0",
+          "pinVersion": "0.9.5",
           "pinRef": "",
-          "requirement": "exact 0.9.0",
+          "requirement": "exact 0.9.5",
           "products": [
+            "RightKitActionChannel",
             "RightKitAppleCredentials",
+            "RightKitCloudSync",
+            "RightKitDictationPill",
+            "RightKitMenuBarHelper",
             "RightKitOverlay"
           ],
-          "state": "current",
-          "detail": "=0.9.0"
+          "state": "ahead",
+          "detail": "0.9.5 > 0.9.0"
         }
       ],
       "rkReady": [],
@@ -1968,7 +1969,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.57",
-          "latest": "0.6.79",
+          "latest": "0.6.92",
           "current": false,
           "dev": true
         },
@@ -2390,7 +2391,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.40",
-          "latest": "0.6.79",
+          "latest": "0.6.92",
           "current": false,
           "dev": true
         },
@@ -2751,7 +2752,7 @@
       "group": "mandatory-set app",
       "dir": "/Volumes/D/claude/pulse",
       "present": true,
-      "head": "e2bb9acbf481fb9faffea79ddb8b817da230ffbb",
+      "head": "68b834dc80fd6ad0b102dae1ab95cdfa4eadca4e",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -2772,9 +2773,9 @@
         "problems": []
       },
       "scan": {
-        "manifests": 21,
+        "manifests": 20,
         "parseErrors": 0,
-        "pins": 133,
+        "pins": 169,
         "vendored": 0
       },
       "progress": {
@@ -2787,27 +2788,27 @@
           "openRows": [],
           "ownersRequired": 30,
           "ownersPinned": 30,
-          "ownersCurrent": 8,
-          "percent": 27
+          "ownersCurrent": 5,
+          "percent": 17
         },
         "addons": {
           "total": 84,
-          "pinned": 25,
-          "current": 1,
-          "stale": 8,
+          "pinned": 31,
+          "current": 3,
+          "stale": 1,
           "local": 0
         },
         "exceptions": {
-          "total": 22,
-          "open": 22,
+          "total": 12,
+          "open": 12,
           "expired": 0,
           "withoutIssueOrExpiry": 0,
-          "unmatched": 8
+          "unmatched": 5
         },
         "releasePin": {
           "state": "stale",
-          "req": "0.6.57",
-          "latest": "0.6.79",
+          "req": "0.6.88",
+          "latest": "0.6.92",
           "current": false,
           "dev": true
         },
@@ -2823,7 +2824,7 @@
       "flags": {
         "prePushHook": "absent",
         "switches": true,
-        "journeys": false,
+        "journeys": true,
         "releaseConfig": "code"
       },
       "foundationRows": [
@@ -2835,15 +2836,15 @@
           "owners": [
             {
               "name": "rightkit-tauri-shell",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "rightkit-device",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "@rightkit/tauri",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -2856,15 +2857,15 @@
           "owners": [
             {
               "name": "@rightkit/react-shell",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "@rightkit/platform-ui",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "@rightkit/theme",
-              "state": "stale"
+              "state": "current"
             }
           ],
           "missing": []
@@ -2877,11 +2878,11 @@
           "owners": [
             {
               "name": "rightkit-job-queue",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "rightkit-child-process",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -2894,7 +2895,7 @@
           "owners": [
             {
               "name": "rightkit-job-queue",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "rightkit-sidecar",
@@ -2911,7 +2912,7 @@
           "owners": [
             {
               "name": "rightkit-child-process",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -2924,7 +2925,7 @@
           "owners": [
             {
               "name": "rightkit-daemon",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -2937,7 +2938,7 @@
           "owners": [
             {
               "name": "rightkit-daemon",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -2950,7 +2951,7 @@
           "owners": [
             {
               "name": "rightkit-fs",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -2963,7 +2964,7 @@
           "owners": [
             {
               "name": "rightkit-db",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -2976,11 +2977,11 @@
           "owners": [
             {
               "name": "rightkit-app-settings",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "@rightkit/settings-ui",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -2993,7 +2994,7 @@
           "owners": [
             {
               "name": "rightkit-credentials",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -3006,15 +3007,15 @@
           "owners": [
             {
               "name": "rightkit-license",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "rightkit-device",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "@rightkit/license",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -3027,7 +3028,7 @@
           "owners": [
             {
               "name": "rightkit-license",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -3040,7 +3041,7 @@
           "owners": [
             {
               "name": "@rightkit/legal",
-              "state": "current"
+              "state": "ahead"
             },
             {
               "name": "@rightkit/legal-ui",
@@ -3048,7 +3049,7 @@
             },
             {
               "name": "@rightkit/onboarding",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -3061,11 +3062,11 @@
           "owners": [
             {
               "name": "rightkit-logs",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "@rightkit/logs",
-              "state": "current"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -3078,7 +3079,7 @@
           "owners": [
             {
               "name": "rightkit-crash",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -3091,7 +3092,7 @@
           "owners": [
             {
               "name": "rightkit-http",
-              "state": "current"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -3104,7 +3105,7 @@
           "owners": [
             {
               "name": "@rightkit/app-update",
-              "state": "current"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -3130,7 +3131,7 @@
           "owners": [
             {
               "name": "rightkit-qa",
-              "state": "stale"
+              "state": "ahead"
             },
             {
               "name": "@rightkit/qa",
@@ -3151,7 +3152,7 @@
           "owners": [
             {
               "name": "rightkit-agent-tools",
-              "state": "stale"
+              "state": "ahead"
             }
           ],
           "missing": []
@@ -3182,36 +3183,42 @@
           "system": "swiftpm",
           "name": "PulseHub",
           "pinKind": "tag",
-          "pinVersion": "0.8.1",
+          "pinVersion": "0.9.6",
           "pinRef": "",
-          "requirement": "exact 0.8.1",
+          "requirement": "exact 0.9.6",
           "products": [
             "RightKitAccessibility",
-            "RightKitFS"
+            "RightKitEngine",
+            "RightKitFS",
+            "RightKitHub",
+            "RightKitHubQA",
+            "RightKitSystem"
           ],
-          "state": "stale",
-          "detail": "0.8.1→0.9.0"
+          "state": "ahead",
+          "detail": "0.9.6 > 0.9.0"
         },
         {
           "file": "mac/Notch/project.yml",
           "system": "xcodegen",
           "name": "Pulse",
           "pinKind": "tag",
-          "pinVersion": "0.8.1",
+          "pinVersion": "0.9.6",
           "pinRef": "",
-          "requirement": "exact 0.8.1",
+          "requirement": "exact 0.9.6",
           "products": [
             "RightKitAccessibility",
             "RightKitAppleCredentials",
             "RightKitDB",
             "RightKitDiagnostics",
+            "RightKitEngineClient",
             "RightKitFS",
             "RightKitHotkeys",
             "RightKitOverlay",
+            "RightKitSystem",
             "RightKitWatch"
           ],
-          "state": "stale",
-          "detail": "0.8.1→0.9.0"
+          "state": "ahead",
+          "detail": "0.9.6 > 0.9.0"
         },
         {
           "file": "swift/MeshLink/Package.swift",
@@ -3334,7 +3341,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.38",
-          "latest": "0.6.79",
+          "latest": "0.6.92",
           "current": false,
           "dev": true
         },
@@ -3821,7 +3828,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.40",
-          "latest": "0.6.79",
+          "latest": "0.6.92",
           "current": false,
           "dev": true
         },
@@ -4252,7 +4259,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.4.0",
-          "latest": "0.6.79",
+          "latest": "0.6.92",
           "current": false,
           "dev": true
         },
@@ -4345,7 +4352,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.29",
-          "latest": "0.6.79",
+          "latest": "0.6.92",
           "current": false,
           "dev": true
         },
@@ -4391,7 +4398,7 @@
       "group": "tool consumer",
       "dir": "/Volumes/D/claude/legion",
       "present": true,
-      "head": "261738096b851f79ddc5ee7f2e98d1cc7aca8ae8",
+      "head": "9ade91b93725bf764ca8dd1885629d3cd8687270",
       "profile": null,
       "inMandatorySet": false,
       "declaration": {
@@ -4402,9 +4409,9 @@
       },
       "agentSurface": null,
       "scan": {
-        "manifests": 42,
+        "manifests": 45,
         "parseErrors": 0,
-        "pins": 48,
+        "pins": 55,
         "vendored": 0
       },
       "progress": {
@@ -4423,8 +4430,8 @@
         "addons": {
           "total": 114,
           "pinned": 11,
-          "current": 4,
-          "stale": 5,
+          "current": 2,
+          "stale": 1,
           "local": 0
         },
         "exceptions": {
@@ -4436,8 +4443,8 @@
         },
         "releasePin": {
           "state": "stale",
-          "req": "0.6.52",
-          "latest": "0.6.79",
+          "req": "0.6.88",
+          "latest": "0.6.92",
           "current": false,
           "dev": true
         },
@@ -4945,15 +4952,15 @@
         "update-policy"
       ],
       "private": false,
-      "source": "0.4.5",
+      "source": "0.4.7",
       "registry": "0.4.4",
-      "staged": "0.4.5",
+      "staged": "0.4.7",
       "dir": "packages/app-update",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "current",
-          "detail": "0.4.4",
+          "state": "ahead",
+          "detail": "0.4.7 > 0.4.4",
           "rows": [
             "M18"
           ]
@@ -4973,8 +4980,8 @@
           ]
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.4.2→0.4.4",
+          "state": "ahead",
+          "detail": "0.4.7 > 0.4.4",
           "rows": [
             "M18"
           ]
@@ -4994,8 +5001,8 @@
           ]
         },
         "pulse": {
-          "state": "current",
-          "detail": "0.4.4",
+          "state": "ahead",
+          "detail": "0.4.7 > 0.4.4",
           "rows": [
             "M18"
           ]
@@ -5246,9 +5253,9 @@
         "github-workflows"
       ],
       "private": false,
-      "source": "0.3.2",
-      "registry": "0.3.1",
-      "staged": "0.3.2",
+      "source": "0.3.3",
+      "registry": "0.3.2",
+      "staged": "0.3.3",
       "dir": "packages/ci",
       "toMoveFrom": {},
       "cells": {
@@ -5290,7 +5297,7 @@
         },
         "ember": {
           "state": "stale",
-          "detail": "0.2.45→0.3.1 dev"
+          "detail": "0.2.45→0.3.2 dev"
         },
         "sellright": {
           "state": "unused",
@@ -5298,7 +5305,7 @@
         },
         "legion": {
           "state": "ahead",
-          "detail": "0.3.2 > 0.3.1 dev"
+          "detail": "0.3.3 > 0.3.2 dev"
         }
       }
     },
@@ -5920,15 +5927,15 @@
         "legal-assent"
       ],
       "private": false,
-      "source": "0.6.3",
+      "source": "0.6.4",
       "registry": "0.6.3",
-      "staged": "0.6.3",
+      "staged": "0.6.4",
       "dir": "packages/legal",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "current",
-          "detail": "0.6.3",
+          "state": "ahead",
+          "detail": "0.6.4 > 0.6.3",
           "rows": [
             "M14"
           ]
@@ -5948,8 +5955,8 @@
           ]
         },
         "heardright": {
-          "state": "current",
-          "detail": "0.6.3",
+          "state": "ahead",
+          "detail": "0.6.4 > 0.6.3",
           "rows": [
             "M14"
           ]
@@ -5969,8 +5976,8 @@
           ]
         },
         "pulse": {
-          "state": "current",
-          "detail": "0.6.3",
+          "state": "ahead",
+          "detail": "0.6.4 > 0.6.3",
           "rows": [
             "M14"
           ]
@@ -6054,8 +6061,8 @@
           ]
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.4.1→0.4.2",
+          "state": "current",
+          "detail": "0.4.2",
           "rows": [
             "M14"
           ]
@@ -6120,9 +6127,9 @@
         "library-ui"
       ],
       "private": false,
-      "source": "0.2.4",
+      "source": "0.2.6",
       "registry": "",
-      "staged": "0.2.4",
+      "staged": "0.2.6",
       "dir": "packages/library-ui",
       "toMoveFrom": {},
       "cells": {
@@ -6139,8 +6146,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.2.6 (no published version)"
         },
         "mailright": {
           "state": "unused",
@@ -6189,15 +6196,15 @@
         "licensing"
       ],
       "private": false,
-      "source": "0.3.4",
+      "source": "0.3.5",
       "registry": "0.3.3",
-      "staged": "0.3.4",
+      "staged": "0.3.5",
       "dir": "packages/license",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.3.4 > 0.3.3",
+          "detail": "0.3.5 > 0.3.3",
           "rows": [
             "M12"
           ]
@@ -6217,21 +6224,11 @@
           ]
         },
         "heardright": {
-          "state": "current",
-          "detail": "0.3.3; 5 exceptions: bogusyogi/heardright#311, expires 2026-11-30",
+          "state": "ahead",
+          "detail": "0.3.5 > 0.3.3",
           "rows": [
             "M12"
-          ],
-          "exceptions": {
-            "count": 5,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/heardright#311"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "mailright": {
           "state": "stale",
@@ -6258,8 +6255,8 @@
           ]
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.3.2→0.3.3",
+          "state": "ahead",
+          "detail": "0.3.5 > 0.3.3",
           "rows": [
             "M12"
           ]
@@ -6315,15 +6312,15 @@
         "structured-logging"
       ],
       "private": false,
-      "source": "0.1.6",
+      "source": "0.1.7",
       "registry": "0.1.6",
-      "staged": "0.1.6",
+      "staged": "0.1.7",
       "dir": "packages/logs",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "current",
-          "detail": "0.1.6",
+          "state": "ahead",
+          "detail": "0.1.7 > 0.1.6",
           "rows": [
             "M15"
           ]
@@ -6343,21 +6340,11 @@
           ]
         },
         "heardright": {
-          "state": "current",
-          "detail": "0.1.6; 1 exception: bogusyogi/rightkit#1026, expires 2026-11-30",
+          "state": "ahead",
+          "detail": "0.1.7 > 0.1.6",
           "rows": [
             "M15"
-          ],
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1026"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "mailright": {
           "state": "current",
@@ -6385,8 +6372,8 @@
           ]
         },
         "pulse": {
-          "state": "current",
-          "detail": "0.1.6",
+          "state": "ahead",
+          "detail": "0.1.7 > 0.1.6",
           "rows": [
             "M15"
           ]
@@ -6786,15 +6773,15 @@
         "onboarding-ui"
       ],
       "private": false,
-      "source": "0.6.8",
+      "source": "0.6.10",
       "registry": "0.6.6",
-      "staged": "0.6.8",
+      "staged": "0.6.10",
       "dir": "packages/onboarding",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "current",
-          "detail": "0.6.6",
+          "state": "ahead",
+          "detail": "0.6.10 > 0.6.6",
           "rows": [
             "M14"
           ]
@@ -6814,8 +6801,8 @@
           ]
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.6.3→0.6.6",
+          "state": "ahead",
+          "detail": "0.6.10 > 0.6.6",
           "rows": [
             "M14"
           ]
@@ -6835,8 +6822,8 @@
           ]
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.6.5→0.6.6",
+          "state": "ahead",
+          "detail": "0.6.10 > 0.6.6",
           "rows": [
             "M14"
           ]
@@ -7016,15 +7003,15 @@
         "platform-ui"
       ],
       "private": false,
-      "source": "0.4.4",
+      "source": "0.4.5",
       "registry": "0.4.2",
-      "staged": "0.4.4",
+      "staged": "0.4.5",
       "dir": "packages/platform-ui",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.4.3 > 0.4.2",
+          "detail": "0.4.5 > 0.4.2",
           "rows": [
             "M2"
           ]
@@ -7044,8 +7031,8 @@
           ]
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.4.0→0.4.2",
+          "state": "ahead",
+          "detail": "0.4.5 > 0.4.2",
           "rows": [
             "M2"
           ]
@@ -7065,8 +7052,8 @@
           ]
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.4.1→0.4.2",
+          "state": "ahead",
+          "detail": "0.4.5 > 0.4.2",
           "rows": [
             "M2"
           ]
@@ -7142,8 +7129,8 @@
           ]
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.6.2→0.7.0 dev",
+          "state": "current",
+          "detail": "0.7.0 dev",
           "rows": [
             "M20"
           ]
@@ -7316,15 +7303,15 @@
         "app-shell-ui"
       ],
       "private": false,
-      "source": "0.7.8",
+      "source": "0.7.9",
       "registry": "0.7.7",
-      "staged": "0.7.8",
+      "staged": "0.7.9",
       "dir": "packages/react-shell",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.7.8 > 0.7.7",
+          "detail": "0.7.9 > 0.7.7",
           "rows": [
             "M2"
           ]
@@ -7344,8 +7331,8 @@
           ]
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.7.2→0.7.7",
+          "state": "ahead",
+          "detail": "0.7.9 > 0.7.7",
           "rows": [
             "M2"
           ]
@@ -7375,8 +7362,8 @@
           ]
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.7.4→0.7.7",
+          "state": "ahead",
+          "detail": "0.7.9 > 0.7.7",
           "rows": [
             "M2"
           ]
@@ -7455,43 +7442,43 @@
         "release-tooling"
       ],
       "private": false,
-      "source": "0.6.79",
-      "registry": "0.6.79",
-      "staged": "0.6.79",
+      "source": "0.6.93",
+      "registry": "0.6.92",
+      "staged": "0.6.93",
       "dir": "packages/release",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "stale",
-          "detail": "0.6.75→0.6.79 dev",
+          "detail": "0.6.89→0.6.92 dev",
           "rows": [
             "M19"
           ]
         },
         "cutright": {
           "state": "stale",
-          "detail": "0.6.57→0.6.79 dev",
+          "detail": "0.6.57→0.6.92 dev",
           "rows": [
             "M19"
           ]
         },
         "genright": {
           "state": "stale",
-          "detail": "0.6.57→0.6.79 dev",
+          "detail": "0.6.57→0.6.92 dev",
           "rows": [
             "M19"
           ]
         },
         "heardright": {
           "state": "stale",
-          "detail": "0.6.52→0.6.79 dev",
+          "detail": "0.6.90→0.6.92 dev",
           "rows": [
             "M19"
           ]
         },
         "mailright": {
           "state": "stale",
-          "detail": "0.6.57→0.6.79 dev; 1 exception: bogusyogi/rightkit#993, expires 2026-11-30",
+          "detail": "0.6.57→0.6.92 dev; 1 exception: bogusyogi/rightkit#993, expires 2026-11-30",
           "rows": [
             "M19"
           ],
@@ -7508,21 +7495,21 @@
         },
         "postright": {
           "state": "stale",
-          "detail": "0.6.40→0.6.79 dev",
+          "detail": "0.6.40→0.6.92 dev",
           "rows": [
             "M19"
           ]
         },
         "pulse": {
           "state": "stale",
-          "detail": "0.6.57→0.6.79 dev",
+          "detail": "0.6.88→0.6.92, 2 pins dev",
           "rows": [
             "M19"
           ]
         },
         "scraperight": {
           "state": "stale",
-          "detail": "0.6.38→0.6.79 dev; 1 exception: bogusyogi/rightkit#1029, expires 2026-12-31",
+          "detail": "0.6.38→0.6.92 dev; 1 exception: bogusyogi/rightkit#1029, expires 2026-12-31",
           "rows": [
             "M19"
           ],
@@ -7539,22 +7526,22 @@
         },
         "viewright": {
           "state": "stale",
-          "detail": "0.6.40→0.6.79 dev",
+          "detail": "0.6.40→0.6.92 dev",
           "rows": [
             "M19"
           ]
         },
         "ember": {
           "state": "stale",
-          "detail": "0.4.0→0.6.79 dev"
+          "detail": "0.4.0→0.6.92 dev"
         },
         "sellright": {
           "state": "stale",
-          "detail": "0.6.29→0.6.79 dev"
+          "detail": "0.6.29→0.6.92 dev"
         },
         "legion": {
           "state": "stale",
-          "detail": "0.6.52→0.6.79 dev"
+          "detail": "0.6.88→0.6.92 dev"
         }
       }
     },
@@ -7636,15 +7623,15 @@
         "settings-ui"
       ],
       "private": false,
-      "source": "0.7.5",
+      "source": "0.7.7",
       "registry": "0.7.4",
-      "staged": "0.7.5",
+      "staged": "0.7.7",
       "dir": "packages/settings-ui",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "current",
-          "detail": "0.7.4",
+          "state": "ahead",
+          "detail": "0.7.7 > 0.7.4",
           "rows": [
             "M10"
           ]
@@ -7664,8 +7651,8 @@
           ]
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.7.0→0.7.4",
+          "state": "ahead",
+          "detail": "0.7.7 > 0.7.4",
           "rows": [
             "M10"
           ]
@@ -7685,8 +7672,8 @@
           ]
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.7.2→0.7.4",
+          "state": "ahead",
+          "detail": "0.7.7 > 0.7.4",
           "rows": [
             "M10"
           ]
@@ -7907,8 +7894,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.2.2 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -7945,15 +7932,15 @@
         "tauri-host-adapters"
       ],
       "private": false,
-      "source": "0.4.4",
+      "source": "0.4.6",
       "registry": "0.4.3",
-      "staged": "0.4.4",
+      "staged": "0.4.6",
       "dir": "packages/tauri",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "stale",
-          "detail": "0.4.2→0.4.3",
+          "state": "ahead",
+          "detail": "0.4.6 > 0.4.3",
           "rows": [
             "M1"
           ]
@@ -7973,8 +7960,8 @@
           ]
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.4.2→0.4.3",
+          "state": "ahead",
+          "detail": "0.4.6 > 0.4.3",
           "rows": [
             "M1"
           ]
@@ -7994,8 +7981,8 @@
           ]
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.4.2→0.4.3",
+          "state": "ahead",
+          "detail": "0.4.6 > 0.4.3",
           "rows": [
             "M1"
           ]
@@ -8078,19 +8065,8 @@
           "detail": "0.1.4 > 0.1.3"
         },
         "heardright": {
-          "state": "exception",
-          "detail": "2 exceptions: bogusyogi/rightkit#1021/bogusyogi/rightkit#1027, expires 2026-11-30",
-          "exceptions": {
-            "count": 2,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1021",
-              "bogusyogi/rightkit#1027"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "state": "unused",
+          "detail": ""
         },
         "mailright": {
           "state": "unused",
@@ -8259,8 +8235,8 @@
           ]
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.3.1→0.3.4",
+          "state": "current",
+          "detail": "0.3.4",
           "rows": [
             "M2"
           ]
@@ -8280,8 +8256,8 @@
           ]
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.3.3→0.3.4; 2 exceptions: bogusyogi/rightkit#847, expires 2026-11-30",
+          "state": "current",
+          "detail": "0.3.4; 2 exceptions: bogusyogi/rightkit#847, expires 2026-11-30",
           "rows": [
             "M2"
           ],
@@ -8597,7 +8573,7 @@
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.9.6 > 0.9.0, 2 pins"
+          "detail": "0.9.5 > 0.9.0, 0.9.6 > 0.9.0, 2 pins"
         },
         "cutright": {
           "state": "unused",
@@ -8608,8 +8584,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.8.1→0.9.0; also 1 current"
+          "state": "ahead",
+          "detail": "0.9.5 > 0.9.0, 2 pins"
         },
         "mailright": {
           "state": "unused",
@@ -8621,7 +8597,7 @@
         },
         "pulse": {
           "state": "stale",
-          "detail": "0.8.1→0.9.0, 4 pins; 2 exceptions: bogusyogi/rightkit#1038, expires 2026-11-30",
+          "detail": "0.8.1→0.9.0, 2 pins; also 2 ahead; 2 exceptions: bogusyogi/rightkit#1038, expires 2026-11-30",
           "exceptions": {
             "count": 2,
             "expired": 0,
@@ -8666,9 +8642,9 @@
         "adapt"
       ],
       "private": false,
-      "source": "0.2.0",
+      "source": "0.2.1",
       "registry": "",
-      "staged": "0.2.0",
+      "staged": "0.2.1",
       "dir": "crates/rightkit-adapt",
       "toMoveFrom": {},
       "cells": {
@@ -8698,7 +8674,7 @@
         },
         "pulse": {
           "state": "ahead",
-          "detail": "0.2.0 (no published version)"
+          "detail": "0.2.1 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -8798,15 +8774,15 @@
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.1.9",
+      "source": "0.2.1",
       "registry": "",
-      "staged": "0.1.9",
+      "staged": "0.2.1",
       "dir": "crates/rightkit-agent-coding-tools",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.2.1 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -8863,15 +8839,15 @@
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.1.3",
+      "source": "0.1.6",
       "registry": "",
-      "staged": "0.1.3",
+      "staged": "0.1.6",
       "dir": "crates/rightkit-agent-config",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.1.3 (no published version)"
+          "detail": "0.1.6 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -8995,9 +8971,9 @@
         "agent-demo-mode"
       ],
       "private": false,
-      "source": "0.2.0",
+      "source": "0.2.1",
       "registry": "",
-      "staged": "0.2.0",
+      "staged": "0.2.1",
       "dir": "crates/rightkit-agent-demo",
       "toMoveFrom": {},
       "cells": {
@@ -9127,15 +9103,15 @@
         "agent-api-integrations"
       ],
       "private": false,
-      "source": "0.1.5",
+      "source": "0.1.6",
       "registry": "",
-      "staged": "0.1.5",
+      "staged": "0.1.6",
       "dir": "crates/rightkit-agent-engine-api-integrations",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.6 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -9395,15 +9371,15 @@
         "agent-attention"
       ],
       "private": false,
-      "source": "0.2.1",
+      "source": "0.2.2",
       "registry": "0.2.0",
-      "staged": "0.2.1",
+      "staged": "0.2.2",
       "dir": "crates/rightkit-agent-engine-attention",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.2.2 > 0.2.0"
         },
         "cutright": {
           "state": "unused",
@@ -9426,8 +9402,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.2.1 > 0.2.0"
         },
         "scraperight": {
           "state": "unused",
@@ -9529,15 +9505,15 @@
         "agent-engine"
       ],
       "private": false,
-      "source": "0.1.4",
+      "source": "0.2.1",
       "registry": "",
-      "staged": "0.1.4",
+      "staged": "0.2.1",
       "dir": "crates/rightkit-agent-engine-core",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.2.1 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -9596,15 +9572,15 @@
         "agent-history"
       ],
       "private": false,
-      "source": "0.1.4",
+      "source": "0.1.6",
       "registry": "",
-      "staged": "0.1.4",
+      "staged": "0.1.6",
       "dir": "crates/rightkit-agent-engine-history",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.6 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -9663,15 +9639,15 @@
         "agent-mobile-runtime"
       ],
       "private": false,
-      "source": "0.1.1",
+      "source": "0.1.2",
       "registry": "",
-      "staged": "0.1.1",
+      "staged": "0.1.2",
       "dir": "crates/rightkit-agent-engine-mobile-runtime",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.2 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -9864,15 +9840,15 @@
         "agent-runtime-resources"
       ],
       "private": false,
-      "source": "0.1.1",
+      "source": "0.1.2",
       "registry": "",
-      "staged": "0.1.1",
+      "staged": "0.1.2",
       "dir": "crates/rightkit-agent-engine-runtime-resources",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.1.1 (no published version)"
+          "detail": "0.1.2 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -9931,15 +9907,15 @@
         "agent-storage"
       ],
       "private": false,
-      "source": "0.3.0",
+      "source": "0.3.1",
       "registry": "",
-      "staged": "0.3.0",
+      "staged": "0.3.1",
       "dir": "crates/rightkit-agent-engine-storage",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.3.0 (no published version)"
+          "detail": "0.3.1 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -10065,9 +10041,9 @@
         "agent-gateway"
       ],
       "private": false,
-      "source": "0.3.0",
+      "source": "0.3.1",
       "registry": "",
-      "staged": "0.3.0",
+      "staged": "0.3.1",
       "dir": "crates/rightkit-agent-gateway",
       "toMoveFrom": {},
       "cells": {
@@ -10139,8 +10115,8 @@
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.3 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -10204,8 +10180,8 @@
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.2 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -10262,15 +10238,15 @@
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.1.2",
+      "source": "0.1.3",
       "registry": "",
-      "staged": "0.1.2",
+      "staged": "0.1.3",
       "dir": "crates/rightkit-agent-local-models",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.3 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -10329,15 +10305,15 @@
         "agent-orchestration"
       ],
       "private": false,
-      "source": "0.1.6",
+      "source": "0.1.8",
       "registry": "",
-      "staged": "0.1.6",
+      "staged": "0.1.8",
       "dir": "crates/rightkit-agent-orchestration",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.1.5 (no published version)"
+          "detail": "0.1.8 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -10463,15 +10439,15 @@
         "agent-plugins"
       ],
       "private": false,
-      "source": "0.1.3",
+      "source": "0.1.4",
       "registry": "",
-      "staged": "0.1.3",
+      "staged": "0.1.4",
       "dir": "crates/rightkit-agent-plugins",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.4 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -10597,15 +10573,15 @@
         "agent-recipes"
       ],
       "private": false,
-      "source": "0.1.2",
+      "source": "0.1.3",
       "registry": "",
-      "staged": "0.1.2",
+      "staged": "0.1.3",
       "dir": "crates/rightkit-agent-recipes",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.3 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -10662,9 +10638,9 @@
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.2.0",
+      "source": "0.3.0",
       "registry": "",
-      "staged": "0.2.0",
+      "staged": "0.3.0",
       "dir": "crates/rightkit-agent-server",
       "toMoveFrom": {},
       "cells": {
@@ -10727,15 +10703,15 @@
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.2.0",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.2.0",
       "dir": "crates/rightkit-agent-skills",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.2.0 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -10824,7 +10800,7 @@
         },
         "pulse": {
           "state": "ahead",
-          "detail": "0.1.1 (no published version)"
+          "detail": "0.1.2 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -10857,9 +10833,9 @@
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-agent-task-journal",
       "toMoveFrom": {},
       "cells": {
@@ -10888,8 +10864,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.1 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -10922,15 +10898,15 @@
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-agent-telemetry",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.1.0 (no published version)"
+          "detail": "0.1.1 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -11019,8 +10995,8 @@
           ]
         },
         "heardright": {
-          "state": "missing",
-          "detail": "M22",
+          "state": "ahead",
+          "detail": "0.4.4 > 0.4.3",
           "rows": [
             "M22"
           ]
@@ -11040,8 +11016,8 @@
           ]
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.3.4→0.4.3",
+          "state": "ahead",
+          "detail": "0.4.4 > 0.4.3",
           "rows": [
             "M22"
           ]
@@ -11069,8 +11045,8 @@
           "detail": ""
         },
         "legion": {
-          "state": "stale",
-          "detail": "0.3.0→0.4.3"
+          "state": "ahead",
+          "detail": "0.4.4 > 0.4.3"
         }
       }
     },
@@ -11085,9 +11061,9 @@
         "agent-transcript"
       ],
       "private": false,
-      "source": "0.1.3",
+      "source": "0.1.4",
       "registry": "",
-      "staged": "0.1.3",
+      "staged": "0.1.4",
       "dir": "crates/rightkit-agent-transcript",
       "toMoveFrom": {},
       "cells": {
@@ -11117,7 +11093,7 @@
         },
         "pulse": {
           "state": "ahead",
-          "detail": "0.1.3 (no published version)"
+          "detail": "0.1.4 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -11152,15 +11128,15 @@
         "agent-sessions"
       ],
       "private": false,
-      "source": "0.2.8",
+      "source": "0.3.0",
       "registry": "0.2.0",
-      "staged": "0.2.8",
+      "staged": "0.3.0",
       "dir": "crates/rightkit-agents",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.2.4 > 0.2.0"
+          "detail": "0.3.0 > 0.2.0"
         },
         "cutright": {
           "state": "unused",
@@ -11203,8 +11179,8 @@
           "detail": ""
         },
         "legion": {
-          "state": "current",
-          "detail": "=0.2.0"
+          "state": "ahead",
+          "detail": "0.2.8 > 0.2.0"
         }
       }
     },
@@ -11219,9 +11195,9 @@
         "ai-accounts"
       ],
       "private": false,
-      "source": "0.1.2",
+      "source": "0.1.4",
       "registry": "",
-      "staged": "0.1.2",
+      "staged": "0.1.4",
       "dir": "crates/rightkit-ai-accounts",
       "toMoveFrom": {},
       "cells": {
@@ -11251,7 +11227,7 @@
         },
         "pulse": {
           "state": "ahead",
-          "detail": "0.1.1 (no published version)"
+          "detail": "0.1.4 (no published version), 2 pins"
         },
         "scraperight": {
           "state": "unused",
@@ -11303,8 +11279,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "unused",
-          "detail": ""
+          "state": "current",
+          "detail": "=0.1.1"
         },
         "mailright": {
           "state": "unused",
@@ -11418,9 +11394,9 @@
         "android-bridge"
       ],
       "private": false,
-      "source": "0.3.2",
+      "source": "0.3.3",
       "registry": "0.3.0",
-      "staged": "0.3.2",
+      "staged": "0.3.3",
       "dir": "crates/rightkit-android",
       "toMoveFrom": {},
       "cells": {
@@ -11437,18 +11413,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "exception",
-          "detail": "1 exception: bogusyogi/rightkit#941, expires 2026-11-30",
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#941"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "state": "unused",
+          "detail": ""
         },
         "mailright": {
           "state": "unused",
@@ -11495,9 +11461,9 @@
         "app-host"
       ],
       "private": false,
-      "source": "0.1.2",
+      "source": "0.1.3",
       "registry": "",
-      "staged": "0.1.2",
+      "staged": "0.1.3",
       "dir": "crates/rightkit-app-host",
       "toMoveFrom": {},
       "cells": {
@@ -11527,7 +11493,7 @@
         },
         "pulse": {
           "state": "ahead",
-          "detail": "0.1.2 (no published version)"
+          "detail": "0.1.3 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -11562,9 +11528,9 @@
         "application-icon-extraction"
       ],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "0.1.0",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-app-icon",
       "toMoveFrom": {},
       "cells": {
@@ -11581,8 +11547,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.1 > 0.1.0"
         },
         "mailright": {
           "state": "unused",
@@ -11627,9 +11593,9 @@
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-app-lock",
       "toMoveFrom": {},
       "cells": {
@@ -11658,8 +11624,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.1 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -11694,9 +11660,9 @@
         "app-manager"
       ],
       "private": false,
-      "source": "0.2.4",
+      "source": "0.2.5",
       "registry": "0.2.2",
-      "staged": "0.2.4",
+      "staged": "0.2.5",
       "dir": "crates/rightkit-app-manager",
       "toMoveFrom": {},
       "cells": {
@@ -11725,8 +11691,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.2.1→0.2.2"
+          "state": "ahead",
+          "detail": "0.2.5 > 0.2.2, 2 pins"
         },
         "scraperight": {
           "state": "unused",
@@ -11763,15 +11729,15 @@
         "settings-persistence"
       ],
       "private": false,
-      "source": "0.4.2",
+      "source": "0.4.5",
       "registry": "0.4.2",
-      "staged": "0.4.2",
+      "staged": "0.4.5",
       "dir": "crates/rightkit-app-settings",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "stale",
-          "detail": "0.4.1→0.4.2, 2 pins",
+          "state": "ahead",
+          "detail": "0.4.4 > 0.4.2, 2 pins",
           "rows": [
             "M10"
           ]
@@ -11791,8 +11757,8 @@
           ]
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.4.1→0.4.2, 3 pins",
+          "state": "ahead",
+          "detail": "0.4.5 > 0.4.2, 2 pins",
           "rows": [
             "M10"
           ]
@@ -11812,8 +11778,8 @@
           ]
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.4.1→0.4.2, 3 pins",
+          "state": "ahead",
+          "detail": "0.4.4 > 0.4.2, 3 pins",
           "rows": [
             "M10"
           ]
@@ -11866,15 +11832,15 @@
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.2.0",
+      "source": "0.2.1",
       "registry": "",
-      "staged": "0.2.0",
+      "staged": "0.2.1",
       "dir": "crates/rightkit-app-update",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.2.0 (no published version)"
+          "detail": "0.2.1 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -12086,8 +12052,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.5.0→0.5.2, 4 pins"
+          "state": "current",
+          "detail": "=0.5.2"
         },
         "mailright": {
           "state": "unused",
@@ -12163,8 +12129,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.1 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -12199,15 +12165,15 @@
         "audio"
       ],
       "private": false,
-      "source": "0.4.2",
+      "source": "0.4.6",
       "registry": "0.4.1",
-      "staged": "0.4.2",
+      "staged": "0.4.6",
       "dir": "crates/rightkit-audio",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "stale",
-          "detail": "0.3.4→0.4.1"
+          "state": "ahead",
+          "detail": "0.4.5 > 0.4.1"
         },
         "cutright": {
           "state": "stale",
@@ -12218,8 +12184,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.3.4→0.4.1, 4 pins"
+          "state": "ahead",
+          "detail": "0.4.6 > 0.4.1"
         },
         "mailright": {
           "state": "unused",
@@ -12266,9 +12232,9 @@
         "video-autoedit"
       ],
       "private": false,
-      "source": "0.2.0",
+      "source": "0.2.1",
       "registry": "",
-      "staged": "0.2.0",
+      "staged": "0.2.1",
       "dir": "crates/rightkit-autoedit",
       "toMoveFrom": {},
       "cells": {
@@ -12352,18 +12318,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.7.0→0.7.4, 4 pins; 1 exception: bogusyogi/rightkit#1030, expires 2026-11-30",
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1030"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "state": "ahead",
+          "detail": "0.7.6 > 0.7.4, 2 pins"
         },
         "mailright": {
           "state": "unused",
@@ -12374,18 +12330,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.7.0→0.7.4, 3 pins; 1 exception: bogusyogi/rightkit#852, expires 2026-11-30",
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#852"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "state": "ahead",
+          "detail": "0.7.6 > 0.7.4, 2 pins"
         },
         "scraperight": {
           "state": "unused",
@@ -12418,9 +12364,9 @@
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-autostart",
       "toMoveFrom": {},
       "cells": {
@@ -12449,8 +12395,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.1 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -12552,15 +12498,15 @@
         "bot-messaging"
       ],
       "private": false,
-      "source": "0.3.1",
+      "source": "0.3.2",
       "registry": "",
-      "staged": "0.3.1",
+      "staged": "0.3.2",
       "dir": "crates/rightkit-bot-messaging",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.3.1 (no published version)"
+          "detail": "0.3.2 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -12619,15 +12565,15 @@
         "browser-automation"
       ],
       "private": false,
-      "source": "0.3.12",
+      "source": "0.3.14",
       "registry": "0.3.6",
-      "staged": "0.3.12",
+      "staged": "0.3.14",
       "dir": "crates/rightkit-browser",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "ahead",
-          "detail": "0.3.12 > 0.3.6"
+          "state": "unused",
+          "detail": ""
         },
         "cutright": {
           "state": "unused",
@@ -12650,18 +12596,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "ahead",
-          "detail": "0.3.7 > 0.3.6; 1 exception: bogusyogi/rightkit#921, expires 2026-11-30",
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#921"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "state": "unused",
+          "detail": ""
         },
         "scraperight": {
           "state": "current",
@@ -12690,8 +12626,8 @@
           "detail": ""
         },
         "legion": {
-          "state": "current",
-          "detail": "=0.3.6"
+          "state": "ahead",
+          "detail": "0.3.12 > 0.3.6"
         }
       }
     },
@@ -12706,15 +12642,15 @@
         "disk-cache"
       ],
       "private": false,
-      "source": "0.2.4",
+      "source": "0.2.5",
       "registry": "0.2.3",
-      "staged": "0.2.4",
+      "staged": "0.2.5",
       "dir": "crates/rightkit-cache",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.2.4 > 0.2.3"
+          "detail": "0.2.5 > 0.2.3"
         },
         "cutright": {
           "state": "ahead",
@@ -12757,8 +12693,8 @@
           "detail": ""
         },
         "legion": {
-          "state": "current",
-          "detail": "=0.2.3"
+          "state": "ahead",
+          "detail": "0.2.4 > 0.2.3"
         }
       }
     },
@@ -12972,9 +12908,9 @@
         "chat-bridge"
       ],
       "private": false,
-      "source": "0.2.1",
+      "source": "0.2.5",
       "registry": "",
-      "staged": "0.2.1",
+      "staged": "0.2.5",
       "dir": "crates/rightkit-chat-bridge",
       "toMoveFrom": {},
       "cells": {
@@ -13003,8 +12939,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.2.5 (no published version), 2 pins"
         },
         "scraperight": {
           "state": "unused",
@@ -13050,7 +12986,7 @@
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.5.16 > 0.5.14, 3 pins",
+          "detail": "0.5.17 > 0.5.14, 3 pins",
           "rows": [
             "M3",
             "M5"
@@ -13073,8 +13009,8 @@
           ]
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.5.12→0.5.14, 5 pins",
+          "state": "ahead",
+          "detail": "0.5.17 > 0.5.14",
           "rows": [
             "M3",
             "M5"
@@ -13097,8 +13033,8 @@
           ]
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.5.12→0.5.14, 5 pins",
+          "state": "ahead",
+          "detail": "0.5.17 > 0.5.14, 5 pins",
           "rows": [
             "M3",
             "M5"
@@ -13129,8 +13065,8 @@
           "detail": ""
         },
         "legion": {
-          "state": "stale",
-          "detail": "0.5.9→0.5.14, 4 pins"
+          "state": "ahead",
+          "detail": "0.5.17 > 0.5.14, 8 pins"
         }
       }
     },
@@ -13239,8 +13175,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.4.0 > 0.3.2"
         },
         "scraperight": {
           "state": "unused",
@@ -13537,9 +13473,9 @@
         "video-color"
       ],
       "private": false,
-      "source": "0.1.1",
+      "source": "0.1.2",
       "registry": "",
-      "staged": "0.1.1",
+      "staged": "0.1.2",
       "dir": "crates/rightkit-color",
       "toMoveFrom": {},
       "cells": {
@@ -13604,9 +13540,9 @@
         "composition-model"
       ],
       "private": false,
-      "source": "0.2.3",
+      "source": "0.2.4",
       "registry": "0.2.0",
-      "staged": "0.2.3",
+      "staged": "0.2.4",
       "dir": "crates/rightkit-compose",
       "toMoveFrom": {},
       "cells": {
@@ -13803,9 +13739,9 @@
         "content-plan"
       ],
       "private": false,
-      "source": "0.2.1",
+      "source": "0.2.2",
       "registry": "",
-      "staged": "0.2.1",
+      "staged": "0.2.2",
       "dir": "crates/rightkit-content-plan",
       "toMoveFrom": {},
       "cells": {
@@ -13937,9 +13873,9 @@
         "context"
       ],
       "private": false,
-      "source": "0.2.0",
+      "source": "0.2.1",
       "registry": "",
-      "staged": "0.2.0",
+      "staged": "0.2.1",
       "dir": "crates/rightkit-context",
       "toMoveFrom": {},
       "cells": {
@@ -14205,15 +14141,15 @@
         "context-protocol"
       ],
       "private": false,
-      "source": "0.2.0",
+      "source": "0.2.1",
       "registry": "",
-      "staged": "0.2.0",
+      "staged": "0.2.1",
       "dir": "crates/rightkit-context-protocol",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.2.1 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -14237,7 +14173,7 @@
         },
         "pulse": {
           "state": "ahead",
-          "detail": "0.2.0 (no published version), 3 pins"
+          "detail": "0.2.1 (no published version), 3 pins"
         },
         "scraperight": {
           "state": "unused",
@@ -14370,8 +14306,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.5 > 0.1.4"
         },
         "scraperight": {
           "state": "unused",
@@ -14540,15 +14476,15 @@
         "crash-reporting"
       ],
       "private": false,
-      "source": "0.4.2",
+      "source": "0.4.3",
       "registry": "0.4.2",
-      "staged": "0.4.2",
+      "staged": "0.4.3",
       "dir": "crates/rightkit-crash",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "stale",
-          "detail": "0.4.1→0.4.2, 2 pins",
+          "state": "ahead",
+          "detail": "0.4.3 > 0.4.2, 2 pins",
           "rows": [
             "M16"
           ]
@@ -14568,8 +14504,8 @@
           ]
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.4.1→0.4.2, 4 pins",
+          "state": "ahead",
+          "detail": "0.4.3 > 0.4.2, 2 pins",
           "rows": [
             "M16"
           ]
@@ -14589,8 +14525,8 @@
           ]
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.4.1→0.4.2, 4 pins",
+          "state": "ahead",
+          "detail": "0.4.3 > 0.4.2, 4 pins",
           "rows": [
             "M16"
           ]
@@ -14636,15 +14572,15 @@
         "os-credential-store"
       ],
       "private": false,
-      "source": "0.5.9",
+      "source": "0.5.10",
       "registry": "0.5.8",
-      "staged": "0.5.9",
+      "staged": "0.5.10",
       "dir": "crates/rightkit-credentials",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "current",
-          "detail": "=0.5.8, 2 pins",
+          "state": "ahead",
+          "detail": "0.5.10 > 0.5.8, 2 pins",
           "rows": [
             "M11"
           ]
@@ -14664,8 +14600,8 @@
           ]
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.5.4→0.5.8, 3 pins",
+          "state": "ahead",
+          "detail": "0.5.10 > 0.5.8, 3 pins",
           "rows": [
             "M11"
           ]
@@ -14685,8 +14621,8 @@
           ]
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.5.5→0.5.8, 2 pins; 2 exceptions: bogusyogi/rightkit#1038, expires 2026-11-30",
+          "state": "ahead",
+          "detail": "0.5.10 > 0.5.8, 3 pins; 2 exceptions: bogusyogi/rightkit#1038, expires 2026-11-30",
           "rows": [
             "M11"
           ],
@@ -14748,7 +14684,7 @@
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.1.3 > 0.1.0, 2 pins"
+          "detail": "0.1.4 > 0.1.0, 2 pins"
         },
         "cutright": {
           "state": "unused",
@@ -14760,7 +14696,7 @@
         },
         "heardright": {
           "state": "ahead",
-          "detail": "0.1.3 > 0.1.0, 2 pins"
+          "detail": "0.1.4 > 0.1.0"
         },
         "mailright": {
           "state": "ahead",
@@ -14772,7 +14708,7 @@
         },
         "pulse": {
           "state": "ahead",
-          "detail": "0.1.3 > 0.1.0, 4 pins"
+          "detail": "0.1.4 > 0.1.0, 6 pins"
         },
         "scraperight": {
           "state": "unused",
@@ -14813,15 +14749,15 @@
         "local-services"
       ],
       "private": false,
-      "source": "0.9.2",
+      "source": "0.9.4",
       "registry": "0.9.1",
-      "staged": "0.9.2",
+      "staged": "0.9.4",
       "dir": "crates/rightkit-daemon",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.9.2 > 0.9.1, 2 pins",
+          "detail": "0.9.4 > 0.9.1, 2 pins",
           "rows": [
             "M6",
             "M7"
@@ -14844,8 +14780,8 @@
           ]
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.5.3→0.9.1, 0.9.0→0.9.1, 6 pins",
+          "state": "ahead",
+          "detail": "0.9.4 > 0.9.1, 2 pins",
           "rows": [
             "M6",
             "M7"
@@ -14879,23 +14815,12 @@
           ]
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.9.0→0.9.1, 6 pins; 2 exceptions: bogusyogi/rightkit#1042/bogusyogi/rightkit#852, expires 2026-11-30",
+          "state": "ahead",
+          "detail": "0.9.4 > 0.9.1, 6 pins",
           "rows": [
             "M6",
             "M7"
-          ],
-          "exceptions": {
-            "count": 2,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1042",
-              "bogusyogi/rightkit#852"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "scraperight": {
           "state": "stale",
@@ -15005,15 +14930,15 @@
         "sqlite-storage"
       ],
       "private": false,
-      "source": "0.5.10",
+      "source": "0.5.11",
       "registry": "0.5.10",
-      "staged": "0.5.10",
+      "staged": "0.5.11",
       "dir": "crates/rightkit-db",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "stale",
-          "detail": "0.5.8→0.5.10",
+          "state": "ahead",
+          "detail": "0.5.11 > 0.5.10",
           "rows": [
             "M9"
           ]
@@ -15033,8 +14958,8 @@
           ]
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.5.8→0.5.10, 3 pins",
+          "state": "ahead",
+          "detail": "0.5.11 > 0.5.10, 3 pins",
           "rows": [
             "M9"
           ]
@@ -15064,8 +14989,8 @@
           ]
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.5.8→0.5.10, 4 pins",
+          "state": "ahead",
+          "detail": "0.5.11 > 0.5.10, 4 pins",
           "rows": [
             "M9"
           ]
@@ -15237,9 +15162,9 @@
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.3.0",
+      "source": "0.3.1",
       "registry": "",
-      "staged": "0.3.0",
+      "staged": "0.3.1",
       "dir": "crates/rightkit-desktop-tweaks",
       "toMoveFrom": {},
       "cells": {
@@ -15268,8 +15193,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.3.1 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -15338,8 +15263,8 @@
           ]
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.5.0→0.5.1",
+          "state": "ahead",
+          "detail": "0.5.2 > 0.5.1",
           "rows": [
             "M1",
             "M12"
@@ -15362,8 +15287,8 @@
           ]
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.5.0→0.5.1",
+          "state": "ahead",
+          "detail": "0.5.2 > 0.5.1",
           "rows": [
             "M1",
             "M12"
@@ -15493,9 +15418,9 @@
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-device-link-core",
       "toMoveFrom": {},
       "cells": {
@@ -15524,8 +15449,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.1 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -15627,9 +15552,9 @@
         "dictation-app-runtime"
       ],
       "private": false,
-      "source": "0.3.1",
+      "source": "0.3.3",
       "registry": "0.2.2",
-      "staged": "0.3.1",
+      "staged": "0.3.3",
       "dir": "crates/rightkit-dictation-app-runtime",
       "toMoveFrom": {},
       "cells": {
@@ -15646,8 +15571,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.3.3 > 0.2.2"
         },
         "mailright": {
           "state": "unused",
@@ -15694,9 +15619,9 @@
         "dictation-command-host"
       ],
       "private": false,
-      "source": "0.3.3",
+      "source": "0.3.4",
       "registry": "0.3.1",
-      "staged": "0.3.3",
+      "staged": "0.3.4",
       "dir": "crates/rightkit-dictation-command-host",
       "toMoveFrom": {},
       "cells": {
@@ -15713,8 +15638,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.2.1→0.3.1"
+          "state": "ahead",
+          "detail": "0.3.4 > 0.3.1"
         },
         "mailright": {
           "state": "unused",
@@ -15761,9 +15686,9 @@
         "dictation"
       ],
       "private": false,
-      "source": "0.3.6",
+      "source": "0.3.7",
       "registry": "0.3.4",
-      "staged": "0.3.6",
+      "staged": "0.3.7",
       "dir": "crates/rightkit-dictation-core",
       "toMoveFrom": {},
       "cells": {
@@ -15780,8 +15705,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.3.1→0.3.4, 2 pins"
+          "state": "ahead",
+          "detail": "0.3.7 > 0.3.4, 3 pins"
         },
         "mailright": {
           "state": "unused",
@@ -15847,8 +15772,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.2.1 (no published version)"
         },
         "mailright": {
           "state": "unused",
@@ -15960,9 +15885,9 @@
         "dictation-inference"
       ],
       "private": false,
-      "source": "0.2.4",
+      "source": "0.2.5",
       "registry": "0.2.4",
-      "staged": "0.2.4",
+      "staged": "0.2.5",
       "dir": "crates/rightkit-dictation-inference",
       "toMoveFrom": {},
       "cells": {
@@ -15979,8 +15904,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.2.5 > 0.2.4"
         },
         "mailright": {
           "state": "unused",
@@ -16027,9 +15952,9 @@
         "dictation-models"
       ],
       "private": false,
-      "source": "0.3.2",
+      "source": "0.3.3",
       "registry": "0.3.1",
-      "staged": "0.3.2",
+      "staged": "0.3.3",
       "dir": "crates/rightkit-dictation-models",
       "toMoveFrom": {},
       "cells": {
@@ -16046,8 +15971,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.3.3 > 0.3.1"
         },
         "mailright": {
           "state": "unused",
@@ -16092,9 +16017,9 @@
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.1.1",
+      "source": "0.1.2",
       "registry": "0.1.0",
-      "staged": "0.1.1",
+      "staged": "0.1.2",
       "dir": "crates/rightkit-dictation-pill",
       "toMoveFrom": {},
       "cells": {
@@ -16111,8 +16036,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.2 > 0.1.0"
         },
         "mailright": {
           "state": "unused",
@@ -16178,8 +16103,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.2.7 (no published version)"
         },
         "mailright": {
           "state": "unused",
@@ -16224,9 +16149,9 @@
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.3.2",
+      "source": "0.3.4",
       "registry": "",
-      "staged": "0.3.2",
+      "staged": "0.3.4",
       "dir": "crates/rightkit-dictation-tauri",
       "toMoveFrom": {},
       "cells": {
@@ -16243,8 +16168,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.3.4 (no published version)"
         },
         "mailright": {
           "state": "unused",
@@ -16291,9 +16216,9 @@
         "dictation-telemetry"
       ],
       "private": false,
-      "source": "0.2.3",
+      "source": "0.2.4",
       "registry": "0.2.2",
-      "staged": "0.2.3",
+      "staged": "0.2.4",
       "dir": "crates/rightkit-dictation-telemetry",
       "toMoveFrom": {},
       "cells": {
@@ -16310,8 +16235,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.2.4 > 0.2.2"
         },
         "mailright": {
           "state": "unused",
@@ -16358,9 +16283,9 @@
         "dictation-text-pipeline"
       ],
       "private": false,
-      "source": "0.2.7",
+      "source": "0.2.8",
       "registry": "0.2.7",
-      "staged": "0.2.7",
+      "staged": "0.2.8",
       "dir": "crates/rightkit-dictation-text-pipeline",
       "toMoveFrom": {},
       "cells": {
@@ -16377,8 +16302,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.2.4→0.2.7"
+          "state": "ahead",
+          "detail": "0.2.8 > 0.2.7"
         },
         "mailright": {
           "state": "unused",
@@ -16425,9 +16350,9 @@
         "disk-cleanup"
       ],
       "private": false,
-      "source": "0.2.1",
+      "source": "0.2.2",
       "registry": "",
-      "staged": "0.2.1",
+      "staged": "0.2.2",
       "dir": "crates/rightkit-disk-cleanup",
       "toMoveFrom": {},
       "cells": {
@@ -16457,7 +16382,7 @@
         },
         "pulse": {
           "state": "ahead",
-          "detail": "0.2.0 (no published version)"
+          "detail": "0.2.2 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -16527,8 +16452,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "ahead",
-          "detail": "0.1.4 > 0.1.2"
+          "state": "unused",
+          "detail": ""
         },
         "scraperight": {
           "state": "unused",
@@ -16630,9 +16555,9 @@
         "document-workspace"
       ],
       "private": false,
-      "source": "0.2.0",
+      "source": "0.2.1",
       "registry": "",
-      "staged": "0.2.0",
+      "staged": "0.2.1",
       "dir": "crates/rightkit-document-workspace",
       "toMoveFrom": {},
       "cells": {
@@ -16697,9 +16622,9 @@
         "embeddings"
       ],
       "private": false,
-      "source": "0.7.0",
+      "source": "0.7.1",
       "registry": "0.6.1",
-      "staged": "0.7.0",
+      "staged": "0.7.1",
       "dir": "crates/rightkit-embed",
       "toMoveFrom": {},
       "cells": {
@@ -16729,7 +16654,7 @@
         },
         "pulse": {
           "state": "ahead",
-          "detail": "0.7.0 > 0.6.1"
+          "detail": "0.7.1 > 0.6.1"
         },
         "scraperight": {
           "state": "unused",
@@ -16795,8 +16720,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.2.1 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -17080,7 +17005,7 @@
         },
         "legion": {
           "state": "ahead",
-          "detail": "0.1.1 (no published version), 10 pins"
+          "detail": "0.1.1 (no published version), 9 pins"
         }
       }
     },
@@ -17162,9 +17087,9 @@
         "evidence-effects"
       ],
       "private": false,
-      "source": "0.1.1",
+      "source": "0.1.2",
       "registry": "",
-      "staged": "0.1.1",
+      "staged": "0.1.2",
       "dir": "crates/rightkit-evidence-effects",
       "toMoveFrom": {},
       "cells": {
@@ -17428,15 +17353,15 @@
         "media-pipelines"
       ],
       "private": false,
-      "source": "0.3.2",
+      "source": "0.3.3",
       "registry": "0.2.10",
-      "staged": "0.3.2",
+      "staged": "0.3.3",
       "dir": "crates/rightkit-ffmpeg",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.3.1 > 0.2.10"
+          "detail": "0.3.3 > 0.2.10"
         },
         "cutright": {
           "state": "ahead",
@@ -17447,8 +17372,8 @@
           "detail": "0.3.1 > 0.2.10, 2 pins"
         },
         "heardright": {
-          "state": "ahead",
-          "detail": "0.3.1 > 0.2.10"
+          "state": "unused",
+          "detail": ""
         },
         "mailright": {
           "state": "unused",
@@ -17460,7 +17385,7 @@
         },
         "pulse": {
           "state": "ahead",
-          "detail": "0.3.1 > 0.2.10"
+          "detail": "0.3.3 > 0.2.10"
         },
         "scraperight": {
           "state": "ahead",
@@ -17566,15 +17491,15 @@
         "safe-filesystem"
       ],
       "private": false,
-      "source": "0.5.1",
+      "source": "0.5.2",
       "registry": "0.5.0",
-      "staged": "0.5.1",
+      "staged": "0.5.2",
       "dir": "crates/rightkit-fs",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.5.1 > 0.5.0, 3 pins",
+          "detail": "0.5.2 > 0.5.0, 3 pins",
           "rows": [
             "M8"
           ]
@@ -17594,8 +17519,8 @@
           ]
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.4.12→0.5.0, 0.4.15→0.5.0, 6 pins",
+          "state": "ahead",
+          "detail": "0.5.2 > 0.5.0, 2 pins",
           "rows": [
             "M8"
           ]
@@ -17615,8 +17540,8 @@
           ]
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.4.15→0.5.0, 9 pins",
+          "state": "ahead",
+          "detail": "0.5.2 > 0.5.0, 9 pins",
           "rows": [
             "M8"
           ]
@@ -17662,8 +17587,8 @@
           "detail": ""
         },
         "legion": {
-          "state": "stale",
-          "detail": "0.4.9→0.5.0"
+          "state": "ahead",
+          "detail": "0.5.2 > 0.5.0, 8 pins"
         }
       }
     },
@@ -17678,9 +17603,9 @@
         "file-index"
       ],
       "private": false,
-      "source": "0.6.2",
+      "source": "0.6.3",
       "registry": "0.5.0",
-      "staged": "0.6.2",
+      "staged": "0.6.3",
       "dir": "crates/rightkit-fsindex",
       "toMoveFrom": {},
       "cells": {
@@ -17710,7 +17635,7 @@
         },
         "pulse": {
           "state": "ahead",
-          "detail": "0.6.2 > 0.5.0, 2 pins"
+          "detail": "0.6.3 > 0.5.0"
         },
         "scraperight": {
           "state": "unused",
@@ -17745,15 +17670,15 @@
         "github"
       ],
       "private": false,
-      "source": "0.2.0",
+      "source": "0.2.1",
       "registry": "",
-      "staged": "0.2.0",
+      "staged": "0.2.1",
       "dir": "crates/rightkit-github",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.2.1 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -17843,8 +17768,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.2.3 > 0.2.1"
         },
         "scraperight": {
           "state": "unused",
@@ -17910,8 +17835,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.3.0 > 0.2.0"
         },
         "scraperight": {
           "state": "unused",
@@ -17944,9 +17869,9 @@
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-gpu",
       "toMoveFrom": {},
       "cells": {
@@ -18011,15 +17936,15 @@
         "lifecycle-hooks"
       ],
       "private": false,
-      "source": "0.3.0",
+      "source": "0.3.1",
       "registry": "0.2.0",
-      "staged": "0.3.0",
+      "staged": "0.3.1",
       "dir": "crates/rightkit-hooks",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.3.0 > 0.2.0"
+          "detail": "0.3.1 > 0.2.0"
         },
         "cutright": {
           "state": "unused",
@@ -18043,7 +17968,7 @@
         },
         "pulse": {
           "state": "ahead",
-          "detail": "0.2.5 > 0.2.0, 2 pins"
+          "detail": "0.3.0 > 0.2.0"
         },
         "scraperight": {
           "state": "unused",
@@ -18078,9 +18003,9 @@
         "global-hotkeys"
       ],
       "private": false,
-      "source": "0.1.7",
+      "source": "0.1.8",
       "registry": "0.1.6",
-      "staged": "0.1.7",
+      "staged": "0.1.8",
       "dir": "crates/rightkit-hotkeys",
       "toMoveFrom": {},
       "cells": {
@@ -18097,8 +18022,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.1.4→0.1.6"
+          "state": "ahead",
+          "detail": "0.1.8 > 0.1.6"
         },
         "mailright": {
           "state": "unused",
@@ -18109,8 +18034,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.1.4→0.1.6"
+          "state": "ahead",
+          "detail": "0.1.8 > 0.1.6"
         },
         "scraperight": {
           "state": "unused",
@@ -18147,15 +18072,15 @@
         "http-client"
       ],
       "private": false,
-      "source": "0.4.0",
+      "source": "0.4.1",
       "registry": "0.4.0",
-      "staged": "0.4.0",
+      "staged": "0.4.1",
       "dir": "crates/rightkit-http",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "current",
-          "detail": "=0.4.0, 4 pins",
+          "state": "ahead",
+          "detail": "0.4.1 > 0.4.0, 3 pins",
           "rows": [
             "M17"
           ]
@@ -18175,8 +18100,8 @@
           ]
         },
         "heardright": {
-          "state": "current",
-          "detail": "=0.4.0, 3 pins",
+          "state": "ahead",
+          "detail": "0.4.1 > 0.4.0",
           "rows": [
             "M17"
           ]
@@ -18196,8 +18121,8 @@
           ]
         },
         "pulse": {
-          "state": "current",
-          "detail": "=0.4.0, 2 pins",
+          "state": "ahead",
+          "detail": "0.4.1 > 0.4.0, 2 pins",
           "rows": [
             "M17"
           ]
@@ -18225,8 +18150,8 @@
           "detail": ""
         },
         "legion": {
-          "state": "stale",
-          "detail": "0.3.9→0.4.0"
+          "state": "current",
+          "detail": "=0.4.0"
         }
       }
     },
@@ -18306,9 +18231,9 @@
         "installation-identity"
       ],
       "private": false,
-      "source": "0.1.2",
+      "source": "0.1.3",
       "registry": "0.1.0",
-      "staged": "0.1.2",
+      "staged": "0.1.3",
       "dir": "crates/rightkit-identity",
       "toMoveFrom": {},
       "cells": {
@@ -18441,15 +18366,15 @@
         "persistent-jobs"
       ],
       "private": false,
-      "source": "0.6.1",
+      "source": "0.6.2",
       "registry": "0.6.1",
-      "staged": "0.6.1",
+      "staged": "0.6.2",
       "dir": "crates/rightkit-job-queue",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "stale",
-          "detail": "0.6.0→0.6.1",
+          "state": "ahead",
+          "detail": "0.6.2 > 0.6.1",
           "rows": [
             "M3",
             "M4"
@@ -18483,8 +18408,8 @@
           ]
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.6.0→0.6.1, 2 pins",
+          "state": "ahead",
+          "detail": "0.6.2 > 0.6.1",
           "rows": [
             "M3",
             "M4"
@@ -18507,8 +18432,8 @@
           ]
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.6.0→0.6.1, 3 pins",
+          "state": "ahead",
+          "detail": "0.6.2 > 0.6.1, 2 pins",
           "rows": [
             "M3",
             "M4"
@@ -18594,8 +18519,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.2.2 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -18628,9 +18553,9 @@
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.2.0",
+      "source": "0.2.1",
       "registry": "",
-      "staged": "0.2.0",
+      "staged": "0.2.1",
       "dir": "crates/rightkit-launcher-win",
       "toMoveFrom": {},
       "cells": {
@@ -18659,8 +18584,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.2.1 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -18695,9 +18620,9 @@
         "local-artifact-library"
       ],
       "private": false,
-      "source": "0.3.0",
+      "source": "0.3.1",
       "registry": "",
-      "staged": "0.3.0",
+      "staged": "0.3.1",
       "dir": "crates/rightkit-library",
       "toMoveFrom": {},
       "cells": {
@@ -18766,15 +18691,15 @@
         "right-suite-api"
       ],
       "private": false,
-      "source": "0.3.4",
+      "source": "0.3.6",
       "registry": "0.3.4",
-      "staged": "0.3.4",
+      "staged": "0.3.6",
       "dir": "crates/rightkit-license",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "current",
-          "detail": "=0.3.4, 2 pins",
+          "state": "ahead",
+          "detail": "0.3.5 > 0.3.4, 2 pins",
           "rows": [
             "M12",
             "M13"
@@ -18797,22 +18722,12 @@
           ]
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.3.1→0.3.4; 5 exceptions: bogusyogi/heardright#311, expires 2026-11-30",
+          "state": "ahead",
+          "detail": "0.3.6 > 0.3.4",
           "rows": [
             "M12",
             "M13"
-          ],
-          "exceptions": {
-            "count": 5,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/heardright#311"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "mailright": {
           "state": "stale",
@@ -18841,8 +18756,8 @@
           ]
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.3.1→0.3.4",
+          "state": "ahead",
+          "detail": "0.3.5 > 0.3.4",
           "rows": [
             "M12",
             "M13"
@@ -18899,15 +18814,15 @@
         "llm-providers"
       ],
       "private": false,
-      "source": "0.7.1",
+      "source": "0.7.2",
       "registry": "0.3.1",
-      "staged": "0.7.1",
+      "staged": "0.7.2",
       "dir": "crates/rightkit-llm",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.7.1 > 0.3.1"
+          "detail": "0.7.2 > 0.3.1"
         },
         "cutright": {
           "state": "unused",
@@ -18931,7 +18846,7 @@
         },
         "pulse": {
           "state": "ahead",
-          "detail": "0.3.6 > 0.3.1"
+          "detail": "0.7.2 > 0.3.1"
         },
         "scraperight": {
           "state": "unused",
@@ -18966,9 +18881,9 @@
         "local-image-generation"
       ],
       "private": false,
-      "source": "0.1.3",
+      "source": "0.1.4",
       "registry": "",
-      "staged": "0.1.3",
+      "staged": "0.1.4",
       "dir": "crates/rightkit-local-gen",
       "toMoveFrom": {},
       "cells": {
@@ -19043,7 +18958,7 @@
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.4.3 > 0.4.2, 2 pins",
+          "detail": "0.4.5 > 0.4.2, 2 pins",
           "rows": [
             "M15"
           ]
@@ -19063,21 +18978,11 @@
           ]
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.4.1→0.4.2, 4 pins; 1 exception: bogusyogi/rightkit#1026, expires 2026-11-30",
+          "state": "ahead",
+          "detail": "0.4.5 > 0.4.2",
           "rows": [
             "M15"
-          ],
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1026"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "mailright": {
           "state": "stale",
@@ -19105,8 +19010,8 @@
           ]
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.4.1→0.4.2, 6 pins",
+          "state": "ahead",
+          "detail": "0.4.5 > 0.4.2, 6 pins",
           "rows": [
             "M15"
           ]
@@ -19236,9 +19141,9 @@
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-mail-gateway",
       "toMoveFrom": {},
       "cells": {
@@ -19301,9 +19206,9 @@
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.2.1",
+      "source": "0.2.2",
       "registry": "",
-      "staged": "0.2.1",
+      "staged": "0.2.2",
       "dir": "crates/rightkit-mail-store",
       "toMoveFrom": {},
       "cells": {
@@ -19400,7 +19305,7 @@
         },
         "pulse": {
           "state": "ahead",
-          "detail": "0.7.6 > 0.7.0, 2 pins"
+          "detail": "0.10.1 > 0.7.0, 2 pins"
         },
         "scraperight": {
           "state": "unused",
@@ -19435,9 +19340,9 @@
         "media-session-control"
       ],
       "private": false,
-      "source": "0.1.1",
+      "source": "0.1.2",
       "registry": "0.1.1",
-      "staged": "0.1.1",
+      "staged": "0.1.2",
       "dir": "crates/rightkit-media-control",
       "toMoveFrom": {},
       "cells": {
@@ -19454,8 +19359,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.2 > 0.1.1"
         },
         "mailright": {
           "state": "unused",
@@ -19502,9 +19407,9 @@
         "media-fetch"
       ],
       "private": false,
-      "source": "0.2.0",
+      "source": "0.2.1",
       "registry": "",
-      "staged": "0.2.0",
+      "staged": "0.2.1",
       "dir": "crates/rightkit-media-fetch",
       "toMoveFrom": {},
       "cells": {
@@ -19569,9 +19474,9 @@
         "generative-media"
       ],
       "private": false,
-      "source": "0.2.3",
+      "source": "0.2.4",
       "registry": "",
-      "staged": "0.2.3",
+      "staged": "0.2.4",
       "dir": "crates/rightkit-media-gen",
       "toMoveFrom": {},
       "cells": {
@@ -19699,9 +19604,9 @@
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.1.0",
+      "source": "0.1.1",
       "registry": "",
-      "staged": "0.1.0",
+      "staged": "0.1.1",
       "dir": "crates/rightkit-media-gen-client",
       "toMoveFrom": {},
       "cells": {
@@ -19905,8 +19810,8 @@
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "stale",
-          "detail": "0.1.0→0.3.1"
+          "state": "unused",
+          "detail": ""
         },
         "cutright": {
           "state": "unused",
@@ -19970,8 +19875,8 @@
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.1 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -20030,9 +19935,9 @@
         "durable-memory-core"
       ],
       "private": false,
-      "source": "0.2.0",
+      "source": "0.2.1",
       "registry": "",
-      "staged": "0.2.0",
+      "staged": "0.2.1",
       "dir": "crates/rightkit-memory-core",
       "toMoveFrom": {},
       "cells": {
@@ -20128,8 +20033,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.2.2 > 0.2.1"
         },
         "scraperight": {
           "state": "unused",
@@ -20196,7 +20101,7 @@
         },
         "pulse": {
           "state": "ahead",
-          "detail": "0.2.1 (no published version), 3 pins"
+          "detail": "0.2.3 (no published version), 3 pins"
         },
         "scraperight": {
           "state": "unused",
@@ -20296,15 +20201,15 @@
         "model-installation"
       ],
       "private": false,
-      "source": "0.7.2",
+      "source": "0.7.3",
       "registry": "0.7.2",
-      "staged": "0.7.2",
+      "staged": "0.7.3",
       "dir": "crates/rightkit-models",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "stale",
-          "detail": "0.7.1→0.7.2"
+          "state": "ahead",
+          "detail": "0.7.3 > 0.7.2"
         },
         "cutright": {
           "state": "stale",
@@ -20315,8 +20220,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.7.1→0.7.2, 2 pins"
+          "state": "unused",
+          "detail": ""
         },
         "mailright": {
           "state": "stale",
@@ -20375,9 +20280,9 @@
         "motion-takes"
       ],
       "private": false,
-      "source": "0.4.0",
+      "source": "0.4.1",
       "registry": "0.2.0",
-      "staged": "0.4.0",
+      "staged": "0.4.1",
       "dir": "crates/rightkit-motion",
       "toMoveFrom": {},
       "cells": {
@@ -20440,9 +20345,9 @@
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.2.2",
+      "source": "0.2.3",
       "registry": "",
-      "staged": "0.2.2",
+      "staged": "0.2.3",
       "dir": "crates/rightkit-notch-ui",
       "toMoveFrom": {},
       "cells": {
@@ -20471,8 +20376,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.2.3 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -20505,9 +20410,9 @@
       "pendingRows": [],
       "capabilities": [],
       "private": false,
-      "source": "0.1.1",
+      "source": "0.1.2",
       "registry": "",
-      "staged": "0.1.1",
+      "staged": "0.1.2",
       "dir": "crates/rightkit-notifications",
       "toMoveFrom": {},
       "cells": {
@@ -20536,8 +20441,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.2 (no published version), 2 pins"
         },
         "scraperight": {
           "state": "unused",
@@ -20644,8 +20549,8 @@
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "stale",
-          "detail": "0.11.0→0.11.1"
+          "state": "current",
+          "detail": "=0.11.1"
         },
         "cutright": {
           "state": "unused",
@@ -20779,7 +20684,7 @@
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.3.0 > 0.2.7"
+          "detail": "0.3.2 > 0.2.7"
         },
         "cutright": {
           "state": "ahead",
@@ -20791,7 +20696,7 @@
         },
         "heardright": {
           "state": "ahead",
-          "detail": "0.3.0 > 0.2.7, 7 pins"
+          "detail": "0.3.2 > 0.2.7"
         },
         "mailright": {
           "state": "ahead",
@@ -20803,7 +20708,7 @@
         },
         "pulse": {
           "state": "ahead",
-          "detail": "0.3.0 > 0.2.7"
+          "detail": "0.3.2 > 0.2.7"
         },
         "scraperight": {
           "state": "ahead",
@@ -20858,7 +20763,7 @@
         },
         "heardright": {
           "state": "ahead",
-          "detail": "0.2.3 > 0.2.0"
+          "detail": "0.2.4 > 0.2.0"
         },
         "mailright": {
           "state": "unused",
@@ -20870,17 +20775,7 @@
         },
         "pulse": {
           "state": "ahead",
-          "detail": "0.2.3 > 0.2.0; 1 exception: bogusyogi/rightkit#848, expires 2026-11-30",
-          "exceptions": {
-            "count": 1,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#848"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "detail": "0.2.4 > 0.2.0"
         },
         "scraperight": {
           "state": "unused",
@@ -20934,8 +20829,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.1.5→0.1.6"
+          "state": "unused",
+          "detail": ""
         },
         "mailright": {
           "state": "unused",
@@ -20946,8 +20841,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.1.5→0.1.6; 2 exceptions: bogusyogi/rightkit#914, expires 2026-11-30",
+          "state": "ahead",
+          "detail": "0.1.7 > 0.1.6; 2 exceptions: bogusyogi/rightkit#914, expires 2026-11-30",
           "exceptions": {
             "count": 2,
             "expired": 0,
@@ -21023,8 +20918,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.3 (no published version), 2 pins"
         },
         "scraperight": {
           "state": "unused",
@@ -21060,9 +20955,9 @@
         "ownership-scanner"
       ],
       "private": false,
-      "source": "0.4.6",
+      "source": "0.4.7",
       "registry": "0.4.2",
-      "staged": "0.4.6",
+      "staged": "0.4.7",
       "dir": "crates/rightkit-ownership",
       "toMoveFrom": {},
       "cells": {
@@ -21112,7 +21007,7 @@
         },
         "legion": {
           "state": "ahead",
-          "detail": "0.4.4 > 0.4.2"
+          "detail": "0.4.6 > 0.4.2"
         }
       }
     },
@@ -21193,9 +21088,9 @@
         "pdf-engine"
       ],
       "private": false,
-      "source": "0.3.5",
+      "source": "0.3.6",
       "registry": "0.3.3",
-      "staged": "0.3.5",
+      "staged": "0.3.6",
       "dir": "crates/rightkit-pdf",
       "toMoveFrom": {},
       "cells": {
@@ -21404,9 +21299,9 @@
         "media-playback"
       ],
       "private": false,
-      "source": "0.3.1",
+      "source": "0.3.2",
       "registry": "0.3.0",
-      "staged": "0.3.1",
+      "staged": "0.3.2",
       "dir": "crates/rightkit-playback",
       "toMoveFrom": {},
       "cells": {
@@ -21523,7 +21418,7 @@
         },
         "legion": {
           "state": "ahead",
-          "detail": "0.1.1 (no published version), 5 pins"
+          "detail": "0.1.1 (no published version), 2 pins"
         }
       }
     },
@@ -21632,8 +21527,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.2 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -21668,9 +21563,9 @@
         "privileged-helper"
       ],
       "private": false,
-      "source": "0.2.0",
+      "source": "0.2.1",
       "registry": "",
-      "staged": "0.2.0",
+      "staged": "0.2.1",
       "dir": "crates/rightkit-privileged-helper",
       "toMoveFrom": {},
       "cells": {
@@ -21699,8 +21594,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.2.1 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -21764,8 +21659,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.0 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -21935,15 +21830,15 @@
         "desktop-qa"
       ],
       "private": false,
-      "source": "0.10.11",
+      "source": "0.10.16",
       "registry": "0.10.8",
-      "staged": "0.10.11",
+      "staged": "0.10.16",
       "dir": "crates/rightkit-qa",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.10.11 > 0.10.8, 2 pins",
+          "detail": "0.10.16 > 0.10.8, 2 pins",
           "rows": [
             "M20"
           ]
@@ -21974,8 +21869,8 @@
           ]
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.10.5→0.10.8, 2 pins",
+          "state": "ahead",
+          "detail": "0.10.16 > 0.10.8, 2 pins",
           "rows": [
             "M20"
           ]
@@ -21995,8 +21890,8 @@
           ]
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.10.6→0.10.8, 2 pins",
+          "state": "ahead",
+          "detail": "0.10.16 > 0.10.8, 2 pins",
           "rows": [
             "M20"
           ]
@@ -22117,9 +22012,9 @@
         "screen-recording"
       ],
       "private": false,
-      "source": "0.4.0",
+      "source": "0.4.1",
       "registry": "0.3.3",
-      "staged": "0.4.0",
+      "staged": "0.4.1",
       "dir": "crates/rightkit-record",
       "toMoveFrom": {},
       "cells": {
@@ -22148,8 +22043,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.4.1 > 0.3.3"
         },
         "scraperight": {
           "state": "unused",
@@ -22184,9 +22079,9 @@
         "video-reframe"
       ],
       "private": false,
-      "source": "0.2.0",
+      "source": "0.2.1",
       "registry": "",
-      "staged": "0.2.0",
+      "staged": "0.2.1",
       "dir": "crates/rightkit-reframe",
       "toMoveFrom": {},
       "cells": {
@@ -22251,9 +22146,9 @@
         "remote-compute"
       ],
       "private": false,
-      "source": "0.2.1",
+      "source": "0.2.2",
       "registry": "",
-      "staged": "0.2.1",
+      "staged": "0.2.2",
       "dir": "crates/rightkit-remote-compute",
       "toMoveFrom": {},
       "cells": {
@@ -22318,9 +22213,9 @@
         "remote-agent-gateway"
       ],
       "private": false,
-      "source": "0.1.4",
+      "source": "0.1.6",
       "registry": "",
-      "staged": "0.1.4",
+      "staged": "0.1.6",
       "dir": "crates/rightkit-remote-gateway",
       "toMoveFrom": {},
       "cells": {
@@ -22349,8 +22244,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.6 (no published version), 2 pins"
         },
         "scraperight": {
           "state": "unused",
@@ -22385,15 +22280,15 @@
         "repo-graph"
       ],
       "private": false,
-      "source": "0.3.2",
+      "source": "0.3.3",
       "registry": "",
-      "staged": "0.3.2",
+      "staged": "0.3.3",
       "dir": "crates/rightkit-repo-graph",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.3.2 (no published version)"
+          "detail": "0.3.3 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -22417,7 +22312,7 @@
         },
         "pulse": {
           "state": "ahead",
-          "detail": "0.3.0 (no published version), 2 pins"
+          "detail": "0.3.2 (no published version), 2 pins"
         },
         "scraperight": {
           "state": "unused",
@@ -22483,8 +22378,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "ahead",
-          "detail": "0.1.1 (no published version) dev"
+          "state": "unused",
+          "detail": ""
         },
         "scraperight": {
           "state": "unused",
@@ -22586,9 +22481,9 @@
         "content-review"
       ],
       "private": false,
-      "source": "0.6.0",
+      "source": "0.6.1",
       "registry": "0.4.0",
-      "staged": "0.6.0",
+      "staged": "0.6.1",
       "dir": "crates/rightkit-review",
       "toMoveFrom": {},
       "cells": {
@@ -22638,7 +22533,7 @@
         },
         "legion": {
           "state": "ahead",
-          "detail": "0.4.1 > 0.4.0"
+          "detail": "0.6.0 > 0.4.0"
         }
       }
     },
@@ -22658,8 +22553,8 @@
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "stale",
-          "detail": "0.2.0→0.3.0; also 1 current"
+          "state": "current",
+          "detail": "=0.3.0, 2 pins"
         },
         "cutright": {
           "state": "stale",
@@ -22670,8 +22565,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.2.0→0.3.0"
+          "state": "current",
+          "detail": "=0.3.0"
         },
         "mailright": {
           "state": "stale",
@@ -22682,8 +22577,8 @@
           "detail": "0.2.0→0.3.0, 2 pins"
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.2.0→0.3.0, 2 pins"
+          "state": "current",
+          "detail": "=0.3.0, 2 pins"
         },
         "scraperight": {
           "state": "unused",
@@ -22793,7 +22688,7 @@
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.3.0 (no published version)"
+          "detail": "0.3.1 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -22816,8 +22711,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.3.1 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -22859,8 +22754,8 @@
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "ahead",
-          "detail": "0.4.6 > 0.4.0"
+          "state": "unused",
+          "detail": ""
         },
         "cutright": {
           "state": "unused",
@@ -22883,18 +22778,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "exception",
-          "detail": "2 exceptions: bogusyogi/rightkit#851, expires 2026-11-30",
-          "exceptions": {
-            "count": 2,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#851"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          "state": "ahead",
+          "detail": "0.4.6 > 0.4.0"
         },
         "scraperight": {
           "state": "unused",
@@ -22929,9 +22814,9 @@
         "nearby-sharing"
       ],
       "private": false,
-      "source": "0.4.1",
+      "source": "0.4.2",
       "registry": "0.2.0",
-      "staged": "0.4.1",
+      "staged": "0.4.2",
       "dir": "crates/rightkit-send",
       "toMoveFrom": {},
       "cells": {
@@ -22961,7 +22846,7 @@
         },
         "pulse": {
           "state": "ahead",
-          "detail": "0.4.0 > 0.2.0, 3 pins"
+          "detail": "0.4.2 > 0.2.0, 3 pins"
         },
         "scraperight": {
           "state": "unused",
@@ -22996,9 +22881,9 @@
         "video-shorts"
       ],
       "private": false,
-      "source": "0.2.4",
+      "source": "0.2.5",
       "registry": "",
-      "staged": "0.2.4",
+      "staged": "0.2.5",
       "dir": "crates/rightkit-shorts",
       "toMoveFrom": {},
       "cells": {
@@ -23094,7 +22979,7 @@
         },
         "heardright": {
           "state": "current",
-          "detail": "=0.3.4, 2 pins",
+          "detail": "=0.3.4",
           "rows": [
             "M4"
           ]
@@ -23224,9 +23109,9 @@
         "social-analytics"
       ],
       "private": false,
-      "source": "0.3.0",
+      "source": "0.3.1",
       "registry": "",
-      "staged": "0.3.0",
+      "staged": "0.3.1",
       "dir": "crates/rightkit-social-analytics",
       "toMoveFrom": {},
       "cells": {
@@ -23358,9 +23243,9 @@
         "social-publish"
       ],
       "private": false,
-      "source": "0.2.0",
+      "source": "0.2.1",
       "registry": "",
-      "staged": "0.2.0",
+      "staged": "0.2.1",
       "dir": "crates/rightkit-social-publish",
       "toMoveFrom": {},
       "cells": {
@@ -23444,8 +23329,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "ahead",
-          "detail": "0.5.0 > 0.4.0, 2 pins"
+          "state": "unused",
+          "detail": ""
         },
         "mailright": {
           "state": "unused",
@@ -23492,9 +23377,9 @@
         "spend-ledger"
       ],
       "private": false,
-      "source": "0.2.3",
+      "source": "0.2.4",
       "registry": "0.2.0",
-      "staged": "0.2.3",
+      "staged": "0.2.4",
       "dir": "crates/rightkit-spend",
       "toMoveFrom": {},
       "cells": {
@@ -23524,7 +23409,7 @@
         },
         "pulse": {
           "state": "ahead",
-          "detail": "0.2.3 > 0.2.0"
+          "detail": "0.2.4 > 0.2.0"
         },
         "scraperight": {
           "state": "unused",
@@ -23559,9 +23444,9 @@
         "cloud-sync"
       ],
       "private": false,
-      "source": "0.4.3",
+      "source": "0.4.4",
       "registry": "0.4.1",
-      "staged": "0.4.3",
+      "staged": "0.4.4",
       "dir": "crates/rightkit-sync",
       "toMoveFrom": {},
       "cells": {
@@ -23578,8 +23463,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.3.0→0.4.1"
+          "state": "ahead",
+          "detail": "0.4.4 > 0.4.1, 2 pins"
         },
         "mailright": {
           "state": "unused",
@@ -23590,8 +23475,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.3.0→0.4.1"
+          "state": "ahead",
+          "detail": "0.4.4 > 0.4.1, 2 pins"
         },
         "scraperight": {
           "state": "stale",
@@ -23667,8 +23552,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.0 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -23768,9 +23653,9 @@
         "system-monitor"
       ],
       "private": false,
-      "source": "0.3.1",
+      "source": "0.3.2",
       "registry": "",
-      "staged": "0.3.1",
+      "staged": "0.3.2",
       "dir": "crates/rightkit-system-monitor",
       "toMoveFrom": {},
       "cells": {
@@ -23800,7 +23685,7 @@
         },
         "pulse": {
           "state": "ahead",
-          "detail": "0.3.0 (no published version)"
+          "detail": "0.3.2 (no published version), 3 pins"
         },
         "scraperight": {
           "state": "unused",
@@ -23837,15 +23722,15 @@
         "desktop-shell"
       ],
       "private": false,
-      "source": "0.8.8",
+      "source": "0.8.12",
       "registry": "0.8.2",
-      "staged": "0.8.8",
+      "staged": "0.8.12",
       "dir": "crates/rightkit-tauri-shell",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.8.7 > 0.8.2",
+          "detail": "0.8.11 > 0.8.2",
           "rows": [
             "M1"
           ]
@@ -23865,22 +23750,11 @@
           ]
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.8.0→0.8.2; 2 exceptions: bogusyogi/rightkit#1021/bogusyogi/rightkit#1027, expires 2026-11-30",
+          "state": "ahead",
+          "detail": "0.8.12 > 0.8.2",
           "rows": [
             "M1"
-          ],
-          "exceptions": {
-            "count": 2,
-            "expired": 0,
-            "withoutIssue": 0,
-            "withoutExpiry": 0,
-            "issues": [
-              "bogusyogi/rightkit#1021",
-              "bogusyogi/rightkit#1027"
-            ],
-            "earliestExpiry": "2026-11-30"
-          }
+          ]
         },
         "mailright": {
           "state": "current",
@@ -23897,8 +23771,8 @@
           ]
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.8.0→0.8.2",
+          "state": "ahead",
+          "detail": "0.8.11 > 0.8.2",
           "rows": [
             "M1"
           ]
@@ -23967,15 +23841,15 @@
         "terminal-ui"
       ],
       "private": false,
-      "source": "0.1.3",
+      "source": "0.2.0",
       "registry": "",
-      "staged": "0.1.3",
+      "staged": "0.2.0",
       "dir": "crates/rightkit-terminal-ui",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.2.0 (no published version)"
         },
         "cutright": {
           "state": "unused",
@@ -24034,9 +23908,9 @@
         "text-polish"
       ],
       "private": false,
-      "source": "0.1.3",
+      "source": "0.1.4",
       "registry": "0.1.3",
-      "staged": "0.1.3",
+      "staged": "0.1.4",
       "dir": "crates/rightkit-text-polish",
       "toMoveFrom": {},
       "cells": {
@@ -24053,8 +23927,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.1.1→0.1.3"
+          "state": "ahead",
+          "detail": "0.1.4 > 0.1.3, 2 pins"
         },
         "mailright": {
           "state": "unused",
@@ -24106,8 +23980,8 @@
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "ahead",
-          "detail": "0.1.1 (no published version)"
+          "state": "unused",
+          "detail": ""
         },
         "cutright": {
           "state": "unused",
@@ -24173,8 +24047,8 @@
       "toMoveFrom": {},
       "cells": {
         "coderight": {
-          "state": "stale",
-          "detail": "0.1.4→0.1.5, 2 pins"
+          "state": "current",
+          "detail": "=0.1.5, 2 pins"
         },
         "cutright": {
           "state": "unused",
@@ -24185,8 +24059,8 @@
           "detail": "0.1.4→0.1.5, 2 pins"
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.1.4→0.1.5, 2 pins"
+          "state": "current",
+          "detail": "=0.1.5"
         },
         "mailright": {
           "state": "stale",
@@ -24197,8 +24071,8 @@
           "detail": "0.1.4→0.1.5"
         },
         "pulse": {
-          "state": "stale",
-          "detail": "0.1.4→0.1.5, 5 pins"
+          "state": "current",
+          "detail": "=0.1.5, 5 pins"
         },
         "scraperight": {
           "state": "stale",
@@ -24233,9 +24107,9 @@
         "video-timeline"
       ],
       "private": false,
-      "source": "0.1.1",
+      "source": "0.1.2",
       "registry": "",
-      "staged": "0.1.1",
+      "staged": "0.1.2",
       "dir": "crates/rightkit-timeline",
       "toMoveFrom": {},
       "cells": {
@@ -24319,8 +24193,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "ahead",
-          "detail": "0.4.2 > 0.4.0"
+          "state": "unused",
+          "detail": ""
         },
         "mailright": {
           "state": "unused",
@@ -24367,9 +24241,9 @@
         "transcript-library"
       ],
       "private": false,
-      "source": "0.1.7",
+      "source": "0.1.8",
       "registry": "0.1.7",
-      "staged": "0.1.7",
+      "staged": "0.1.8",
       "dir": "crates/rightkit-transcript-library",
       "toMoveFrom": {},
       "cells": {
@@ -24386,8 +24260,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "stale",
-          "detail": "0.1.2→0.1.7"
+          "state": "ahead",
+          "detail": "0.1.8 > 0.1.7, 2 pins"
         },
         "mailright": {
           "state": "unused",
@@ -24721,8 +24595,8 @@
           "detail": ""
         },
         "heardright": {
-          "state": "ahead",
-          "detail": "0.2.0 > 0.1.2"
+          "state": "unused",
+          "detail": ""
         },
         "mailright": {
           "state": "unused",
@@ -24923,7 +24797,7 @@
         },
         "heardright": {
           "state": "ahead",
-          "detail": "0.1.1 (no published version)"
+          "detail": "0.1.2 (no published version)"
         },
         "mailright": {
           "state": "unused",
@@ -25068,8 +24942,8 @@
           "detail": ""
         },
         "pulse": {
-          "state": "unused",
-          "detail": ""
+          "state": "ahead",
+          "detail": "0.1.2 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -25134,7 +25008,7 @@
         },
         "pulse": {
           "state": "ahead",
-          "detail": "0.1.1 (no published version)"
+          "detail": "0.1.3 (no published version)"
         },
         "scraperight": {
           "state": "unused",
@@ -25169,15 +25043,15 @@
         "scenario-runtime"
       ],
       "private": false,
-      "source": "0.2.3",
+      "source": "0.2.4",
       "registry": "0.2.0",
-      "staged": "0.2.3",
+      "staged": "0.2.4",
       "dir": "crates/rightkit-workflow",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "ahead",
-          "detail": "0.2.3 > 0.2.0"
+          "detail": "0.2.4 > 0.2.0"
         },
         "cutright": {
           "state": "unused",

@@ -9857,7 +9857,7 @@ dependencies = [
  "tokio-rustls",
  "tokio-util",
  "tower",
- "tower-http 0.6.11",
+ "tower-http",
  "tower-service",
  "url",
  "wasm-bindgen",
@@ -10377,7 +10377,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-agent-server"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -10397,24 +10397,25 @@ dependencies = [
  "rightkit-agent-daemon",
  "rightkit-agent-engine-api-integrations",
  "rightkit-agent-engine-api-platform",
- "rightkit-agent-engine-api-sessions",
  "rightkit-agent-engine-api-workflows",
  "rightkit-agent-engine-attention",
  "rightkit-agent-engine-cli",
  "rightkit-agent-engine-core",
+ "rightkit-agent-engine-history",
  "rightkit-agent-engine-protocol",
  "rightkit-agent-engine-runtime-middleware",
  "rightkit-agent-engine-runtime-resources",
  "rightkit-agent-engine-storage",
  "rightkit-agent-engine-tasks",
- "rightkit-agent-host-traits",
  "rightkit-agent-learning",
  "rightkit-agent-local-models",
  "rightkit-agent-orchestration",
  "rightkit-agent-plugins",
  "rightkit-agent-policy",
  "rightkit-agent-recipes",
+ "rightkit-agent-skills",
  "rightkit-agent-telemetry",
+ "rightkit-agent-tools",
  "rightkit-agents",
  "rightkit-bot-messaging",
  "rightkit-child-process",
@@ -10455,7 +10456,7 @@ dependencies = [
  "tokio-stream",
  "tokio-util",
  "toml 1.2.0+spec-1.1.0",
- "tower-http 0.7.1",
+ "tower",
  "tracing",
  "url",
  "windows-sys 0.61.2",
@@ -16091,23 +16092,6 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "url",
-]
-
-[[package]]
-name = "tower-http"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08a05a66a4fdd61cbbe0a1d755ffe0ca6aba159dd4820936a0ff8a8278245b9c"
-dependencies = [
- "bitflags 2.13.2",
- "bytes",
- "http",
- "http-body",
- "percent-encoding",
- "pin-project-lite",
- "tower-layer",
- "tower-service",
- "tracing",
 ]
 
 [[package]]
