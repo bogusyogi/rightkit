@@ -2995,7 +2995,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-crash"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "rightkit-crypto",
  "rightkit-fs",

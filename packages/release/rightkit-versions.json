@@ -634,7 +634,7 @@
     "rightkit-context-runtime": "0.1.5",
     "rightkit-contracts": "0.1.11",
     "rightkit-contrast": "0.1.0",
-    "rightkit-crash": "0.4.3",
+    "rightkit-crash": "0.4.4",
     "rightkit-credentials": "0.5.11",
     "rightkit-crypto": "0.1.4",
     "rightkit-daemon": "0.9.4",
@@ -1139,7 +1139,8 @@
       "0.3.5",
       "0.3.6",
       "0.4.1",
-      "0.4.2"
+      "0.4.2",
+      "0.4.3"
     ],
     "rightkit-credentials": [
       "0.2.0",

@@ -111,7 +111,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-context-runtime` | crates.io | 0.1.5 | 0.1.4 | 0 | none | - |
 | `rightkit-contracts` | crates.io | 0.1.11 | 0.1.7 | 4 | cutright, genright, heardright, postright | 1 vendored copy; 3 ahead of published |
 | `rightkit-contrast` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-crash` | crates.io | 0.4.3 | 0.4.2 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 1 vendored copy; 13 stale; 2 ahead of published |
+| `rightkit-crash` | crates.io | 0.4.4 | 0.4.2 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 1 vendored copy; 13 stale; 2 ahead of published |
 | `rightkit-credentials` | crates.io | 0.5.11 | 0.5.8 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 13 stale; 3 ahead of published |
 | `rightkit-crypto` | crates.io | 0.1.4 | 0.1.0 | 5 | coderight, genright, heardright, mailright, postright | 7 ahead of published |
 | `rightkit-daemon` | crates.io | 0.9.4 | 0.9.1 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 1 vendored copy; 13 stale; 2 ahead of published |
