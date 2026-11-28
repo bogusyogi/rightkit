@@ -226,6 +226,31 @@ impl Backend for Denied {
             guard: self.0.clone(),
         })
     }
+    #[cfg(target_os = "macos")]
+    fn access_admits_only_self(
+        &self,
+        _: &Namespace,
+        _: &str,
+        _: &str,
+        _: Interaction,
+    ) -> Result<crate::macos::AccessProof> {
+        Err(Error::Guarded {
+            guard: self.0.clone(),
+        })
+    }
+    #[cfg(target_os = "macos")]
+    fn set_isolated(
+        &self,
+        _: &Namespace,
+        _: &str,
+        _: &Secret,
+        _: &str,
+        _: Interaction,
+    ) -> Result<()> {
+        Err(Error::Guarded {
+            guard: self.0.clone(),
+        })
+    }
 }
 
 /// Serializes read→mint→persist inside this process; `add_if_absent` covers other processes.
@@ -720,6 +745,37 @@ impl Store {
     }
     pub fn set_str(&self, account: &str, value: &str) -> Result<()> {
         self.set(account, &Secret::from_string(value))
+    }
+    /// macOS only. Read-only proof that `account`'s keychain item can be read only by the running
+    /// process: [`crate::macos::AccessProof::SelfOnly`] when every access entry that authorizes
+    /// reading the secret trusts exactly this process and the partition list (if any) names only
+    /// `team_id`; `Absent` when there is no item; `Foreign` when it is anything else. An access
+    /// object that cannot be read is an `Err`, never `SelfOnly`. No secret is read and nothing is
+    /// changed. `team_id` is the ten-character Apple team identifier of the running app.
+    #[cfg(target_os = "macos")]
+    pub fn access_admits_only_self(
+        &self,
+        account: &str,
+        team_id: &str,
+    ) -> Result<crate::macos::AccessProof> {
+        let team = team_id.to_string();
+        self.run("access", account, false, move |b, ns, a, m| {
+            b.access_admits_only_self(&ns, &a, &team, m)
+        })
+    }
+    /// macOS only. Create `account` with an access control that trusts only the running process,
+    /// on the same pinned keychain and under the same per-target exclusion as [`Store::put`]. An
+    /// existing item is updated in place only when [`Store::access_admits_only_self`] proves it
+    /// self-only (its access is kept); an existing item that is not proven is refused with
+    /// `Error::Unavailable` and neither changed nor deleted. A new item is read back and deleted
+    /// again if its access is not proven. An empty secret is rejected.
+    #[cfg(target_os = "macos")]
+    pub fn set_isolated(&self, account: &str, secret: &Secret, team_id: &str) -> Result<()> {
+        let secret = secret.clone();
+        let team = team_id.to_string();
+        self.run("set", account, true, move |b, ns, a, m| {
+            b.set_isolated(&ns, &a, &secret, &team, m)
+        })
     }
     /// `Ok(true)` if an item was removed.
     pub fn delete(&self, account: &str) -> Result<bool> {

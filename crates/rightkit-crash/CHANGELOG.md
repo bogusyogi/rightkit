@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4
+
+- Added: `os_reports`, the OS's own crash and resource reports about an app's processes, by name and time only: macOS DiagnosticReports (`.diag`, `.crash`, `.ips`; kind from the name or an old `.diag`'s `Event:` line) and Windows Error Reporting `AppCrash_`/`AppHang_` folders, for host-given process prefixes, newest first, with readable and unreadable folder counts. Moved from Pulse's `engine/src/diag_reports.rs` (bogusyogi/pulse#643).
+
 ## 0.4.3
 
 - Logic moved from Pulse into this crate (bogusyogi/pulse#643): see the module docs for what each new module holds.

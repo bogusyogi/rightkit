@@ -9,6 +9,33 @@ public enum PCMWavWriter {
         case invalidSampleRate
         case recordingTooLarge
     }
+    /// The bytes of a complete mono 16-bit PCM WAV (44-byte header, then `mono` as little-endian
+    /// samples), for a host that synthesizes its own samples (a chirp, a tone) and plays or stores the
+    /// result. Returns empty `Data` for a sample rate that is not positive or does not fit the header,
+    /// or for more samples than a WAV can hold; the header layout is that of `write(samples:...)`.
+    public static func wavData(mono: [Int16], sampleRate: Int) -> Data {
+        guard sampleRate > 0, sampleRate <= Int(UInt32.max) / 2,
+              mono.count <= (Int(UInt32.max) - 36) / 2 else { return Data() }
+        let dataBytes = mono.count * 2
+        var data = Data(capacity: 44 + dataBytes)
+        func appendUInt32(_ value: UInt32) { var v = value.littleEndian; withUnsafeBytes(of: &v) { data.append(contentsOf: $0) } }
+        func appendUInt16(_ value: UInt16) { var v = value.littleEndian; withUnsafeBytes(of: &v) { data.append(contentsOf: $0) } }
+        data.append(contentsOf: Array("RIFF".utf8))
+        appendUInt32(UInt32(36 + dataBytes))
+        data.append(contentsOf: Array("WAVEfmt ".utf8))
+        appendUInt32(16)                       // PCM fmt chunk size
+        appendUInt16(1)                        // PCM
+        appendUInt16(1)                        // mono
+        appendUInt32(UInt32(sampleRate))
+        appendUInt32(UInt32(sampleRate * 2))   // byte rate
+        appendUInt16(2)                        // block align
+        appendUInt16(16)                       // bits per sample
+        data.append(contentsOf: Array("data".utf8))
+        appendUInt32(UInt32(dataBytes))
+        mono.map { $0.littleEndian }.withUnsafeBytes { data.append(contentsOf: $0) }
+        return data
+    }
+
     public static func write(samples: [Float], sampleRate: Int, to url: URL) throws {
         guard sampleRate > 0, sampleRate <= Int(UInt32.max) / 2 else {
             throw WriteError.invalidSampleRate

@@ -2041,7 +2041,7 @@
       "pkId": "PK03",
       "id": "ci/consumers/rightkit-credentials/src/main.rs",
       "files": {
-        "Cargo.toml": "5c3b3ac0ad2803551e20d9a06e23d2c5632b12a83661bb2f17a5f425e2ad2096",
+        "Cargo.toml": "13a3a2a86d99f842338e3c71cca37c1d67bb7bc76dbe9dfcecb8254c554f8b20",
         "prepare_signed_helper.py": "5416b80b5b81ef50528033bbc9b91131a73c421a66764b3390331dd80fa0cd6c",
         "qualification-helper/entitlements.plist": "a6aa6260390ae45abe50cc5bed4d0dd2b922a67ac93f69bd58b86419666f123c",
         "qualification-helper/Info.plist": "8a865dfac7975ff5b0bd3315625676af43490ed611e3e31d2a823debc7b664ad",
@@ -2241,7 +2241,7 @@
       "pkId": "PK11",
       "id": "ci/consumers/rightkit-crash/src/main.rs",
       "files": {
-        "Cargo.toml": "05af38d91b66519f7a8a8ba9004d5390f4db9904c00e4ce11c02fca2bcb73e80",
+        "Cargo.toml": "66413ba30f5c6dddb3d8f4bb5cc1bf2d3c36758f8fd7841b0219bf00f36cc284",
         "README.md": "8d07eb390d19d32634bee0b6027c909af54e2899452222bb981a91a3ebcb6848",
         "src/main.rs": "bb1481683ba82e62333fed195b1ce4d3ee968dda19b4d757b0187898774db8cd"
       }
@@ -2401,7 +2401,7 @@
         "serde_json = \"1\""
       ],
       "files": {
-        "Cargo.toml": "c5d578119e624e15ab277e5bb65b613b48ea39d74535319941ca94e503bde2eb",
+        "Cargo.toml": "d88b86450926a91bc0bfcd8cdc08035f9dd6886dbf13bd42e7e1bae5d8465181",
         "README.md": "cf794cae74036976d4011253855e117dd4dab31147ac5608ce2b5303bc51fd3d",
         "src/main.rs": "41fbbf4cc53e4e38dd6326c207acf051f7b910572eb57654ed110f23e8f04b23"
       },
@@ -2449,7 +2449,7 @@
       "gateEvidence": "no assets needed; in-memory values only; screenshot argument validation without native capture",
       "consumes": "PK14-4 named QA glue consumers per 01-packages.md: MailRight tauri_run.rs:109 QA registration, HeardRight and ScrapeRight journey runners; exercised modules: scenario, config, settings, check, storage, util (crates/rightkit-qa/src/lib.rs)",
       "files": {
-        "Cargo.toml": "3ee9d93de22ceba75da60eaf9cb99e5a91998b86f5461e0ff09fc775aede296e",
+        "Cargo.toml": "e2e69a1bcc8a60d08f11be43c4c7671082b2014da1fb1290b78bd333eb0e843b",
         "README.md": "2a7c250cf674ea7a29db3b2f93367691102bb0e44ec155b50f6186e64f5be910",
         "src/main.rs": "ec89757f6e854649383ac355a419d5977b51f236e7ee1a5767bfe00bd8a358eb"
       },
@@ -3504,7 +3504,7 @@
       "pkId": "PK130",
       "id": "ci/consumers/rightkit-ai-accounts/src/main.rs",
       "files": {
-        "Cargo.toml": "74a4c887ab3331cb87db1c779f6bfc305ee67dbcd48bb70aa2d8c411d5915c11",
+        "Cargo.toml": "c3e887574628125427d5fefecb0468c03dc9786f355f0d7784ed756dc11e5704",
         "README.md": "e7c6ee9f660ff32d8aa9ee561723471aaf4b7f8c37f418c4b258f49521259bd6",
         "src/main.rs": "64a37190f3ddce227083b5c7d11926ed0e68ffcea800a366b824f28e4de55c4f"
       }
@@ -3606,7 +3606,7 @@
       "pkId": "PK144",
       "id": "ci/consumers/rightkit-dictation-models/src/main.rs",
       "files": {
-        "Cargo.toml": "ccfdf09b9ed54dd3b1c0187802563c1d55b94a05f9fe8dcfe931122b2274235c",
+        "Cargo.toml": "59012fbab674d8b402594e01d335c5a179bbae9d2db570792556c9ffc9b2f6f9",
         "README.md": "d34a2cdd83beafcdd984ae88a09b0340482df751004919b4d15018d1ecdfc93a",
         "src/main.rs": "2cd8f39cd800105551eb936c6da0ff457d54f95e3c027ec450c22516b2db5691"
       }
@@ -3967,7 +3967,7 @@
       "pkId": "PK181",
       "id": "ci/consumers/rightkit-dictation-tauri/src/main.rs",
       "files": {
-        "Cargo.toml": "b222171a243316a85c1ff53687db357843ce4cdae50a1b228632791f55403c2f",
+        "Cargo.toml": "2c771ea1233bf90c1bf1edeb532c87055f773db7197c41b14f0591af6a36bd2d",
         "README.md": "3f49a4e649953c2e48e170fad962304a232a65b61ffe72ead19866cf73c286c3",
         "src/main.rs": "d08e3088050bd0e411a5c2fcf51e9a911ef55898d84d48016d8e2ed0dc7649d1"
       },

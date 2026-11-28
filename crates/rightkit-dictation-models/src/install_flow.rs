@@ -147,6 +147,39 @@ pub fn prepare_shared_model(
     result.map(|dir| dir.is_some())
 }
 
+/// Activate the shared model when this process has not verified it yet, before any resident spawn
+/// or calibration that follows a relaunch. A no-op (`Ok`) when the launch backend is not the shared
+/// one or the shared copy is already verified active in this process. Otherwise it runs the same
+/// [`prepare_shared_model`] the boot runs (no retired replacement), then decides with
+/// [`post_prepare_decision`] over [`ActivationHost::fallback_model_present`]: `Err(message)` when no
+/// model resolves (the prepare error, or `not_installed_message` when the prepare reported
+/// success); a prepare failure with a resolvable model is reported to `sink` as
+/// `shared_model_activation_failed` and the call continues on the recorded copy.
+///
+/// Call it BEFORE the host takes its own runtime lock: the activation takes that lock itself.
+pub fn ensure_active(
+    host: &dyn ActivationHost,
+    not_installed_message: &str,
+    sink: EventSink,
+) -> Result<(), String> {
+    if !host.launch_backend_is_shared() || shared::is_verified_active() {
+        return Ok(());
+    }
+    let prepared = prepare_shared_model(host, false, sink);
+    let decision = post_prepare_decision(
+        host.fallback_model_present(),
+        prepared,
+        not_installed_message,
+    )?;
+    if let Some(error) = decision {
+        sink(
+            "shared_model_activation_failed",
+            &format!("ensure_active: {error}; continuing on the recorded copy"),
+        );
+    }
+    Ok(())
+}
+
 /// [`ActivationHost`] plus the dictation-idle wait a shared-store install needs.
 pub trait InstallHost: ActivationHost {
     fn dictation_idle(&self) -> bool;

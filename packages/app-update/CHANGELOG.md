@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.8
+Additive; existing `useModalDialog` callers compile and behave unchanged (the new option is off by default).
+
+- `useModalDialog` option `onDismiss` and returns `dismiss()` and `dialogProps` (`./react`; type `ModalDialogProps`): `dismiss()` calls `onDismiss` once, then `restoreFocus()`. `dialogProps` (`onClose`, `onCancel`, `onClick` on the backdrop, `onKeyDown` Escape) goes on the `<dialog>` and ends in `dismiss()`; the `close` event StrictMode's replay raises through the `closeOnUnmount` cleanup is swallowed once, so a dev double mount does not dismiss the dialog.
+
 ## 0.4.7
 
 - Add `relaunchForUpdate` (`./native`), `RELAUNCH_FOR_UPDATE_COMMAND` and `RelaunchForUpdateOptions`: calls the shell's PID-ordered relaunch command and runs the caller's fallback when the host does not answer it.

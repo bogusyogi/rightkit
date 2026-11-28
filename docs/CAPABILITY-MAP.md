@@ -48,7 +48,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | agent-ui-settings | `@rightkit/agent-ui-settings` | none | declaration-only | 0 | @rightkit/agent-ui-settings: staged 0.1.1, not published |
 | agent-ui-web | `@rightkit/agent-ui-web` | none | declaration-only | 0 | @rightkit/agent-ui-web: staged 0.1.0, not published |
 | agent-ui-workbench | `@rightkit/agent-ui-workbench` | none | declaration-only | 0 | @rightkit/agent-ui-workbench: staged 0.1.1, not published |
-| ai-accounts | `rightkit-ai-accounts` | none | declaration-only | 0 | rightkit-ai-accounts: staged 0.1.4, not published |
+| ai-accounts | `rightkit-ai-accounts` | none | declaration-only | 0 | rightkit-ai-accounts: staged 0.1.5, not published |
 | android-bridge | `rightkit-android` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-android: published 0.3.0 (crates.io) |
 | app-host | `rightkit-app-host` | none | declaration-only | 0 | rightkit-app-host: staged 0.1.3, not published |
 | app-manager | `rightkit-app-manager` | none | declaration-only | 0 | rightkit-app-manager: published 0.2.2 (crates.io) |

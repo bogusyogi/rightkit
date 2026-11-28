@@ -14,6 +14,8 @@
 //!   `tracing` file logs under one app data root, so apps stop hand-wiring both.
 //! * `record_android_exits` turns the Android exit history (native crash tombstones and ANRs the OS
 //!   already recorded) into the same redacted reports on the next launch.
+//! * `os_reports` lists the OS's own crash and resource reports about the app's processes (macOS
+//!   DiagnosticReports, Windows Error Reporting), by name and time only.
 //!
 //! Merged from HeardRight `crash_dump.rs`, `crash_capture.rs`, `crash_report.rs`,
 //! `panic_redact.rs`, `diagnostics_archive.rs` and `heardright-dump-helper`.
@@ -33,6 +35,7 @@ pub mod export;
 mod hang;
 mod hook;
 mod native;
+pub mod os_reports;
 mod pending;
 mod report;
 mod retention;

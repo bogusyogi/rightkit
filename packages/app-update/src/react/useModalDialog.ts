@@ -2,7 +2,7 @@
 // focused element gets focus back on close, and focus lands on the primary action whenever the visible state
 // changes. Imports only `react`.
 // Moved from HeardRight `components/model-update/ModelUpdatePrompt.tsx`.
-import { useEffect, useRef, type RefObject } from 'react';
+import { useEffect, useRef, type KeyboardEvent, type MouseEvent, type RefObject, type SyntheticEvent } from 'react';
 
 export interface UseModalDialog {
   dialogRef: RefObject<HTMLDialogElement | null>;
@@ -14,6 +14,25 @@ export interface UseModalDialog {
    * itself (a dismiss handler) and wants the same restore the hook does on `open` going false.
    */
   restoreFocus: () => void;
+  /**
+   * Dismisses once: calls `UseModalDialogOptions.onDismiss`, then `restoreFocus()`. A second call while the first
+   * is in effect does nothing (the guard clears when `open` turns true again). Use it for the dialog's own buttons.
+   */
+  dismiss: () => void;
+  /**
+   * Spread on the `<dialog>`: `onClose` (the native close event, except the one StrictMode's replay raises, see
+   * `closeOnUnmount`), `onCancel` (Escape the browser handles), `onClick` (a click on the backdrop, that is on the
+   * dialog element itself) and `onKeyDown` (Escape): each ends in `dismiss()`.
+   */
+  dialogProps: ModalDialogProps;
+}
+
+/** The handlers {@link UseModalDialog.dialogProps} gives a native `<dialog>`. */
+export interface ModalDialogProps {
+  onClose: () => void;
+  onCancel: (event: SyntheticEvent<HTMLDialogElement>) => void;
+  onClick: (event: MouseEvent<HTMLDialogElement>) => void;
+  onKeyDown: (event: KeyboardEvent<HTMLDialogElement>) => void;
 }
 
 /** Options of {@link useModalDialog}. Every option is off by default: without them the hook behaves as before. */
@@ -44,6 +63,11 @@ export interface UseModalDialogOptions {
    * A dialog already closed when the component unmounts never restores focus on unmount.
    */
   restoreFocusOnUnmount?: boolean;
+  /**
+   * What `dismiss()` and `dialogProps` do to close the dialog from the host's side, usually setting its state so the
+   * dialog unmounts or `open` goes false. Called once per dismissal, before focus is restored. Default: nothing.
+   */
+  onDismiss?: () => void;
 }
 
 /**
@@ -92,6 +116,62 @@ export function useModalDialog(
     if (open) primaryRef.current?.focus();
   }, [open, stateKey]);
 
+  // StrictMode's dev-only double mount runs the unmount cleanup below while the dialog element stays mounted. Its
+  // `el.close()` raises a `close` event that would call `onDismiss` and unmount the host's modal for nothing, so
+  // `dialogProps.onClose` swallows exactly one close event raised by that cleanup. On a real unmount the element is
+  // detached and the event never reaches React. Declared before the cleanup below so the flag is set before it closes
+  // the element; the deferred reset only writes while mounted, so a real unmount leaves no task touching a dead ref.
+  const suppressCleanupClose = useRef(false);
+  const mounted = useRef(false);
+  const closing = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      suppressCleanupClose.current = true;
+      // The dispatched `close` event settles before this task runs. On StrictMode's remount `mounted` is already
+      // true again and the reset must land; on a real unmount it stays false and the dead flag is left alone.
+      window.setTimeout(() => {
+        if (mounted.current) suppressCleanupClose.current = false;
+      }, 0);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (open) closing.current = false;
+  }, [open]);
+
+  const dismiss = useRef(() => {
+    if (closing.current) return;
+    closing.current = true;
+    optionsRef.current.onDismiss?.();
+    restoreFocus();
+  }).current;
+
+  const dialogProps = useRef<ModalDialogProps>({
+    onClose: () => {
+      if (suppressCleanupClose.current) {
+        suppressCleanupClose.current = false;
+        return;
+      }
+      dismiss();
+    },
+    onCancel: (event) => {
+      event.preventDefault();
+      dismiss();
+    },
+    // A click that lands on the dialog element itself (not a descendant) is a click on the native `::backdrop`.
+    onClick: (event) => {
+      if (event.target === dialogRef.current) dismiss();
+    },
+    onKeyDown: (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        dismiss();
+      }
+    },
+  }).current;
+
   // Opt-in unmount cleanup. The opener is kept (not cleared) so a StrictMode replay of the setup
   // effect above reopens the dialog and still restores to the original launcher.
   const closeOnUnmount = options.closeOnUnmount === true;
@@ -105,5 +185,5 @@ export function useModalDialog(
     };
   }, [closeOnUnmount, restoreFocus]);
 
-  return { dialogRef, primaryRef, restoreFocus };
+  return { dialogRef, primaryRef, restoreFocus, dismiss, dialogProps };
 }

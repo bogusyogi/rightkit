@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.5.11
+- macOS, additive (GATE-CONTRACT #1552, for the `rightkit-qa` snapshot store): `Store::access_admits_only_self(account, team_id) -> Result<macos::AccessProof>` reads an item's access object (`SecKeychainItemCopyAccess`, `SecAccessCopyACLList`, `SecACLCopyAuthorizations`, `SecACLCopyContents`) and answers `SelfOnly` only when every entry that can read the secret trusts exactly one application, which the running executable satisfies, no entry trusts "any application", an entry that can change the access trusts no other application, and the partition list (if the item has one) names only `team_id`; `Absent`, `Foreign(reason)` otherwise; an access object that cannot be read is an `Err`. `Store::set_isolated(account, secret, team_id)` creates the item with an explicit access that trusts only the running process (`SecTrustedApplicationCreateFromPath(NULL)`, `SecAccessCreate`, `SecKeychainItemCreateFromContent`), on the same pinned default keychain and under the same exclusion as `Store::put`, reads the new item back and deletes it if the proof fails; an existing item is updated in place only when proven self-only and otherwise refused untouched. `Backend` gains the matching macOS-only provided methods (default `Unavailable`). Nothing else changes. Written, not compiled, not run on a Mac.
+
 ## 0.5.10
 - Add `key_slot::SharedKeySlot` (a `static` cell that binds a `KeySlot` once and retries after a failed bind), `Store::get_text`, `Secret::to_text` and `create_rotation_lock_dir`. Additive.
 

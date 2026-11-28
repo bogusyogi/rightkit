@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.8
+Additive; no existing export, signature or behaviour changes.
+
+- `asRevisionConflict(e)` (`./core`, root entry): a native rejection as an `Error` for an app's `SettingsBackend`. A rejection whose `code` or message starts with `revision_conflict` becomes a `RevisionConflict` (the error the settings store retries on); any other `Error` is returned as is; any other value becomes an `Error` of its text.
+
 ## 0.7.7
 
 - `SettingsPanel` and `SettingsModal` are generic over the revision type (`SettingsPanel<R>`, default `number`), so a `SettingsBackend<string>` can be passed. Existing callers compile unchanged.

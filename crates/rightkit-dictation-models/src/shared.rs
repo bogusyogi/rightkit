@@ -599,3 +599,18 @@ pub fn unregister() -> Result<(), String> {
     let _ = crate::confined_remove::remove_file_at(&record_path());
     result
 }
+
+/// Run [`unregister`] when the process arguments contain `flag` (an uninstall hook): `Some(0)` when
+/// the cleanup succeeded, `Some(1)` when it failed (after printing a fixed line on stderr), `None`
+/// when the flag is absent and the process should carry on. The error text is not printed: it can
+/// name a model store path under the user profile.
+pub fn dispatch_unregister_flag(flag: &str) -> Option<i32> {
+    if !std::env::args_os().skip(1).any(|arg| arg == flag) {
+        return None;
+    }
+    if unregister().is_err() {
+        eprintln!("Shared model reference cleanup failed");
+        return Some(1);
+    }
+    Some(0)
+}

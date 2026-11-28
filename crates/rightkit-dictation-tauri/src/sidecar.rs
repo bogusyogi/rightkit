@@ -68,19 +68,11 @@ pub fn restart_sidecar_for_asr_compute(context: &str) {
     apply_sidecar_change(context, true);
 }
 
-/// Whether a session is in flight: the states the restart must not tear down under.
-fn busy_state(state: &AppState) -> bool {
-    matches!(
-        state,
-        AppState::Recording { .. } | AppState::Transcribing { .. } | AppState::Pasting { .. }
-    )
-}
-
 /// Whether no dictation is recording, transcribing or pasting. A runtime that cannot be locked
 /// is not idle: the caller keeps waiting rather than act under an unknown state.
 pub fn dictation_idle() -> bool {
     match runtime_lock_for_commands() {
-        Ok(runtime) => !busy_state(&runtime.app_state()),
+        Ok(runtime) => !crate::state_decisions::session_busy(&runtime.app_state()),
         Err(_) => false,
     }
 }
@@ -169,6 +161,17 @@ fn spawn_engine_rewarm(context: &str) {
     }
 }
 
+/// The staged engine prewarm, without any model activation: the process start, ready-wait and
+/// engine-info handshake run lock-free through the shared sidecar handle, then the runtime lock is
+/// taken only for the fast config and vocabulary push (`start` answers "already running"). The host
+/// activates its model first (before any lock) and wraps this in its backend transition.
+pub fn prewarm_staged() -> Result<(), String> {
+    if let Some(handshake) = crate::runtime::prewarm_handshake_lock_free() {
+        handshake?;
+    }
+    runtime_lock_for_commands().and_then(|mut runtime| runtime.prewarm())
+}
+
 /// The staged, lock-free warm of the engine boot, without the launch reveal: the shared-model
 /// activation first (a no-op once the model is verified active in this process, so an
 /// effective-backend flip cannot start an engine with no model), then process start and handshake,
@@ -202,7 +205,7 @@ fn apply_sidecar_change(context: &str, full_restart: bool) {
     let result = with_backend_transition(|| {
         let mut runtime = runtime_lock_for_commands()?;
         let mut restart = RESTART.lock().unwrap_or_else(|p| p.into_inner());
-        if busy_state(&runtime.app_state()) {
+        if crate::state_decisions::session_busy(&runtime.app_state()) {
             restart.pending = true;
             restart.full_required |= full_restart;
             telemetry::log_message(
@@ -278,7 +281,7 @@ fn spawn_l3_restart_watcher_if_needed() {
                     restart.watcher_running = false;
                     return;
                 }
-                if !busy_state(&runtime.app_state()) {
+                if !crate::state_decisions::session_busy(&runtime.app_state()) {
                     let full = restart.full_required;
                     restart.pending = false;
                     restart.full_required = false;

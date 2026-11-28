@@ -3,6 +3,10 @@
 All notable changes to `rightkit-asr`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## 0.5.3
+
+- Add `onnx_tdt::decode_greedy` (feature `onnx-tdt`): greedy TDT decoding over `OnnxAsr` into `DecodedPiece`s, chunked for static-window graphs; the caller passes sample rate, hop length and the per-frame symbol cap. Additive.
+
 ## 0.5.2
 
 - Default Windows Parakeet decoder/joint CPU sessions to no spinning and a four-thread cap, preserving explicit intra-op overrides and the streaming KWS C ABI.

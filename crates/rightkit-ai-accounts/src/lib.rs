@@ -8,6 +8,8 @@
 //! - [`switcher`]: the model of a Desktop account switcher card (slots, phases, list parsing).
 //! - [`names`]: the names the owner gives each account, merged across devices.
 //! - [`desktop_roots`]: every Claude Desktop data folder on this computer.
+//! - [`desktop_usage_cache`]: the usage responses Claude Desktop cached on Windows (Chromium
+//!   block-file cache), dated and decoded.
 //!
 //! State lives under the host app's state folder ([`rightkit_app_host::state_root`]); without one
 //! the account features answer "unsupported". The app installs its host with
@@ -17,6 +19,7 @@ pub mod book;
 pub mod cli_accounts;
 pub mod desktop;
 pub mod desktop_roots;
+pub mod desktop_usage_cache;
 pub mod names;
 pub mod switcher;
 pub mod sync;

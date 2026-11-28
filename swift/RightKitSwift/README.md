@@ -14,7 +14,7 @@ minimum deployment targets of iOS 17 and macOS 14.
 | `RightKitTTS` | On-device text to speech (#628). `SynthesisPipeline` chunks text by sentence (`TextChunker`), renders each chunk with `AVSpeechSynthesizer.write`, levels it, and streams `AudioChunk`s (`chunks(for:)`, cancelled when the consumer stops) or stitches them (`synthesize`); `VoiceSelection` / `VoiceInfo.installed` pick the voice. `PlaybackController` (`@Observable`, main actor) plays chunks as they arrive with pause, resume, `skip(to:)` by chunk, `setRate` (0.5 to 2.0, pitch preserved), and handles interruptions (resumes only on the system's recommendation), unplugged headphones (pauses), media-services reset and engine reconfiguration (rebuilds from the chunk in progress). |
 | `RightKitPurchases` | StoreKit 2 purchases, entitlement ledger and access hints behind a `PurchaseBackend` seam. `PurchaseOutcome.unknown` covers StoreKit's `@unknown default` result and shows `PurchaseMessages.unknownOutcome`. |
 | `RightKitCloudSync` | Generic CloudKit private-zone sync engine. One adapter can own several record types (`recordType(of:)`, `recordType(forItemID:)`) and read direct types it never uploads (`directRecordTypes`, written through `CloudSyncEngine.writeDirect`). `SyncTransport.fetchRecord(named:)` reads one live record. App-side failures back off with the engine (`noteFailure`, `raiseRetryGate(toAtLeast:)`, `retryGate`). `adoptLegacyLedger` imports a pre-RightKit ledger with its change token and versions without an account call. `encodeForUpload` / `SyncLazyPayload` produce payloads lazily at upload time. `SyncTrigger.submit`. |
-| `RightKitUI` | Generic adaptive-glass surface primitive: regular/clear native Liquid Glass + ConcentricRectangle on iOS/macOS 26, material fallback on older OS versions, and opaque accessibility fallback. Product radii, colors, layout, motion, and behavior stay app-local. |
+| `RightKitUI` | Generic adaptive-glass surface primitive: regular/clear native Liquid Glass + ConcentricRectangle on iOS/macOS 26, material fallback on older OS versions, and opaque accessibility fallback. Product radii, colors, layout, motion, and behavior stay app-local. Also `RightKitHoverRegion` and `RightKitSecondaryClickRegion` (macOS pointer overlays), `RightKitFonts.register`, `RightKitTextMetrics.width`, `CoreTextWarmup.prime` and `View.rightKitCardPresence`. |
 | `RightKitStore` | App Group primitives: cross-process command queue, file lock, owner lease, and revisioned state store. `AppSettingsStore` is a declared-key, typed settings store over App Group `UserDefaults` (manifest of keys, kinds, defaults and protected flags, all-or-nothing verified `patch`, `null` resets, revision, change events, `pollExternal()`); code generation and the cross-language parity check stay in tooling. |
 | `RightKitImportQueue` | Share-extension intake: the pending share payload shared between an extension and its app, and a queue that imports it. |
 | `RightKitLiveActivity` | Live Activity lifecycle rules (session binding, terminal restart, adoption, watchdog). The app supplies its own phase type. `KeyedLiveActivityHost` runs one activity per key (`start(key:...)`, `update(key:...)`, `end(key:...)`, `endAll(except:)`, `endForeignOrphans(isClaimed:)`) under per-key fences; `LiveActivityHost` keeps the single-activity behaviour. |
@@ -294,7 +294,7 @@ recorded in the `swift` section of `packages/release/rightkit-versions.json`.
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/bogusyogi/rightkit", exact: "0.9.6"),
+    .package(url: "https://github.com/bogusyogi/rightkit", exact: "0.9.7"),
 ],
 targets: [
     .target(name: "YourApp", dependencies: [
@@ -309,7 +309,7 @@ In an XcodeGen `project.yml`:
 packages:
   RightKitSwift:
     url: https://github.com/bogusyogi/rightkit
-    exactVersion: "0.9.6"
+    exactVersion: "0.9.7"
 ```
 
 The URL is the public repository `bogusyogi/rightkit`; its root `Package.swift` exposes the same products as

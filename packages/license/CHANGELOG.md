@@ -1,3 +1,8 @@
+## 0.3.6
+Additive; existing exports and behaviour unchanged.
+
+- `useLicenseNotice(state, { appName, paidTier, spelling?, storageKey, storage?, openPricing, refresh })` (`./react`; types `UseLicenseNoticeOptions`, `LicenseNotice`): the dismiss and acknowledgement state of the licence notice dialog. Returns `{ dialog, onPrimary, onSecondary }`: `dialog` is `dialogForLicenseLifecycle`'s notice, or null when none is due or it was dismissed; an expired-trial notice is acknowledged in storage and dismissed per entitlement, other notices are dismissed per state and shown again after the state leaves the notice kinds. The primary action of an expired trial opens pricing, of any other notice refreshes online. The app renders the dialog with its own markup.
+
 ## 0.3.5
 Additive; existing exports and wire behaviour unchanged. Defaults send exactly what 0.3.4 sent.
 

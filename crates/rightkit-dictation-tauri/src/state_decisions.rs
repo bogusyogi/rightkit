@@ -181,3 +181,65 @@ pub fn pill_look(state: &AppState) -> PillLook<'_> {
         },
     }
 }
+
+/// Whether a dictation session is in flight: recording, transcribing or pasting. The states an
+/// engine restart, a model activation or a settings change must not tear down under.
+pub fn session_busy(state: &AppState) -> bool {
+    matches!(
+        state,
+        AppState::Recording { .. } | AppState::Transcribing { .. } | AppState::Pasting { .. }
+    )
+}
+
+/// Which tray icon a committed state takes. The host maps each variant to its own icon file.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TrayLook {
+    /// Resting: armed, and every finished dictation (delivered, copied, cancelled).
+    Armed,
+    /// Recording.
+    Recording,
+    /// Transcribing or pasting.
+    Transcribing,
+    /// A failed dictation.
+    Disabled,
+}
+
+/// The tray look for a committed state.
+pub fn tray_look(state: &AppState) -> TrayLook {
+    match state {
+        AppState::Recording { .. } => TrayLook::Recording,
+        AppState::Transcribing { .. } | AppState::Pasting { .. } => TrayLook::Transcribing,
+        AppState::Error { .. } => TrayLook::Disabled,
+        AppState::Armed
+        | AppState::Pasted { .. }
+        | AppState::PasteSentUnconfirmed { .. }
+        | AppState::CopiedFallback { .. }
+        | AppState::Cancelled { .. } => TrayLook::Armed,
+    }
+}
+
+/// What a committed state does to a "microphone is blocked" alert.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AlertSignal {
+    /// Turn the alert on.
+    Raise,
+    /// Turn the alert off.
+    Clear,
+    /// Leave it as it is.
+    Keep,
+}
+
+/// The microphone-alert decision for a committed state: an error that says microphone access was
+/// denied raises it ([`crate::dictation_error::is_microphone_access_denied_error`]); recording or
+/// transcribing proves capture opened, so it clears; every other state keeps it.
+pub fn microphone_alert(state: &AppState) -> AlertSignal {
+    match state {
+        AppState::Error { message, .. }
+            if crate::dictation_error::is_microphone_access_denied_error(message) =>
+        {
+            AlertSignal::Raise
+        }
+        AppState::Recording { .. } | AppState::Transcribing { .. } => AlertSignal::Clear,
+        _ => AlertSignal::Keep,
+    }
+}

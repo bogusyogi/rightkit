@@ -5,6 +5,7 @@ import type {
   SettingsSnapshot,
   SettingsValues,
 } from "./types.js";
+import { errText } from "./errors.js";
 
 /**
  * @deprecated The shell-backed adapter moved to `@rightkit/settings-ui/shell-adapter`; this re-export
@@ -15,6 +16,19 @@ export type { HostTransport, SettingsDescription, SettingsShell, ShellBackends, 
 
 export class RevisionConflict extends Error {
   readonly code = "revision_conflict";
+}
+
+/**
+ * A native rejection as an `Error` a `SettingsBackend` can throw: one whose `code` or message starts with `revision_conflict`
+ * becomes a `RevisionConflict` (what the settings store retries on); any other `Error` is returned as is, any other value
+ * becomes an `Error` of its text. For an app backend over its own IPC, whose rejections arrive as strings or `{ code, message }`.
+ */
+export function asRevisionConflict(e: unknown): Error {
+  if (e instanceof RevisionConflict) return e;
+  const message = errText(e);
+  const code = e && typeof e === "object" ? (e as { code?: unknown }).code : undefined;
+  if (code === "revision_conflict" || message.startsWith("revision_conflict")) return new RevisionConflict(message);
+  return e instanceof Error ? e : new Error(message);
 }
 
 /** In-memory settings backend: same contract as the host (revisions, null-removes, change events). For previews and tests of app sections. */

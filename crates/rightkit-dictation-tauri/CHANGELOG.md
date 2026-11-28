@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.5
+
+- Add `state_decisions::{session_busy, TrayLook, tray_look, AlertSignal, microphone_alert}`: the in-flight check (recording, transcribing or pasting), the tray icon look per committed state, and the microphone-blocked alert decision (raise on a denied-capture error, clear on recording or transcribing, else keep). `sidecar` now uses `session_busy` in place of its private copy.
+- Add `sidecar::prewarm_staged`: the lock-free process start and handshake followed by the runtime prewarm. Additive.
+
 ## 0.3.4
 
 - Add `vocabulary_commands` (`VocabularyCommandStore`, `add_vocabulary`, `accept_vocab_suggestion`, `remove_vocabulary`, `import_vocabulary`): validate, mutate the host's store, then sync the engine.
