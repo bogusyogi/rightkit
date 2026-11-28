@@ -95,7 +95,7 @@ fn hide_removed_items(mut command: clap::Command) -> clap::Command {
     for (path, id) in removed_flags() {
         fn hide_flag(command: clap::Command, path: &[&str], id: &str) -> clap::Command {
             match path {
-                [] => command.mut_arg(id.to_string(), |arg| arg.hide(true)),
+                [] => command.mut_arg(id, |arg| arg.hide(true)),
                 [first, rest @ ..] => {
                     command.mut_subcommand(*first, |sub| hide_flag(sub, rest, id))
                 }
