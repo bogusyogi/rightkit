@@ -2,6 +2,8 @@
 
 ## 0.6.93
 
+- The acceptance judge counts a cargo-deny row's own preparation as its work when it checks that Class A rows start beside free lanes (NN03). The row runs `cargo fetch --locked` and `cargo metadata` before `cargo deny`; on 28 Nov a cold metadata took 3.9 s, the row's `cargo deny` started 3.6 s after the program before it, and NN03 read the row as waiting beside a free lane though it had started on time. Only those two exact calls count (no other part of a run starts cargo with those arguments); every other line still reads only the row's own program.
+
 - A qualify or package run on a broker host no longer refuses `RK_SPLIT_TARGET_UNRESOLVED` after a compile that had already passed. A recorded passing compile was skipped whole, so nothing told the package stage where each Cargo workspace's broker target folder is; rightkit#1800 had fixed that only for a compile that ran with every row cached (CodeRight qualify on the Mac, 27 Nov, eaef5f533: "the Cargo target directory <snapshot>/apps/coderight-tauri/src-tauri/target is inside the snapshot"). When a package stage will run, the compile stage now takes its ordinary path: each row answers from the cache, the broker is asked nothing, and the cached rows' receipts name the folders. `--to compile`, a sealed set that is intact, and a direct host skip the recorded compile as before.
 
 ## 0.6.92

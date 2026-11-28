@@ -41,6 +41,19 @@ export function isClassAProgram(start) {
   if (name === "cargo") return ["deny", "audit"].includes(cargoVerb(args));
   return false;
 }
+/**
+ * A cargo-deny row's own preparation, which it runs before `cargo deny` (deterministic-scans.mjs, the deny row): `cargo fetch --locked`, then
+ * `cargo metadata --format-version 1 --locked` (metadataArgs with noDeps false). Only that row starts cargo with exactly these arguments (after an
+ * optional `+toolchain`); every other metadata call names --no-deps, --offline, --filter-platform or --manifest-path, and every other fetch names a manifest.
+ */
+export function isDenyPreparation(start) {
+  if (programName(start.program) !== "cargo") return false;
+  const args = (start.args ?? []).map(String).filter((a, i) => !(i === 0 && a.startsWith("+")));
+  const same = (want) => args.length === want.length && want.every((w, i) => args[i] === w);
+  return same(["fetch", "--locked"]) || same(["metadata", "--format-version", "1", "--locked"]);
+}
+/** NN03's view of Class A work: a row's own program, or the deny row's preparation, which starts the row on time though cargo deny starts after it. */
+const isClassAWork = (start) => isClassAProgram(start) || isDenyPreparation(start);
 /** The workspace, verb, feature flags and targets of a broker job: what NN09 holds against the cases file's exact list. A command that names no --target builds for the host. */
 export function groupOf(job, hostTarget) {
   const args = job.args ?? []; const snap = plain(job.gate?.snapshot); const cwd = plain(job.cwd);
@@ -216,7 +229,9 @@ const LINES = {
     const run = c.runs[0]; const fails = []; const lanes = run.lanes;
     if (!Number.isInteger(lanes) || lanes < 1) return verdict(["the launcher recorded no lane count"], "");
     if (run.processGaps.length) fails.push(`the process record is incomplete (${run.processGaps[0]})`);
-    const progs = run.starts.filter(isClassAProgram).sort((a, b) => a.at - b.at);
+    // A deny row's fetch and metadata count as its work (0.6.93 acceptance, 28 Nov: cold metadata took 3.9 s, and the row's cargo deny started 3.6 s
+    // after the program before it, which read as a row waiting beside a free lane though the row had started on time).
+    const progs = run.starts.filter(isClassAWork).sort((a, b) => a.at - b.at);
     const rows = Object.values(cases.classA?.programRows ?? {}).flat().length;
     if (progs.length < 2) return verdict([...fails, `${progs.length} Class A program(s) started in a run from nothing; the cases file lists ${rows} rows that start one`], "");
     const runningAt = (t) => progs.filter((p) => p.at <= t && (p.end === null || p.end > t)).length;
