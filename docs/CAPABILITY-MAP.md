@@ -99,7 +99,7 @@ Capabilities: 223 (58 with fingerprints, 165 declaration-only). Internal owners 
 | dictation-telemetry | `rightkit-dictation-telemetry` | none | declaration-only | 0 | rightkit-dictation-telemetry: published 0.2.2 (crates.io) |
 | dictation-text-pipeline | `rightkit-dictation-text-pipeline` | none | declaration-only | 0 | rightkit-dictation-text-pipeline: published 0.2.7 (crates.io) |
 | disk-cache | `rightkit-cache` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-cache: published 0.2.3 (crates.io) |
-| disk-cleanup | `rightkit-disk-cleanup` | none | declaration-only | 0 | rightkit-disk-cleanup: staged 0.2.2, not published |
+| disk-cleanup | `rightkit-disk-cleanup` | none | declaration-only | 0 | rightkit-disk-cleanup: staged 0.2.3, not published |
 | doctor | `rightkit-doctor` | none | declaration-only | 0 | rightkit-doctor: staged 0.2.0, not published |
 | document | `rightkit-docs` | none | declaration-only | 0 | rightkit-docs: published 0.1.2 (crates.io) |
 | document-core | `@rightkit/document-core` | none | declaration-only | 0 | @rightkit/document-core: staged 0.2.0, not published |

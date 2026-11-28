@@ -3188,7 +3188,7 @@
       "pkId": "PK92",
       "id": "ci/consumers/rightkit-disk-cleanup/src/main.rs",
       "files": {
-        "Cargo.toml": "c92fbd4cbad04040c3a04270c0769bfec40a4870bcaeee0f309c64fc2f4c07c4",
+        "Cargo.toml": "dae88941ede97f264d273d0a56072d6279445e27e2b3f32eedc980c40324cc7c",
         "README.md": "e94e1a225da26cd1130a968bed896ca944b8262c21d9d2bfbb76055b88074922",
         "src/main.rs": "5390ebfe754fad27c388cf46ba21774cf72592521f0973af82c9c9bcf275de8c"
       }

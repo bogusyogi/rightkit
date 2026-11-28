@@ -20,6 +20,7 @@ pub mod item_actions;
 pub mod managed_sources;
 pub mod model;
 pub mod platform;
+pub mod refresh_schedule;
 pub mod rules;
 pub mod scan;
 pub mod snapshot;

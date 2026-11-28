@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3
+
+- `refresh_schedule`: when to read a changed folder of a live index again (a hold that doubles while it keeps changing) and in what order, moved from Pulse's `scanner.rs` (bogusyogi/pulse#643).
+
 ## 0.2.2
 
 - Logic moved from Pulse into this crate (bogusyogi/pulse#643): see the module docs for what each new module holds.

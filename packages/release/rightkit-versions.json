@@ -659,7 +659,7 @@
     "rightkit-dictation-tauri": "0.3.5",
     "rightkit-dictation-telemetry": "0.2.4",
     "rightkit-dictation-text-pipeline": "0.2.8",
-    "rightkit-disk-cleanup": "0.2.2",
+    "rightkit-disk-cleanup": "0.2.3",
     "rightkit-docs": "0.1.6",
     "rightkit-doctor": "0.2.0",
     "rightkit-document-workspace": "0.2.1",
@@ -1791,7 +1791,8 @@
     ],
     "rightkit-disk-cleanup": [
       "0.2.0",
-      "0.2.1"
+      "0.2.1",
+      "0.2.2"
     ],
     "rightkit-agent-task-journal": [
       "0.1.0"
